@@ -1,0 +1,16 @@
+[project]
+name = "docket"
+version = "0.1.0"
+description = "Docket — trust-first agent marketplace for BSC (Build the Era)"
+requires-python = ">=3.11"
+dependencies = [
+    "web3==7.16.0",
+    "eth-account==0.13.7",
+    "httpx==0.28.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.0.3"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
