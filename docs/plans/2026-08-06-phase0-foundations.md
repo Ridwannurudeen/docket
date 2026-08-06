@@ -113,12 +113,35 @@ python -m pytest -q
 ```
 Expected: PASS (2 passed). If `complete` is missing from the ABI, STOP — Task 2's premise is wrong; report before proceeding.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Add CI — `.github/workflows/ci.yml`**
+
+```yaml
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+```
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add pyproject.toml .gitignore abis/AgenticCommerce.json abis/ERC20.json tests/test_abis.py
-git commit -m "build: scaffold docket + vendor ERC-8183 ABIs (bnbagent-sdk @ <commit>)"
+git add pyproject.toml .gitignore abis/AgenticCommerce.json abis/ERC20.json tests/test_abis.py .github/workflows/ci.yml
+git commit -m "build: scaffold docket + vendor ERC-8183 ABIs (bnbagent-sdk @ <commit>) + CI"
 ```
+
+After the next push, verify the workflow ran green: `gh run list --repo Ridwannurudeen/docket --limit 1`.
 
 ---
 
@@ -274,6 +297,10 @@ if __name__ == "__main__":
 
 Adjust `complete(...)`'s arguments and the `jobs()` tuple index for `status` to the actual ABI read in Step 1 (the assumed shapes are `complete(uint256,string,bytes)` and status at index 7 — verify both). Add an empty `experiments/__init__.py` so the test import works.
 
+**Known failure modes — diagnose, don't misread:**
+- If `create_job` itself reverts, the likely cause is client==provider being forbidden on the (possibly newer) testnet kernel — the mainnet kernel allows it (empirically: mainnet job 56583 has identical client and provider). Fallback: derive a third throwaway account C, fund it with 0.005 tBNB from the client, and pass C as `provider` (C then signs the `submit`). A `create_job` revert says NOTHING about instant settlement — only a revert on `complete` answers E1's question.
+- `requestTokens()` may revert if the faucet has a per-address cooldown; a prior successful claim already holding ≥0.01 $U makes the call unnecessary (the script checks balance first).
+
 - [ ] **Step 4: Run the helper tests**
 
 ```bash
@@ -405,17 +432,20 @@ Then run the tests: `python -m pytest tests/test_agent_registration.py -q` → E
 Insert ABOVE the existing `location /` block (line 164 comment "The glass-box dashboard"):
 
 ```nginx
-    # ERC-8004 registration: agents/indexers asking for JSON at the tokenURI
-    # root get the registration document; browsers keep the dashboard.
+    # ERC-8004 registration at the tokenURI root. Inverted negotiation:
+    # browsers always send text/html first and keep the dashboard; everything
+    # else (curl/python "*/*", "application/json", header-less indexer
+    # fetchers — 8004scan's parser's Accept header is unknown) gets the
+    # registration JSON. rewrite...last inside if is one of nginx's safe ifs.
     location = / {
-        if ($http_accept ~* "application/json") {
+        if ($http_accept !~* "text/html") {
             rewrite ^ /agent-registration.json last;
         }
         try_files /index.html =404;
     }
 ```
 
-(The existing `location /` at line 165 stays for all other paths; exact-match `location = /` wins for the root.)
+(The existing `location /` at line 165 stays for all other paths; exact-match `location = /` wins for the root. The inversion matters: serving JSON only on `Accept: application/json` would still hand HTML to a `*/*` fetcher — the most common script default — and the re-parse would fail exactly as it does today.)
 
 - [ ] **Step 4: Run the full solvent suite (guard against collateral damage)**
 
@@ -446,15 +476,25 @@ ssh root@75.119.153.252 "nginx -t && systemctl reload nginx"
 - [ ] **Step 7: Verify live from outside**
 
 ```bash
+curl -s https://solvent.gudman.xyz/ | python -m json.tool | head -5
 curl -s -H "Accept: application/json" https://solvent.gudman.xyz/ | python -m json.tool | head -5
-curl -s https://solvent.gudman.xyz/agent-registration.json | python -m json.tool | head -5
-curl -s -o /dev/null -w "%{content_type}\n" https://solvent.gudman.xyz/
+curl -s -o /dev/null -w "%{content_type}\n" -H "Accept: text/html,application/xhtml+xml" https://solvent.gudman.xyz/
 ```
-Expected: JSON (registration) for the first two; `text/html` for the bare browser-style request.
+Expected: registration JSON for the first two (bare curl sends `*/*` → JSON under the inverted rule); `text/html` for the browser-style Accept. Also confirm the dashboard still renders in a real browser.
 
 - [ ] **Step 8 (USER ACTION): request re-index**
 
 Send to t.me/ERC8004 (draft): "Hi — agent 56:0x8004A169…:136384 (SOLVENT) now serves its registration-v1 JSON at its tokenURI (content-negotiated; also at https://solvent.gudman.xyz/agent-registration.json). It was minted 2026-06-16 and parse_status shows it was never re-parsed — could you trigger a re-parse? Happy to adjust the document if anything fails validation."
+
+- [ ] **Step 9: Watch for the re-parse; arm the fallback on a date gate**
+
+Check daily (cheap, unauthenticated):
+
+```bash
+curl -s "https://8004scan.io/api/v1/public/agents/56/136384" | python -c "import sys,json; d=json.load(sys.stdin)['data']; print(d['name'], d['parse_status']['last_parsed_at'])"
+```
+Success: `name` becomes `SOLVENT` and `last_parsed_at` moves past 2026-06-16.
+**Date gate — if not re-parsed by Aug 13:** prepare the on-chain fallback (repoint `tokenURI`/agentURI to `https://solvent.gudman.xyz/agent-registration.json` — one transaction from the agent-owner wallet `0xe4fe23…d359` via the TWAK keychain on the VPS, mirroring `solvent/receipts/anchor.py`'s registry-write pattern). Present the exact command and cost to the user for approval before sending; one send, verified by re-reading `tokenURI` afterward. Docket's own listing renders SOLVENT from its enrichment pipeline regardless, so the explorer fix is upside, never a Phase-1 blocker.
 
 ---
 
