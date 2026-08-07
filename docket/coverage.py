@@ -10,6 +10,20 @@ from collections import Counter
 from .signals import signals_for
 from .store import Store
 
+# What liveness.probe_snapshot targets by default. The other resolved kinds (web, service)
+# are recorded but never probed, so a probe count must not be read against all of them.
+_PROBE_KINDS = ("a2a", "mcp")
+_FAILURE_OUTCOMES = ("timeout", "refused", "error")
+
+
+def _latest_observations(store: Store, snapshot_id: int) -> list[dict]:
+    """One row per endpoint: the most recent probe of it. `liveness` is append-only history,
+    so counting raw rows would count a re-probed endpoint twice and inflate the total."""
+    latest: dict[tuple[str, str], dict] = {}
+    for row in store.iter_liveness(snapshot_id):  # ordered by id, so the last write wins
+        latest[(row["agent_id"], row["url"])] = row
+    return list(latest.values())
+
 
 def coverage_report(store: Store, snapshot_id: int) -> dict:
     meta = store.snapshot(snapshot_id)
@@ -26,6 +40,12 @@ def coverage_report(store: Store, snapshot_id: int) -> dict:
 
     def pct(n: int) -> float:
         return round(100.0 * n / sampled, 3) if sampled else 0.0
+
+    endpoint_kinds = Counter(e["kind"] for e in store.iter_endpoints(snapshot_id))
+    observations = _latest_observations(store, snapshot_id)
+    probed = len(observations)
+    responded = [o for o in observations if o["outcome"] == "responded"]
+    stamps = sorted(o["observed_at"] for o in observations)
 
     return {
         "snapshot_id": snapshot_id,
@@ -46,6 +66,18 @@ def coverage_report(store: Store, snapshot_id: int) -> dict:
         "top_publishers": [
             {"publisher": p, "count": n, "share_pct": pct(n)} for p, n in publishers.most_common(5)
         ],
+        "endpoints_resolved": sum(endpoint_kinds.values()),
+        "endpoints_probeable": sum(endpoint_kinds[k] for k in _PROBE_KINDS),
+        "endpoints_probed": probed,
+        "endpoints_responded": len(responded),
+        # Share of the endpoints actually probed. Dividing by `sampled` would restate a probe
+        # result as a claim about the whole registry — the flattering lie available here.
+        "responded_pct": round(100.0 * len(responded) / probed, 3) if probed else 0.0,
+        "blocked": sum(1 for o in observations if o["outcome"] == "blocked"),
+        "failed": sum(1 for o in observations if o["outcome"] in _FAILURE_OUTCOMES),
+        "agents_probed": len({o["agent_id"] for o in observations}),
+        "agents_responded": len({o["agent_id"] for o in responded}),
+        "liveness_observed_at": {"first": stamps[0], "last": stamps[-1]} if stamps else None,
     }
 
 
@@ -73,9 +105,39 @@ def render_markdown(report: dict) -> str:
     ]
     for row in report["top_publishers"]:
         lines.append(f"| {row['publisher']} | {row['count']:,} | {row['share_pct']}% |")
+    lines += ["", "## Endpoint liveness", ""]
+    if report["endpoints_probed"]:
+        window = report["liveness_observed_at"]
+        lines += [
+            f"Enrichment resolved **{report['endpoints_resolved']:,}** endpoint URLs from agent "
+            f"cards, of which **{report['endpoints_probeable']:,}** are A2A or MCP. "
+            f"**{report['endpoints_probed']:,}** were probed between {window['first']} and "
+            f"{window['last']}.",
+            "",
+            "Method: one GET per endpoint, single attempt, 8s timeout, no redirects followed, "
+            "every target vetted by an SSRF guard before any connection is opened.",
+            "",
+            "| Observation | Endpoints |",
+            "| --- | ---: |",
+            f"| Responded — an HTTP response arrived, any status | "
+            f"{report['endpoints_responded']:,} |",
+            f"| No response — timed out, refused, or errored | {report['failed']:,} |",
+            f"| Blocked by the SSRF guard — never contacted | {report['blocked']:,} |",
+            "",
+            f"**{report['responded_pct']}%** of probed endpoints responded, covering "
+            f"**{report['agents_responded']:,}** of the **{report['agents_probed']:,}** agents "
+            f"probed. That share is of the endpoints probed — not of the "
+            f"{report['sampled']:,} agents in this snapshot.",
+            "",
+            "A response means a host answered. It is not evidence that the agent behind the URL "
+            "does anything useful.",
+        ]
+    else:
+        lines.append("No endpoints have been probed for this snapshot.")
     lines += [
         "",
-        "These are factual observations about registry metadata. None of them asserts "
-        "that an agent is safe, trustworthy, or fit for a given purpose.",
+        "These are factual observations about registry metadata and observed endpoint "
+        "behaviour. None of them asserts that an agent is safe, trustworthy, or fit for a "
+        "given purpose.",
     ]
     return "\n".join(lines)
