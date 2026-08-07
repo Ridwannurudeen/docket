@@ -1,0 +1,253 @@
+# Docket
+
+Docket is a read-only HTTP API that publishes what it observed about ERC-8004 agents
+registered on BNB Smart Chain: what each agent declares about itself, and whether the
+endpoint it declared answered when Docket asked.
+
+Docket does not rate, endorse, or vouch for any agent. Read "Observations, not
+endorsements" at the bottom of this file before you quote anything from it.
+
+
+## Base URL
+
+The origin this file was served from. Every path below is relative to it. There is no
+public deployment yet; the local default is http://127.0.0.1:8099
+
+    DOCKET=http://127.0.0.1:8099
+
+Started with:
+
+    python -m uvicorn --factory "docket.api:create_app" --host 127.0.0.1 --port 8099
+
+No authentication, no API key, no rate limit. Only GET is served. Nothing here writes,
+sweeps, or probes anything, so a caller cannot change what Docket has observed by
+calling it. Responses are JSON except /llms.txt (text/plain) and /skill.md
+(text/markdown). CORS: GET from any origin, no credentials.
+
+Docket serves one snapshot at a time. Which one is stated in every response that
+carries a number, and at GET /health.
+
+
+## Endpoints
+
+GET /
+    Service identity and the links needed to orient. No parameters.
+
+    curl -s "$DOCKET/"
+
+GET /health
+    Docket's own liveness, and the snapshot id it is serving. Returns
+    {"status": "ok", "snapshot_id": 3}, or status "no_snapshot" when no sweep has
+    been ingested yet. No parameters.
+
+    curl -s "$DOCKET/health"
+
+GET /stats
+    Every generated figure for the served snapshot, each one inside the coverage it
+    was computed from. No parameters. Fields:
+
+      coverage                 see "Coverage" below; required, never absent
+      with_feedback            agents in this snapshot with >= 1 feedback record
+      callable_declared        agents declaring an A2A or MCP protocol
+      endpoints_resolved       endpoint registration rows read from agent cards, over
+                               all kinds (a2a, mcp, web, service). One URL registered
+                               under two kinds counts twice: on snapshot 3 this is 78
+                               rows over 43 distinct (agent, URL) pairs
+      endpoints_probed         endpoints actually probed. Only a2a and mcp are probed
+      endpoints_responded      of those probed, how many got an HTTP response
+      responded_pct_of_probed  named for its denominator. It is a share of
+                               endpoints_probed and of nothing else
+      blocked_by_policy        targets Docket refused to contact (see "blocked")
+      unresolved               hostnames that would not resolve (see "unresolved")
+      distinct_publishers      distinct publisher keys in the snapshot
+      top_publishers           the five largest, with counts and share of the snapshot
+      probe_method             one line stating how liveness was measured
+
+    curl -s "$DOCKET/stats"
+
+GET /agents
+    Filterable listing. All parameters optional; omitting one does not filter on it.
+
+      has_feedback        true|false   agent has >= 1 feedback record
+      declares_callable   true|false   agent declares an A2A or MCP protocol. This is
+                                       a claim the agent made, not a probe result
+      responded           true|false   at least one of the agent's probed endpoints
+                                       returned outcome "responded" in this snapshot
+      publisher           string       exact match on the publisher key, e.g.
+                                       "openodds.ai". The key groups agents minted by
+                                       one publisher or family; when an agent has no
+                                       usable name it is "owner:0x..."
+      limit               int          default 50, clamped into [1, 100]
+      offset              int          default 0, negatives clamped to 0
+
+    Returns {"items": [...], "total": N, "limit": L, "offset": O, "coverage": {...}}.
+    "total" is the count after filtering and before pagination, so it does not change
+    as you page. Each item carries: agent_id, token_id, name, description,
+    owner_address, has_feedback, feedback_count, declares_callable, protocols, x402,
+    publisher, placeholder_name (true when the name is a registry-generated
+    "Agent #123" rather than one the publisher chose).
+
+    curl -s "$DOCKET/agents?declares_callable=true&limit=3"
+    curl -s "$DOCKET/agents?responded=true&limit=5"
+
+GET /agents/{agent_id}
+    One agent, with its resolved endpoint URLs and every timestamped observation of
+    them. agent_id is "{chain_id}:{registry_address}:{token_id}" and contains colons;
+    send it literally, do not URL-encode the colons. Adds to the listing fields:
+
+      endpoints      distinct URLs resolved from this agent's card, sorted
+      observations   one entry per probed URL: url, kind (the probeable kind the URL
+                     was registered under), observed_at, outcome, status_code,
+                     elapsed_ms, detail
+      coverage       the snapshot this agent was read from
+
+    An agent with no observations was never probed. That is a statement about
+    Docket's coverage, not about the agent.
+
+    curl -s "$DOCKET/agents/56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:49637"
+
+GET /llms.txt
+    This file. text/plain.
+
+    curl -s "$DOCKET/llms.txt"
+
+GET /skill.md
+    A drop-in skill file for a coding agent: the same endpoints as a table, plus
+    worked examples for the three workflows Docket is actually for. text/markdown.
+
+    curl -s "$DOCKET/skill.md"
+
+GET /openapi.json
+    The generated OpenAPI 3.1 schema for every path above. Do not invent endpoints:
+    if a workflow is not in this file or that schema, Docket does not serve it.
+
+    curl -s "$DOCKET/openapi.json"
+
+
+## Errors
+
+Every error, at every status, has the same shape:
+
+    {"error": {"code": "agent_not_found", "message": "what to do about it"}}
+
+Branch on "code", which is stable. "message" is prose for a human and may change.
+
+      agent_not_found          404  no such agent in the served snapshot
+      not_found                404  no such path
+      method_not_allowed       405  the path exists, that method does not
+      invalid_query_parameter  422  message names the offending parameter
+      no_snapshot              503  nothing has been ingested yet
+
+
+## Coverage: why every number carries one
+
+A count without its population is unreadable, so no response that carries a number
+omits the coverage it was counted in. Every "coverage" object has:
+
+      snapshot_id   which capture this figure came from
+      captured_at   ISO 8601 UTC timestamp of that capture
+      sampled       agents actually stored in the snapshot
+      expected      agents the registry API said the query would return
+      dropped       expected - sampled. Above 0, the snapshot is missing rows and
+                    every count in the response understates its population
+      complete      true only when sampled == expected and sampled > 0
+      filter        which subset of the snapshot this response describes, e.g.
+                    "declares_callable=true", or null for the whole snapshot
+
+The population itself is a choice worth stating. BNB Smart Chain carries roughly
+247,278 registered ERC-8004 agents, of which 506 (0.205%) have ever received a single
+feedback record. The default snapshot covers those 506, not the whole registry,
+because a full sweep of 247,278 is not something Docket has done. Any figure below is
+a figure about that feedback population.
+
+When you quote a Docket number, quote its coverage with it.
+
+
+## Liveness outcome vocabulary
+
+The vocabulary is closed. An observation's "outcome" is exactly one of six values.
+
+Method: one GET per declared A2A or MCP endpoint, single attempt, 8s timeout,
+redirects not followed, every target vetted by an SSRF guard before any connection is
+opened. Single attempt means a failure is one observation at one moment, not a
+pattern. Only a2a and mcp endpoints are probed; web and service registrations are
+recorded and left alone.
+
+  responded
+      A host answered at any HTTP status. status_code carries which.
+      Implies: something is listening at that URL and it replied.
+      Does NOT imply: the agent does anything useful, is the agent it claims to be,
+      or that the response had anything to do with ERC-8004. A 404 counts as
+      responded because it proves the host is up. On snapshot 3, one agent's declared
+      endpoint is the block explorer's own /create page, which answered 308; another
+      declares a public NFT marketplace listing, which answered 200. Both are
+      recorded as responded, and neither is evidence of a working agent.
+
+  timeout
+      No response within 8s. Implies nothing beyond that one attempt at that moment.
+
+  refused
+      The connection was refused. Same caveat: one attempt, one moment.
+
+  error
+      The request failed for some other reason; "detail" names the exception type.
+
+  blocked
+      Docket refused the target on policy grounds and never opened a connection: a
+      non-HTTP scheme, or an address that is private, loopback, or CGNAT. "detail"
+      says which.
+      Implies: Docket did not probe it, so Docket knows nothing about it.
+      Does NOT imply: the agent is dangerous, malicious, or misconfigured. On
+      snapshot 3 every blocked target is an "npm://" package reference, which is a
+      distribution channel, not a URL a GET can reach.
+
+  unresolved
+      DNS did not resolve the hostname, after one retry, so nothing was contacted.
+      Implies: that name did not resolve from Docket's network at that moment.
+      Does NOT imply: a safety refusal, or that the agent is offline for everyone.
+      This is kept separate from "blocked" on purpose. Summing the two would publish
+      DNS trouble as a safety statistic.
+
+
+## Worked example: the honest headline
+
+The shape of every claim Docket makes. Figures below are snapshot 3, captured
+2026-08-07T17:51:02Z, sampled 506 of 506 expected, dropped 0, complete true, covering
+the population "BSC agents with >= 1 feedback record".
+
+    Of the 506 agents in this snapshot, 31 declare a callable A2A or MCP endpoint.
+    Enrichment resolved 78 endpoint registration rows from their cards; 35 of those
+    were A2A or MCP and were probed. 13 responded -- 37.143% of the 35 probed. The
+    other 22: 11 unresolved, 10 blocked by policy, 1 timed out.
+
+Read what that does and does not say.
+
+  - 37.143% is a share of the 35 endpoints probed. It is not 37% of 506 agents, and
+    it is emphatically not 37% of the 247,278 agents on BNB Smart Chain.
+  - The 13 responses mean 13 hosts answered. None of them is a working-agent count.
+  - The 10 blocked are Docket's own refusals. They are not misconduct findings.
+  - 31 of 506 declaring a callable endpoint is a count of claims agents made about
+    themselves, not of endpoints that work.
+  - Change the snapshot and every number here changes. That is why the snapshot id
+    travels with them.
+
+Reproduce it:
+
+    curl -s "$DOCKET/stats"
+
+
+## Observations, not endorsements
+
+Docket publishes observations. It does not publish verdicts.
+
+No endpoint returns a safety rating, a trust score, a rank, or a recommendation. No
+response field is named safe, trusted, verified, recommended, rank, score, or
+rating; a test in this repository fails the build if one ever is. Docket lists no
+agent as safe, and an agent's presence in any Docket response is not a claim that it
+is honest, competent, solvent, or fit for any purpose.
+
+What Docket can tell you: what an agent declared on chain, how much feedback it has
+received, whether a host answered its declared endpoint at one moment, and how much
+of the registry that observation covers. What it cannot tell you: whether to hire it.
+That judgement is the reader's, and Docket is built to hand over the evidence rather
+than pre-empt it.

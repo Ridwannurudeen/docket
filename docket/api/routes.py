@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
@@ -31,6 +31,9 @@ from .models import (
 )
 
 DEFAULT_DB_PATH = "data/agents.sqlite3"
+# Ships inside the package (see pyproject's package-data), so an installed Docket serves the
+# same documents a checkout does.
+STATIC_DIR = Path(__file__).parent / "static"
 CHAIN_ID = 56
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
@@ -42,6 +45,10 @@ PROBE_METHOD = (
     "does anything useful."
 )
 _STATUS_CODES = {404: "not_found", 405: "method_not_allowed"}
+
+
+class MarkdownResponse(PlainTextResponse):
+    media_type = "text/markdown"
 
 
 def _error(status_code: int, code: str, message: str) -> JSONResponse:
@@ -108,6 +115,10 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
     db_path = Path(db_path)
     if snapshot_id is None:
         snapshot_id = Store(db_path).latest_snapshot_id(CHAIN_ID)
+    # Read once, at startup: a missing document should fail the app that ships it, not the one
+    # request that happened to ask for it.
+    llms_body = (STATIC_DIR / "llms.txt").read_text(encoding="utf-8")
+    skill_body = (STATIC_DIR / "SKILL.md").read_text(encoding="utf-8")
 
     app = FastAPI(
         title="Docket",
@@ -118,10 +129,12 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             "endorse, or vouch for any agent."
         ),
     )
+    # GET only. `HEAD` was advertised here while no route served it, so a preflight promised a
+    # method that 405s — the wrong inconsistency for a project whose claim is honest description.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_methods=["GET", "HEAD"],
+        allow_methods=["GET"],
         allow_credentials=False,
     )
     app.add_exception_handler(StarletteHTTPException, _http_error)
@@ -163,6 +176,16 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             "status": "ok" if snapshot_id is not None else "no_snapshot",
             "snapshot_id": snapshot_id,
         }
+
+    @app.get("/llms.txt", response_class=PlainTextResponse)
+    def llms_txt() -> str:
+        """Orientation for a machine. Declared in the schema too: an agent told not to invent
+        endpoints must be able to see that the documentation is itself one."""
+        return llms_body
+
+    @app.get("/skill.md", response_class=MarkdownResponse)
+    def skill_md() -> str:
+        return skill_body
 
     @app.get("/stats", response_model=StatsResponse)
     def stats() -> StatsResponse:

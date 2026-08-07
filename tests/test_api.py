@@ -129,6 +129,35 @@ def test_openapi_is_served_so_an_agent_need_not_guess(client):
     assert "/agents" in spec["paths"] and "/stats" in spec["paths"]
 
 
+def test_llms_txt_documents_every_path_the_spec_declares(client):
+    """The doc cannot silently drift from the API: an agent told not to invent endpoints reads
+    /llms.txt, so a path that exists but is undocumented is a path it will never call."""
+    resp = client.get("/llms.txt")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/plain")
+    body = resp.text
+    for path in client.get("/openapi.json").json()["paths"]:
+        assert path in body, f"/llms.txt does not document {path}"
+
+
+def test_skill_md_is_served_as_markdown(client):
+    resp = client.get("/skill.md")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/markdown")
+    assert resp.text.strip()
+
+
+def test_cors_advertises_only_methods_that_are_actually_served(client):
+    """Advertising a method we answer with 405 is the wrong kind of inconsistency here."""
+    preflight = client.options(
+        "/agents",
+        headers={"Origin": "https://example.test", "Access-Control-Request-Method": "GET"},
+    )
+    advertised = {m.strip() for m in preflight.headers["access-control-allow-methods"].split(",")}
+    for method in advertised:
+        assert client.request(method, "/agents").status_code != 405
+
+
 def test_observation_is_filed_under_the_kind_that_was_probed(tmp_path):
     """A URL registered as both mcp and service was probed because it is mcp. Reporting the
     observation under `service` would misstate why the request was made — and on the live

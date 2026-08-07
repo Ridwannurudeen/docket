@@ -23,5 +23,8 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["docket", "docket.api", "experiments"]
 
+[tool.setuptools.package-data]
+"docket.api" = ["static/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
