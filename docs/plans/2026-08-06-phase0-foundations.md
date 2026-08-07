@@ -498,6 +498,21 @@ Success: `name` becomes `SOLVENT` and `last_parsed_at` moves past 2026-06-16.
 
 ---
 
+### Task 2b: E1-revised — identify the hook revert and close E1 by simulation (added 2026-08-07)
+
+**Files:**
+- Create: `abis/EvaluatorRouter.json` (vendor from the same bnbagent-sdk source as Task 1; the testnet router/hook is `0xD7d36D66d2F1B608A0F943f722D27e3744f66F25`)
+- Create: `experiments/e1b_simulate_router_flow.py`
+- Modify: `experiments/e1-result.json` conventions unchanged — e1b writes `experiments/e1b-result.json` with the same key set plus `"method": "eth_simulateV1"`
+- Test: extend `tests/test_e1_helpers.py`
+
+**Context (why this task exists):** Task 2's read-only probes proved `hook = 0` reverts `HookRequired()` and the router-hook reverts direct `fund()` with un-named selector `0x32d53d69` even for genuine router jobs. `complete()` is evaluator-only; EOA evaluators are accepted at creation. The open question is whether the hook's callbacks allow a non-router **evaluator** to complete a router-registered job.
+
+- [ ] **Step 1:** Vendor `EvaluatorRouter.json` (and any hook/policy ABI shipped beside it) exactly as Task 1 vendored the kernel ABI; extend the selector map in `_decode_error`'s source ABIs so `0x32d53d69` gets a name if it lives in these ABIs. Add a test asserting the union selector table now resolves `0x32d53d69` (if it does not, record the raw selector as a named constant `HOOK_FUND_GATE = "0x32d53d69"` with a comment stating it remains unidentified).
+- [ ] **Step 2:** Write `e1b_simulate_router_flow.py`: build the full canonical sequence — `createJob(provider, evaluator=EOA_B, expiredAt, desc, hook=router)`, `router.registerJob(jobId, policy)` (policy `0x4F4678D4439feC812Ac7674Bb3Efb4C8f5Fb78A6`), `setBudget`, `approve`, `fund`, `submit`, then `complete(jobId, reason32, b"")` from EOA_B — as one `eth_simulateV1` call with balance and $U-allowance state overrides, no real keys or funds. Record per-call success/revert (decoded) into `e1b-result.json`; `worked` = the final `complete` call succeeding for the EOA evaluator.
+- [ ] **Step 3:** Run it (read-only; no funding gate). Commit script + result: `experiment(e1b): router-flow simulation — EOA-evaluator settlement result recorded`.
+- [ ] **Step 4:** If simulateV1 is unsupported by the RPC, fall back to sequential `eth_call` with state overrides per step (the technique Task 2 already used successfully) and note the method in the result file.
+
 ### Task 4: SOLVENT repo housekeeping — default branch → `main`
 
 **Files:** none (GitHub + local git state only)
