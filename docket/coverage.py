@@ -73,7 +73,10 @@ def coverage_report(store: Store, snapshot_id: int) -> dict:
         # Share of the endpoints actually probed. Dividing by `sampled` would restate a probe
         # result as a claim about the whole registry — the flattering lie available here.
         "responded_pct": round(100.0 * len(responded) / probed, 3) if probed else 0.0,
+        # Kept apart deliberately: `blocked` is a refusal we made, `unresolved` is a name that
+        # would not resolve. Summing them would publish DNS trouble as a safety statistic.
         "blocked": sum(1 for o in observations if o["outcome"] == "blocked"),
+        "unresolved": sum(1 for o in observations if o["outcome"] == "unresolved"),
         "failed": sum(1 for o in observations if o["outcome"] in _FAILURE_OUTCOMES),
         "agents_probed": len({o["agent_id"] for o in observations}),
         "agents_responded": len({o["agent_id"] for o in responded}),
@@ -115,7 +118,8 @@ def render_markdown(report: dict) -> str:
             f"{window['last']}.",
             "",
             "Method: one GET per endpoint, single attempt, 8s timeout, no redirects followed, "
-            "every target vetted by an SSRF guard before any connection is opened.",
+            "every target vetted by an SSRF guard before any connection is opened, and a host "
+            "that fails to resolve retried once before being counted as unresolved.",
             "",
             "| Observation | Endpoints |",
             "| --- | ---: |",
@@ -123,6 +127,8 @@ def render_markdown(report: dict) -> str:
             f"{report['endpoints_responded']:,} |",
             f"| No response — timed out, refused, or errored | {report['failed']:,} |",
             f"| Blocked by the SSRF guard — never contacted | {report['blocked']:,} |",
+            f"| Unresolved — the host did not resolve, so nothing was probed | "
+            f"{report['unresolved']:,} |",
             "",
             f"**{report['responded_pct']}%** of probed endpoints responded, covering "
             f"**{report['agents_responded']:,}** of the **{report['agents_probed']:,}** agents "

@@ -17,10 +17,13 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .netguard import check_url
+from .netguard import UNRESOLVED, check_url
 from .store import Store
 
-OUTCOMES = frozenset({"responded", "timeout", "refused", "blocked", "error"})
+# `blocked` means one thing only: we refused this target on policy grounds. A host that would
+# not resolve is `unresolved` — filing it as blocked would credit the guard with a refusal it
+# never made, and on the first real run that was 8 points of the headline figure.
+OUTCOMES = frozenset({"responded", "timeout", "refused", "blocked", "unresolved", "error"})
 TIMEOUT_S = 8.0
 HEADERS = {
     "user-agent": "Docket/0.1 (+https://github.com/Ridwannurudeen/docket)",
@@ -54,7 +57,8 @@ def _pace(last_hit: dict[str, float], url: str) -> None:
 def probe_one(
     client: httpx.Client, endpoint: dict, *, now: str, resolver=socket.getaddrinfo
 ) -> dict:
-    """One attempt at one endpoint. No retries — these are third-party hosts, not our own."""
+    """One attempt at one endpoint. No request is ever retried — these are third-party hosts,
+    not our own. Only name resolution gets a second try, before any connection is opened."""
     url = endpoint["url"]
     observation = {
         "snapshot_id": endpoint["snapshot_id"],
@@ -67,7 +71,8 @@ def probe_one(
     }
     ok, reason = check_url(url, resolver=resolver)
     if not ok:
-        return {**observation, "outcome": "blocked", "detail": reason}
+        outcome = "unresolved" if reason == UNRESOLVED else "blocked"
+        return {**observation, "outcome": outcome, "detail": reason}
 
     started = time.monotonic()
     try:
@@ -122,5 +127,6 @@ def probe_snapshot(
         "probed": len(rows),
         "responded": outcomes.count("responded"),
         "blocked": outcomes.count("blocked"),
+        "unresolved": outcomes.count("unresolved"),
         "failed": sum(1 for outcome in outcomes if outcome in ("timeout", "refused", "error")),
     }

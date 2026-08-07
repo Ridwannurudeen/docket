@@ -9,9 +9,16 @@ would pick.
 
 import ipaddress
 import socket
+import time
 from urllib.parse import urlsplit
 
 SAFE = "ok"
+# A host we could not resolve is not a host we refused. Callers must be able to tell the two
+# apart exactly — reporting a DNS failure as a policy block inflates the safety claim.
+UNRESOLVED = "could not resolve host"
+# Transient resolution failure is common enough that one miss must not become a published
+# figure; a single retry after a pause separates a flake from a name that does not exist.
+RESOLVE_RETRY_DELAY_S = 0.5
 _ALLOWED_SCHEMES = {"http", "https"}
 # RFC 6598 carrier-grade NAT. `ipaddress` reports this as neither private nor global, so it
 # needs its own check: it routes to ISP and some cloud-internal infrastructure.
@@ -38,7 +45,23 @@ def _classify(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str | None:
     return None
 
 
+def _resolve(hostname: str, port: int, resolver) -> list | None:
+    """Resolve, retrying once after a pause. None means the host did not resolve."""
+    for attempt in range(2):
+        try:
+            infos = resolver(hostname, port, 0, socket.SOCK_STREAM)
+        except Exception:  # DNS failure, bad host, anything — reported as UNRESOLVED
+            infos = None
+        if infos:
+            return list(infos)
+        if attempt == 0:
+            time.sleep(RESOLVE_RETRY_DELAY_S)
+    return None
+
+
 def check_url(url: str, resolver=socket.getaddrinfo) -> tuple[bool, str]:
+    """Vet a probe target. `(True, SAFE)` to proceed; `(False, UNRESOLVED)` when the host did
+    not resolve; `(False, <reason>)` when policy rejects it. Only the last is a refusal."""
     try:
         parts = urlsplit(url or "")
     except ValueError:  # e.g. an unterminated IPv6 literal: http://[::1
@@ -51,12 +74,9 @@ def check_url(url: str, resolver=socket.getaddrinfo) -> tuple[bool, str]:
         port = parts.port or (443 if parts.scheme == "https" else 80)
     except ValueError:
         return False, "invalid port"
-    try:
-        infos = resolver(parts.hostname, port, 0, socket.SOCK_STREAM)
-    except Exception as exc:  # DNS failure, bad host, anything
-        return False, f"could not resolve host: {type(exc).__name__}"
+    infos = _resolve(parts.hostname, port, resolver)
     if not infos:
-        return False, "could not resolve host: no records"
+        return False, UNRESOLVED
     for info in infos:
         addr = info[4][0]
         try:

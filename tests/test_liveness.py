@@ -1,5 +1,6 @@
 import httpx
 
+from docket import netguard
 from docket.liveness import OUTCOMES, probe_snapshot
 from docket.store import Store
 
@@ -18,7 +19,9 @@ def _client(handler):
 
 
 def test_outcome_vocabulary_is_closed():
-    assert OUTCOMES == frozenset({"responded", "timeout", "refused", "blocked", "error"})
+    assert OUTCOMES == frozenset(
+        {"responded", "timeout", "refused", "blocked", "unresolved", "error"}
+    )
 
 
 def test_responded_records_status_and_elapsed(tmp_path):
@@ -70,9 +73,60 @@ def test_timeout_and_refused_are_distinguished(tmp_path):
     assert outcomes == {"timeout", "refused"}
 
 
+def test_a_host_that_will_not_resolve_is_unresolved_not_blocked(tmp_path, monkeypatch):
+    """DNS failing is our problem, not a refusal we made. On the first real run this was
+    8 points of the headline and 16 of 50 'blocked' hosts resolved fine on retry."""
+    monkeypatch.setattr(netguard, "RESOLVE_RETRY_DELAY_S", 0)
+    store, sid = _seed(tmp_path, ["https://gone.example/a2a"])
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        return httpx.Response(200)
+
+    with _client(handler) as c:
+        result = probe_snapshot(store, sid, client=c, resolver=_boom)
+    assert calls["n"] == 0  # still never connected to
+    assert result["unresolved"] == 1
+    assert result["blocked"] == 0
+    row = next(iter(store.iter_liveness(sid)))
+    assert row["outcome"] == "unresolved"
+
+
+def test_a_loopback_target_is_still_blocked(tmp_path):
+    """Real agents publish this exact URL. `blocked` must keep meaning 'refused on policy'."""
+    store, sid = _seed(tmp_path, ["http://localhost:9001/.well-known/agent-card.json"])
+    with _client(lambda r: httpx.Response(200)) as c:
+        result = probe_snapshot(store, sid, client=c, resolver=_loopback)
+    assert result["blocked"] == 1
+    assert result["unresolved"] == 0
+
+
+def test_resolution_is_retried_once_before_declaring_unresolved(tmp_path, monkeypatch):
+    monkeypatch.setattr(netguard, "RESOLVE_RETRY_DELAY_S", 0)
+    store, sid = _seed(tmp_path, ["https://flaky.example/a2a"])
+    attempts = {"n": 0}
+
+    def flaky(host, port, *a, **kw):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise OSError("getaddrinfo failed")
+        return _public(host, port)
+
+    with _client(lambda r: httpx.Response(200)) as c:
+        result = probe_snapshot(store, sid, client=c, resolver=flaky)
+    assert attempts["n"] == 2  # the flake was retried, not published
+    assert result["unresolved"] == 0
+    assert result["responded"] == 1
+
+
 def _public(host, port, *a, **kw):
     return [(2, 1, 6, "", ("93.184.216.34", port or 443))]
 
 
 def _loopback(host, port, *a, **kw):
     return [(2, 1, 6, "", ("127.0.0.1", port or 80))]
+
+
+def _boom(host, port, *a, **kw):
+    raise OSError("getaddrinfo failed")

@@ -1,4 +1,5 @@
-from docket.netguard import SAFE, check_url
+from docket import netguard
+from docket.netguard import SAFE, UNRESOLVED, check_url
 
 
 def _resolver(ip: str):
@@ -88,6 +89,23 @@ def test_shared_address_space_is_blocked():
     """RFC 6598 CGNAT: `ipaddress` calls it neither private nor global, so it needs its own check."""
     ok, reason = check_url("http://100.64.0.1/x", resolver=_echo)
     assert ok is False and "shared address space" in reason
+
+
+def test_a_resolution_failure_is_its_own_state_not_a_policy_rejection(monkeypatch):
+    """The caller must be able to separate the two by exact comparison: a DNS flake reported
+    as a refusal turns 'we blocked this for safety' into a claim we did not earn."""
+    monkeypatch.setattr(netguard, "RESOLVE_RETRY_DELAY_S", 0)
+
+    def boom(*a, **kw):
+        raise OSError("getaddrinfo failed")
+
+    ok, reason = check_url("https://nope.invalid/x", resolver=boom)
+    assert ok is False and reason == UNRESOLVED
+    ok, reason = check_url("https://empty.invalid/x", resolver=lambda *a, **kw: [])
+    assert ok is False and reason == UNRESOLVED
+    # A real rejection keeps its own reason and must never read as unresolved.
+    ok, reason = check_url("http://localhost/x", resolver=_resolver("127.0.0.1"))
+    assert ok is False and reason != UNRESOLVED
 
 
 def test_ipv4_mapped_ipv6_addresses_stay_blocked():

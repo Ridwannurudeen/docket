@@ -190,6 +190,35 @@ def test_markdown_liveness_section_states_the_probe_method(tmp_path):
     assert "not of the 5 agents in this snapshot" in md
 
 
+def test_unresolved_is_reported_apart_from_blocked(tmp_path):
+    """One is a refusal we made; the other is DNS failing us. Summed into one figure they
+    would publish our own network trouble as a safety statistic."""
+    store = Store(tmp_path / "d.sqlite3")
+    sid = _seed(store)
+    _seed_probes(store, sid)
+    store.record_liveness(
+        [
+            {
+                "snapshot_id": sid,
+                "agent_id": "56:r:5",
+                "url": "https://gone.example/a2a",
+                "observed_at": "2026-08-07T10:00:04+00:00",
+                "outcome": "unresolved",
+                "status_code": None,
+                "elapsed_ms": None,
+                "detail": "could not resolve host",
+            }
+        ]
+    )
+    rep = coverage_report(store, sid)
+    assert rep["unresolved"] == 1
+    assert rep["blocked"] == 1  # unchanged: the loopback target is still a refusal
+    assert rep["failed"] == 1  # unresolved was never attempted, so it is not a failure
+    md = render_markdown(rep).replace("**", "")
+    assert "Blocked by the SSRF guard — never contacted | 1" in md
+    assert "the host did not resolve, so nothing was probed | 1" in md
+
+
 def test_markdown_without_probes_says_so_instead_of_publishing_zero(tmp_path):
     store = Store(tmp_path / "d.sqlite3")
     sid = _seed(store)
