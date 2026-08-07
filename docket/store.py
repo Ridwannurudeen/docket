@@ -72,12 +72,21 @@ class Store:
             )
             return int(cur.lastrowid)
 
-    def finish_snapshot(self, snapshot_id: int, sampled: int) -> None:
+    def finish_snapshot(self, snapshot_id: int, sampled: int, expected: int | None = None) -> None:
+        """Close a snapshot. Pass `expected` to overwrite the figure `begin_snapshot` recorded —
+        a sweep that watches the registry grow must persist the final claim, or a later reader
+        would compare `sampled` against a stale total and publish false completeness."""
         with self._conn() as conn:
-            conn.execute(
-                "UPDATE snapshots SET sampled = ?, finished_at = ? WHERE id = ?",
-                (sampled, _now(), snapshot_id),
-            )
+            if expected is None:
+                conn.execute(
+                    "UPDATE snapshots SET sampled = ?, finished_at = ? WHERE id = ?",
+                    (sampled, _now(), snapshot_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE snapshots SET sampled = ?, expected = ?, finished_at = ? WHERE id = ?",
+                    (sampled, expected, _now(), snapshot_id),
+                )
 
     def upsert_agents(self, rows: list[dict], snapshot_id: int) -> int:
         payload = []
