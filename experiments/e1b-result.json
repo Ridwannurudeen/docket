@@ -1,0 +1,20 @@
+{
+  "worked": false,
+  "job_id": 446,
+  "final_status": "OPEN",
+  "provider_u_delta_wei": "0",
+  "txs": {
+    "whitelist_policy": "ok",
+    "u_faucet": "ok",
+    "create_job": "ok",
+    "register_job": "revert:RouterNotEvaluator()",
+    "set_budget": "ok",
+    "approve": "ok",
+    "fund": "revert:PolicyNotSet()",
+    "submit": "revert:WrongStatus()",
+    "complete": "revert:WrongStatus()"
+  },
+  "revert": "register_job: RouterNotEvaluator()",
+  "notes": "EOA-evaluator settlement is not reachable: the flow aborts at register_job: RouterNotEvaluator(). registerJob refuses a job whose evaluator is not the router itself (RouterNotEvaluator), so the job never binds a policy, fund() then reverts PolicyNotSet, and no funded/submitted state exists for the EOA to complete(). The router is job.evaluator and job.hook for every registered job; settlement must flow through EvaluatorRouter.settle() under the policy's dispute window. A contrast run with evaluator=router funds cleanly under the identical setup, pinning the barrier to the evaluator slot. Separately, on the live shared router the brief's policy currently reads NOT whitelisted, so an un-spoofed run would abort even earlier at PolicyNotWhitelisted; this sim whitelists it owner-spoofed to expose the evaluator invariant underneath.",
+  "method": "eth_simulateV1"
+}

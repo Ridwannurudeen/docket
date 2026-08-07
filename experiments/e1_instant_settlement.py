@@ -61,12 +61,20 @@ def _load_abi(name: str) -> list:
     return abi["abi"] if isinstance(abi, dict) else abi
 
 
+# Every ABI a revert on this flow can surface from: the kernel plus the router and
+# policy it calls into. 0x32d53d69 (the gate that blocks fund()) lives in the router,
+# not the kernel, so decoding it needs all three. Verified collision-free — no two of
+# these signatures share a selector.
+_SELECTOR_ABIS = ("AgenticCommerce.json", "EvaluatorRouter.json", "OptimisticPolicy.json")
+
+
 def _error_selectors() -> dict[str, str]:
     out = {}
-    for entry in _load_abi("AgenticCommerce.json"):
-        if entry.get("type") == "error":
-            signature = f"{entry['name']}({','.join(i['type'] for i in entry['inputs'])})"
-            out["0x" + Web3.keccak(text=signature)[:4].hex()] = signature
+    for name in _SELECTOR_ABIS:
+        for entry in _load_abi(name):
+            if entry.get("type") == "error":
+                signature = f"{entry['name']}({','.join(i['type'] for i in entry['inputs'])})"
+                out.setdefault("0x" + Web3.keccak(text=signature)[:4].hex(), signature)
     return out
 
 

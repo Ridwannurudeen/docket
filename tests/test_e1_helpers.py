@@ -23,6 +23,14 @@ def test_decode_error_names_the_kernel_custom_error():
     assert _decode_error("plain timeout, no revert data") is None
 
 
+def test_decode_error_resolves_the_router_fund_gate():
+    # 0x32d53d69 is a router error, not a kernel one — it only names once the union
+    # selector table spans EvaluatorRouter/OptimisticPolicy alongside the kernel (Task 2b)
+    assert _decode_error("ContractCustomError('0x32d53d69', '0x32d53d69')") == "PolicyNotSet()"
+    # and the router's evaluator invariant, which is E1-revised's actual answer
+    assert _decode_error("execution reverted 0xec43ea50") == "RouterNotEvaluator()"
+
+
 def test_abort_note_flags_a_run_that_stopped_before_complete():
     # the likely outcome today: the hook rejects fund(), so complete() is never attempted
     note = _abort_note(["fund_evaluator_gas", "create_job", "set_budget", "approve", "fund"])
