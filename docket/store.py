@@ -40,6 +40,30 @@ CREATE TABLE IF NOT EXISTS agents (
 );
 CREATE INDEX IF NOT EXISTS agents_owner ON agents (snapshot_id, owner_address);
 CREATE INDEX IF NOT EXISTS agents_token ON agents (snapshot_id, token_id);
+CREATE TABLE IF NOT EXISTS endpoints (
+    snapshot_id INTEGER NOT NULL,
+    agent_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    url TEXT NOT NULL,
+    PRIMARY KEY (snapshot_id, agent_id, kind, url)
+);
+CREATE TABLE IF NOT EXISTS enriched (
+    snapshot_id INTEGER NOT NULL,
+    agent_id TEXT NOT NULL,
+    PRIMARY KEY (snapshot_id, agent_id)
+);
+CREATE TABLE IF NOT EXISTS liveness (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL,
+    agent_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    status_code INTEGER,
+    elapsed_ms INTEGER,
+    detail TEXT
+);
+CREATE INDEX IF NOT EXISTS liveness_snapshot ON liveness (snapshot_id, agent_id);
 """
 
 
@@ -176,3 +200,83 @@ class Store:
                 d["x402_supported"] = bool(d["x402_supported"])
                 d["is_verified"] = bool(d["is_verified"])
                 yield d
+
+    def upsert_endpoints(self, rows: list[dict], snapshot_id: int) -> int:
+        payload = [(snapshot_id, r["agent_id"], r["kind"], r["url"]) for r in rows]
+        with self._conn() as conn:
+            conn.executemany(
+                """INSERT INTO endpoints (snapshot_id, agent_id, kind, url)
+                   VALUES (?,?,?,?)
+                   ON CONFLICT (snapshot_id, agent_id, kind, url) DO NOTHING""",
+                payload,
+            )
+        return len(payload)
+
+    def iter_endpoints(self, snapshot_id: int, kind: str | None = None) -> Iterator[dict]:
+        sql = "SELECT * FROM endpoints WHERE snapshot_id = ?"
+        args: tuple = (snapshot_id,)
+        if kind is not None:
+            sql += " AND kind = ?"
+            args += (kind,)
+        with self._conn() as conn:
+            for row in conn.execute(sql, args):
+                yield dict(row)
+
+    def endpoint_count(self, snapshot_id: int) -> int:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM endpoints WHERE snapshot_id = ?", (snapshot_id,)
+            ).fetchone()
+        return int(row["n"])
+
+    def mark_enriched(self, agent_ids: list[str], snapshot_id: int) -> int:
+        """Record that an agent's card has been fetched — including agents that turned out to
+        have no endpoints at all, so a resumed run does not re-fetch them forever."""
+        payload = [(snapshot_id, agent_id) for agent_id in agent_ids]
+        with self._conn() as conn:
+            conn.executemany(
+                """INSERT INTO enriched (snapshot_id, agent_id) VALUES (?,?)
+                   ON CONFLICT (snapshot_id, agent_id) DO NOTHING""",
+                payload,
+            )
+        return len(payload)
+
+    def enriched_agent_ids(self, snapshot_id: int) -> set[str]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT agent_id FROM enriched WHERE snapshot_id = ?", (snapshot_id,)
+            ).fetchall()
+        return {row["agent_id"] for row in rows}
+
+    def record_liveness(self, rows: list[dict]) -> int:
+        """Append probe observations. Never an upsert — each probe is a distinct event, and
+        overwriting one would erase the history that makes a liveness claim auditable."""
+        payload = [
+            (
+                r["snapshot_id"],
+                r["agent_id"],
+                r["url"],
+                r["observed_at"],
+                r["outcome"],
+                r.get("status_code"),
+                r.get("elapsed_ms"),
+                r.get("detail"),
+            )
+            for r in rows
+        ]
+        with self._conn() as conn:
+            conn.executemany(
+                """INSERT INTO liveness
+                   (snapshot_id, agent_id, url, observed_at, outcome,
+                    status_code, elapsed_ms, detail)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                payload,
+            )
+        return len(payload)
+
+    def iter_liveness(self, snapshot_id: int) -> Iterator[dict]:
+        with self._conn() as conn:
+            for row in conn.execute(
+                "SELECT * FROM liveness WHERE snapshot_id = ? ORDER BY id", (snapshot_id,)
+            ):
+                yield dict(row)

@@ -85,3 +85,60 @@ def test_snapshot_records_partial_coverage(tmp_path: Path):
             "SELECT expected, sampled, finished_at FROM snapshots WHERE id = ?", (sid,)
         ).fetchone()
     assert row[0] == 100 and row[1] == 1 and row[2] is not None
+
+
+def test_endpoints_roundtrip_and_upsert_is_idempotent(tmp_path: Path):
+    store = Store(tmp_path / "d.sqlite3")
+    sid = store.begin_snapshot(chain_id=56, expected=None)
+    rows = [
+        {"agent_id": "56:r:1", "kind": "a2a", "url": "https://a.example/agent"},
+        {"agent_id": "56:r:1", "kind": "mcp", "url": "https://a.example/mcp"},
+    ]
+    assert store.upsert_endpoints(rows, sid) == 2
+    store.upsert_endpoints(rows, sid)  # same rows again
+    assert store.endpoint_count(sid) == 2  # no duplicates
+    kinds = {e["kind"] for e in store.iter_endpoints(sid)}
+    assert kinds == {"a2a", "mcp"}
+    assert [e["url"] for e in store.iter_endpoints(sid, kind="mcp")] == ["https://a.example/mcp"]
+
+
+def test_enriched_agent_ids_reports_what_has_been_processed(tmp_path: Path):
+    store = Store(tmp_path / "d.sqlite3")
+    sid = store.begin_snapshot(chain_id=56, expected=None)
+    store.upsert_endpoints([{"agent_id": "56:r:1", "kind": "a2a", "url": "https://a/x"}], sid)
+    store.mark_enriched(["56:r:1", "56:r:2"], sid)  # r:2 had no endpoints at all
+    assert store.enriched_agent_ids(sid) == {"56:r:1", "56:r:2"}
+
+
+def test_liveness_rows_are_append_only_observations(tmp_path: Path):
+    store = Store(tmp_path / "d.sqlite3")
+    sid = store.begin_snapshot(chain_id=56, expected=None)
+    obs = {
+        "snapshot_id": sid,
+        "agent_id": "56:r:1",
+        "url": "https://a/x",
+        "observed_at": "2026-08-07T10:00:00+00:00",
+        "outcome": "responded",
+        "status_code": 200,
+        "elapsed_ms": 143,
+        "detail": None,
+    }
+    assert store.record_liveness([obs]) == 1
+    assert (
+        store.record_liveness(
+            [
+                {
+                    **obs,
+                    "observed_at": "2026-08-07T11:00:00+00:00",
+                    "outcome": "timeout",
+                    "status_code": None,
+                    "elapsed_ms": 8000,
+                    "detail": "ReadTimeout",
+                }
+            ]
+        )
+        == 1
+    )
+    seen = list(store.iter_liveness(sid))
+    assert len(seen) == 2  # history is kept, not overwritten
+    assert {s["outcome"] for s in seen} == {"responded", "timeout"}
