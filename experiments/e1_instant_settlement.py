@@ -85,9 +85,26 @@ def _decode_error(blob: str) -> str | None:
     return None
 
 
-def _send(w3, acct, call, label, txs):
+def _abort_note(reached: list[str]) -> str:
+    """Say so, in `notes`, when a run died before it ever attempted `complete()`.
+
+    Phase 1 branches on this file, and `worked: false` on its own cannot tell a
+    settlement the kernel refused apart from a run that never got that far — the
+    likely outcome while the hook gates `fund()`. `reached` holds every step `_send`
+    attempted, so its last entry names where the run stopped.
+    """
+    if reached and reached[-1] == "complete":
+        return ""
+    return (
+        f" — RUN ABORTED AT {reached[-1] if reached else 'setup'}, BEFORE complete(); "
+        "this result does NOT answer E1"
+    )
+
+
+def _send(w3, acct, call, label, txs, reached):
     """`call` is a ContractFunction (built here, so a revert still carries `label`)
     or a plain tx dict for a native transfer."""
+    reached.append(label)
     try:
         params = {
             "from": acct.address,
@@ -122,6 +139,7 @@ def main() -> int:
     commerce = w3.eth.contract(address=COMMERCE, abi=_load_abi("AgenticCommerce.json"))
     u = w3.eth.contract(address=U_TOKEN, abi=_load_abi("ERC20.json"))
     txs: dict[str, str] = {}
+    reached: list[str] = []
     result = {
         "worked": False,
         "job_id": None,
@@ -144,6 +162,7 @@ def main() -> int:
                 {"to": evaluator.address, "value": w3.to_wei("0.005", "ether")},
                 "fund_evaluator_gas",
                 txs,
+                reached,
             )
         # 1) $U: faucet gives 10 $U per call
         if u.functions.balanceOf(client.address).call() < BUDGET:
@@ -159,7 +178,7 @@ def main() -> int:
                     }
                 ],
             )
-            _send(w3, client, faucet.functions.requestTokens(), "u_faucet", txs)
+            _send(w3, client, faucet.functions.requestTokens(), "u_faucet", txs, reached)
         # 2) createJob with evaluator = Docket EOA, stock hook, NO registerJob.
         #    client == provider is allowed here (probed); if a kernel upgrade ever forbids it,
         #    fall back to a third throwaway account funded from the client that signs `submit`.
@@ -172,6 +191,7 @@ def main() -> int:
             ),
             "create_job",
             txs,
+            reached,
         )
         # read the id from the event, not jobCounter() — testnet has live third-party traffic
         job_id = commerce.events.JobCreated().process_receipt(rcpt, errors=DISCARD)[0]["args"][
@@ -179,9 +199,16 @@ def main() -> int:
         ]
         result["job_id"] = job_id
         # 3) budget + approve + fund
-        _send(w3, client, commerce.functions.setBudget(job_id, BUDGET, b""), "set_budget", txs)
-        _send(w3, client, u.functions.approve(COMMERCE, BUDGET), "approve", txs)
-        _send(w3, client, commerce.functions.fund(job_id, BUDGET, b""), "fund", txs)
+        _send(
+            w3,
+            client,
+            commerce.functions.setBudget(job_id, BUDGET, b""),
+            "set_budget",
+            txs,
+            reached,
+        )
+        _send(w3, client, u.functions.approve(COMMERCE, BUDGET), "approve", txs, reached)
+        _send(w3, client, commerce.functions.fund(job_id, BUDGET, b""), "fund", txs, reached)
         # 4) provider (== client) submits a deliverable
         manifest = {"service": "e1-probe", "content": "hello", "ts": expired_at}
         opt = json.dumps(
@@ -197,6 +224,7 @@ def main() -> int:
             ),
             "submit",
             txs,
+            reached,
         )
         # 5) THE TEST: evaluator EOA calls complete() immediately (no dispute window).
         #    Balance is sampled here, not before fund(): client == provider, so a whole-run
@@ -208,6 +236,7 @@ def main() -> int:
             commerce.functions.complete(job_id, b"accepted".ljust(32, b"\x00"), b""),
             "complete",
             txs,
+            reached,
         )
         status = STATUS[commerce.functions.jobs(job_id).call()[7]]
         result["final_status"] = status
@@ -217,6 +246,7 @@ def main() -> int:
         result["worked"] = status == "COMPLETED"
     except Exception as exc:  # record the failure verbatim — that IS the experiment result
         result["revert"] = repr(exc)
+        result["notes"] += _abort_note(reached)
     (ROOT / "experiments" / "e1-result.json").write_text(json.dumps(result, indent=2))
     print(json.dumps(result, indent=2))
     return 0 if result["worked"] else 1
