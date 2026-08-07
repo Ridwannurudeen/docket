@@ -8,6 +8,7 @@ Docket publishes can state its own coverage instead of implying completeness.
 import json
 import sqlite3
 from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,11 +42,6 @@ CREATE INDEX IF NOT EXISTS agents_owner ON agents (snapshot_id, owner_address);
 CREATE INDEX IF NOT EXISTS agents_token ON agents (snapshot_id, token_id);
 """
 
-_COLUMNS = (
-    "agent_id token_id chain_id contract_address owner_address name description "
-    "supported_protocols x402_supported is_verified total_feedbacks total_score created_at"
-).split()
-
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -58,10 +54,15 @@ class Store:
         with self._conn() as conn:
             conn.executescript(SCHEMA)
 
-    def _conn(self) -> sqlite3.Connection:
+    @contextmanager
+    def _conn(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            with conn:  # commits on clean exit; contextlib.closing would silently drop writes
+                yield conn
+        finally:
+            conn.close()
 
     def begin_snapshot(self, chain_id: int, expected: int | None) -> int:
         with self._conn() as conn:
@@ -85,7 +86,7 @@ class Store:
                 (
                     snapshot_id,
                     r["agent_id"],
-                    str(r.get("token_id") or ""),
+                    str(r.get("token_id", "")),
                     int(r.get("chain_id") or 0),
                     r.get("contract_address"),
                     (r.get("owner_address") or "").lower() or None,
@@ -107,6 +108,7 @@ class Store:
                     x402_supported, is_verified, total_feedbacks, total_score, created_at)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT (snapshot_id, agent_id) DO UPDATE SET
+                     owner_address = excluded.owner_address,
                      name = excluded.name,
                      description = excluded.description,
                      supported_protocols = excluded.supported_protocols,

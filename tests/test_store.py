@@ -43,6 +43,17 @@ def test_upsert_is_idempotent_and_updates(tmp_path: Path):
     assert got["total_feedbacks"] == 3
 
 
+def test_upsert_refreshes_transferred_owner(tmp_path: Path):
+    store = Store(tmp_path / "d.sqlite3")
+    sid = store.begin_snapshot(chain_id=56, expected=None)
+    store.upsert_agents([ROW], sid)
+    new_owner = "0x1111111111111111111111111111111111111111"
+    store.upsert_agents([{**ROW, "owner_address": new_owner}], sid)
+    assert store.agent_count(sid) == 1
+    got = next(store.iter_agents(sid))
+    assert got["owner_address"] == new_owner  # ownership transfers; a stale owner breaks clustering
+
+
 def test_snapshot_records_partial_coverage(tmp_path: Path):
     store = Store(tmp_path / "d.sqlite3")
     sid = store.begin_snapshot(chain_id=56, expected=100)
