@@ -10,6 +10,15 @@ def _resolver(ip: str):
     return resolve
 
 
+def _echo(host, port, *a, **kw):
+    """Stub getaddrinfo echoing the host back as its own address.
+
+    Address-based tests must not use a fixed public stub: that would return a public IP no
+    matter which host was checked, so the assertion would pass even if the guard were gutted.
+    """
+    return [(2, 1, 6, "", (host, port or 443))]
+
+
 def test_public_https_is_allowed():
     ok, reason = check_url("https://agent.example.com/a2a", resolver=_resolver("93.184.216.34"))
     assert ok is True and reason == SAFE
@@ -60,3 +69,33 @@ def test_all_resolved_ips_must_be_public():
 
     ok, reason = check_url("https://sneaky.example/x", resolver=dual)
     assert ok is False
+
+
+def test_malformed_port_is_blocked_not_raised():
+    """A registry URL is attacker-controlled; a bad port must block, never crash the prober."""
+    for url in ("http://example.com:99999/x", "http://example.com:abc/x"):
+        ok, reason = check_url(url, resolver=_echo)
+        assert ok is False and "port" in reason
+
+
+def test_malformed_url_is_blocked_not_raised():
+    """urlsplit itself raises on an unterminated IPv6 literal, before any port access."""
+    ok, reason = check_url("http://[::1", resolver=_echo)
+    assert ok is False and "malformed" in reason
+
+
+def test_shared_address_space_is_blocked():
+    """RFC 6598 CGNAT: `ipaddress` calls it neither private nor global, so it needs its own check."""
+    ok, reason = check_url("http://100.64.0.1/x", resolver=_echo)
+    assert ok is False and "shared address space" in reason
+
+
+def test_ipv4_mapped_ipv6_addresses_stay_blocked():
+    """Regression guard on _classify: the mapped forms are easy to reopen when editing it."""
+    for host, expected in (
+        ("[::ffff:127.0.0.1]", "loopback"),
+        ("[::ffff:10.0.0.5]", "private"),
+        ("[::ffff:100.64.0.1]", "shared address space"),
+    ):
+        ok, reason = check_url(f"http://{host}/x", resolver=_echo)
+        assert ok is False and expected in reason

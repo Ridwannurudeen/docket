@@ -13,6 +13,9 @@ from urllib.parse import urlsplit
 
 SAFE = "ok"
 _ALLOWED_SCHEMES = {"http", "https"}
+# RFC 6598 carrier-grade NAT. `ipaddress` reports this as neither private nor global, so it
+# needs its own check: it routes to ISP and some cloud-internal infrastructure.
+_SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
 
 
 def _classify(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str | None:
@@ -22,6 +25,10 @@ def _classify(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str | None:
         return "link-local address"
     if ip.is_private:
         return "private address"
+    # An IPv4-mapped IPv6 address (::ffff:100.64.0.1) is not `in` an IPv4 network — membership
+    # is False across versions — so compare the mapped v4 address when there is one.
+    if (getattr(ip, "ipv4_mapped", None) or ip) in _SHARED_ADDRESS_SPACE:
+        return "shared address space"
     if ip.is_reserved:
         return "reserved address"
     if ip.is_multicast:
@@ -32,12 +39,18 @@ def _classify(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str | None:
 
 
 def check_url(url: str, resolver=socket.getaddrinfo) -> tuple[bool, str]:
-    parts = urlsplit(url or "")
+    try:
+        parts = urlsplit(url or "")
+    except ValueError:  # e.g. an unterminated IPv6 literal: http://[::1
+        return False, "malformed url"
     if parts.scheme not in _ALLOWED_SCHEMES:
         return False, f"blocked scheme: {parts.scheme or '(none)'}"
     if not parts.hostname:
         return False, "no host in url"
-    port = parts.port or (443 if parts.scheme == "https" else 80)
+    try:  # `.port` parses lazily, so it raises here rather than at urlsplit
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+    except ValueError:
+        return False, "invalid port"
     try:
         infos = resolver(parts.hostname, port, 0, socket.SOCK_STREAM)
     except Exception as exc:  # DNS failure, bad host, anything
