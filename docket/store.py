@@ -82,11 +82,12 @@ class Store:
     def upsert_agents(self, rows: list[dict], snapshot_id: int) -> int:
         payload = []
         for r in rows:
+            token_id = r.get("token_id")
             payload.append(
                 (
                     snapshot_id,
                     r["agent_id"],
-                    str(r.get("token_id", "")),
+                    "" if token_id is None else str(token_id),
                     int(r.get("chain_id") or 0),
                     r.get("contract_address"),
                     (r.get("owner_address") or "").lower() or None,

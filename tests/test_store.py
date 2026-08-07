@@ -54,6 +54,27 @@ def test_upsert_refreshes_transferred_owner(tmp_path: Path):
     assert got["owner_address"] == new_owner  # ownership transfers; a stale owner breaks clustering
 
 
+def test_token_id_coercion_handles_zero_and_null(tmp_path: Path):
+    store = Store(tmp_path / "d.sqlite3")
+    sid = store.begin_snapshot(chain_id=56, expected=None)
+    absent = {**ROW, "agent_id": "absent"}
+    del absent["token_id"]
+    store.upsert_agents(
+        [
+            {**ROW, "agent_id": "zero", "token_id": 0},
+            {**ROW, "agent_id": "null", "token_id": None},
+            {**ROW, "agent_id": "text", "token_id": "257920"},
+            absent,
+        ],
+        sid,
+    )
+    stored = {a["agent_id"]: a["token_id"] for a in store.iter_agents(sid)}
+    assert stored["zero"] == "0"  # integer zero is a legitimate token id, not falsy-empty
+    assert stored["null"] == ""  # not the literal string "None"
+    assert stored["text"] == "257920"
+    assert stored["absent"] == ""
+
+
 def test_snapshot_records_partial_coverage(tmp_path: Path):
     store = Store(tmp_path / "d.sqlite3")
     sid = store.begin_snapshot(chain_id=56, expected=100)
