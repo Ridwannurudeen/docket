@@ -1,8 +1,10 @@
 import httpx
 
-from docket.ingest import ingest_bsc
+from docket.ingest import ingest_bsc, ingest_targeted
 from docket.scan8004 import Scan8004Client
 from docket.store import Store
+
+REGISTRY_TOTAL = 247_278  # what an unfiltered query reports; the filtered one must not say this
 
 
 def _row(token: int) -> dict:
@@ -107,3 +109,67 @@ def test_duplicate_rows_across_pages_do_not_inflate_the_count(tmp_path):
     result = ingest_bsc(store, client, max_pages=3)
     assert store.agent_count(result["snapshot_id"]) == 10
     assert result["sampled"] == 10  # counted from the store, not from pages served
+
+
+def _filtered_handler(matching: int, page_size: int = 100, seen: list | None = None):
+    """Serves `matching` rows, but only to requests carrying `min_feedbacks`.
+
+    An unfiltered request gets the registry-wide total and no rows, so a sweep that drops the
+    filter on any page — not just the first — corrupts its own accounting instead of passing.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        if seen is not None:
+            seen.append(dict(params))
+        if "min_feedbacks" not in params:
+            return httpx.Response(200, json={"items": [], "total": REGISTRY_TOTAL})
+        offset = int(params["offset"])
+        items = [_row(t) for t in range(offset, min(offset + page_size, matching))]
+        return httpx.Response(200, json={"items": items, "total": matching})
+
+    return handler
+
+
+def test_targeted_sweep_sends_the_filter_on_every_page(tmp_path):
+    store = Store(tmp_path / "d.sqlite3")
+    seen: list[dict] = []
+    client = Scan8004Client(
+        transport=httpx.MockTransport(_filtered_handler(250, seen=seen)), pace=False
+    )
+    ingest_targeted(store, client, min_feedbacks=3)
+    assert len(seen) > 1
+    assert all(p["min_feedbacks"] == "3" for p in seen)
+    assert [p["offset"] for p in seen] == ["0", "100", "200", "300"]
+
+
+def test_targeted_sweep_accounts_against_the_filtered_total(tmp_path):
+    store = Store(tmp_path / "d.sqlite3")
+    client = Scan8004Client(transport=httpx.MockTransport(_filtered_handler(250)), pace=False)
+    result = ingest_targeted(store, client)
+    assert result["sampled"] == 250
+    assert result["expected"] == 250  # the filtered query's total
+    assert result["expected"] != REGISTRY_TOTAL  # never the registry's
+    assert result["dropped"] == 0
+    assert result["min_feedbacks"] == 1  # so the total can never be read as registry-wide
+
+
+def test_targeted_sweep_surfaces_dropped_when_bounded(tmp_path):
+    store = Store(tmp_path / "d.sqlite3")
+    client = Scan8004Client(transport=httpx.MockTransport(_filtered_handler(250)), pace=False)
+    result = ingest_targeted(store, client, max_pages=1)
+    assert result["sampled"] == 100
+    assert result["expected"] == 250
+    assert result["dropped"] == 150  # a bounded filtered sweep states its own incompleteness
+
+
+def test_targeted_sweep_records_its_own_snapshot(tmp_path):
+    store = Store(tmp_path / "d.sqlite3")
+    client = Scan8004Client(transport=httpx.MockTransport(_filtered_handler(150)), pace=False)
+    result = ingest_targeted(store, client)
+    row = store.snapshot(result["snapshot_id"])
+    assert row["chain_id"] == 56
+    assert row["expected"] == 150
+    assert row["sampled"] == 150
+    assert row["finished_at"]
+    assert store.agent_count(result["snapshot_id"]) == 150
