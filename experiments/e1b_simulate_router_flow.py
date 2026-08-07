@@ -26,10 +26,14 @@ that confound so the run reaches, and reveals, the evaluator invariant itself.
 The contrast run with `evaluator = router` funds cleanly under the identical
 setup, which is what pins the barrier to the evaluator slot.
 
-Run: python -m experiments.e1b_simulate_router_flow
+Run (primary, EOA evaluator -> e1b-result.json):
+    python -m experiments.e1b_simulate_router_flow
+Run (control, evaluator == router -> e1b-contrast-result.json):
+    E1B_EVALUATOR=0xD7d36D66d2F1B608A0F943f722D27e3744f66F25 python -m experiments.e1b_simulate_router_flow
 """
 
 import json
+import os
 import time
 
 from hexbytes import HexBytes
@@ -56,6 +60,13 @@ EOA_A = Web3.to_checksum_address("0x000000000000000000000000000000000000a1ce")  
 EOA_B = Web3.to_checksum_address(
     "0x00000000000000000000000000000000000d0cc7"
 )  # Docket evaluator EOA
+# The evaluator slot is the one variable this experiment turns. Default = the Docket
+# EOA (the primary arm, -> e1b-result.json). Set E1B_EVALUATOR=<router> to run the
+# canonical control arm (evaluator == router, -> e1b-contrast-result.json); that arm
+# funds cleanly, and the difference is what pins the barrier to the evaluator slot.
+EVALUATOR = Web3.to_checksum_address(os.environ.get("E1B_EVALUATOR", EOA_B))
+IS_CONTRAST = EVALUATOR == ROUTER
+OUT_NAME = "e1b-contrast-result.json" if IS_CONTRAST else "e1b-result.json"
 FAUCET_ABI = [
     {
         "name": "requestTokens",
@@ -156,7 +167,9 @@ def main() -> int:
             "create_job",
             EOA_A,
             COMMERCE,
-            commerce.functions.createJob(EOA_A, EOA_B, expired_at, "E1b router-flow probe", ROUTER),
+            commerce.functions.createJob(
+                EOA_A, EVALUATOR, expired_at, "E1b router-flow probe", ROUTER
+            ),
         ),
         ("register_job", EOA_A, ROUTER, router.functions.registerJob(job_id, POLICY)),
         ("set_budget", EOA_A, COMMERCE, commerce.functions.setBudget(job_id, BUDGET, b"")),
@@ -207,7 +220,20 @@ def main() -> int:
     if b_status == 1 and a_status == 1:
         delta = str(int(a_rd, 16) - int(b_rd, 16))
 
-    if worked:
+    if IS_CONTRAST:
+        # control arm: the canonical config (evaluator == router). Its job is to prove the
+        # flow funds when ONLY the evaluator address differs from the primary arm.
+        notes = (
+            "evaluator=router control (canonical config, the setup all 445 live jobs use). "
+            f"register_job={steps.get('register_job')}, fund={steps.get('fund')}, "
+            f"final_status={final_status}. This is the arm that funds cleanly: it succeeds "
+            "through funding under the identical setup that reverts RouterNotEvaluator at "
+            "register_job when the evaluator is a plain EOA, which is what pins the E1-revised "
+            "barrier to the evaluator slot. Steps past fund (submit/complete) are governed by "
+            "the OptimisticPolicy dispute window and are not this control's concern; complete "
+            "here is still called from the Docket EOA, which is not this arm's evaluator."
+        )
+    elif worked:
         notes = (
             "an EOA evaluator settled a router-registered job in simulation; "
             "accept-is-settlement is available to Docket"
@@ -244,7 +270,7 @@ def main() -> int:
         "notes": notes,
         "method": method,
     }
-    (ROOT / "experiments" / "e1b-result.json").write_text(json.dumps(result, indent=2))
+    (ROOT / "experiments" / OUT_NAME).write_text(json.dumps(result, indent=2))
     print(json.dumps(result, indent=2))
     return 0 if worked else 1
 

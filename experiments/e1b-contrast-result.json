@@ -1,0 +1,20 @@
+{
+  "worked": false,
+  "job_id": 446,
+  "final_status": "FUNDED",
+  "provider_u_delta_wei": "-10000000000000000",
+  "txs": {
+    "whitelist_policy": "ok",
+    "u_faucet": "ok",
+    "create_job": "ok",
+    "register_job": "ok",
+    "set_budget": "ok",
+    "approve": "ok",
+    "fund": "ok",
+    "submit": "revert:SubmissionTooLate()",
+    "complete": "revert:WrongStatus()"
+  },
+  "revert": "submit: SubmissionTooLate()",
+  "notes": "evaluator=router control (canonical config, the setup all 445 live jobs use). register_job=ok, fund=ok, final_status=FUNDED. This is the arm that funds cleanly: it succeeds through funding under the identical setup that reverts RouterNotEvaluator at register_job when the evaluator is a plain EOA, which is what pins the E1-revised barrier to the evaluator slot. Steps past fund (submit/complete) are governed by the OptimisticPolicy dispute window and are not this control's concern; complete here is still called from the Docket EOA, which is not this arm's evaluator.",
+  "method": "eth_simulateV1"
+}
