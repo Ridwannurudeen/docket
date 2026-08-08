@@ -1,9 +1,11 @@
 import json
 import re
 
+import httpx
 import pytest
 
-from docket.agents.pancake.doctor import diagnose
+from docket.agents.pancake.doctor import diagnose, report
+from docket.agents.pancake.pools import PoolClient
 
 # Every fixture below is a real reading taken from BSC mainnet on 2026-08-08:
 # token 7087132 (staked in MasterChefV3) in the QQQB/USDT 0.01% pool.
@@ -115,3 +117,75 @@ def test_diagnosis_never_uses_the_language_of_endorsement():
         text = json.dumps({"findings": d["findings"], "actions": d["actions"]})
         banned = re.findall(r"\b(safe|safety|safest|recommended|guaranteed|best)\b", text, re.I)
         assert banned == [], f"endorsement language leaked from {d['status']}: {banned}"
+
+
+class _StubReader:
+    """A `PositionReader` with the network taken out, recording how it was called."""
+
+    def __init__(self, read: dict) -> None:
+        self._read = read
+        self.calls: list[tuple] = []
+
+    def wallet_positions(self, address, *, limit=None, include_closed=False):
+        self.calls.append((address, limit, include_closed))
+        return self._read
+
+    def pool_state(self, token0, token1, fee):
+        return POOL
+
+
+def _pool_client() -> PoolClient:
+    """A `PoolClient` served the one row the fixtures use, plus its allowlist."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "tokens.pancakeswap.finance":
+            return httpx.Response(
+                200,
+                json={
+                    "tokens": [
+                        {"chainId": 56, "address": ROW["token0"]["id"]},
+                        {"chainId": 56, "address": ROW["token1"]["id"]},
+                    ]
+                },
+            )
+        return httpx.Response(200, json=[ROW])
+
+    return PoolClient(transport=httpx.MockTransport(handler))
+
+
+def test_report_counts_the_closed_positions_it_left_out():
+    """A short list must not be able to pass for the whole wallet."""
+    reader = _StubReader(
+        {
+            "positions": [POSITION],
+            "positions_held": 155,
+            "positions_examined": 40,
+            "closed_skipped": 39,
+        }
+    )
+    with _pool_client() as client:
+        out = report("0xwallet", reader=reader, pools=client)
+
+    assert out["positions_held"] == 155
+    assert out["positions_examined"] == 40
+    assert out["closed_skipped"] == 39
+    assert len(out["positions"]) == 1
+    assert out["positions"][0]["diagnosis"]["status"] == "in_range"
+
+
+def test_report_passes_the_bounds_through_to_the_reader():
+    reader = _StubReader(
+        {
+            "positions": [{**POSITION, "liquidity": 0}],
+            "positions_held": 4,
+            "positions_examined": 2,
+            "closed_skipped": 0,
+        }
+    )
+    with _pool_client() as client:
+        out = report("0xwallet", reader=reader, pools=client, limit=2, include_closed=True)
+
+    assert reader.calls == [("0xwallet", 2, True)]
+    # `include_closed` reaches the diagnosis: the closed position is reported, not dropped.
+    assert out["positions"][0]["diagnosis"]["status"] == "closed"
+    assert out["positions"][0]["pool"] is None

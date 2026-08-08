@@ -182,12 +182,21 @@ def report(
     *,
     reader: PositionReader | None = None,
     pools: PoolClient | None = None,
+    limit: int | None = None,
+    include_closed: bool = False,
 ) -> dict:
-    """Diagnose every v3 position a wallet controls, held directly or staked.
+    """Diagnose the v3 positions a wallet controls, held directly or staked.
 
     The rejected pools travel in the output rather than being filtered away in
     silence: a list the user cannot audit is worth less than one that shows what
     it refused and why.
+
+    The same rule governs the positions that are not diagnosed. `limit` bounds
+    how many are read at all and `include_closed` decides whether the ones
+    holding nothing are worth returning, and both hand back a count: the output
+    carries `positions_held`, `positions_examined` and `closed_skipped` so a
+    truncated report says "37 of these were closed" rather than showing a short
+    list and letting it pass for the whole wallet.
     """
     reader = reader or PositionReader()
     borrowed = pools is not None
@@ -220,9 +229,10 @@ def report(
 
     pool_cache: dict[tuple, dict] = {}
     entries = []
-    for position in reader.wallet_positions(address):
-        # A zero-liquidity position is `closed` whatever its pool is doing, and
-        # wallets accumulate them by the hundred. Reading a pool only to ignore
+    read = reader.wallet_positions(address, limit=limit, include_closed=include_closed)
+    for position in read["positions"]:
+        # Only reached under `include_closed`. A zero-liquidity position is
+        # `closed` whatever its pool is doing, so reading a pool only to ignore
         # it is four RPC calls spent to change nothing.
         if position["liquidity"] == 0:
             entries.append(
@@ -246,6 +256,9 @@ def report(
     return {
         "address": address,
         "computed_at": datetime.now(timezone.utc).isoformat(),
+        "positions_held": read["positions_held"],
+        "positions_examined": read["positions_examined"],
+        "closed_skipped": read["closed_skipped"],
         "positions": entries,
         "pools": {"checked": len(rows), "rejected": rejected},
     }

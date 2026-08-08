@@ -173,8 +173,37 @@ class PositionReader:
                         time.sleep(RETRY_PAUSE_S)
         raise RuntimeError("every BSC endpoint failed:\n  " + "\n  ".join(failures))
 
-    def wallet_positions(self, address: str) -> list[dict]:
-        """Every v3 position the wallet controls, held directly or staked in the farm.
+    def wallet_positions(
+        self,
+        address: str,
+        *,
+        limit: int | None = None,
+        include_closed: bool = False,
+    ) -> dict:
+        """The wallet's v3 positions, held directly or staked, with counts of what was left out.
+
+        Enumeration costs two sequential calls per position — one
+        `tokenOfOwnerByIndex`, one `positions` — and a dataseed answers each in
+        about a second, so a wallet holding 155 of them takes five minutes. The
+        two arguments below are the levers for that, and they do different jobs.
+
+        `limit` caps how many token ids are enumerated, across the NPM holdings
+        and then the staked ones in that order. It is the only argument that
+        makes the read cheaper: a limit of 10 is 20 enumeration calls whatever
+        the wallet holds, on top of the three fixed reads. A wallet whose direct
+        holdings exceed the limit has none of its staked positions reached, which
+        is why the total is reported separately.
+
+        `include_closed` does not save a single call — liquidity is only known
+        once `positions` has already been read — it decides what is worth
+        returning. A position with zero liquidity holds nothing in the pool and
+        cannot be advised on, and wallets accumulate them by the hundred.
+
+        Both leave a count behind rather than a silence. `positions_held` is the
+        wallet's true total from the two `balanceOf` reads, `positions_examined`
+        is how many of those were actually read, and `closed_skipped` is how many
+        of the examined ones were dropped for holding nothing. A caller can
+        always say what it did not look at.
 
         `block_number` is read once, before enumeration, and is the block the
         read began at: a wallet with hundreds of positions takes long enough that
@@ -185,13 +214,19 @@ class PositionReader:
         block = self._call(lambda w3: w3.eth.block_number)
 
         held: list[tuple[int, bool]] = []
+        held_total = 0
         for holder, staked in ((NPM, False), (MASTER_CHEF_V3, True)):
             count = self._call(
                 lambda w3, h=holder: (
                     w3.eth.contract(address=h, abi=HOLDER_ABI).functions.balanceOf(owner).call()
                 )
             )
+            # Counted even when the limit stops the enumeration short, so the
+            # total is the wallet's, not this read's.
+            held_total += count
             for index in range(count):
+                if limit is not None and len(held) >= limit:
+                    break
                 token_id = self._call(
                     lambda w3, h=holder, i=index: (
                         w3.eth.contract(address=h, abi=HOLDER_ABI)
@@ -202,12 +237,16 @@ class PositionReader:
                 held.append((token_id, staked))
 
         positions = []
+        closed_skipped = 0
         for token_id, staked in held:
             raw = self._call(
                 lambda w3, t=token_id: (
                     w3.eth.contract(address=NPM, abi=NPM_ABI).functions.positions(t).call()
                 )
             )
+            if raw[7] == 0 and not include_closed:
+                closed_skipped += 1
+                continue
             positions.append(
                 {
                     "token_id": token_id,
@@ -223,7 +262,12 @@ class PositionReader:
                     "block_number": block,
                 }
             )
-        return positions
+        return {
+            "positions": positions,
+            "positions_held": held_total,
+            "positions_examined": len(held),
+            "closed_skipped": closed_skipped,
+        }
 
     def pool_state(self, token0: str, token1: str, fee: int) -> dict:
         """Current tick, sqrt price and active liquidity for a pool.
