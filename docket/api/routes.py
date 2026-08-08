@@ -8,8 +8,16 @@ response that carries a count carries the snapshot it was counted in.
 Errors are `{"error": {"code", "message"}}` at every status. FastAPI's default
 `{"detail": ...}` is registered away deliberately — an agent that has been told
 one error shape should never receive two.
+
+The hire routes are the one exception to "nothing here writes": they run work.
+They still write nothing Docket has observed, and they are deliberately built so
+a caller with no account, no key and no wallet gets real work back on the first
+request — payment is additive, and a missing `DOCKET_PAY_TO` disables the priced
+tier rather than the service.
 """
 
+import os
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -20,14 +28,19 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
+from ..hire.catalogue import SERVICES, get_service
+from ..hire.receipts import build_receipt
+from ..hire.x402 import build_challenge, parse_payment_header, verify_authorization
 from ..signals import signals_for
 from ..store import Store
 from .models import (
     AgentDetail,
     AgentSummary,
+    CatalogueResponse,
     Coverage,
     EndpointObservation,
     ListResponse,
+    ServiceListing,
     StatsResponse,
 )
 
@@ -41,6 +54,15 @@ WEB_DIR = Path(__file__).parent / "web"
 CHAIN_ID = 56
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
+# How much work one caller may take per hour. The allowance counts EVERY hire, not
+# only the ones served without an authorization: hire/x402.py never remembers a
+# nonce, so one valid signature verifies for ever, and an allowance that a payer
+# stepped past would let a single replayed signature buy unlimited work. So the
+# allowance is what bounds this service, and an authorization changes the receipt
+# rather than the allowance — Docket does not settle, and a signature it cannot
+# mark as spent must not buy work a free caller could not have had.
+FREE_TIER_HIRES = 20
+FREE_TIER_WINDOW_S = 3600
 # Stated on every /stats response: a number about liveness is unreadable without it.
 PROBE_METHOD = (
     "One GET per declared A2A or MCP endpoint, single attempt, 8s timeout, redirects not "
@@ -123,6 +145,12 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
     # request that happened to ask for it.
     llms_body = (STATIC_DIR / "llms.txt").read_text(encoding="utf-8")
     skill_body = (STATIC_DIR / "SKILL.md").read_text(encoding="utf-8")
+    # Unset means no recipient exists to name in a challenge, so the priced tier is
+    # off and the free tier serves unmetered. Read once here rather than per
+    # request: the terms a caller is quoted must not change under it mid-session.
+    pay_to = os.environ.get("DOCKET_PAY_TO") or None
+    # Per app instance, so one process's allowances never outlive it. {ip: (window_start, used)}.
+    hires: dict[str, tuple[float, int]] = {}
 
     app = FastAPI(
         title="Docket",
@@ -158,6 +186,25 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             )
         return snapshot_id
 
+    def _spend_allowance(client_ip: str) -> int | None:
+        """Take one hire from this IP's allowance. Returns None when it was there to take,
+        or the seconds until the allowance resets when it was not.
+
+        Keyed on the peer address only. `X-Forwarded-For` is caller-controlled, and reading
+        it here would turn the allowance into a header anyone can rewrite.
+        """
+        if pay_to is None:
+            return None
+        now = time.monotonic()
+        started, used = hires.get(client_ip, (now, 0))
+        if now - started >= FREE_TIER_WINDOW_S:
+            started, used = now, 0
+        if used >= FREE_TIER_HIRES:
+            hires[client_ip] = (started, used)
+            return int(FREE_TIER_WINDOW_S - (now - started)) + 1
+        hires[client_ip] = (started, used + 1)
+        return None
+
     @app.get("/")
     def root(request: Request):
         """One URL, two audiences. A browser says it wants HTML and gets the page; anything
@@ -176,6 +223,7 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             "openapi": "/openapi.json",
             "stats": "/stats",
             "agents": "/agents",
+            "hire": "/hire",
             "health": "/health",
         }
 
@@ -319,6 +367,122 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             observations=observations,
             coverage=_coverage(coverage_report(store, sid)),
         )
+
+    @app.get("/hire", response_model=CatalogueResponse)
+    def hire_catalogue() -> CatalogueResponse:
+        """What Docket sells, in the order a caller needs it: what arrives, what to send,
+        how long to wait, what it costs. Static — no snapshot, no store, no network."""
+        return CatalogueResponse(
+            services=[
+                ServiceListing(
+                    id=svc.id,
+                    name=svc.name,
+                    what_you_get=svc.what_you_get,
+                    input_schema=svc.input_schema,
+                    typical_seconds=svc.typical_seconds,
+                    price_display=svc.price_display,
+                    price_atomic=svc.price_atomic,
+                    asset=svc.asset,
+                )
+                for svc in SERVICES.values()
+            ]
+        )
+
+    @app.post("/hire/{service_id}", response_model=None)
+    async def hire(service_id: str, request: Request) -> JSONResponse | dict:
+        """Run one service and return the result bound to a receipt.
+
+        Ordered so a caller learns what is wrong before anything is spent on its behalf:
+        an unknown service and a malformed request cost no allowance, and the work runs
+        only once the request is known to be servable.
+        """
+        service = get_service(service_id)
+        if service is None:
+            return _error(
+                404,
+                "service_not_found",
+                f"No service {service_id!r}. GET /hire lists every service Docket offers.",
+            )
+        try:
+            payload = await request.json()
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict):
+            return _error(
+                400,
+                "invalid_json",
+                f'The body must be a JSON object, e.g. {{"wallet": "0x…"}}. '
+                f"GET /hire carries {service.id}'s full input schema.",
+            )
+        missing = [
+            name
+            for name, field in service.input_schema.items()
+            if field.get("required") and payload.get(name) is None
+        ]
+        if missing:
+            return _error(
+                422,
+                "missing_field",
+                f"{service.id} requires {', '.join(missing)}. "
+                "GET /hire carries the full input schema.",
+            )
+
+        # Read before the allowance is spent so a rejected authorization can be named in
+        # the 402 — a payer whose signature is wrong needs to know which field to fix.
+        authorization = parse_payment_header(request.headers)
+        verdict = None
+        if authorization is not None and pay_to is not None:
+            verdict = verify_authorization(
+                authorization, expected_to=pay_to, expected_value=service.price_atomic
+            )
+
+        resets_in = _spend_allowance(request.client.host if request.client else "unknown")
+        if resets_in is not None:
+            message = (
+                f"This caller has used its allowance of {FREE_TIER_HIRES} hires per hour; it "
+                f"resets in {resets_in}s. Docket verifies payment authorizations and does not "
+                "settle them, so signing the offer below does not raise the allowance."
+            )
+            if verdict is not None and not verdict[0]:
+                message += f" The authorization presented was also not accepted: {verdict[1]}."
+            return JSONResponse(
+                status_code=402,
+                content={
+                    **build_challenge(service, pay_to, resource=str(request.url)),
+                    "error": {"code": "free_tier_exhausted", "message": message},
+                },
+            )
+
+        try:
+            result = service.run(payload)
+        # The wallet in the payload reaches an address parser and an RPC, so both a caller's
+        # typo and an upstream outage surface here. Reported as the contract shape at a
+        # status that says whose problem it is, never as an untyped 500.
+        except ValueError as exc:
+            return _error(422, "invalid_field", f"{service.id} could not read that request: {exc}")
+        except Exception as exc:
+            return _error(
+                502,
+                "service_failed",
+                f"{service.id} could not complete: {type(exc).__name__}: {exc}",
+            )
+
+        if verdict is not None and verdict[0]:
+            payment = {
+                "status": "verified_unsettled",
+                "asset": service.asset,
+                "amount": str(service.price_atomic),
+                "payer": str(authorization["message"]["from"]),
+                "settlement": "not performed by Docket",
+            }
+        elif verdict is not None:
+            payment = {"status": "free_tier", "authorization_rejected": verdict[1]}
+        else:
+            payment = {"status": "free_tier"}
+        return {
+            "result": result,
+            "receipt": build_receipt(service.id, payload, result, payment=payment),
+        }
 
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
     return app

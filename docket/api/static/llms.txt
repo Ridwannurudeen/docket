@@ -19,10 +19,14 @@ Started with:
 
     python -m uvicorn --factory "docket.api:create_app" --host 127.0.0.1 --port 8099
 
-No authentication, no API key, no rate limit. Only GET is served. Nothing here writes,
-sweeps, or probes anything, so a caller cannot change what Docket has observed by
-calling it. Responses are JSON except /llms.txt (text/plain) and /skill.md
-(text/markdown). CORS: GET from any origin, no credentials.
+No authentication, no API key, no account, no wallet. Every path but one is GET and
+read-only, so a caller cannot change what Docket has observed by calling it. The
+exception is POST /hire/{service_id}, which runs work — it needs no credentials
+either, and the free tier serves it on the first request. See "Hiring" below.
+
+Responses are JSON except /llms.txt (text/plain) and /skill.md (text/markdown). CORS
+is GET-only from any origin, no credentials, so a cross-origin browser page cannot
+hire; hire from a CLI, a server, or same-origin.
 
 Docket serves one snapshot at a time. Which one is stated in every response that
 carries a number, and at GET /health.
@@ -106,6 +110,34 @@ GET /agents/{agent_id}
 
     curl -s "$DOCKET/agents/56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:49637"
 
+GET /hire
+    The catalogue: everything Docket sells. No parameters, no snapshot involved.
+    Returns {"services": [...]}, each service carrying:
+
+      id                the value to put in the POST path
+      name              human label
+      what_you_get      what the service does, stated as work performed
+      input_schema      {field: {type, required, description, default?}} — the whole
+                        contract for the request body
+      typical_seconds   how long one run usually takes
+      price_display     the price as a human string, e.g. "0.01 $U"
+      price_atomic      the same price in the asset's smallest unit
+      asset             the token contract the price is denominated in
+
+    curl -s "$DOCKET/hire"
+
+POST /hire/{service_id}
+    Runs the service and returns the result bound to a receipt. The body is JSON,
+    with the fields that service's input_schema marks required. No account, key or
+    wallet is needed.
+
+    curl -s -X POST "$DOCKET/hire/range-doctor" \
+      -H 'content-type: application/json' \
+      -d '{"wallet":"0x451871A1753903FB8fdd64a6B838E95aB8D5B80f","limit":5}'
+
+    Returns {"result": {...}, "receipt": {...}}. Read "Hiring" below before quoting
+    anything from the receipt.
+
 GET /llms.txt
     This file. text/plain.
 
@@ -133,9 +165,19 @@ Every error, at every status, has the same shape:
 Branch on "code", which is stable. "message" is prose for a human and may change.
 
       agent_not_found          404  no such agent in the served snapshot
+      service_not_found        404  no such service; GET /hire lists them
       not_found                404  no such path
       method_not_allowed       405  the path exists, that method does not
+      invalid_json             400  the hire body was not a JSON object
+      missing_field            422  the hire body omitted a required field; the message
+                                    names it
+      invalid_field            422  a field was present and the service could not read
+                                    it, e.g. a wallet that is not an address
       invalid_query_parameter  422  message names the offending parameter
+      free_tier_exhausted      402  the hire allowance is spent; the body carries the
+                                    x402 challenge alongside this error
+      service_failed           502  the service could not complete; the message names
+                                    the failure, usually an upstream one
       no_snapshot              503  nothing has been ingested yet
 
 
@@ -234,6 +276,96 @@ Read what that does and does not say.
 Reproduce it:
 
     curl -s "$DOCKET/stats"
+
+
+## Hiring
+
+Docket does not only describe agents, it runs some. GET /hire is the catalogue,
+POST /hire/{service_id} is the work, and a caller that has read nothing but this file
+can do both with curl and no setup.
+
+### The free tier is the default, not a trial
+
+Every service is served without an account, a key, a wallet or a signature. Where a
+payment recipient is configured the free tier is an allowance of 20 hires per caller
+per hour; where none is configured there is no allowance and no limit at all, because
+a 402 naming nobody to pay is an error a caller cannot act on.
+
+The allowance counts every hire, including hires that arrive with a payment
+authorization. Docket cannot mark a signature as spent — see below — so an
+authorization that stepped past the allowance would let one signature buy unlimited
+work. Signing the offer changes the receipt, not the allowance.
+
+### The receipt
+
+Every hire returns {"result": {...}, "receipt": {...}}. The receipt has five fields:
+
+      service       the service id that ran
+      input_hash    SHA-256 over the request body you sent
+      output_hash   SHA-256 over the "result" object you received
+      delivered_at  ISO 8601 UTC, when the result was handed over
+      payment       the status this hire was served under, and what it rests on
+
+A receipt records delivery and nothing else. It does not assert the work is correct,
+and Docket does not sign it: it is a self-check for the caller, not a third-party
+attestation.
+
+### Recomputing the hashes yourself
+
+Both are plain SHA-256 over canonical JSON, 0x-prefixed. Canonical means sorted keys,
+no whitespace between separators, UTF-8, and non-ASCII text hashed as its own bytes
+rather than as \uXXXX escapes. In Python, exactly:
+
+    import hashlib, json
+
+    def digest(obj):
+        blob = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return "0x" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+    digest(request_body)       == receipt["input_hash"]
+    digest(response["result"]) == receipt["output_hash"]
+
+ensure_ascii=False is part of the recipe, not an implementation detail: with
+ensure_ascii=True a non-ASCII payload hashes to something else. Everything Docket
+puts in a result today is ASCII, where the two settings agree — but a field you send
+need not be. Recompute both: a receipt whose input_hash is not the hash of what you
+sent is describing some other request.
+
+### What a payment status means, exactly
+
+payment.status is one of two values.
+
+  free_tier
+      No authorization was verified for this hire. Nothing was owed and nothing was
+      transferred. If you did send an authorization and still see this, the receipt
+      carries "authorization_rejected" with the reason it was not accepted.
+
+  verified_unsettled
+      Docket checked an EIP-712 signature and it holds: it names Docket's recipient,
+      covers the price, is on chain 56, has not expired, and recovers to the address
+      it declares as its payer. That is the whole of what was established. Docket did
+      NOT settle it — no transaction was broadcast, no balance was read, nothing
+      moved. The receipt states "settlement": "not performed by Docket" for exactly
+      that reason. Do not report a hire with this status as settled.
+
+When the allowance is spent the response is 402 carrying an x402 v2 challenge —
+"x402Version": 2 and an "accepts" array — beside the usual error object, so an x402
+client and a Docket-aware agent each read the body they expect. One rail is
+advertised: extra.assetTransferMethod is "eip3009", a TransferWithAuthorization over
+the asset the offer names, with the EIP-712 domain name and version carried in
+"extra" so the message can be built from the challenge alone. No second rail is
+offered, because no second rail is verified here. Send the signed authorization
+base64-encoded in X-PAYMENT; PAYMENT-SIGNATURE is read as well.
+
+### What the payment layer does not check
+
+Listed because a payment layer quiet about its gaps is how a service ends up claiming
+money it never received. The payer's balance is never read, so a valid signature from
+an empty wallet verifies exactly like one from a full wallet. The signed domain's
+verifyingContract is not compared against the advertised asset. The nonce is carried
+and not remembered, so one authorization verifies as many times as it is presented —
+which is why the allowance counts every hire. Only the expiry end of the validity
+window is checked, not validAfter.
 
 
 ## Observations, not endorsements

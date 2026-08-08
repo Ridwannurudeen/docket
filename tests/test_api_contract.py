@@ -4,12 +4,22 @@ from docket.api.models import (
     BANNED_FIELD_NAMES,
     AgentDetail,
     AgentSummary,
+    CatalogueResponse,
     Coverage,
     ListResponse,
+    ServiceListing,
     StatsResponse,
 )
 
-ALL_MODELS = [Coverage, AgentSummary, AgentDetail, ListResponse, StatsResponse]
+ALL_MODELS = [
+    Coverage,
+    AgentSummary,
+    AgentDetail,
+    ListResponse,
+    StatsResponse,
+    ServiceListing,
+    CatalogueResponse,
+]
 
 
 def _field_names(model: type[pydantic.BaseModel]) -> set[str]:

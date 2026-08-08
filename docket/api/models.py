@@ -101,5 +101,23 @@ class StatsResponse(pydantic.BaseModel):
     probe_method: str
 
 
+class ServiceListing(pydantic.BaseModel):
+    """One hireable service as `GET /hire` publishes it. Everything a caller needs to build a
+    request without asking anyone: what arrives, what to send, how long to wait, what it costs."""
+
+    id: str
+    name: str
+    what_you_get: str
+    input_schema: dict
+    typical_seconds: int
+    price_display: str
+    price_atomic: int
+    asset: str
+
+
+class CatalogueResponse(pydantic.BaseModel):
+    services: list[ServiceListing]
+
+
 class ErrorBody(pydantic.BaseModel):
     error: dict[str, str]

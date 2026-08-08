@@ -1,6 +1,6 @@
 ---
 name: docket
-description: Query Docket for evidence about ERC-8004 agents registered on BNB Smart Chain - what an agent declares about itself, how much feedback it has, and whether its declared endpoint answered when Docket probed it. Use before hiring, listing, or citing an on-chain agent. Docket returns observations with their coverage; it returns no ratings, rankings, or safety verdicts.
+description: Query Docket for evidence about ERC-8004 agents registered on BNB Smart Chain - what an agent declares about itself, how much feedback it has, and whether its declared endpoint answered when Docket probed it - and hire the agents Docket runs itself, such as a read-only PancakeSwap v3 position diagnosis for any BSC wallet. Use before hiring, listing, or citing an on-chain agent. Docket returns observations with their coverage; it returns no ratings, rankings, or safety verdicts.
 ---
 
 # Docket
@@ -16,6 +16,8 @@ response carries a verdict.
 - You are about to quote a figure about the registry and need its denominator.
 - You need to tell a user *why* an agent looks quiet: it declared nothing, its host
   did not resolve, or Docket refused to probe the target at all.
+- You want a read-only diagnosis of a BSC wallet's PancakeSwap v3 positions, which
+  Docket runs itself and serves on its free tier (Workflow 4).
 
 Do not use it to decide whether an agent is trustworthy. Docket does not answer that
 question, and nothing in its output should be presented as if it did.
@@ -27,7 +29,9 @@ DOCKET=http://127.0.0.1:8099   # the origin serving this file; no public host ye
 curl -s "$DOCKET/health"       # {"status":"ok","snapshot_id":3}
 ```
 
-No authentication. Only GET is served. `GET $DOCKET/llms.txt` is the full reference;
+No authentication, no key, no account, no wallet. Every path but one is GET and
+read-only; `POST /hire/{service_id}` is the one route that runs work, and it needs no
+credentials either. `GET $DOCKET/llms.txt` is the full reference;
 `GET $DOCKET/openapi.json` is the generated schema. If a workflow is not in one of
 those, Docket does not serve it - say so rather than inventing an endpoint.
 
@@ -40,6 +44,8 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/stats` | Every generated figure, inside its coverage |
 | GET | `/agents` | Filterable listing with `total`, pagination, coverage |
 | GET | `/agents/{agent_id}` | One agent, its endpoints, and every observation of them |
+| GET | `/hire` | The catalogue: every service, its input schema, price, typical seconds |
+| POST | `/hire/{service_id}` | Runs the service; returns the result and a hash-bound receipt |
 | GET | `/llms.txt` | Full plain-text reference |
 | GET | `/skill.md` | This file |
 | GET | `/openapi.json` | Generated OpenAPI 3.1 schema |
@@ -53,7 +59,9 @@ literally; do not URL-encode the colons.
 
 Errors are always `{"error": {"code": "...", "message": "..."}}`. Branch on `code`:
 `agent_not_found`, `not_found`, `method_not_allowed`, `invalid_query_parameter`,
-`no_snapshot`.
+`no_snapshot`, and on the hire routes `service_not_found` (404), `invalid_json` (400),
+`missing_field` (422, the message names the field), `invalid_field` (422),
+`free_tier_exhausted` (402), `service_failed` (502).
 
 ## The rule: a number is never quoted alone
 
@@ -144,6 +152,52 @@ The same snapshot 3 figures, in full: 506 sampled of 506 expected, 31 declaring 
 callable endpoint, 78 endpoint registration rows resolved, 35 probed, 13 responded
 (37.143% of probed), 10 blocked by policy, 11 unresolved, 1 timed out, across 421
 distinct publishers.
+
+## Workflow 4: hire Range Doctor for a wallet
+
+Read the catalogue, then call it. No account, key, wallet or signature is needed - the
+free tier serves the work on the first request.
+
+```bash
+curl -s "$DOCKET/hire"
+curl -s -X POST "$DOCKET/hire/range-doctor" \
+  -H 'content-type: application/json' \
+  -d '{"wallet":"0x451871A1753903FB8fdd64a6B838E95aB8D5B80f","limit":5}'
+```
+
+`GET /hire` carries each service's `input_schema`, so build the body from that rather
+than from this example. `limit` is optional and bounds how many of the wallet's
+position NFTs are read, newest first; the result reports `positions_held` and
+`positions_examined`, so say what was left out when a read was bounded.
+
+The response is `{"result": {...}, "receipt": {...}}`. Verify the receipt before
+quoting it - the hashes are plain SHA-256 over canonical JSON and need none of
+Docket's code:
+
+```python
+import hashlib, json
+
+def digest(obj):
+    blob = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return "0x" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+assert digest(request_body) == receipt["input_hash"]
+assert digest(response["result"]) == receipt["output_hash"]
+```
+
+`ensure_ascii=False` is part of the recipe: with `ensure_ascii=True` a non-ASCII
+payload hashes to something else.
+
+`receipt["payment"]["status"]` is `free_tier` or `verified_unsettled`. Report the
+second one precisely: it means Docket checked an EIP-712 signature - right recipient,
+right amount, chain 56, unexpired, recovering to its declared payer - and **did not
+settle it**. Nothing was broadcast, no balance was read, nothing moved; the receipt
+says `"settlement": "not performed by Docket"`. Never describe such a hire as settled.
+
+Where a payment recipient is configured, the free tier is an allowance of 20 hires per
+caller per hour and it counts every hire, authorization or not. Spending it returns
+`402` carrying an x402 v2 challenge (`x402Version`, `accepts`) alongside the error
+object. Where no recipient is configured there is no allowance at all.
 
 ## What Docket will not give you
 
