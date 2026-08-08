@@ -419,21 +419,21 @@ carries the steps needed to repeat it.
 
 Three results. Two of them are qualified, and the qualifications are the point:
 
-  01-liquidity   43.06s hired against 528.31s by hand. Both arms reached the same
+  01-liquidity   43.063s hired against 528.31s by hand. Both arms reached the same
                  answer and the same rate. The saving is arithmetic: annualising
                  PancakeSwap's printed 24h fee figure without subtracting the
                  protocol's third reads 22.99%, where the rate an LP actually earns is
                  15.4%. The hire also read all 14 position NFTs in one call — but it
                  skipped the 13 closed ones and offers no way to ask for them.
 
-  02-trading     1.84s against 221.74s, and the hire does not answer the question. It
+  02-trading     1.844s against 221.739s, and the hire does not answer the question. It
                  returns the provenance material — receipt sequence, receipt head hash,
                  the anchor's transaction — and its own terms block says
                  buyer_must_verify_receipt_head is true. Recomputing 384 receipts from
                  genesis and reading the anchor's metadataValue on chain stays with the
                  buyer. Do not quote that ratio as a saving on dating the call.
 
-  03-security    2.62s against 74.21s, and the agent arm lost on substance. The manual
+  03-security    2.625s against 74.213s, and the agent arm lost on substance. The manual
                  arm found four hostile vectors and called BLOCK; the hire returned
                  SANITIZE naming one class, and three of the four survive verbatim in
                  the sanitized text it handed back. A follow-up run reported on the page

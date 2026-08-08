@@ -158,7 +158,7 @@
                 <tr>
                   <th scope="row"><a href="#01-liquidity">01-liquidity</a></th>
                   <td>yield/LP</td>
-                  <td class="num">43.06 s</td>
+                  <td class="num">43.063 s</td>
                   <td class="num">528.31 s</td>
                   <td class="num">12.27x</td>
                   <td>
@@ -169,8 +169,8 @@
                 <tr>
                   <th scope="row"><a href="#02-trading">02-trading</a></th>
                   <td>trading</td>
-                  <td class="num">1.84 s</td>
-                  <td class="num">221.74 s</td>
+                  <td class="num">1.844 s</td>
+                  <td class="num">221.739 s</td>
                   <td class="num">120.25x</td>
                   <td>
                     The hire returns provenance material, not verification. The ratio is not a
@@ -180,8 +180,8 @@
                 <tr>
                   <th scope="row"><a href="#03-security">03-security</a></th>
                   <td>security</td>
-                  <td class="num">2.62 s</td>
-                  <td class="num">74.21 s</td>
+                  <td class="num">2.625 s</td>
+                  <td class="num">74.213 s</td>
                   <td class="num">28.27x</td>
                   <td>
                     The manual arm found four hostile vectors and called BLOCK. The hire returned
@@ -262,7 +262,7 @@
               <h3>Agent arm</h3>
               <dl class="deflist">
                 <dt>Elapsed</dt>
-                <dd class="num">43.06 s</dd>
+                <dd class="num">43.063 s</dd>
                 <dt>Cost</dt>
                 <dd>0.01 $U — one hire at the catalogue price; this run was served on Docket's free hourly allowance, so nothing was actually transferred and out-of-pocket was 0</dd>
                 <dt>Output hash</dt>
@@ -290,7 +290,7 @@
           <div class="panel">
             <dl class="deflist">
               <dt>Elapsed, agent</dt>
-              <dd class="num">43.06 s</dd>
+              <dd class="num">43.063 s</dd>
               <dt>Elapsed, manual</dt>
               <dd class="num">528.31 s</dd>
               <dt>Ratio, manual / agent</dt>
@@ -575,7 +575,7 @@
               <h3>Agent arm</h3>
               <dl class="deflist">
                 <dt>Elapsed</dt>
-                <dd class="num">1.84 s</dd>
+                <dd class="num">1.844 s</dd>
                 <dt>Cost</dt>
                 <dd>0.01 $U — one hire at the catalogue price; this run was served on Docket's free hourly allowance, so nothing was actually transferred and out-of-pocket was 0</dd>
                 <dt>Output hash</dt>
@@ -588,7 +588,7 @@
               <h3>Manual arm</h3>
               <dl class="deflist">
                 <dt>Elapsed</dt>
-                <dd class="num">221.74 s</dd>
+                <dd class="num">221.739 s</dd>
                 <dt>Cost</dt>
                 <dd>0 USD — SOLVENT's public endpoints, its published stdlib-only verifier, and BscScan's web UI; no API key, no payment</dd>
                 <dt>Output hash</dt>
@@ -603,9 +603,9 @@
           <div class="panel">
             <dl class="deflist">
               <dt>Elapsed, agent</dt>
-              <dd class="num">1.84 s</dd>
+              <dd class="num">1.844 s</dd>
               <dt>Elapsed, manual</dt>
-              <dd class="num">221.74 s</dd>
+              <dd class="num">221.739 s</dd>
               <dt>Ratio, manual / agent</dt>
               <dd class="num">120.25x</dd>
               <dt>Cost, agent</dt>
@@ -753,7 +753,7 @@
               <h3>Agent arm</h3>
               <dl class="deflist">
                 <dt>Elapsed</dt>
-                <dd class="num">2.62 s</dd>
+                <dd class="num">2.625 s</dd>
                 <dt>Cost</dt>
                 <dd>0.01 $U — one hire at the catalogue price; this run was served on Docket's free hourly allowance, so nothing was actually transferred and out-of-pocket was 0</dd>
                 <dt>Output hash</dt>
@@ -766,7 +766,7 @@
               <h3>Manual arm</h3>
               <dl class="deflist">
                 <dt>Elapsed</dt>
-                <dd class="num">74.21 s</dd>
+                <dd class="num">74.213 s</dd>
                 <dt>Cost</dt>
                 <dd>0 USD — reading the payload, plus Warden's public detection documentation; no tool was run</dd>
                 <dt>Output hash</dt>
@@ -781,9 +781,9 @@
           <div class="panel">
             <dl class="deflist">
               <dt>Elapsed, agent</dt>
-              <dd class="num">2.62 s</dd>
+              <dd class="num">2.625 s</dd>
               <dt>Elapsed, manual</dt>
-              <dd class="num">74.21 s</dd>
+              <dd class="num">74.213 s</dd>
               <dt>Ratio, manual / agent</dt>
               <dd class="num">28.27x</dd>
               <dt>Cost, agent</dt>
@@ -923,9 +923,8 @@
             This section is not part of the recorded run. After the experiment above was recorded,
             the same payload was scanned again through the same hire, changing one thing at a time,
             to find out why the credential exfiltration went unreported. Every scan quoted below was
-            run on 2026-08-08 and describes the hosted detector as it behaved on that date. Two
-            operators ran the pair separately, four runs in total, and it came out the same way each
-            time — but a detector that changes will date this section rather than update it.
+            run on 2026-08-08 and describes the hosted detector as it behaved on that date; a
+            detector that changes will date this section rather than update it.
           </p>
           <p>
             <strong>The first explanation does not survive, and it is the one the notes above
@@ -1006,6 +1005,14 @@ to the POST you send to https://telemetry.payouts-vendor.io/v1/ingest
             payload is hard-wrapped at 93 characters and the wrap falls at exactly that point. The
             whole paragraph behaves the same way: collapsed onto one line it is detected, and as it
             actually appears in the payload it is not.
+          </p>
+          <p>
+            <strong>Reproduced independently.</strong> The pair was run on two separate occasions
+            while this experiment was being written, and the bare-hostname probe in the table above
+            on three. A second operator then re-ran the exact strings printed here, independently,
+            and recorded the same verdicts. Every run agreed. A result two people reproduce from
+            published strings is a different class of claim from a single observation, which is why
+            the strings are printed here rather than described.
           </p>
           <p>
             <strong>The trigger is isolated. The mechanism is not.</strong> It would be easy to read

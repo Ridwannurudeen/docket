@@ -69,6 +69,12 @@ ADVANTAGE_METHOD = (
     "Where an agent arm answered faster and returned less, or answered something other "
     "than the question asked, that is stated in the same experiment's `notes`."
 )
+# A time.monotonic() difference carries binary float residue: a run clocked at 43.063s is
+# stored as 43.062999999994645. Publishing that verbatim asserts thirteen decimals nobody
+# measured, so displayed timings are rounded to the millisecond. This rounds what is
+# served, never what was observed — the experiment files keep the raw value, and a reader
+# recomputing a ratio from them gets the same answer either way.
+DISPLAYED_SECONDS_DP = 3
 CHAIN_ID = 56
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
@@ -93,6 +99,22 @@ _STATUS_CODES = {404: "not_found", 405: "method_not_allowed"}
 
 class MarkdownResponse(PlainTextResponse):
     media_type = "text/markdown"
+
+
+def _published_seconds(value: float | None) -> float | None:
+    """None-tolerant like `harness.compare`: an arm that was never timed has no timing to
+    round, and inventing a 0.0 for it would be the same overclaim in the other direction."""
+    return value if value is None else round(value, DISPLAYED_SECONDS_DP)
+
+
+def _for_publication(experiment: dict) -> dict:
+    """One experiment with its timings rounded for serving. Operates on the `asdict` copy,
+    so the file on disk is untouched."""
+    for arm in ("agent_arm", "manual_arm"):
+        experiment[arm]["seconds"] = _published_seconds(experiment[arm]["seconds"])
+    for field in ("seconds_agent", "seconds_manual"):
+        experiment["deltas"][field] = _published_seconds(experiment["deltas"][field])
+    return experiment
 
 
 def _error(status_code: int, code: str, message: str) -> JSONResponse:
@@ -167,7 +189,7 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
     # it: a half-read experiment served as a whole one is the failure this report can
     # least afford. Sorted so the three tasks arrive in the order they are numbered.
     experiments = [
-        {**asdict(exp), "deltas": compare(exp)}
+        _for_publication({**asdict(exp), "deltas": compare(exp)})
         for exp in (load(path) for path in sorted(EXPERIMENTS_DIR.glob("*.json")))
     ]
     # Unset means no recipient exists to name in a challenge, so the priced tier is

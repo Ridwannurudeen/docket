@@ -79,7 +79,37 @@ def test_the_json_carries_all_three_experiments_with_both_arms_populated(client)
             assert arm["seconds"] > 0
             assert set(arm["cost"]) == {"amount", "unit", "note"}
             assert arm["error"] is None
-        assert exp["deltas"] == compare(load(EXPERIMENTS / f"{exp['task_id']}.json"))
+        # Full-dict equality, so a renamed or dropped delta field fails here — with the
+        # one documented difference applied: timings are rounded at the serving boundary.
+        expected = compare(load(EXPERIMENTS / f"{exp['task_id']}.json"))
+        expected |= {
+            "seconds_agent": round(expected["seconds_agent"], 3),
+            "seconds_manual": round(expected["seconds_manual"], 3),
+        }
+        assert exp["deltas"] == expected
+
+
+def test_published_timings_are_rounded_to_the_millisecond_the_record_stays_raw(client):
+    """`time.monotonic()` differences carry float residue — 43.062999999994645 for a run
+    clocked at 43.063s. Serving that asserts thirteen decimals nobody measured. Rounding
+    happens at the serving boundary only: the experiment files on disk keep the raw value,
+    because the record is evidence and evidence is not tidied."""
+    served = {exp["task_id"]: exp for exp in client.get("/advantage.json").json()["experiments"]}
+
+    for task_id in TASK_IDS:
+        recorded = load(EXPERIMENTS / f"{task_id}.json")
+        exp = served[task_id]
+        for arm, raw in (
+            ("agent_arm", recorded.agent_arm["seconds"]),
+            ("manual_arm", recorded.manual_arm["seconds"]),
+        ):
+            assert exp[arm]["seconds"] == round(raw, 3), f"{task_id} {arm}"
+            assert len(str(exp[arm]["seconds"]).partition(".")[2]) <= 3, f"{task_id} {arm}"
+        assert exp["deltas"]["seconds_agent"] == round(recorded.agent_arm["seconds"], 3)
+        assert exp["deltas"]["seconds_manual"] == round(recorded.manual_arm["seconds"], 3)
+
+    raw_on_disk = json.loads((EXPERIMENTS / "01-liquidity.json").read_text(encoding="utf-8"))
+    assert raw_on_disk["agent_arm"]["seconds"] == 43.062999999994645
 
 
 def test_the_page_reaches_no_verdict(page):
@@ -124,7 +154,7 @@ def test_the_page_carries_every_recorded_figure_the_json_carries(page):
         ):
             rendered = json.dumps(arm["output"], indent=2, sort_keys=True, ensure_ascii=False)
             assert html.escape(rendered, quote=False) in page, f"{exp.task_id} {arm['name']}"
-            assert f"{seconds:.2f} s" in page, f"{exp.task_id} {arm['name']}"
+            assert f"{round(seconds, 3)} s" in page, f"{exp.task_id} {arm['name']}"
             assert arm["output_hash"] in page, f"{exp.task_id} {arm['name']}"
             cost = arm["cost"]
             assert html.escape(f"{cost['amount']} {cost['unit']}", quote=False) in page

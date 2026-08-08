@@ -222,9 +222,9 @@ misdescribe the result:
 
 | Task | Agent | Manual | What the ratio does not say |
 | --- | --- | --- | --- |
-| `01-liquidity` | 43.06s | 528.31s | Nothing - both arms reached the same answer and the same fee rate. The saving is the protocol-fee arithmetic: annualising the printed 24h fee figure reads 22.99% against the 15.4% an LP earns. The hire did skip the 13 closed positions. |
-| `02-trading` | 1.84s | 221.74s | The hire does not answer the question. It returns provenance material and its own terms say `buyer_must_verify_receipt_head` is true; recomputing the chain and reading the anchor on chain stays with the buyer. |
-| `03-security` | 2.62s | 74.21s | The agent arm lost. Manual found four hostile vectors and called BLOCK; the hire returned SANITIZE with one class, and three vectors survive verbatim in the sanitized text it handed back. |
+| `01-liquidity` | 43.063s | 528.31s | Nothing - both arms reached the same answer and the same fee rate. The saving is the protocol-fee arithmetic: annualising the printed 24h fee figure reads 22.99% against the 15.4% an LP earns. The hire did skip the 13 closed positions. |
+| `02-trading` | 1.844s | 221.739s | The hire does not answer the question. It returns provenance material and its own terms say `buyer_must_verify_receipt_head` is true; recomputing the chain and reading the anchor on chain stays with the buyer. |
+| `03-security` | 2.625s | 74.213s | The agent arm lost. Manual found four hostile vectors and called BLOCK; the hire returned SANITIZE with one class, and three vectors survive verbatim in the sanitized text it handed back. |
 
 If a user asks whether hiring an agent is worth it, quote the task closest to their
 question along with what that task's arm did not cover, and point them at
