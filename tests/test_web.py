@@ -101,6 +101,20 @@ def test_browse_reflects_its_filters_into_the_query_string():
     assert 'addEventListener("popstate"' in app_js
 
 
+def test_registry_text_is_wrapped_rather_than_left_to_break_the_layout():
+    """87 of the 506 agents in the live snapshot carry a run of over 40 characters with no break
+    opportunity in it — token 129's description is 176 unbroken characters, and 29 publisher keys
+    are 48-character owner addresses. `anywhere` rather than `break-word`, because only
+    `anywhere` also shrinks min-content, which is the width a table cell sizes itself from."""
+    css = (WEB_DIR / "style.css").read_text(encoding="utf-8")
+    assert ".wrap-anywhere" in css
+    assert "overflow-wrap: anywhere" in css
+    assert "word-break: break-word" in css
+    for name, container in (("browse.html", "results"), ("agent.html", "agent")):
+        text = (WEB_DIR / name).read_text(encoding="utf-8")
+        assert f'class="wrap-anywhere" data-region="{container}"' in text, name
+
+
 def test_pages_declare_viewport_and_language():
     for name in ("index.html", "browse.html", "agent.html"):
         text = (WEB_DIR / name).read_text(encoding="utf-8")

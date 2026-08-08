@@ -58,9 +58,8 @@ body {
   font-size: var(--fs-md);
   line-height: 1.6;
   -webkit-text-size-adjust: 100%;
-  /* Names and descriptions are whatever a publisher typed on chain, and some are
-     one unbroken 200-character run. Without this they paint past the viewport
-     and scroll the whole page sideways. */
+  /* Floor for prose anywhere on the site. Registry-supplied text needs the
+     stronger `.wrap-anywhere` below. */
   overflow-wrap: break-word;
 }
 
@@ -113,7 +112,22 @@ code,
 .mono {
   font-family: var(--mono);
   font-size: 0.92em;
+}
+
+/* Registry-supplied text — names, descriptions, publisher keys, owner addresses,
+   agent ids, endpoint URLs — is whatever a publisher typed on chain, and a lot of
+   it is hostile: on snapshot 3, 87 of 506 agents carry a run of over 40 characters
+   with no break opportunity in it. Token 129's description is 176 unbroken
+   characters and 29 publisher keys are 48-character owner addresses. (CJK prose is
+   excluded from that count: it breaks between characters on its own.)
+   `anywhere` rather than `break-word` because only `anywhere` also shrinks
+   min-content, which is the width a table cell, a flex item and a grid track size
+   themselves from. `word-break` is the fallback for engines that predate it.
+   Inherited, so it covers the markup these containers are filled with at runtime. */
+.wrap-anywhere,
+.mono {
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .num {
