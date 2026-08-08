@@ -437,9 +437,11 @@ Three results. Two of them are qualified, and the qualifications are the point:
                  arm found four hostile vectors and called BLOCK; the hire returned
                  SANITIZE naming one class, and three of the four survive verbatim in
                  the sanitized text it handed back. A follow-up run reported on the page
-                 isolates the cause: the deterministic exfiltration analyzer joins a
-                 credential to an outbound sink only when the two sit on the same line,
-                 and this payload is hard-wrapped between them.
+                 isolates a trigger but not a mechanism: inserting a newline between the
+                 credential clause and the destination clause, changing nothing else,
+                 flips SECRET_EXFIL from detected to not detected, and this payload is
+                 hard-wrapped at 93 characters with the wrap falling at exactly that
+                 point. Why that newline matters is not isolated, and the page says so.
 
 Quote a figure from this report with what it does not cover, the same way you would
 quote any other number Docket publishes.
