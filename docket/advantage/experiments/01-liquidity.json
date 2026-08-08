@@ -1,0 +1,275 @@
+{
+  "agent_arm": {
+    "cost": {
+      "amount": "0.01",
+      "note": "one hire at the catalogue price; this run was served on Docket's free hourly allowance, so nothing was actually transferred and out-of-pocket was 0",
+      "unit": "$U"
+    },
+    "error": null,
+    "name": "agent",
+    "output": {
+      "receipt": {
+        "delivered_at": "2026-08-08T16:51:34.801161+00:00",
+        "input_hash": "0x916b75efe34d514427029d4534057ed220edf0644f8ffa23c2602592f157b852",
+        "output_hash": "0xf95c55ae7e28b8df65b69175f47525cc69933f0a9a5cbac17e54939b46d5a7ce",
+        "payment": {
+          "status": "free_tier"
+        },
+        "service": "range-doctor"
+      },
+      "result": {
+        "address": "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f",
+        "closed_skipped": 13,
+        "computed_at": "2026-08-08T16:51:34.801161+00:00",
+        "pools": {
+          "checked": 30,
+          "rejected": [
+            {
+              "fee_tier": 500,
+              "pair": "COSA/BTCB",
+              "pool": "0xb2b6c2882eee0129623308a7bcf13d9a62ed7eca",
+              "reason": "token0 COSA is not on PancakeSwap's token allowlist"
+            },
+            {
+              "fee_tier": 500,
+              "pair": "COSA/USDC",
+              "pool": "0xbaf2345dfd37afaa9ae2a6e74b4af2e2c0565d8d",
+              "reason": "token0 COSA is not on PancakeSwap's token allowlist"
+            },
+            {
+              "fee_tier": 10000,
+              "pair": "MIAU/USDT",
+              "pool": "0x466d8c952f7dfbb0de428006fa1e2ea3c22d033f",
+              "reason": "token0 MIAU is not on PancakeSwap's token allowlist"
+            },
+            {
+              "fee_tier": 2500,
+              "pair": "USDT/BTCLE",
+              "pool": "0x6a2dd37603c5b8c5bdd1d2c75111af9af8bdbcc2",
+              "reason": "token1 BTCLE is not on PancakeSwap's token allowlist"
+            },
+            {
+              "fee_tier": 2500,
+              "pair": "USDT/SPCXB",
+              "pool": "0x977daffc095b33872e2741c19568925015c35b4d",
+              "reason": "token1 SPCXB is not on PancakeSwap's token allowlist"
+            },
+            {
+              "fee_tier": 100,
+              "pair": "$BANANA/WBNB",
+              "pool": "0x7f51bbf34156ba802deb0e38b7671dc4fa32041d",
+              "reason": "token0 $BANANA is not on PancakeSwap's token allowlist"
+            }
+          ]
+        },
+        "positions": [
+          {
+            "diagnosis": {
+              "actions": [
+                {
+                  "link": "https://pancakeswap.finance/liquidity/7098969?chain=bsc",
+                  "text": "if you expect the price to stay near tick 65827, a range recentred there would earn fees again — opening one costs gas and turns this position's impermanent loss from unrealised into realised"
+                },
+                {
+                  "link": "https://pancakeswap.finance/liquidity/7098969?chain=bsc",
+                  "text": "if you expect the price to return into [65811, 65820), leaving the position untouched costs nothing and it starts earning again when the price comes back"
+                }
+              ],
+              "as_of_block": 114771983,
+              "computed_at": "2026-08-08T16:51:34.801161+00:00",
+              "findings": [
+                "current tick 65827 is at or above the position's upper bound 65820, which the pool counts as outside the range, so this position has earned no fees since the price left it",
+                "above its range the position holds only USDT — the swap out of QQQB already happened, on the way up through the range",
+                "the pool charged $2,058 of fees over 24h against $3,267,492 of TVL and $679 of that went to the protocol, leaving 15.4% — that is one day's net fee take annualised, not a forecast and not an expected return",
+                "those figures cleared a plausibility gate that only rejects numbers which cannot be true; clearing it says nothing about the pool, its tokens, or what happens next",
+                "this position is not earning any part of that 15.4% rate while it sits outside its range",
+                "positions() reports tokensOwed0=0 and tokensOwed1=0 — the figures written when the position was last touched on-chain, not current uncollected fees; those need a collect() simulation this build does not run, so 0 here means 'not written since', not 'nothing owed'"
+              ],
+              "in_range": false,
+              "pool_net_apr": 0.15399230812981474,
+              "range_position_pct": 1.0,
+              "status": "out_of_range_above"
+            },
+            "pool": {
+              "address": "0xe531fcb1F5a195de7608B9F4f9518544C2cdB693",
+              "block_number": 114771983,
+              "liquidity": 13347381677665481218941481,
+              "sqrt_price_x96": 2129255897409642360318773090214,
+              "tick": 65827
+            },
+            "position": {
+              "block_number": 114771950,
+              "fee": 100,
+              "liquidity": 659954198098656185285999,
+              "staked": false,
+              "tick_lower": 65811,
+              "tick_upper": 65820,
+              "token0": "0x205812CdBed920aFf76C6580abD681a46D11efc7",
+              "token1": "0x55d398326f99059fF775485246999027B3197955",
+              "token_id": 7098969,
+              "tokens_owed0": 0,
+              "tokens_owed1": 0
+            }
+          }
+        ],
+        "positions_examined": 14,
+        "positions_held": 14
+      }
+    },
+    "output_hash": "0x47111c8011f5ba698d9cec8c6cfee14d4eeb14f36f0de5cdc1a736b3d26e7d86",
+    "seconds": 43.062999999994645
+  },
+  "category": "yield/LP",
+  "manual_arm": {
+    "cost": {
+      "amount": "0",
+      "note": "public explorer and first-party web UIs only; no API key, no payment",
+      "unit": "USD"
+    },
+    "error": null,
+    "name": "manual",
+    "output": {
+      "answer": "no — the wallet is earning no PancakeSwap v3 fees right now",
+      "closed_positions": 13,
+      "funded_positions": 1,
+      "note_on_7074735": "its range 721.744-723.768 does contain the current price, but PancakeSwap labels it Closed and shows no liquidity, so containing the price earns nothing",
+      "pool": {
+        "address": "0xe531fcb1f5a195de7608b9f4f9518544c2cdb693",
+        "fee_protocol_decoded": "3300:3300",
+        "fee_split_source": "slot0() read on BscScan's Read Contract tab for the pool, decoded against PROTOCOL_FEE_DENOMINATOR = 10000 and the 3300:3300 comment in PancakeV3Pool.sol as published at github.com/pancakeswap/pancake-v3-contracts",
+        "fee_tier": "0.01%",
+        "fees_24h_usd_gross": 2060,
+        "lp_share": 0.67,
+        "pair": "QQQB/USDT",
+        "protocol_fee_denominator": 10000,
+        "protocol_share": 0.33,
+        "slot0_fee_protocol": 216272100,
+        "source": "PancakeSwap Info pool page (pancakeswap.finance/info/v3/bsc/pairs/0xe531...)",
+        "tvl_usd": 3270000,
+        "volume_24h_usd": 20590000
+      },
+      "pool_fees_24h_to_lps_usd": 1380.2,
+      "pool_fees_24h_to_protocol_usd": 679.8,
+      "pool_gross_fee_apr_if_protocol_cut_ignored": 0.229939,
+      "pool_net_fee_apr": 0.154059,
+      "position_readings": [
+        {
+          "badge": "Inactive",
+          "current": 722.278,
+          "max": 721.744,
+          "min": 721.095,
+          "token_id": 7098969
+        },
+        {
+          "badge": "Closed",
+          "current": 722.28,
+          "max": 721.456,
+          "min": 720.014,
+          "token_id": 7097581
+        },
+        {
+          "badge": "Closed",
+          "current": 722.279,
+          "max": 715.994,
+          "min": 714.206,
+          "token_id": 7089180
+        },
+        {
+          "badge": "Closed",
+          "current": 722.279,
+          "max": 717.355,
+          "min": 716.423,
+          "token_id": 7082951
+        },
+        {
+          "badge": "Closed",
+          "current": 722.278,
+          "max": 723.768,
+          "min": 721.744,
+          "token_id": 7074735
+        },
+        {
+          "badge": "Closed",
+          "current": 722.278,
+          "max": 701.606,
+          "min": 700.555,
+          "token_id": 7064948
+        },
+        {
+          "badge": "Closed",
+          "current": 722.278,
+          "max": 692.614,
+          "min": 691.161,
+          "token_id": 7057802
+        },
+        {
+          "badge": "Closed",
+          "current": 722.278,
+          "max": 691.092,
+          "min": 689.436,
+          "token_id": 7052556
+        },
+        {
+          "badge": "Closed",
+          "current": 722.278,
+          "max": 687.508,
+          "min": 685.723,
+          "token_id": 7042645
+        },
+        {
+          "badge": "Closed",
+          "current": 722.276,
+          "max": 689.711,
+          "min": 686.615,
+          "token_id": 7035585
+        },
+        {
+          "badge": "Closed",
+          "current": 722.275,
+          "max": 666.656,
+          "min": 664.394,
+          "token_id": 7025689
+        },
+        {
+          "badge": "Closed",
+          "current": 722.276,
+          "max": 671.004,
+          "min": 666.457,
+          "token_id": 7024693
+        },
+        {
+          "badge": "Closed",
+          "current": 722.277,
+          "max": 674.907,
+          "min": 673.087,
+          "token_id": 7018431
+        },
+        {
+          "badge": "Closed",
+          "current": 722.277,
+          "max": 680.94,
+          "min": 677.137,
+          "token_id": 7014485
+        }
+      ],
+      "positions_held": 14,
+      "positions_read": 14,
+      "what_the_wallet_earns_of_that": "none of it — the only funded position is outside its range, so it accrues no share of the pool's fee rate while the price stays above 721.744",
+      "why": "13 of the 14 position NFTs are labelled Closed by PancakeSwap and hold no liquidity, and the one that still holds liquidity (7098969, $7,976.24, all of it USDT) has a range of 721.095-721.744 USDT per QQQB while the pool is trading at 722.278 — the price is above the range, so PancakeSwap labels it Inactive and shows APR 0%. The position has already been swapped fully into USDT on the way up through its range."
+    },
+    "output_hash": "0x726341f09be3142c19e9033f44e5771d49f5997ddc4622dc57c9d3847044fee4",
+    "seconds": 528.31
+  },
+  "manual_steps": [
+    "1. Open bscscan.com/token/0x46a15b0b27311cedf172ab29e4f4766fbe7f4364?a=0x451871A1753903FB8fdd64a6B838E95aB8D5B80f — the Pancake V3 Positions NFT contract filtered to the wallet. The header reads BALANCE 14 PCS-V3-POS.",
+    "2. Click the Inventory tab and copy the 14 token ids: 7098969, 7097581, 7089180, 7082951, 7074735, 7064948, 7057802, 7052556, 7042645, 7035585, 7025689, 7024693, 7018431, 7014485. (Timed: 73.3s for steps 1-2.)",
+    "3. For each id, open pancakeswap.finance/liquidity/<id>?chain=bsc and read the status badge, the liquidity, and MIN / MAX / CURRENT PRICE. 13 read Closed with no liquidity; 7098969 reads Inactive, $7,976.24 of liquidity all in USDT, range 721.095-721.744 against a current price of 722.278 USDT per QQQB. (Timed: 137.8s for all 14 pages.)",
+    "4. Find the pool: pancakeswap.finance/info/v3/bsc/pairs, search QQQB, open QQQB/USDT 0.01% — pool 0xe531fcb1f5a195de7608b9f4f9518544c2cdb693, TVL $3.27M, Volume 24H $20.59M, Fees 24H $2.06K. Note that Fees 24H is the gross fee the pool charged.",
+    "5. Get the protocol split: open the pool on BscScan, Contract > Read Contract > slot0, Query. feeProtocol reads 216272100. Decode it with the published PancakeV3Pool.sol (github.com/pancakeswap/pancake-v3-contracts): feeProtocol0 = value % 65536 = 3300, feeProtocol1 = value >> 16 = 3300, and PROTOCOL_FEE_DENOMINATOR = 10000, so the protocol takes 33% and LPs keep 67%. (Timed: 316.8s for steps 4-5, including two dead ends — explorer.pancakeswap.com returned CloudFront 403 twice, and the docs fee page 404'd — so a reader who goes straight to Info and BscScan will land under this.)",
+    "6. Compute: LP fees 24h = 2060 x 0.67 = $1,380.20; net fee APR = 1380.20 x 365 / 3,270,000 = 15.41%. Skipping the protocol subtraction would have read 22.99%. (Timed: 0.4s.)",
+    "7. Answer: no. The only funded position sits above its range, so it earns none of that 15.41%; the other 13 hold nothing."
+  ],
+  "notes": "Both arms landed on the same answer and nearly the same number: not earning, because the only funded position sits above its range, and the pool's net fee rate is 15.4% annualised from one day. The agent computed 15.399% from the explorer's raw figures ($2,058 gross fees, $679 to the protocol, $3,267,492 TVL); the manual arm computed 15.406% from the same figures as the UI rounds them ($2.06K, $3.27M). The gap is rounding, not disagreement.\n\nWhere the agent did not win. The hire skipped the 13 closed positions rather than reporting them: the response says closed_skipped=13, but it carries no range, no liquidity and no id for any of them, and the service's input schema exposes no include_closed flag, so a caller cannot ask for that detail at all. The manual arm read all 14 and can say, for instance, that 7074735's range 721.744-723.768 actually contains the current price and still earns nothing because its liquidity is zero. The agent also answers in ticks — 65811, 65820, 65827 — where PancakeSwap's own UI answers in prices; converting one to the other is left to the caller. On the pool figures the arms tie rather than the agent winning: the explorer row the agent reads and the Info page the manual arm reads are the same data.\n\nWhere the agent's arithmetic mattered. The manual arm had to establish the protocol split itself — slot0.feeProtocol reads 216272100, which only becomes 33%/67% once you decode it as 3300:3300 against PROTOCOL_FEE_DENOMINATOR = 10000 in PancakeV3Pool.sol. A reader who takes the Info page's 'Fees 24H $2.06K' at face value and annualises it reads 22.99% instead of 15.41%, overstating the rate by half. That subtraction is the bulk of the manual arm's 316.8s middle step.\n\nHow the manual arm was run and timed. It was performed by this agent driving a real Chrome browser against BscScan, PancakeSwap's position pages and PancakeSwap Info, not simulated and not estimated. Timing is the sum of four clocked windows (73.3 + 137.8 + 316.8 + 0.4 = 528.3s), each started immediately before a browser operation and stopped immediately after the result was read. Operator latency between windows is excluded, as is a 658.8s stall in which a second, headless browser could not load pancakeswap.finance at all — that was this environment's tooling, not the task's cost, and counting it would have inflated the manual arm by more than its whole length. The step-3 window does include genuine dead ends (explorer.pancakeswap.com answered CloudFront 403 twice; the docs fee page 404'd), so a reader who goes straight down the steps above should land under 528s rather than over it.\n\nContamination to declare. The brief that commissioned this experiment already stated that the wallet holds 14 positions, 13 closed, with 7098969 the open one — so the manual arm's discovery was not blind. It was executed in full anyway, every id enumerated and every one of the 14 pages opened and read, so the elapsed time is honest even though the surprise was not.\n\nOne choice about the hire. The catalogue default reads 10 position NFTs; this wallet holds 14, so the recorded arm passed limit=14 and both arms cover the same 14 positions. A caller using the default would get positions_held=14 against positions_examined=10 in the response and would know to re-hire with a limit — two hires, not one, and the recorded 43.1s covers only the single limit=14 hire.",
+  "question": "Is wallet 0x451871A1753903FB8fdd64a6B838E95aB8D5B80f earning fees on its PancakeSwap v3 positions right now, and if not, why not?",
+  "task_id": "01-liquidity"
+}

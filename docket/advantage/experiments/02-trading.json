@@ -1,0 +1,133 @@
+{
+  "agent_arm": {
+    "cost": {
+      "amount": "0.01",
+      "note": "one hire at the catalogue price; this run was served on Docket's free hourly allowance, so nothing was actually transferred and out-of-pocket was 0",
+      "unit": "$U"
+    },
+    "error": null,
+    "name": "agent",
+    "output": {
+      "receipt": {
+        "delivered_at": "2026-08-08T16:58:37.572964+00:00",
+        "input_hash": "0x44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "output_hash": "0x6274cf112580b100ca931d1963517084a48126557aa185abe61af189d0f777bd",
+        "payment": {
+          "status": "free_tier"
+        },
+        "service": "solvent-signal"
+      },
+      "result": {
+        "agent": {
+          "erc8004_agent_id": "136384",
+          "name": "SOLVENT",
+          "wallet": "0xE4fe23FB57dbb9AC2f685ea29B6b9A1409A0d359"
+        },
+        "generated_at": "2026-06-29T01:01:04.491927+00:00",
+        "proof": {
+          "inference_commitment_hash": "0x9274433fec429cfc6fb266cb29d5ab10fd2b04ef15141294e4a1c88d519150e8",
+          "inference_input_hash": "0xb0d8183b9b8b7328e884edcad3a2236cf0320e73b52b0409667ad5fdb5f66030",
+          "inference_output_hash": "0x4c0fb761be0bd0b5395605b159184a9e5977b13de54066a2dbe16f472d560a27",
+          "type": "hash_commitment"
+        },
+        "schema": "solvent.erc8183.signal.v1",
+        "service": "solvent.daily-regime-signal",
+        "signal": {
+          "active_risk_profile": "conviction_50",
+          "advisor": null,
+          "btc_funding_rate": null,
+          "degraded": true,
+          "dq_headroom_pct": 0.2949,
+          "equity_usd": 1222.05,
+          "fear_greed": null,
+          "regime": "risk-off",
+          "thesis": "resumed: reverted to conviction_50: ETH flattened (tx 0xda7ed107), holding floor for rest of window",
+          "top_momentum": []
+        },
+        "signal_hash": "0x6f48893695f2c56c8fd1f51cefa79e5273c76f3f853c0f39c2c90cd8f8b91a70",
+        "source": {
+          "chain_ok": true,
+          "cycle_id": "20260629T01",
+          "inference_commitments_url": "https://solvent.gudman.xyz/inference-commitments",
+          "latest_anchor": {
+            "day": "2026-06-28",
+            "head_hash": "0x18009f90afcd0e577176fa75af9ea08e7ff018175630910bb9be8da8331bce3e",
+            "tx_hash": "0xa21529122b39aab0c8fd848e0546b5691a52531a4b06b76ea650b64a60fb59a9"
+          },
+          "receipt_count": 384,
+          "receipt_hash": "0x1e3105c326dff964d827e1191a46723f702284a77fbf7c43c3b5c6d1b07e8946",
+          "receipt_head_hash": "0x1e3105c326dff964d827e1191a46723f702284a77fbf7c43c3b5c6d1b07e8946",
+          "receipt_seq": 383,
+          "receipts_url": "https://solvent.gudman.xyz/receipts",
+          "verify_url": "https://solvent.gudman.xyz/verify"
+        },
+        "terms": {
+          "buyer_must_verify_receipt_head": true,
+          "license": "single-agent-read",
+          "not_financial_advice": true
+        }
+      }
+    },
+    "output_hash": "0xae0a8e71b047af1e3ac87395f35d78ddf53e88287f4cc4fcc37d27b7cb1422c2",
+    "seconds": 1.8440000000118744
+  },
+  "category": "trading",
+  "manual_arm": {
+    "cost": {
+      "amount": "0",
+      "note": "SOLVENT's public endpoints, its published stdlib-only verifier, and BscScan's web UI; no API key, no payment",
+      "unit": "USD"
+    },
+    "error": null,
+    "name": "manual",
+    "output": {
+      "anchor_tx": {
+        "agent_id": 136384,
+        "block": 106960688,
+        "event": "MetadataSet",
+        "from": "0xE4fe23FB57dbb9AC2f685ea29B6b9A1409A0d359",
+        "hash": "0xa21529122b39aab0c8fd848e0546b5691a52531a4b06b76ea650b64a60fb59a9",
+        "metadata_key": "solvent:anchor:2026-06-28",
+        "metadata_value": "18009F90AFCD0E577176FA75AF9EA08E7FF018175630910BB9BE8DA8331BCE3E",
+        "status": "Success",
+        "timestamp_utc": "2026-06-28T23:55:18Z",
+        "to": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432 (8004: Identity Registry)"
+      },
+      "anchored_count": 382,
+      "anchored_seq": 381,
+      "answer": "partly, and the part that fails matters. The receipt chain can be recomputed from genesis without running any of SOLVENT's code, and its prefix through seq 381 is committed on BSC — so nothing at or before seq 381 can be back-dated. The call that SOLVENT actually serves is seq 383, two receipts past that anchor: it links to the anchored prefix by hash, but no on-chain transaction fixes when it was written.",
+      "friction_encountered": "the first DNS resolution of solvent.gudman.xyz failed outright (getaddrinfo failed) and the retry succeeded; this is inside the timed window",
+      "onchain_value_matches_recomputed_seq_381": true,
+      "recomputed_hash_at_seq_381": "0x18009f90afcd0e577176fa75af9ea08e7ff018175630910bb9be8da8331bce3e",
+      "recomputed_head_hash": "0x1e3105c326dff964d827e1191a46723f702284a77fbf7c43c3b5c6d1b07e8946",
+      "recomputed_head_matches_claim": true,
+      "recomputed_receipts": 384,
+      "regime_recorded_at_seq_383": "risk-off",
+      "served_signal_receipt_hash": "0x1e3105c326dff964d827e1191a46723f702284a77fbf7c43c3b5c6d1b07e8946",
+      "served_signal_receipt_ts": "2026-06-29T01:01:04.491927+00:00",
+      "served_signal_seq": 383,
+      "solvent_claimed_head_hash": "0x1e3105c326dff964d827e1191a46723f702284a77fbf7c43c3b5c6d1b07e8946",
+      "unanchored_seqs": [
+        382,
+        383
+      ],
+      "verifier_output": "OK - 384 receipts, chain intact",
+      "verifier_used": "https://solvent.gudman.xyz/verify_receipts.py, a standard-library Python script that re-hashes every receipt from genesis and imports none of the agent's code; the same chain was then recomputed a second time by a script written from scratch here",
+      "what_this_does_not_establish": "when seq 382 and seq 383 were written. Their prev_hash links show only that they were written after seq 381 existed — the upper bound is now, not the anchor. The call the service serves is one of those two. It also establishes nothing about whether the call was correct or profitable.",
+      "what_this_establishes": "every receipt up to seq 381 existed before BSC block 106960688 was mined at 2026-06-28T23:55:18Z, because that block carries their chain head; altering any of them changes that head and the on-chain value no longer matches"
+    },
+    "output_hash": "0x6be8a99552946874f6e8ac37ecc2b1e7acbb20e1baa236d35efe74a8b6b2c994",
+    "seconds": 221.739
+  },
+  "manual_steps": [
+    "1. Open solvent.gudman.xyz. Its 'Verify it yourself' section names the three steps and the two URLs used below.",
+    "2. curl -s https://solvent.gudman.xyz/verify — the agent's own claim. It reads count 384, head_hash 0x1e3105c326dff964d827e1191a46723f702284a77fbf7c43c3b5c6d1b07e8946, anchored_seq 381, anchored_head_hash 0x18009f90afcd0e577176fa75af9ea08e7ff018175630910bb9be8da8331bce3e, unanchored_count 2, and latest_anchor tx 0xa21529122b39aab0c8fd848e0546b5691a52531a4b06b76ea650b64a60fb59a9 for day 2026-06-28. None of this is yet evidence — it is the claim to be checked.",
+    "3. curl -sO https://solvent.gudman.xyz/verify_receipts.py && python verify_receipts.py. The script pulls /receipts in pages of 1000, re-hashes every receipt from genesis with sha256 over canonical JSON (sorted keys, no whitespace), checks each prev_hash link, and prints 'OK - 384 receipts, chain intact' and the head. The head it prints must equal the head from step 2 — it does.",
+    "4. The anchored head is not the local head, so recompute the prefix yourself: run the same fold again and record the hash at seq 381. It comes out 0x18009f90afcd0e577176fa75af9ea08e7ff018175630910bb9be8da8331bce3e, which is what /verify called anchored_head_hash. Note also that seq 383 — the newest receipt, ts 2026-06-29T01:01:04Z, regime risk-off — is two positions past it.",
+    "5. Open bscscan.com/tx/0xa21529122b39aab0c8fd848e0546b5691a52531a4b06b76ea650b64a60fb59a9 and click the Logs tab. The transaction is a MetadataSet on the ERC-8004 Identity Registry 0x8004A169FB4a3325136EB29fA0ceB6D2e539a432, agentId 136384, mined in block 106960688 at Jun-28-2026 11:55:18 PM UTC, with metadataKey 'solvent:anchor:2026-06-28' and metadataValue 18009F90AFCD0E577176FA75AF9EA08E7FF018175630910BB9BE8DA8331BCE3E.",
+    "6. Compare that value against the hash recomputed at step 4. They match, so the chain through seq 381 was fixed on-chain at 2026-06-28T23:55:18Z. The served call at seq 383 is not covered by it: it links to the anchored prefix, and nothing on chain says when it was written."
+  ],
+  "notes": "This is the experiment where the timing ratio is the least interesting number on the page, and where the agent arm does not answer the question on its own.\n\nWhat each arm actually produced. The hire returned in 1.8s with the provenance material: receipt_seq 383, receipt_hash and receipt_head_hash 0x1e3105c3…8946, receipt_count 384, the latest anchor's day, head_hash 0x18009f90…ce3e and tx_hash 0xa2152912…59a9, and the receipts, verify and inference-commitment URLs. It did not establish anything: its own terms block says buyer_must_verify_receipt_head is true, and the chain_ok flag it carries is SOLVENT's claim about SOLVENT. The manual arm is what turned that material into evidence — recompute 384 receipts from genesis, recompute the prefix hash at seq 381, and read the metadataValue out of the anchor transaction's MetadataSet log on BscScan. Those steps cannot be skipped by hiring, and they are most of the 221.7s.\n\nSo the honest reading of 1.8s against 221.7s is not a 120x saving on the question asked. The agent saved the first two steps — finding the endpoints and reading the claim — and left steps 3 to 6 exactly where they were. A caller who hires and stops has a payload it has been told to verify and has not.\n\nOne place the hire is thinner than the endpoint it points at. /verify states anchored_seq 381 and unanchored_count 2 outright. The hire's payload does not: it gives receipt_seq 383 and an anchor head_hash that differs from the receipt head_hash, from which a careful caller can work out that its read sits past the anchor, but nothing in the payload says so. The catalogue text warns that newest receipts can sit past the last daily anchor and tells the caller to read both positions; the payload leaves that arithmetic to them.\n\nThe nuance both arms have to keep. The anchor binds the chain through seq 381 to BSC block 106960688, mined 2026-06-28T23:55:18Z. Seq 382 and 383 are past it. Their prev_hash links make them consistent with the anchored prefix and prove they were written after seq 381 existed — a lower bound, not an upper one. The served call is seq 383. It is recompute-consistent with an on-chain-bound prefix; it is not itself on-chain-bound, and no wording in this record should be allowed to blur those two.\n\nWhat neither arm establishes: that the call was right. The chain dates a claim; it says nothing about whether risk-off was the correct read on 2026-06-29 or whether acting on it made money. SOLVENT completed its scored window on 2026-06-28 and has published nothing since, so this is a six-week-old historical record and both arms treat it as one — the payload's own generated_at and degraded flag say so.\n\nHow the manual arm was run and timed. Performed here with curl, Python and BscScan's web UI in a real browser; not simulated, not estimated. Unlike experiment 01, this arm was clocked as one continuous window from the first request to the final hash comparison, so it includes the operator's own pauses between steps as well as the work — and it includes a first DNS resolution of solvent.gudman.xyz that failed outright before the retry succeeded. Nothing was excluded.",
+  "question": "SOLVENT published a market-regime call. Can I establish WHEN that call was made, without trusting SOLVENT?",
+  "task_id": "02-trading"
+}
