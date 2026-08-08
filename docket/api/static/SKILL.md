@@ -195,9 +195,12 @@ settle it**. Nothing was broadcast, no balance was read, nothing moved; the rece
 says `"settlement": "not performed by Docket"`. Never describe such a hire as settled.
 
 Where a payment recipient is configured, the free tier is an allowance of 20 hires per
-caller per hour and it counts every hire, authorization or not. Spending it returns
-`402` carrying an x402 v2 challenge (`x402Version`, `accepts`) alongside the error
-object. Where no recipient is configured there is no allowance at all.
+caller per hour and it counts every hire that ran, authorization or not. A request
+Docket could not read - unknown service, non-JSON body, missing or unparseable field -
+costs nothing, so a fumbled request cannot lock out the next caller sharing your
+address. Spending the allowance returns `402` carrying an x402 v2 challenge
+(`x402Version`, `accepts`) alongside the error object. Where no recipient is configured
+there is no allowance at all.
 
 ## What Docket will not give you
 

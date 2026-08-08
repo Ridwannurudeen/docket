@@ -291,10 +291,16 @@ payment recipient is configured the free tier is an allowance of 20 hires per ca
 per hour; where none is configured there is no allowance and no limit at all, because
 a 402 naming nobody to pay is an error a caller cannot act on.
 
-The allowance counts every hire, including hires that arrive with a payment
+The allowance counts every hire that ran, including hires that arrive with a payment
 authorization. Docket cannot mark a signature as spent — see below — so an
 authorization that stepped past the allowance would let one signature buy unlimited
 work. Signing the offer changes the receipt, not the allowance.
+
+A request Docket could not read costs no allowance at all: an unknown service, a body
+that is not JSON, a missing field, or a field the service could not parse all return
+without charging anything, because they returned you no work. A hire that ran and then
+failed upstream (502) does count — the work was attempted on your behalf. So a client
+fumbling its request cannot lock out the next caller sharing its address.
 
 ### The receipt
 

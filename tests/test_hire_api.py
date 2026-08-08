@@ -17,15 +17,19 @@ PAY_TO = "0x" + "11" * 20
 WALLET = "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"
 
 
+def _stub_report(address, **kwargs):
+    """Stands in for `doctor.report`, including how it rejects an address it cannot read:
+    web3 raises ValueError on a non-hex string, and the allowance depends on that shape."""
+    if not address.startswith("0x"):
+        raise ValueError(f"when sending a str, it must be a hex string. Got: {address!r}")
+    return {"address": address, "positions": [], "positions_held": 0}
+
+
 @pytest.fixture(autouse=True)
 def stub_the_work(monkeypatch):
     """No test here touches an RPC or waits 30 seconds for one. `_run_range_doctor` calls
     `doctor.report` through the module attribute, so replacing it covers every hire."""
-    monkeypatch.setattr(
-        doctor,
-        "report",
-        lambda address, **kwargs: {"address": address, "positions": [], "positions_held": 0},
-    )
+    monkeypatch.setattr(doctor, "report", _stub_report)
 
 
 def _client(tmp_path, monkeypatch, *, name="free", pay_to=None):
@@ -128,6 +132,25 @@ def test_the_allowance_exists_only_where_a_payment_route_does(tmp_path, monkeypa
     assert body["x402Version"] == 2
     assert body["accepts"][0]["payTo"] == PAY_TO
     assert body["error"]["code"] == "free_tier_exhausted"
+
+
+def test_a_request_docket_could_not_read_never_spends_the_allowance(tmp_path, monkeypatch):
+    """The shared-egress case. One client fumbling its wallet field must not lock out the next
+    caller behind the same address, and an allowance charged for work that never ran is the same
+    class of overclaim as a settlement that never happened."""
+    client = _client(tmp_path, monkeypatch, pay_to=PAY_TO)
+    for _ in range(FREE_TIER_HIRES * 2):
+        unreadable = [
+            client.post("/hire/range-doctor", json={"wallet": "not-an-address"}),
+            client.post("/hire/range-doctor", json={"limit": 1}),
+            client.post("/hire/nope", json={"wallet": WALLET}),
+            client.post("/hire/range-doctor", content=b"not json"),
+        ]
+        assert [r.status_code for r in unreadable] == [422, 422, 404, 400]
+
+    served = client.post("/hire/range-doctor", json={"wallet": WALLET})
+    assert served.status_code == 200
+    assert served.json()["receipt"]["payment"]["status"] == "free_tier"
 
 
 def test_a_verified_authorization_is_served_and_never_called_settled(tmp_path, monkeypatch):

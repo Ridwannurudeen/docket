@@ -205,6 +205,20 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         hires[client_ip] = (started, used + 1)
         return None
 
+    def _refund_allowance(client_ip: str) -> None:
+        """Give back a hire that was debited and then never ran.
+
+        The debit lands before the work rather than after, so that concurrent requests
+        cannot all clear the check and start together — which is what makes a refund
+        necessary rather than optional. A request Docket could not read returned the
+        caller nothing, and an allowance charged for work that never ran is the same
+        class of overclaim as reporting a settlement that never happened.
+        """
+        if client_ip not in hires:
+            return
+        started, used = hires[client_ip]
+        hires[client_ip] = (started, max(used - 1, 0))
+
     @app.get("/")
     def root(request: Request):
         """One URL, two audiences. A browser says it wants HTML and gets the page; anything
@@ -436,7 +450,8 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
                 authorization, expected_to=pay_to, expected_value=service.price_atomic
             )
 
-        resets_in = _spend_allowance(request.client.host if request.client else "unknown")
+        client_ip = request.client.host if request.client else "unknown"
+        resets_in = _spend_allowance(client_ip)
         if resets_in is not None:
             message = (
                 f"This caller has used its allowance of {FREE_TIER_HIRES} hires per hour; it "
@@ -457,9 +472,20 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             result = service.run(payload)
         # The wallet in the payload reaches an address parser and an RPC, so both a caller's
         # typo and an upstream outage surface here. Reported as the contract shape at a
-        # status that says whose problem it is, never as an untyped 500.
+        # status that says whose problem it is, never as an untyped 500 — and the two
+        # statuses divide the allowance between them.
+        #
+        # A ValueError means the request itself could not be read, so the caller received
+        # nothing and is charged nothing. Docket may already have fetched pool metadata
+        # before reaching the address parser — measured at 1.6s on 2026-08-08 — but that
+        # is Docket's own cost, not work done on this caller's behalf, and billing an
+        # allowance for it would charge for work never performed.
         except ValueError as exc:
+            _refund_allowance(client_ip)
             return _error(422, "invalid_field", f"{service.id} could not read that request: {exc}")
+        # Everything else is the deliberate other side of that boundary: the request was
+        # readable, the work was attempted on this caller's behalf, and upstream resources
+        # were spent on it. That hire stays spent whether or not it finished.
         except Exception as exc:
             return _error(
                 502,
