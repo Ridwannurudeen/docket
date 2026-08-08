@@ -148,19 +148,29 @@ SERVICES: dict[str, Service] = {
     ),
     "solvent-signal": Service(
         id="solvent-signal",
-        name="SOLVENT Regime Signal",
+        name="SOLVENT Last Published Regime Signal",
         what_you_get=(
-            "SOLVENT's most recently published daily regime read, relayed byte for byte: the "
-            "regime it recorded, the thesis behind it, and the provenance chain a buyer can "
-            "check without asking anyone — the receipt and receipt-head hashes the read was cut "
-            "from, the last daily anchor's on-chain transaction, and a signal_hash over the "
-            "whole payload. The payload carries its own generated_at and degraded flag, so a "
-            "stale or partial run announces itself instead of passing for today's. A regime "
-            "read describes conditions as SOLVENT scored them; it is not a trade "
-            "recommendation, and Docket relays it without re-scoring it."
+            "SOLVENT's last published daily regime read, relayed byte for byte, together with "
+            "the provenance chain that dates it: the regime and the thesis recorded with it, "
+            "the receipt sequence number and receipt hash the read was cut from, the head hash "
+            "of the receipt chain, the last daily anchor's on-chain transaction, a signal_hash "
+            "over the whole body, and the receipts, verify and inference-commitment URLs — so "
+            "the chain can be recomputed and the anchor checked on chain without asking Docket "
+            "or SOLVENT for anything. This is a historical record, not a live feed: SOLVENT "
+            "completed its scored window on 2026-06-28 and has published nothing since, which "
+            "as of 2026-08-08 makes the read about six weeks old. Every payload states its own "
+            "generated_at and degraded flag, so a caller can always date what it received. What "
+            "the chain establishes is narrow and worth stating exactly: it shows this read "
+            "existed at that position in a hash chain whose head is anchored on chain, which is "
+            "what makes the claim impossible to back-date. It does not show the call was "
+            "correct, that the strategy made money, or that anything happened next; and the "
+            "newest receipts can sit past the last daily anchor, so a caller should read both "
+            "positions from the payload to see whether its own read is anchor-covered or only "
+            "chain-consistent. A regime read describes conditions as SOLVENT scored them; it is "
+            "not a trade recommendation, and Docket relays it without re-scoring it."
         ),
         input_schema={},
-        typical_seconds=5,
+        typical_seconds=2,
         price_display="0.01 $U",
         price_atomic=10**16,
         asset=U_TOKEN,

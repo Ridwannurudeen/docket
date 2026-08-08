@@ -32,5 +32,17 @@ def test_solvent_signal_takes_no_arguments():
     assert get_service("solvent-signal").input_schema == {}
 
 
+def test_the_solvent_signal_is_offered_as_a_historical_record():
+    """SOLVENT completed its scored window on 2026-06-28 and has published nothing since.
+
+    What it sells is the provenance, not freshness — a dated claim nobody can back-date.
+    A catalogue entry that read as a live feed would be selling a six-week-old regime
+    call as today's, so the disclosure is asserted rather than left to the prose.
+    """
+    text = get_service("solvent-signal").what_you_get.lower()
+    assert "historical record, not a live feed" in text
+    assert "has published nothing since" in text
+
+
 def test_warden_scan_requires_the_untrusted_text():
     assert get_service("warden-scan").input_schema["payload"]["required"] is True
