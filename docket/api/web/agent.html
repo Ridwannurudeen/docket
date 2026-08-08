@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent — Docket</title>
+    <meta
+      name="description"
+      content="One ERC-8004 agent: what it declares about itself, and every timestamped probe Docket made of the endpoints it declared."
+    />
+    <link rel="stylesheet" href="/static/style.css" />
+    <script type="module" src="/static/app.js"></script>
+  </head>
+  <body data-page="agent">
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+            <path d="M7 9h10"></path>
+            <path d="M7 13h6"></path>
+            <circle cx="16.5" cy="15.5" r="1.4" fill="currentColor" stroke="none"></circle>
+          </svg>
+          Docket <span class="brand-sub">BSC / ERC-8004</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/">Overview</a>
+          <a href="/browse">Browse agents</a>
+          <a href="/llms.txt">API</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <div class="wrap">
+        <section class="hero">
+          <p class="section-note"><a href="/browse">Back to browse</a></p>
+          <div data-region="agent">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
+          <noscript>
+            <div class="notice notice-warn">
+              <h3>This page reads live data with JavaScript</h3>
+              <p>
+                With JavaScript off, this agent's record cannot be filled in — and Docket will not
+                show you a stale one instead. The same record is served as JSON at
+                <a href="/agents">/agents</a>, documented in <a href="/llms.txt">/llms.txt</a>.
+              </p>
+            </div>
+          </noscript>
+        </section>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <p class="footer-links">
+          <a href="/stats">/stats</a>
+          <a href="/agents">/agents</a>
+          <a href="/llms.txt">/llms.txt</a>
+          <a href="/skill.md">/skill.md</a>
+          <a href="/openapi.json">/openapi.json</a>
+          <a href="/health">/health</a>
+        </p>
+        <p>
+          Docket publishes observations, not verdicts. Whether to hire an agent is the reader's
+          judgement, and this site is built to hand over the evidence rather than pre-empt it.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

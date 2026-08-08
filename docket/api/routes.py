@@ -15,7 +15,8 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
@@ -34,6 +35,9 @@ DEFAULT_DB_PATH = "data/agents.sqlite3"
 # Ships inside the package (see pyproject's package-data), so an installed Docket serves the
 # same documents a checkout does.
 STATIC_DIR = Path(__file__).parent / "static"
+# The human pages and their assets. Ships in the package too, so an installed Docket serves the
+# same web UI a checkout does. Everything here is authored as served: no build step, no bundler.
+WEB_DIR = Path(__file__).parent / "web"
 CHAIN_ID = 56
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
@@ -155,7 +159,12 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         return snapshot_id
 
     @app.get("/")
-    def root() -> dict:
+    def root(request: Request):
+        """One URL, two audiences. A browser says it wants HTML and gets the page; anything
+        asking for JSON — or asking for nothing in particular — gets the service index
+        unchanged, so the machine contract is untouched by the human one."""
+        if "text/html" in request.headers.get("accept", ""):
+            return FileResponse(WEB_DIR / "index.html")
         return {
             "service": "docket",
             "description": (
@@ -301,4 +310,5 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             coverage=_coverage(coverage_report(store, sid)),
         )
 
+    app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
     return app

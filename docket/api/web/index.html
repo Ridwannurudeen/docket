@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Docket — observations about ERC-8004 agents on BNB Smart Chain</title>
+    <meta
+      name="description"
+      content="Docket reads the ERC-8004 registry on BNB Smart Chain, asks each declared endpoint whether anything answers, and publishes what it saw with the coverage it was measured in."
+    />
+    <link rel="stylesheet" href="/static/style.css" />
+    <script type="module" src="/static/app.js"></script>
+  </head>
+  <body data-page="index">
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+            <path d="M7 9h10"></path>
+            <path d="M7 13h6"></path>
+            <circle cx="16.5" cy="15.5" r="1.4" fill="currentColor" stroke="none"></circle>
+          </svg>
+          Docket <span class="brand-sub">BSC / ERC-8004</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/" aria-current="page">Overview</a>
+          <a href="/browse">Browse agents</a>
+          <a href="/llms.txt">API</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <div class="wrap">
+        <section class="hero">
+          <h1>What answered, and what only claimed to.</h1>
+          <p class="lede">
+            Docket reads the ERC-8004 agent registry on BNB Smart Chain, asks every endpoint an
+            agent declared whether anything answers there, and publishes exactly what it saw.
+          </p>
+          <p>
+            It does not rate, rank or vouch for any agent. Each figure below is stated inside the
+            snapshot and sample size it was counted in, because a count without its population
+            cannot be read.
+          </p>
+          <p class="status-line" data-region="snapshot" aria-live="polite">
+            <span class="skeleton skeleton-wide"></span>
+          </p>
+          <div data-region="partial" hidden></div>
+          <noscript>
+            <div class="notice notice-warn">
+              <h3>This page reads live data with JavaScript</h3>
+              <p>
+                With JavaScript off, nothing on this page can be filled in — and Docket will not
+                show you a stale number instead. The same evidence is served as JSON at
+                <a href="/stats">/stats</a>, <a href="/agents">/agents</a> and
+                <a href="/llms.txt">/llms.txt</a>.
+              </p>
+            </div>
+          </noscript>
+        </section>
+
+        <section aria-labelledby="measured">
+          <h2 id="measured">What this snapshot holds</h2>
+          <p class="section-note">
+            Read every figure with the denominator printed under it. None of them is a count of
+            working agents.
+          </p>
+
+          <div data-region="stats">
+            <ul class="metrics">
+              <li class="metric">
+                <p class="metric-label">Agents sampled</p>
+                <p class="metric-value" data-field="sampled"><span class="skeleton"></span></p>
+                <p class="metric-note" data-field="sampled-note">
+                  <span class="skeleton skeleton-wide"></span>
+                </p>
+              </li>
+              <li class="metric">
+                <p class="metric-label">With feedback</p>
+                <p class="metric-value" data-field="with-feedback">
+                  <span class="skeleton"></span>
+                </p>
+                <p class="metric-note" data-field="with-feedback-note">
+                  <span class="skeleton skeleton-wide"></span>
+                </p>
+              </li>
+              <li class="metric">
+                <p class="metric-label">Declare an endpoint</p>
+                <p class="metric-value" data-field="callable"><span class="skeleton"></span></p>
+                <p class="metric-note" data-field="callable-note">
+                  <span class="skeleton skeleton-wide"></span>
+                </p>
+              </li>
+              <li class="metric">
+                <p class="metric-label">Endpoints probed</p>
+                <p class="metric-value" data-field="probed"><span class="skeleton"></span></p>
+                <p class="metric-note" data-field="probed-note">
+                  <span class="skeleton skeleton-wide"></span>
+                </p>
+              </li>
+              <li class="metric">
+                <p class="metric-label">Endpoints that answered</p>
+                <p class="metric-value" data-field="responded"><span class="skeleton"></span></p>
+                <p class="metric-note" data-field="responded-note">
+                  <span class="skeleton skeleton-wide"></span>
+                </p>
+              </li>
+              <li class="metric">
+                <p class="metric-label">Distinct publishers</p>
+                <p class="metric-value" data-field="publishers"><span class="skeleton"></span></p>
+                <p class="metric-note" data-field="publishers-note">
+                  <span class="skeleton skeleton-wide"></span>
+                </p>
+              </li>
+            </ul>
+
+            <section aria-labelledby="breakdown">
+              <h3 id="breakdown">Where the probes ended up</h3>
+              <div class="panel">
+                <dl class="deflist">
+                  <dt>Endpoints probed</dt>
+                  <dd data-field="breakdown-probed"><span class="skeleton"></span></dd>
+                  <dt>A host answered</dt>
+                  <dd data-field="breakdown-responded"><span class="skeleton"></span></dd>
+                  <dt>Docket declined to connect</dt>
+                  <dd data-field="breakdown-blocked"><span class="skeleton"></span></dd>
+                  <dt>Hostname did not resolve</dt>
+                  <dd data-field="breakdown-unresolved"><span class="skeleton"></span></dd>
+                  <dt>Timed out, refused or errored</dt>
+                  <dd data-field="breakdown-other"><span class="skeleton"></span></dd>
+                </dl>
+              </div>
+            </section>
+
+            <section aria-labelledby="publishers-heading">
+              <h3 id="publishers-heading">Who minted them</h3>
+              <div data-region="publishers">
+                <span class="skeleton skeleton-row skeleton-wide"></span>
+                <span class="skeleton skeleton-row skeleton-wide"></span>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section aria-labelledby="reading">
+          <h2 id="reading">How to read this</h2>
+          <div class="cards">
+            <div class="panel">
+              <h3>Coverage travels with the number</h3>
+              <p class="dim">
+                Every response carries the snapshot it was counted in, how many agents were stored,
+                and how many the registry said to expect. When those two disagree, the page says so
+                at the top and every count below understates its population.
+              </p>
+            </div>
+            <div class="panel">
+              <h3>Declared is not observed</h3>
+              <p class="dim">
+                An agent declaring an A2A or MCP endpoint is a claim it made about itself on chain.
+                Whether a host answers there is a separate measurement, and the two are never added
+                together.
+              </p>
+            </div>
+            <div class="panel">
+              <h3>One attempt, one moment</h3>
+              <p class="dim">
+                Liveness is a single GET per endpoint, at the moment of the sweep. A failure is one
+                observation, not a pattern — and an answer is not evidence that the agent behind the
+                URL does anything.
+              </p>
+            </div>
+          </div>
+
+          <h3>The six outcomes, and what each one does not mean</h3>
+          <dl class="vocab" data-region="vocabulary"></dl>
+        </section>
+
+        <section aria-labelledby="next">
+          <h2 id="next">Go look at the evidence</h2>
+          <p>
+            Browse the snapshot, narrow it to agents whose declared endpoint actually answered, then
+            open one and read the probe behind that claim — the URL, the outcome, the status code
+            and the time it was observed.
+          </p>
+          <p class="btn-row">
+            <a class="btn btn-primary" href="/browse">
+              Browse agents
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path d="M5 12h14"></path>
+                <path d="M13 6l6 6-6 6"></path>
+              </svg>
+            </a>
+            <a class="btn" href="/llms.txt">Read the API for agents</a>
+          </p>
+        </section>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <p class="footer-links">
+          <a href="/stats">/stats</a>
+          <a href="/agents">/agents</a>
+          <a href="/llms.txt">/llms.txt</a>
+          <a href="/skill.md">/skill.md</a>
+          <a href="/openapi.json">/openapi.json</a>
+          <a href="/health">/health</a>
+        </p>
+        <p>
+          <strong>How liveness was measured:</strong>
+          <span data-field="probe-method"><span class="skeleton skeleton-wide"></span></span>
+        </p>
+        <p>
+          Docket publishes observations, not verdicts. Whether to hire an agent is the reader's
+          judgement, and this site is built to hand over the evidence rather than pre-empt it.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>
