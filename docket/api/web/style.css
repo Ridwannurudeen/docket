@@ -504,6 +504,37 @@ td.url {
   max-width: 340px;
 }
 
+/* ---------------------------------------------------- recorded evidence */
+
+/* Recorded outputs are printed in full: 66-character hashes, unbroken URLs, and
+   payload text hard-wrapped by whoever wrote it. `pre` defaults to `white-space:
+   pre`, which would scroll the whole page sideways rather than wrap any of that,
+   so this is the one place the site overrides it. `.wrap-anywhere` cannot do it
+   alone — it sets overflow-wrap, not white-space. */
+pre {
+  margin: 0 0 var(--s-3);
+  padding: var(--s-3);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+}
+
+/* `li` is list-style: none site-wide, which is right for the listings and wrong
+   for a procedure: a reader repeating the manual arm needs the step numbers. */
+.steps {
+  max-width: var(--measure);
+  margin: 0 0 var(--s-3);
+  padding-left: var(--s-4);
+}
+
+.steps li {
+  list-style: decimal;
+  margin-bottom: var(--s-2);
+}
+
 /* ---------------------------------------------------------------- badges */
 
 .badge {

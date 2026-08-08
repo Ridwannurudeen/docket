@@ -18,6 +18,7 @@ tier rather than the service.
 
 import os
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -27,6 +28,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from ..advantage.harness import compare, load
 from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
 from ..hire.catalogue import SERVICES, get_service
 from ..hire.receipts import build_receipt
@@ -51,6 +53,22 @@ STATIC_DIR = Path(__file__).parent / "static"
 # The human pages and their assets. Ships in the package too, so an installed Docket serves the
 # same web UI a checkout does. Everything here is authored as served: no build step, no bundler.
 WEB_DIR = Path(__file__).parent / "web"
+# The recorded experiments behind /advantage. Ships in the package too, so the report an
+# installed Docket serves is the one committed to the repository.
+EXPERIMENTS_DIR = Path(__file__).parent.parent / "advantage" / "experiments"
+# Stated on /advantage.json, for the same reason PROBE_METHOD is stated on /stats: a
+# timing whose method is unstated cannot be read, and this one is a ratio between two
+# arms clocked differently per task.
+ADVANTAGE_METHOD = (
+    "Each task was run once by hiring an agent and once by hand. Elapsed seconds and "
+    "out-of-pocket cost are reported separately and no hourly rate is applied to either, "
+    "so no figure here depends on what someone's time is worth. No quality score is "
+    "assigned to either arm: both outputs travel in full with the SHA-256 that binds "
+    "them, and a reader grades them. `manual_steps` is what a reader repeats to contest "
+    "a manual timing. One run each — every figure is a single observation, not a mean. "
+    "Where an agent arm answered faster and returned less, or answered something other "
+    "than the question asked, that is stated in the same experiment's `notes`."
+)
 CHAIN_ID = 56
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
@@ -145,6 +163,13 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
     # request that happened to ask for it.
     llms_body = (STATIC_DIR / "llms.txt").read_text(encoding="utf-8")
     skill_body = (STATIC_DIR / "SKILL.md").read_text(encoding="utf-8")
+    # Same reasoning, and `load` raises on a file missing a field rather than defaulting
+    # it: a half-read experiment served as a whole one is the failure this report can
+    # least afford. Sorted so the three tasks arrive in the order they are numbered.
+    experiments = [
+        {**asdict(exp), "deltas": compare(exp)}
+        for exp in (load(path) for path in sorted(EXPERIMENTS_DIR.glob("*.json")))
+    ]
     # Unset means no recipient exists to name in a challenge, so the priced tier is
     # off and the free tier serves unmetered. Read once here rather than per
     # request: the terms a caller is quoted must not change under it mid-session.
@@ -238,6 +263,7 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             "stats": "/stats",
             "agents": "/agents",
             "hire": "/hire",
+            "advantage": "/advantage.json",
             "health": "/health",
         }
 
@@ -250,6 +276,13 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
     @app.get("/agent", include_in_schema=False)
     def agent_page() -> FileResponse:
         return FileResponse(WEB_DIR / "agent.html")
+
+    @app.get("/advantage", include_in_schema=False)
+    def advantage_page() -> FileResponse:
+        """The report as a page. Unlike the rest of the web UI this one reads no live data:
+        the experiments are a fixed record, so the page is the record rather than a shell
+        that fetches it, and it says the same thing with scripting off."""
+        return FileResponse(WEB_DIR / "advantage.html")
 
     @app.get("/health")
     def health() -> dict:
@@ -267,6 +300,18 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
     @app.get("/skill.md", response_class=MarkdownResponse)
     def skill_md() -> str:
         return skill_body
+
+    @app.get("/advantage.json")
+    def advantage() -> dict:
+        """The same three experiments the page at /advantage renders, as data.
+
+        Two front doors over one record: an evaluator's agent reads the outputs, the
+        hashes, the manual steps and the notes without a browser, and sees the same
+        figures a human sees. `deltas` is the harness's own comparison — elapsed
+        seconds, both costs, and the ratio between the timings. It carries no verdict,
+        and neither does anything else here.
+        """
+        return {"method": ADVANTAGE_METHOD, "page": "/advantage", "experiments": experiments}
 
     @app.get("/stats", response_model=StatsResponse)
     def stats() -> StatsResponse:

@@ -138,6 +138,36 @@ POST /hire/{service_id}
     Returns {"result": {...}, "receipt": {...}}. Read "Hiring" below before quoting
     anything from the receipt.
 
+GET /advantage.json
+    The agent advantage report as data: three tasks, each run once by hiring an agent
+    and once by hand, with both arms carried in full. No parameters, no snapshot
+    involved. Returns {"method": ..., "page": "/advantage", "experiments": [...]},
+    each experiment carrying:
+
+      task_id        01-liquidity, 02-trading or 03-security
+      question       the question both arms were given
+      category       yield/LP, trading, security
+      agent_arm      {name, seconds, output, output_hash, cost, error}. "output" is
+                     everything the hire returned, unedited; "cost" is an
+                     {amount, unit, note} triple rather than a number
+      manual_arm     the same shape, for the arm performed by hand
+      manual_steps   the numbered procedure for repeating the manual arm yourself
+      notes          the prose reading of the task, including where the arm that ran
+                     faster came back with less
+      deltas         {seconds_agent, seconds_manual, cost_agent, cost_manual, speedup}
+
+    Read "The advantage report" below before quoting a speedup out of it. On one of
+    the three tasks the ratio is not a saving on the question that was asked, and on
+    another the faster arm returned a quarter of the finding.
+
+    curl -s "$DOCKET/advantage.json"
+
+GET /advantage
+    The same report as a page, for a human. text/html. Everything on it is in
+    /advantage.json; nothing on it is live.
+
+    curl -s "$DOCKET/advantage"
+
 GET /llms.txt
     This file. text/plain.
 
@@ -372,6 +402,47 @@ verifyingContract is not compared against the advertised asset. The nonce is car
 and not remembered, so one authorization verifies as many times as it is presented —
 which is why the allowance counts every hire. Only the expiry end of the validity
 window is checked, not validAfter.
+
+
+## The advantage report
+
+Docket publishes the three experiments behind its own claim about hiring agents, both
+arms in full, at GET /advantage.json and as a page at GET /advantage.
+
+Method: each task was run once by hiring and once by hand. Elapsed seconds and
+out-of-pocket cost are reported separately, and no hourly rate is applied to either, so
+no figure depends on what someone's time is worth. No quality score is assigned to
+either arm — both outputs are published in full, hash-bound by the same recipe a hire
+receipt uses, and a reader grades them. One run each, so every figure is a single
+observation rather than a mean. The manual arms were performed, not estimated, and each
+carries the steps needed to repeat it.
+
+Three results. Two of them are qualified, and the qualifications are the point:
+
+  01-liquidity   43.06s hired against 528.31s by hand. Both arms reached the same
+                 answer and the same rate. The saving is arithmetic: annualising
+                 PancakeSwap's printed 24h fee figure without subtracting the
+                 protocol's third reads 22.99%, where the rate an LP actually earns is
+                 15.4%. The hire also read all 14 position NFTs in one call — but it
+                 skipped the 13 closed ones and offers no way to ask for them.
+
+  02-trading     1.84s against 221.74s, and the hire does not answer the question. It
+                 returns the provenance material — receipt sequence, receipt head hash,
+                 the anchor's transaction — and its own terms block says
+                 buyer_must_verify_receipt_head is true. Recomputing 384 receipts from
+                 genesis and reading the anchor's metadataValue on chain stays with the
+                 buyer. Do not quote that ratio as a saving on dating the call.
+
+  03-security    2.62s against 74.21s, and the agent arm lost on substance. The manual
+                 arm found four hostile vectors and called BLOCK; the hire returned
+                 SANITIZE naming one class, and three of the four survive verbatim in
+                 the sanitized text it handed back. A follow-up run reported on the page
+                 isolates the cause: the deterministic exfiltration analyzer joins a
+                 credential to an outbound sink only when the two sit on the same line,
+                 and this payload is hard-wrapped between them.
+
+Quote a figure from this report with what it does not cover, the same way you would
+quote any other number Docket publishes.
 
 
 ## Observations, not endorsements

@@ -68,11 +68,19 @@ def test_no_external_requests_anywhere_in_the_ui():
 
 
 def test_ui_uses_no_verdict_language():
-    """The interface may not claim what the data cannot support."""
+    """The interface may not claim what the data cannot support.
+
+    Matched on word boundaries rather than as substrings. The advantage report quotes
+    an experiment's question verbatim — "does this untrusted text contain a
+    prompt-injection attempt" — and "untrusted" carries "trusted" inside it while
+    saying the opposite of what this test is here to catch. The banned words are still
+    banned as words; every page predating this change passes either way.
+    """
     for f in WEB_DIR.glob("*"):
         text = f.read_text(encoding="utf-8").lower()
         for word in BANNED:
-            assert word not in text, f"{f.name} contains verdict language: {word!r}"
+            pattern = rf"\b{re.escape(word)}\b"
+            assert not re.search(pattern, text), f"{f.name} contains verdict language: {word!r}"
 
 
 def test_no_emoji_used_as_iconography():
@@ -116,7 +124,7 @@ def test_registry_text_is_wrapped_rather_than_left_to_break_the_layout():
 
 
 def test_pages_declare_viewport_and_language():
-    for name in ("index.html", "browse.html", "agent.html"):
+    for name in ("index.html", "browse.html", "agent.html", "advantage.html"):
         text = (WEB_DIR / name).read_text(encoding="utf-8")
         assert 'lang="en"' in text
         assert "width=device-width" in text

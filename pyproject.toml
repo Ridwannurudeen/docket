@@ -33,6 +33,8 @@ packages = [
 
 [tool.setuptools.package-data]
 "docket.api" = ["static/*", "web/*"]
+# /advantage.json is served from these files, so an installed Docket must carry them.
+"docket.advantage" = ["experiments/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
