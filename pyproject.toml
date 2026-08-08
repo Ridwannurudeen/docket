@@ -21,7 +21,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["docket", "docket.api", "experiments"]
+packages = ["docket", "docket.api", "docket.agents", "docket.agents.pancake", "experiments"]
 
 [tool.setuptools.package-data]
 "docket.api" = ["static/*", "web/*"]
