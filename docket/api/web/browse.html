@@ -66,6 +66,41 @@
           </noscript>
         </section>
 
+        <section aria-labelledby="filters-heading">
+          <h2 id="filters-heading">Narrow the population</h2>
+          <p class="section-note">
+            Every filter is written into the address bar, so a narrowed view is a link you can send
+            and the back button walks back through it.
+          </p>
+          <div class="filters" role="group" aria-labelledby="filters-heading">
+            <fieldset class="filter-group">
+              <legend>What the agent claims</legend>
+              <label class="check">
+                <input type="checkbox" data-filter="has_feedback" />
+                Has feedback
+              </label>
+              <label class="check">
+                <input type="checkbox" data-filter="declares_callable" />
+                Declares a callable endpoint
+              </label>
+            </fieldset>
+            <fieldset class="filter-group">
+              <legend>What Docket observed</legend>
+              <label class="check">
+                <input type="checkbox" data-filter="responded" />
+                Endpoint answered
+              </label>
+            </fieldset>
+            <div class="field">
+              <label for="publisher-filter">Publisher</label>
+              <select id="publisher-filter" data-filter="publisher">
+                <option value="">All publishers</option>
+              </select>
+            </div>
+            <button type="button" class="btn" data-action="clear">Clear filters</button>
+          </div>
+        </section>
+
         <section aria-labelledby="results-heading">
           <h2 id="results-heading">Agents</h2>
           <div data-region="results">

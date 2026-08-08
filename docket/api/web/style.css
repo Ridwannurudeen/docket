@@ -58,6 +58,10 @@ body {
   font-size: var(--fs-md);
   line-height: 1.6;
   -webkit-text-size-adjust: 100%;
+  /* Names and descriptions are whatever a publisher typed on chain, and some are
+     one unbroken 200-character run. Without this they paint past the viewport
+     and scroll the whole page sideways. */
+  overflow-wrap: break-word;
 }
 
 h1,
@@ -576,9 +580,13 @@ td.url {
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
+  /* A publisher key can be a 48-character owner address, and a select is as wide
+     as its widest option unless it is told otherwise. */
+  min-width: 0;
+  max-width: 100%;
 }
 
-.field > span {
+.field > label {
   color: var(--fg-dim);
   font-size: var(--fs-xs);
   font-weight: 600;
@@ -587,6 +595,7 @@ td.url {
 }
 
 select {
+  max-width: 100%;
   padding: var(--s-2) var(--s-3);
   border: var(--border-w) solid var(--border);
   border-radius: var(--radius);

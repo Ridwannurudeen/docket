@@ -179,6 +179,16 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             "health": "/health",
         }
 
+    # Kept out of the schema: /llms.txt and the OpenAPI document describe the machine contract,
+    # and a page a human reads is not an endpoint an agent should be told to call.
+    @app.get("/browse", include_in_schema=False)
+    def browse() -> FileResponse:
+        return FileResponse(WEB_DIR / "browse.html")
+
+    @app.get("/agent", include_in_schema=False)
+    def agent_page() -> FileResponse:
+        return FileResponse(WEB_DIR / "agent.html")
+
     @app.get("/health")
     def health() -> dict:
         return {

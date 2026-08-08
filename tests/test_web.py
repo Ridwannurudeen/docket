@@ -76,10 +76,29 @@ def test_ui_uses_no_verdict_language():
 
 
 def test_no_emoji_used_as_iconography():
-    emoji = re.compile("[\U0001F300-\U0001FAFF\u2600-\u27BF]")
+    emoji = re.compile("[\U0001f300-\U0001faff\u2600-\u27bf]")
     for f in WEB_DIR.glob("*.html"):
         found = emoji.findall(f.read_text(encoding="utf-8"))
         assert not found, f"{f.name} uses emoji as icons: {found[:3]}"
+
+
+def test_browse_and_agent_pages_are_served(client):
+    for path in ("/browse", "/agent"):
+        resp = client.get(path, headers={"accept": "text/html"})
+        assert resp.status_code == 200, path
+        assert resp.headers["content-type"].startswith("text/html"), path
+        assert "<title>" in resp.text, path
+
+
+def test_browse_reflects_its_filters_into_the_query_string():
+    """A narrowed view has to be a link someone can send, and the back button has to walk it."""
+    browse = (WEB_DIR / "browse.html").read_text(encoding="utf-8")
+    for name in ("has_feedback", "declares_callable", "responded", "publisher"):
+        assert f'data-filter="{name}"' in browse, name
+    app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    assert "URLSearchParams" in app_js
+    assert "window.history.pushState" in app_js
+    assert 'addEventListener("popstate"' in app_js
 
 
 def test_pages_declare_viewport_and_language():
