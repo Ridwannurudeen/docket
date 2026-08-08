@@ -17,10 +17,20 @@ and a wallet holding 155 of them took roughly five minutes unbounded on
 minutes is a hire that times out, so the default reads a bounded slice — and the
 report it returns carries `positions_held` and `positions_examined`, so a
 truncated read announces itself rather than passing for the whole wallet.
+
+Two services relay an upstream verbatim rather than reshaping it. SOLVENT's
+`signal_hash` covers the body SOLVENT published, and Warden's response is the
+evidence a caller reasons about; re-serialising either would leave the buyer
+holding a hash it can no longer check and a verdict Docket had edited. When the
+upstream fails, `run` raises: the hire route turns that into a 502 naming the
+failure, which is worth more than a half-result that looks like an answer.
 """
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
+
+import httpx
 
 from ..agents.pancake import doctor
 
@@ -30,6 +40,13 @@ U_TOKEN = "0xcE24439F2D9C6a2289F741120FE202248B666666"
 # How many of a wallet's position NFTs a hire reads by default. Ten is the
 # measured point where the read finishes in tens of seconds rather than minutes.
 RANGE_DOCTOR_LIMIT = 10
+SOLVENT_SIGNAL_URL = "https://solvent.gudman.xyz/signal"
+WARDEN_SCAN_URL = "https://warden.gudman.xyz/api/demo/scan"
+UPSTREAM_TIMEOUT_S = 30.0
+# One retry, no more. Both hosts answered in about a second once reached, so a
+# second failure is the upstream rather than the road to it.
+UPSTREAM_ATTEMPTS = 2
+UPSTREAM_RETRY_PAUSE_S = 1.0
 
 
 @dataclass(frozen=True)
@@ -46,6 +63,43 @@ class Service:
     price_atomic: int
     asset: str
     run: Callable[[dict], dict]
+
+
+def _call_upstream(method: str, url: str, body: dict | None = None) -> dict:
+    """One request, and one retry when the failure could be the road rather than the host.
+
+    On 2026-08-08 the first call to each of these hosts from this machine returned
+    nothing at all — DNS, not the service, which then answered three times in a
+    row. A transport error and a 429 or 5xx are therefore worth asking twice; any
+    other status is not, because a 404 does not become a 200 on the second try.
+    """
+    last: Exception | None = None
+    for attempt in range(UPSTREAM_ATTEMPTS):
+        try:
+            resp = httpx.request(method, url, json=body, timeout=UPSTREAM_TIMEOUT_S)
+            if resp.status_code == 429 or resp.status_code >= 500:
+                last = httpx.HTTPStatusError(
+                    f"{resp.status_code} from {url}", request=resp.request, response=resp
+                )
+            else:
+                resp.raise_for_status()
+                return resp.json()
+        except httpx.TransportError as exc:
+            last = exc
+        if attempt < UPSTREAM_ATTEMPTS - 1:
+            time.sleep(UPSTREAM_RETRY_PAUSE_S)
+    raise last  # type: ignore[misc]
+
+
+def _run_solvent_signal(payload: dict) -> dict:
+    """Relayed as served: `signal_hash` is computed over the body SOLVENT published,
+    so a Docket-shaped copy of it would be a payload whose own hash no longer checks."""
+    return _call_upstream("GET", SOLVENT_SIGNAL_URL)
+
+
+def _run_warden_scan(payload: dict) -> dict:
+    """Only the declared field travels upstream; whatever else a caller sent stays here."""
+    return _call_upstream("POST", WARDEN_SCAN_URL, {"payload": payload["payload"]})
 
 
 def _run_range_doctor(payload: dict) -> dict:
@@ -91,6 +145,52 @@ SERVICES: dict[str, Service] = {
         price_atomic=10**16,
         asset=U_TOKEN,
         run=_run_range_doctor,
+    ),
+    "solvent-signal": Service(
+        id="solvent-signal",
+        name="SOLVENT Regime Signal",
+        what_you_get=(
+            "SOLVENT's most recently published daily regime read, relayed byte for byte: the "
+            "regime it recorded, the thesis behind it, and the provenance chain a buyer can "
+            "check without asking anyone — the receipt and receipt-head hashes the read was cut "
+            "from, the last daily anchor's on-chain transaction, and a signal_hash over the "
+            "whole payload. The payload carries its own generated_at and degraded flag, so a "
+            "stale or partial run announces itself instead of passing for today's. A regime "
+            "read describes conditions as SOLVENT scored them; it is not a trade "
+            "recommendation, and Docket relays it without re-scoring it."
+        ),
+        input_schema={},
+        typical_seconds=5,
+        price_display="0.01 $U",
+        price_atomic=10**16,
+        asset=U_TOKEN,
+        run=_run_solvent_signal,
+    ),
+    "warden-scan": Service(
+        id="warden-scan",
+        name="Warden Payload Scan",
+        what_you_get=(
+            "Warden's verdict on one piece of untrusted text — ALLOW, SANITIZE or BLOCK — with "
+            "the threat classes it matched, the individual detections and confidences behind "
+            "them, its sanitized rendering of the text, and the per-layer checks that produced "
+            "the decision, relayed exactly as Warden returned it. This is telemetry, not an "
+            "enforcement boundary: the free hosted path is offered as-is, with no availability "
+            "or completeness promise, and that limitation is Warden's own documented position "
+            "rather than a caveat Docket added. Nothing here intercepts the text or stops it "
+            "reaching anything; what to do about a verdict stays with the caller."
+        ),
+        input_schema={
+            "payload": {
+                "type": "string",
+                "required": True,
+                "description": "the untrusted text to scan, sent to Warden unmodified",
+            },
+        },
+        typical_seconds=5,
+        price_display="0.01 $U",
+        price_atomic=10**16,
+        asset=U_TOKEN,
+        run=_run_warden_scan,
     ),
 }
 

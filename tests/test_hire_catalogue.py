@@ -18,8 +18,23 @@ def test_every_service_states_a_price_and_an_asset():
 
 
 def test_no_service_promises_an_outcome():
-    """Docket sells work performed, not results achieved."""
-    banned = ("guaranteed", "profit", "best", "safe", "will increase", "recommended")
+    """Docket sells work performed, not results achieved.
+
+    `advice`, `signal to trade` and `will` joined the list when a market-regime read
+    entered the catalogue: a trading signal is the easiest thing here to describe as
+    an instruction, and the description is the contract.
+    """
+    banned = (
+        "guaranteed",
+        "profit",
+        "best",
+        "safe",
+        "will increase",
+        "recommended",
+        "advice",
+        "signal to trade",
+        "will",
+    )
     for svc in SERVICES.values():
         blob = f"{svc.name} {svc.what_you_get}".lower()
         for word in banned:
