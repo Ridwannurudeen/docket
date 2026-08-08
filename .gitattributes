@@ -1,0 +1,16 @@
+# Docket ships evidence, and evidence includes exact bytes.
+#
+# With core.autocrlf=true (the Windows default) git rewrites LF to CRLF on
+# checkout. That silently changed a published artefact: the Agent Advantage
+# Report prints a minimal pair of payloads whose ONLY difference is a newline
+# between two clauses, and a CRLF checkout turns the "\n" variant a reader
+# copies into "\r\n" — a different string from the one that was actually
+# tested and recorded. Forcing LF keeps the working tree, the object store,
+# the served page and the committed experiment records byte-identical.
+* text=auto eol=lf
+
+# Recorded experiments and their hashes are canonical JSON; never touch them.
+docket/advantage/experiments/*.json -text
+*.png binary
+*.jpg binary
+*.ico binary
