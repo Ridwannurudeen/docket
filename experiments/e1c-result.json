@@ -1,0 +1,93 @@
+{
+  "question": "Which chain's ERC-8183 escrow rail is open today, and may Docket settle a job it is not party to once the dispute window elapses?",
+  "registration_open_on": [
+    "56"
+  ],
+  "settle_is_permissionless_on_mainnet": true,
+  "testnet_escrow_open": false,
+  "mainnet_dispute_window_seconds": 604800,
+  "chains": {
+    "56": {
+      "chain": "BSC mainnet",
+      "rpc": "https://bsc-dataseed.binance.org",
+      "block": 114997256,
+      "block_timestamp": 1786309287,
+      "router": "0x51895229E12F9876011789B04f8698af06cCD6DA",
+      "router_owner": "0x5057b09A4b510ccaf7e3fb3038Ba60713E62B1fc",
+      "router_paused": false,
+      "inflight_jobs": 28272,
+      "job_counter": 56585,
+      "brief_policy": "0x9C01845705b3078Aa2e8cfF7520a6376FD766dE5",
+      "brief_policy_whitelisted": true,
+      "policies_on_recent_jobs": {
+        "0x9C01845705b3078Aa2e8cfF7520a6376FD766dE5": {
+          "jobs_seen": [
+            56585,
+            56584,
+            56583,
+            56582,
+            56581
+          ],
+          "count_in_window": 38,
+          "whitelisted": true
+        }
+      },
+      "registration_open": true,
+      "dispute_window_seconds": 604800,
+      "vote_quorum": 3,
+      "active_voters": 5,
+      "policy_router": "0x51895229E12F9876011789B04f8698af06cCD6DA",
+      "settle_probe": {
+        "ripe": {
+          "job": 56585,
+          "settle_at": 1785774146,
+          "result": "succeeds"
+        },
+        "still_in_window": {
+          "job": null,
+          "result": "no such job found in scan window"
+        }
+      }
+    },
+    "97": {
+      "chain": "BSC testnet",
+      "rpc": "https://bsc-testnet-rpc.publicnode.com",
+      "block": 124141537,
+      "block_timestamp": 1786310005,
+      "router": "0xD7d36D66d2F1B608A0F943f722D27e3744f66F25",
+      "router_owner": "0x1001b2C085345f388778A975648aA50bcfd0D134",
+      "router_paused": false,
+      "inflight_jobs": 370,
+      "job_counter": 455,
+      "brief_policy": "0x4F4678D4439feC812Ac7674Bb3Efb4C8f5Fb78A6",
+      "brief_policy_whitelisted": false,
+      "policies_on_recent_jobs": {
+        "0x4F4678D4439feC812Ac7674Bb3Efb4C8f5Fb78A6": {
+          "jobs_seen": [
+            444,
+            443,
+            438,
+            435,
+            434
+          ],
+          "count_in_window": 16,
+          "whitelisted": false
+        }
+      },
+      "registration_open": false,
+      "dispute_window_seconds": null,
+      "settle_probe": {
+        "ripe": {
+          "job": null,
+          "result": "no such job found in scan window"
+        },
+        "still_in_window": {
+          "job": null,
+          "result": "no such job found in scan window"
+        }
+      }
+    }
+  },
+  "notes": "The design spec routes judge-facing escrow hires to testnet for its 1-day dispute window. That route is closed: the only policy testnet jobs bind (0x4F4678D4439feC812Ac7674Bb3Efb4C8f5Fb78A6) reads policyWhitelist=false, so registerJob reverts PolicyNotWhitelisted and no new testnet job can be funded. The jobs already bound to it registered before the whitelist was withdrawn; the router owner (0x1001b2C085345f388778A975648aA50bcfd0D134) is not ours, so this is not state Docket can repair. Mainnet is the inverse and is open: its policy is whitelisted and carries almost every recent job. The cost of that is the real one \u2014 a 7-day dispute window with no client-accept path anywhere in OptimisticPolicy, so a funded job cannot be settled early however willing both sides are. What makes that workable is that settle() is not gated on the caller: a stranger address, party to nothing, settles a ripe job in eth_call, so Docket can close a buyer's job itself the moment the window elapses. Probed read-only: every settle() call is an eth_call and was never broadcast, so no live job was touched.",
+  "method": "eth_call, no keys and no state overrides. Inventory reads are pinned to the block recorded per chain so every figure describes one moment; the settle() probes run at latest, because they read state that full nodes prune."
+}
