@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from docket.api import create_app
 from docket.store import Store
 
+PUBLIC_HOST = "https://docket.gudman.xyz"
 AGENT = {
     "agent_id": "56:0xreg:136384",
     "token_id": "136384",
@@ -33,7 +34,14 @@ def client(tmp_path):
     sid = store.begin_snapshot(chain_id=56, expected=2)
     store.upsert_agents([AGENT, QUIET], sid)
     store.upsert_endpoints(
-        [{"agent_id": AGENT["agent_id"], "kind": "a2a", "url": "https://a.example/a2a"}], sid
+        [
+            {
+                "agent_id": AGENT["agent_id"],
+                "kind": "a2a",
+                "url": "https://a.example/a2a",
+            }
+        ],
+        sid,
     )
     store.record_liveness(
         [
@@ -147,13 +155,31 @@ def test_skill_md_is_served_as_markdown(client):
     assert resp.text.strip()
 
 
+def test_agent_facing_docs_name_the_public_host(client):
+    """Both agent-facing docs once said no public deployment existed while being served from
+    one. An evaluator agent reads that as 'nothing to call' and stops, so the claim is a
+    correctness bug on the front door, not a typo."""
+    for path in ("/llms.txt", "/skill.md"):
+        body = client.get(path).text
+        assert PUBLIC_HOST in body, f"{path} does not name the public host"
+        assert "no public host" not in body, f"{path} still denies a public host"
+        assert "no public deployment" not in body, (
+            f"{path} still denies a public deployment"
+        )
+
+
 def test_cors_advertises_only_methods_that_are_actually_served(client):
     """Advertising a method we answer with 405 is the wrong kind of inconsistency here."""
     preflight = client.options(
         "/agents",
-        headers={"Origin": "https://example.test", "Access-Control-Request-Method": "GET"},
+        headers={
+            "Origin": "https://example.test",
+            "Access-Control-Request-Method": "GET",
+        },
     )
-    advertised = {m.strip() for m in preflight.headers["access-control-allow-methods"].split(",")}
+    advertised = {
+        m.strip() for m in preflight.headers["access-control-allow-methods"].split(",")
+    }
     for method in advertised:
         assert client.request(method, "/agents").status_code != 405
 

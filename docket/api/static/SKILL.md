@@ -25,7 +25,7 @@ question, and nothing in its output should be presented as if it did.
 ## Setup
 
 ```bash
-DOCKET=http://127.0.0.1:8099   # the origin serving this file; no public host yet
+DOCKET=https://docket.gudman.xyz   # the public host; or the origin serving this file
 curl -s "$DOCKET/health"       # {"status":"ok","snapshot_id":3}
 ```
 

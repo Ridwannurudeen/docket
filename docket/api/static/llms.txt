@@ -10,14 +10,15 @@ endorsements" at the bottom of this file before you quote anything from it.
 
 ## Base URL
 
-The origin this file was served from. Every path below is relative to it. There is no
-public deployment yet; the local default is http://127.0.0.1:8099
+The origin this file was served from. Every path below is relative to it. The public
+deployment is https://docket.gudman.xyz
 
-    DOCKET=http://127.0.0.1:8099
+    DOCKET=https://docket.gudman.xyz
 
-Started with:
+Running a local copy instead? Point DOCKET at it; nothing below changes.
 
     python -m uvicorn --factory "docket.api:create_app" --host 127.0.0.1 --port 8099
+    DOCKET=http://127.0.0.1:8099
 
 No authentication, no API key, no account, no wallet. Every path but one is GET and
 read-only, so a caller cannot change what Docket has observed by calling it. The
