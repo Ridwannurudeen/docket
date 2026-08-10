@@ -40,6 +40,21 @@ U_TOKEN = "0xcE24439F2D9C6a2289F741120FE202248B666666"
 # How many of a wallet's position NFTs a hire reads by default. Ten is the
 # measured point where the read finishes in tens of seconds rather than minutes.
 RANGE_DOCTOR_LIMIT = 10
+# The pair the grid preview defaults to, and the band it draws around the current price
+# when a caller supplies none. WBNB/USDT is the deepest V2 pair on BSC, and both sides are
+# 18 decimals there — USDT is 6 on Ethereum and 18 here, which is the trap this constant
+# exists to keep out of the arithmetic.
+GRID_BASE = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+GRID_QUOTE = "0x55d398326f99059fF775485246999027B3197955"
+GRID_BASE_DECIMALS = 18
+GRID_BAND_PCT = 10
+# Even on purpose. The default band is centred on the observed price, and an odd number
+# of levels puts one exactly on it — which has no side and is dropped, so a caller who
+# asked for five would be handed four and a footnote. An even count straddles the centre
+# and comes back symmetric: half buys below, half sells above.
+GRID_LEVELS = 6
+# 25 USDT a level. Small enough to be a demonstration rather than a position.
+GRID_SIZE_PER_LEVEL = 25 * 10**18
 SOLVENT_SIGNAL_URL = "https://solvent.gudman.xyz/signal"
 WARDEN_SCAN_URL = "https://warden.gudman.xyz/api/demo/scan"
 UPSTREAM_TIMEOUT_S = 30.0
@@ -111,6 +126,46 @@ def _run_range_doctor(payload: dict) -> dict:
     )
 
 
+def _run_grid_operator(payload: dict) -> dict:
+    """A preview, and structurally only a preview.
+
+    `GridPreview` is the class with no session, no signer and no submitter, and it is
+    what this hire runs. There is no argument to this function that turns it into the
+    armed operator, because the armed operator is a different class that refuses to be
+    constructed without a session the wallet's owner granted.
+
+    Every grid input defaults, so `{"wallet": "0x..."}` alone returns the whole
+    mechanism: the band is read from the pair's current price and centred on it. A caller
+    who wants their own band supplies it and nothing is inferred.
+    """
+    from ..agents.grid.operator import GridPreview, observe_price
+    from ..agents.grid.plan import build_plan
+    from ..execution.simulate import BscQuoteReader
+
+    reader = BscQuoteReader()
+    base = payload.get("base") or GRID_BASE
+    quote = payload.get("quote") or GRID_QUOTE
+    base_decimals = int(payload.get("base_decimals") or GRID_BASE_DECIMALS)
+    observed = observe_price(reader, base=base, quote=quote, base_decimals=base_decimals)
+
+    reference = payload.get("reference")
+    reference = observed.price if reference is None else int(reference)
+    lower = payload.get("lower")
+    upper = payload.get("upper")
+    plan = build_plan(
+        lower=reference * (100 - GRID_BAND_PCT) // 100 if lower is None else int(lower),
+        upper=reference * (100 + GRID_BAND_PCT) // 100 if upper is None else int(upper),
+        levels=int(payload.get("levels") or GRID_LEVELS),
+        size_per_level=int(payload.get("size_per_level") or GRID_SIZE_PER_LEVEL),
+        base=base,
+        quote=quote,
+        base_decimals=base_decimals,
+        reference=reference,
+    )
+    filled = tuple(int(index) for index in payload.get("filled") or ())
+    return GridPreview(plan, reader=reader, wallet=payload["wallet"]).preview(filled=filled)
+
+
 SERVICES: dict[str, Service] = {
     "range-doctor": Service(
         id="range-doctor",
@@ -145,6 +200,105 @@ SERVICES: dict[str, Service] = {
         price_atomic=10**16,
         asset=U_TOKEN,
         run=_run_range_doctor,
+    ),
+    "grid-operator": Service(
+        id="grid-operator",
+        name="Grid Operator Preview",
+        what_you_get=(
+            "A deterministic PancakeSwap V2 grid, built from a band you give it — or drawn "
+            "around the pair's current price if you give it none — and previewed against BSC "
+            "mainnet as it stands right now. You get the exact price levels and their "
+            "spacing, which token each level spends and how much of it, the condition each "
+            "level fires on, and for every level the full action record that acting would "
+            "commit to: the router's own live quote for that trade, the minimum output the "
+            "action would insist on, a hash of the exact calldata that binds it, a deadline, "
+            "a gas ceiling and a slippage bound. Nothing is signed, approved, submitted or "
+            "held. This is a preview and structurally only a preview: the object that runs "
+            "it holds no session key, no signer and no submitter, and has no method that "
+            "sends a transaction, so it cannot move anything. Acting on a level needs a "
+            "session the wallet's owner grants on chain, with a spend cap, a call allowlist "
+            "and an expiry that the session validator enforces at validation time — Docket "
+            "never holds the owner key and cannot grant or revoke on their behalf. Every "
+            "figure comes back with the block it was read at, so you can check any of it "
+            "against the chain yourself."
+        ),
+        input_schema={
+            "wallet": {
+                "type": "string",
+                "required": True,
+                "description": (
+                    "the 0x-prefixed BSC address the previewed swaps name as recipient; it is "
+                    "read and never touched"
+                ),
+            },
+            "lower": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "bottom of the band, in atomic units of the quote token per one whole "
+                    f"base token; defaults to {GRID_BAND_PCT}% below the observed price"
+                ),
+            },
+            "upper": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    f"top of the band, same units; defaults to {GRID_BAND_PCT}% above the "
+                    "observed price"
+                ),
+            },
+            "levels": {
+                "type": "integer",
+                "required": False,
+                "default": GRID_LEVELS,
+                "description": "how many price levels the band is divided into, at least two",
+            },
+            "size_per_level": {
+                "type": "integer",
+                "required": False,
+                "default": GRID_SIZE_PER_LEVEL,
+                "description": (
+                    "what each level commits, in atomic units of the quote token; a sell "
+                    "level commits what that is worth in the base token at its own price"
+                ),
+            },
+            "base": {
+                "type": "string",
+                "required": False,
+                "default": GRID_BASE,
+                "description": "the token being priced",
+            },
+            "quote": {
+                "type": "string",
+                "required": False,
+                "default": GRID_QUOTE,
+                "description": "the token it is priced in",
+            },
+            "base_decimals": {
+                "type": "integer",
+                "required": False,
+                "default": GRID_BASE_DECIMALS,
+                "description": "decimals of the base token; 18 for WBNB, and 18 for USDT on BSC",
+            },
+            "reference": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "the price levels are sided against — below it they buy, above it they "
+                    "sell; defaults to the observed price"
+                ),
+            },
+            "filled": {
+                "type": "array",
+                "required": False,
+                "description": "level indexes already filled, which are not drafted again",
+            },
+        },
+        typical_seconds=25,
+        price_display="0.01 $U",
+        price_atomic=10**16,
+        asset=U_TOKEN,
+        run=_run_grid_operator,
     ),
     "solvent-signal": Service(
         id="solvent-signal",

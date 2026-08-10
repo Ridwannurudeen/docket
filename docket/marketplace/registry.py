@@ -46,6 +46,45 @@ UNCATEGORISED_NOTE = (
 )
 
 SERVICES: dict[str, ServiceRecord] = {
+    "grid-operator": ServiceRecord(
+        service_id="grid-operator",
+        category=Category.GRID_TRADING,
+        # The shelf that was bare. It is stocked with the one thing Docket can actually
+        # show — the whole mechanism, previewed against the chain — and the record below
+        # says in its first breath that a hire previews rather than trades, because a
+        # category filled with an overstatement is worse than one left honestly empty.
+        agent_id=None,
+        registration_uri=None,
+        # `one_shot` and not `policy_action`, which is the tempting one. A hire runs once
+        # and hands back a preview; it does not act on chain within a policy, and saying
+        # it did would be claiming the half of this service that needs a session nobody
+        # has granted yet.
+        activation="one_shot",
+        # No recorded hired-versus-manual run stands behind this yet, so it carries no
+        # figures. An invented one would be the same class of fabrication as an invented
+        # category, and this stage exists partly to refuse that.
+        metrics=(),
+        evidence=(),
+        limitations=(
+            "PancakeSwap V2 exact-input swaps on BSC mainnet and nothing else: no V3, no "
+            "limit orders, no adding or removing liquidity. What a hire returns is a "
+            "preview and structurally only a preview — the object that produces it holds "
+            "no session key, no signer and no submitter and has no method that sends a "
+            "transaction, so it cannot move anything, and every figure in it is a read. "
+            "Acting on a level needs a session the wallet's owner grants on chain, with a "
+            "spend cap, a call allowlist and an expiry that the session validator enforces "
+            "at validation time; Docket never holds the owner key and cannot grant or "
+            "revoke on their behalf. Docket's own checks sit in front of the chain's and "
+            "may only ever refuse more, never less. Each level's floor comes from a live "
+            "router quote less the slippage the plan allows, and an action whose "
+            "simulation disagrees with its own bounds is not submitted — but a level "
+            "filling is a fill and not a gain. A confirmed transaction shows the action "
+            "executed as it was authorised and shows nothing about whether it was worth "
+            "taking. No recorded run stands behind this service yet, so it publishes no "
+            "measured figures. And the grid is deterministic rather than adaptive: it "
+            "divides the band it was given, and it does not decide the band was wrong."
+        ),
+    ),
     "range-doctor": ServiceRecord(
         service_id="range-doctor",
         category=Category.REBALANCING,

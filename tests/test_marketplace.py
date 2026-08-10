@@ -412,16 +412,49 @@ def _figure(record: ServiceRecord, name: str) -> Metric:
     return next(metric for metric in record.metrics if metric.name == name)
 
 
-def test_one_of_the_four_categories_is_stocked_and_the_other_three_say_so():
-    """The honest starting inventory. Four job cards over three bare shelves is what this
-    stage was told to avoid, so the bareness is asserted rather than glossed."""
+def test_two_of_the_four_categories_are_stocked_and_the_other_two_say_so():
+    """The inventory as it now stands. Grid was the shelf this stage was built to fill,
+    and the two still bare are asserted rather than glossed — four job cards over four
+    empty shelves is what the whole discipline exists to avoid, and so is a shelf filled
+    with something that does less than its card claims."""
     assert category_counts() == {
         Category.REBALANCING: 1,
-        Category.GRID_TRADING: 0,
+        Category.GRID_TRADING: 1,
         Category.YIELD_OPTIMISATION: 0,
         Category.HEALTH_FACTOR: 0,
     }
     assert [r.service_id for r in records_in(Category.REBALANCING)] == ["range-doctor"]
+    assert [r.service_id for r in records_in(Category.GRID_TRADING)] == ["grid-operator"]
+
+
+def test_the_grid_service_says_a_hire_previews_rather_than_trades():
+    """The card that fills a category has to be read hardest. It states in its own
+    limitations that the hire cannot move anything, that acting needs a session the owner
+    grants and the chain enforces, and that a fill is not a gain."""
+    record = SERVICES["grid-operator"]
+    lowered = record.limitations.lower()
+    for phrase in (
+        "structurally only a preview",
+        "no session key",
+        "cannot move anything",
+        "docket never holds the owner key",
+        "refuse more, never less",
+        "a fill and not a gain",
+        "no recorded run stands behind this service yet",
+    ):
+        assert phrase in lowered, phrase
+    assert record.activation == "one_shot"
+    assert "acts on chain" not in record.activation_means.lower()
+
+
+def test_the_grid_service_publishes_no_figure_it_has_not_measured():
+    """A category is stocked with an honest empty evidence list rather than a fabricated
+    metric. The other three services cite a recorded run; this one has none yet and says
+    so instead of inventing one."""
+    record = SERVICES["grid-operator"]
+    assert record.metrics == ()
+    assert record.evidence == ()
+    assert record.agent_id is None
 
 
 def test_the_empty_shelves_say_why_and_promise_nothing():
@@ -450,7 +483,7 @@ def test_only_solvent_signal_carries_an_identity_and_the_others_say_they_do_not(
         SERVICES["solvent-signal"].agent_id
         == "56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:136384"
     )
-    for service_id in ("range-doctor", "warden-scan"):
+    for service_id in ("grid-operator", "range-doctor", "warden-scan"):
         record = SERVICES[service_id]
         assert record.agent_id is None
         assert "no bsc identity bound yet" in record.identity_line.lower()
