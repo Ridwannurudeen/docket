@@ -21,6 +21,7 @@ from web3 import Web3
 
 from docket.agents.grid.operator import (
     DEFAULT_SLIPPAGE_BPS,
+    SUBMITTER_CONTRACT,
     SWAP_SELECTOR,
     GridOperator,
     GridPreview,
@@ -477,3 +478,69 @@ def test_the_grid_shelf_is_stocked_by_this_service_and_by_nothing_borrowed():
     from docket.marketplace.registry import records_in
 
     assert [r.service_id for r in records_in(Category.GRID_TRADING)] == ["grid-operator"]
+
+
+# ------------------------------------------------- the hazard Docket cannot see
+
+
+def test_the_submitter_contract_names_the_owner_key_hazard():
+    """The one failure this design cannot detect from the inside, stated where somebody
+    wiring a submitter will read it.
+
+    `canExecute` in the wallet's own executor returns true unconditionally for a zero
+    keyHash and for super-admin keys. A submitter that signs with the OWNER key therefore
+    passes every on-chain guard — not because the guards allowed it, but because they
+    never applied — and at that point Docket's Python checks are the only thing left,
+    which is the exact inversion this whole package exists to avoid. The submitter is an
+    opaque callable, so nothing here can tell the two apart before the fact.
+    """
+    contract = SUBMITTER_CONTRACT.lower()
+    assert "session key" in contract
+    assert "owner key" in contract
+    assert "super-admin" in contract or "super admin" in contract
+    assert "canexecute" in contract
+    # Named at the point of failure as well as in the documentation, because the moment
+    # somebody is looking for a submitter to supply is the moment this has to be read.
+    assert SUBMITTER_CONTRACT in GridOperator.__doc__
+    with pytest.raises(NotArmed) as exc:
+        authority = StubSessionAuthority(account=OWNER)
+        GridOperator(
+            _plan(),
+            reader=FakePool(),
+            authority=authority,
+            ref=authority.grant(_permissions(), expiry=FROZEN_NOW + 86_400),
+            permissions=_permissions(),
+        )
+    assert SUBMITTER_CONTRACT in str(exc.value)
+
+
+def test_the_step_docstring_admits_it_keeps_no_ledger_of_what_has_filled():
+    """`filled` is the caller's to carry. A loop that forgot would re-fire a level every
+    tick, and `step` does not hand back the index it fired, so the caller has to read it
+    off the receipt. Said out loud rather than left as a trap for the next person."""
+    doc = GridOperator.step.__doc__.lower()
+    assert "keeps no ledger" in doc
+    assert "filled" in doc
+
+
+def test_the_decision_and_the_receipt_are_made_on_one_and_the_same_chain_read():
+    """A receipt that bound an earlier read than the one the decision used would be
+    evidence about a different moment. One read, used for both."""
+
+    class Counting(StubSessionAuthority):
+        reads = 0
+
+        def status(self, ref, *, permissions=None, call=None):
+            Counting.reads += 1
+            return super().status(ref, permissions=permissions, call=call)
+
+    Counting.reads = 0
+    authority = Counting(account=OWNER)
+    ref = authority.grant(_permissions(), expiry=FROZEN_NOW + 86_400)
+    operator, _, submitter, _, _ = _armed(
+        pool=FakePool(price=600 * E18), authority=authority, ref=ref
+    )
+    out = operator.step()
+    assert out["submitted"] is True
+    assert Counting.reads == 1
+    assert out["receipt"]["authority"]["source"] == "stub"

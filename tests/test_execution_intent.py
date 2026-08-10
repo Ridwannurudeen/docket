@@ -312,3 +312,21 @@ def test_no_field_or_value_on_an_intent_carries_verdict_language():
             assert not re.search(rf"\b{re.escape(word)}\b", value.lower()), (
                 f"intent carries verdict language {word!r} in {value!r}"
             )
+
+
+def test_a_boolean_is_not_a_quantity_of_anything():
+    """`True` is an `int` in Python and passes an unwary `> 0`, so `min_output=True` would
+    construct as a floor of one wei — an intent that reads as bounded and is not. Every
+    other integer field on this record already refuses a bool; this one now does too."""
+    for field in ("min_output", "max_input", "gas_ceiling", "slippage_bps", "nonce"):
+        with pytest.raises(ValueError):
+            _intent(**{field: True})
+
+
+def test_a_nonce_must_be_a_whole_non_negative_number():
+    """It goes into the idempotency key, so a nonce of a shape nobody expected is an
+    action that keys unlike every other one and dedupes against nothing."""
+    _intent(nonce=0)
+    for bad in (-1, "1", 1.0, None):
+        with pytest.raises((ValueError, TypeError)):
+            _intent(nonce=bad)

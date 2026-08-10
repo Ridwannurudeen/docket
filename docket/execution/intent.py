@@ -171,7 +171,18 @@ class ActionIntent:
                 f"{subject}: selector {self.selector!r} is not four hex bytes"
             ) from None
 
-        if self.min_output is None or not isinstance(self.min_output, int) or self.min_output <= 0:
+        # Through `_whole_number` like every other quantity here, and for one reason
+        # beyond consistency: `True` is an `int` in Python and slips past a bare `> 0`,
+        # so `min_output=True` would construct as a floor of one wei — a record that
+        # reads as bounded and is not.
+        if self.min_output is None:
+            raise ValueError(
+                f"{subject}: min_output must be a positive integer of atomic units. An "
+                "action that accepts any output is an action that can be sandwiched to "
+                "nothing, and there is no default for it here on purpose."
+            )
+        _whole_number(self.min_output, "min_output", subject)
+        if self.min_output <= 0:
             raise ValueError(
                 f"{subject}: min_output must be a positive integer of atomic units. An "
                 "action that accepts any output is an action that can be sandwiched to "
@@ -188,6 +199,11 @@ class ActionIntent:
         _whole_number(self.gas_ceiling, "gas_ceiling", subject)
         if self.gas_ceiling <= 0:
             raise ValueError(f"{subject}: gas_ceiling must be positive")
+        # The nonce goes into the idempotency key, so a nonce of an unexpected shape is an
+        # action that keys unlike every other one and therefore dedupes against nothing.
+        _whole_number(self.nonce, "nonce", subject)
+        if self.nonce < 0:
+            raise ValueError(f"{subject}: nonce must not be negative")
         _whole_number(self.evidence_block, "evidence_block", subject)
         if self.evidence_block <= 0:
             raise ValueError(

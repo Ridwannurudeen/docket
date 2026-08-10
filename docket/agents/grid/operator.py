@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from web3 import Web3
 
 from ...execution import now
+from ...execution.authority import check
 from ...execution.intent import ActionIntent, commit
 from ...execution.receipts import EXECUTION_NOTE, action_receipt
 from ...execution.simulate import PANCAKE_V2_ROUTER, SWAP_SIGNATURE, simulate, swap_calldata
@@ -50,6 +51,21 @@ DEFAULT_GAS_CEILING = 300_000
 # a transaction stuck in the mempool expires rather than filling at a price nobody looked
 # at.
 DEFAULT_DEADLINE_S = 600
+# The one failure this design cannot see from the inside, stated wherever a submitter is
+# about to be wired in. Read against ithacaxyz/account's GuardedExecutor on 2026-08-10:
+# `canExecute` returns true unconditionally for a zero keyHash and for super-admin keys.
+SUBMITTER_CONTRACT = (
+    "The submitter MUST sign with the SESSION key. An owner key silently voids every "
+    "limit this design rests on: the wallet's own canExecute returns true "
+    "unconditionally for a zero keyHash and for super-admin keys, so an owner-signed "
+    "call passes every on-chain guard — not because the caps allowed it, but because "
+    "they never applied to it. At that point Docket's own checks are the only thing "
+    "left, which is the exact inversion this package exists to prevent. Nothing here "
+    "can tell the two apart beforehand, because a submitter is an opaque callable. "
+    "What does catch it is afterwards: if the session's spendInfos currentSpent has "
+    "not moved by the amount that was swapped, the transaction did not go through the "
+    "session at all."
+)
 PREVIEW_REASON = (
     "This is a preview. It holds no session, no signer and no submitter, and there is no "
     "method on it that sends anything — so nothing here can be submitted by changing a "
@@ -275,7 +291,16 @@ class GridOperator:
     Both checks run in the constructor, before any node is contacted, so an unarmed
     caller cannot reach the network even to ask a question — the discipline
     `escrow/settle.py` already ships under.
+
+    Whoever supplies the submitter carries the one obligation this class cannot enforce:
+
+    {SUBMITTER_CONTRACT}
     """
+
+    # Interpolated rather than transcribed so the docstring, the `NotArmed` message and
+    # the runbook cannot drift apart. `or ""` because `python -OO` strips docstrings, and
+    # an import that crashed under it would be a worse bug than the one this prevents.
+    __doc__ = (__doc__ or "").replace("{SUBMITTER_CONTRACT}", SUBMITTER_CONTRACT)
 
     def __init__(
         self,
@@ -302,7 +327,7 @@ class GridOperator:
                 "submitting needs something that can send a transaction, and Docket ships "
                 "none: it holds no owner key, and driving a session key through Altana's "
                 "relay is not in this build. GridPreview answers the same questions for "
-                "free."
+                "free. Before supplying one: " + SUBMITTER_CONTRACT
             )
         self.plan = plan
         self.wallet = Web3.to_checksum_address(ref.account)
@@ -331,6 +356,16 @@ class GridOperator:
         next observation is a new question. A session that has been revoked simply keeps
         refusing, so the loop never submits — which is the property that matters, and is
         cheaper than teaching this method to tell one refusal from another.
+
+        **This method keeps no ledger of what has already filled, and does not hand back
+        the index it fired.** `filled` is the caller's to carry, and a loop that forgot to
+        would re-fire the same level on every observation until the cap ran out. The level
+        that fired is on the returned receipt, under `intent.condition.threshold` and in
+        the intent id; a caller running this in a loop has to read it off there and add it
+        to its own `filled` before the next call. Keeping the ledger here would mean this
+        object owned state that outlives a single observation, which is the thing that
+        makes an operator hard to reason about — but the trade is a footgun, and it is
+        named rather than left to be discovered.
         """
         observation = self._observe()
         level = next_action(self.plan, observation.price, filled)
@@ -374,7 +409,12 @@ class GridOperator:
             return self._receipt(intent, observation, result, lifecycle, None, None, None)
         lifecycle.transition(ActionState.SIMULATED, reason=result.reason)
 
-        status = None
+        # One read, and the decision and the receipt are both made on it. Asking the
+        # authority twice — once for the record and once for the answer — would put a
+        # different moment on the receipt than the one that was acted on, and a receipt
+        # that describes a different moment is evidence about something else. The read
+        # includes the wallet's own canExecute for this exact calldata, so it is as fresh
+        # as the decision requires.
         try:
             status = self._authority.status(
                 self._ref,
@@ -382,19 +422,13 @@ class GridOperator:
                 call=(intent.target, calldata),
             )
         except Exception as exc:
-            # The status is wanted for the receipt; the decision below is the authority's
-            # own, and it is asked separately so that an unreadable status cannot be
-            # mistaken for a readable one that said yes.
-            status = None
             lifecycle.transition(
                 ActionState.PAUSED,
                 reason=f"the session's state could not be read: {type(exc).__name__}: {exc}",
             )
             return self._receipt(intent, observation, result, lifecycle, None, None, None)
 
-        allowed, reason = self._authority.can_execute(
-            intent, self._ref, permissions=self._permissions, calldata=calldata
-        )
+        allowed, reason = check(intent, status)
         if not allowed:
             lifecycle.transition(ActionState.PAUSED, reason=reason)
             return self._receipt(intent, observation, result, lifecycle, status, None, None)

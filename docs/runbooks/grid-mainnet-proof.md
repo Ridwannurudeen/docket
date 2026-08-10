@@ -21,8 +21,17 @@ explorer and no access to Docket:
 3. One swap executed inside it.
 4. The session's spend cap decremented on chain by what the swap consumed.
 5. The owner revoked the session.
-6. The same action, attempted again, was refused — and refused by the chain, not by
-   Docket being polite about it.
+6. The same action, attempted again, was refused — by Docket, on the strength of a fresh
+   read of the chain's own state, before anything was signed or sent.
+
+Be exact about what the sixth one is. Docket is doing the refusing; it refuses because
+`isValidKey` now says the key is gone, which is the chain's answer and not Docket's
+opinion. That *is* the intended design — refusing before spending gas beats discovering
+it at validation time — but the guarantee underneath it is separate and stronger: the
+wallet's executor would revert the call whether or not Docket refused first. Check 6
+demonstrates the courtesy gate working. It does not, on its own, demonstrate the
+enforcement gate; nothing short of sending a transaction against a revoked session would,
+and that is deliberately not in this runbook.
 
 It does **not** prove the trade was worth making. A grid level filling at its own price
 is a fill. Whether the position ends up ahead depends on what the market does next, and
@@ -215,22 +224,63 @@ This is the same code path `POST /hire/grid-operator` serves. It holds no sessio
 no method that submits. Read the level it says the price has reached, and its intent's
 `min_output`, `calldata_hash` and `deadline`.
 
-### 7.4 — Approve USDT to the router (owner or session, TypeScript)
+### 7.4 — Approve USDT to the router — **signed by the OWNER, not by the session**
 
 One `approve` for exactly the cap, not `MaxUint256`. An unlimited approval outlives the
-session and is the thing left behind after a revoke that a revoke does not undo.
+session and is the thing a revoke leaves behind.
+
+**Sign this one with the owner key.** Not "owner or session" — owner. A session-signed
+`approve` does two things that between them brick the proof, both of them in the wallet's
+own executor (`ithacaxyz/account`, `GuardedExecutor`, read 2026-08-10):
+
+- **It is revoked to zero at the end of the batch.** The executor tracks every non-zero
+  approval a session makes and calls `safeApprove(token, spender, 0)` before the batch
+  ends. So the allowance is gone by the time §7.5's swap runs, and the swap reverts in
+  `transferFrom`.
+- **The whole approved amount counts against the spend cap.** The executor sees the
+  `0x095ea7b3` selector, takes the approved amount straight out of the calldata and runs
+  it through `_incrementSpent`. `approve(30 USDT)` therefore consumes the *entire* 30
+  USDT/day allowance before a single token has moved.
+
+Both fail closed — nothing is lost, the proof simply cannot complete — so this is
+reliability rather than fund safety. It is written down because the failure looks like a
+Docket bug and is not one.
 
 ### 7.5 — Draft, simulate, decide and submit (Docket + a submitter)
 
 `GridOperator` refuses to be constructed without a `submitter`. Supply one that signs the
-intent's calldata with the session key and sends it through Altana's relay — that is the
-TypeScript half. The operator draws the level, drafts the intent, quotes it, refuses if
-the quote is below the intent's floor, asks the chain whether the session permits the
+intent's calldata **with the session key** and sends it through Altana's relay — that is
+the TypeScript half. The operator draws the level, drafts the intent, quotes it, refuses
+if the quote is below the intent's floor, asks the chain whether the session permits the
 exact call, and only then hands the calldata to the submitter.
+
+> **The submitter MUST sign with the session key. This is the one hazard in this
+> document that Docket cannot detect, and it voids everything else in it.**
+>
+> `GuardedExecutor.canExecute` returns `true` **unconditionally** for a zero `keyHash`
+> and for super-admin keys — `if (keyHash == bytes32(0)) return true;` and
+> `if (_isSuperAdmin(keyHash)) return true;`. So a submitter that signs with the **owner**
+> key passes every on-chain guard, not because the caps permitted the call but because
+> they never applied to it. No spend cap is decremented, no allowlist is consulted, no
+> expiry is honoured. At that moment Docket's Python checks become the only thing
+> standing between a bug and the wallet — the exact inversion this entire design exists
+> to prevent, and the one claim the whole build rests on.
+>
+> Docket cannot see it coming. `submitter` is an opaque callable
+> (`docket/agents/grid/operator.py`), and a signature made elsewhere is not something the
+> caller can inspect. The same wording is carried in `SUBMITTER_CONTRACT`, in
+> `GridOperator`'s own docstring and in the `NotArmed` message, so nobody wiring one in
+> has to have read this file.
+>
+> **What does catch it is check 4 below, afterwards.** If `spendInfos.currentSpent` has
+> not moved by the amount swapped, the transaction did not go through the session at all.
+> Treat check 4 as the detector for this, not as a formality.
 
 Keep the receipt it returns. It carries the intent, the intent key, the plan hash, the
 simulation, the authority status with its `source` field, the cap before, the lifecycle
-and the transaction hash — and a `receipt_hash` anyone can recompute.
+and the transaction hash — and a `receipt_hash` anyone can recompute. The status on the
+receipt is the same single chain read the decision was made on, not a second one taken
+afterwards.
 
 ### 7.6 — Revoke (owner, TypeScript)
 
@@ -251,13 +301,17 @@ Run each one and record the answer. Every one is checkable by a stranger.
 | 1 | Session registered | `KeyStore.getKeys(wallet)` contains `keccak256(session.publicKey)`; `KeyStore.isValidKey(wallet, keyId)` is `true` |
 | 2 | Intent simulated and agreed | the receipt's `simulation.agrees` is `true`, `checks` lists `router.getAmountsOut`, and `expected_output ≥ intent.min_output` |
 | 3 | One confirmed swap | the transaction hash on BscScan, `Success`, one `Swap` event on the WBNB/USDT V2 pair, and the calldata's keccak equal to the receipt's `intent.calldata_hash` |
-| 4 | Cap decremented on chain | `account.spendInfos(keyHash)` for USDT: `limit - currentSpent` fell by the amount swapped. **`currentSpent`, not `spent`** — and the field named `current` is the start of the current period, a timestamp, not a balance |
+| 4 | Cap decremented on chain | `account.spendInfos(keyHash)` for USDT: `limit - currentSpent` fell by the amount swapped. **`currentSpent`, not `spent`** — and the field named `current` is the start of the current period, a timestamp, not a balance. **If this figure has not moved, stop: the swap did not go through the session** — see the owner-key hazard in §7.5 |
 | 5 | Revoked | `KeyStore.isValidKey` is now `false` and the key id is gone from `getKeys` |
 | 6 | Post-revoke attempt refused | re-run 7.2 and 7.5. `can_execute` returns `(False, "the session has been revoked…")`, and the submitter is never reached |
 
 Check 6 is the one worth doing twice. Docket refusing is not the claim; the claim is that
 the chain would refuse even if Docket did not, and a session that has been revoked cannot
-be reinstated — revocation is monotonic in Altana v1.0.0, so this is a one-way door.
+be reinstated — revocation is monotonic in the KeyStore deployed at that address, whose
+`VERSION()` reads **1.0.1** when called from this machine (§11). Altana's documentation
+describes the behaviour under the v1.0.0 heading; the deployed contract is the newer
+patch, and the deployed contract is the one that decides. Either way this is a one-way
+door.
 
 **The two key identifiers are not the same value and are the likeliest way to get a
 wrong answer here.** The KeyStore files a key under `keccak256(publicKey)` — the 65-byte
