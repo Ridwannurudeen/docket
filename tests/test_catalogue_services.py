@@ -46,3 +46,28 @@ def test_the_solvent_signal_is_offered_as_a_historical_record():
 
 def test_warden_scan_requires_the_untrusted_text():
     assert get_service("warden-scan").input_schema["payload"]["required"] is True
+
+
+def test_the_two_shelves_stocked_last_are_hireable_and_wired_to_their_previews():
+    """A marketplace record for something nobody can call is the split-brain the
+    marketplace package closes. These are the two ends of that seam."""
+    from docket.hire.catalogue import _run_health_guard, _run_yield_router
+
+    assert get_service("health-guard").run is _run_health_guard
+    assert get_service("yield-router").run is _run_yield_router
+
+
+def test_the_health_guard_reads_one_address_and_takes_nothing_else_required():
+    schema = get_service("health-guard").input_schema
+    assert schema["wallet"]["required"] is True
+    assert schema["trigger_shortfall_usd"]["required"] is False
+    assert "never touched" in schema["wallet"]["description"]
+
+
+def test_the_yield_router_asks_for_no_wallet_at_all():
+    """The whole comparison is a read. A service in the yield category that demanded an
+    address before it would compare pools would be asking for something it does not use."""
+    schema = get_service("yield-router").input_schema
+    assert "wallet" not in schema
+    assert not any(field.get("required") for field in schema.values())
+    assert "supplied rather than derived" in schema["switching_cost_usd"]["description"]

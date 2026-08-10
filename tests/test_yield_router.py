@@ -383,6 +383,79 @@ def _strings(value):
     return []
 
 
+# -------------------------------------------------------------------- the hire path
+
+
+class _PoolClient:
+    """The explorer, stubbed. No request leaves this file."""
+
+    def __init__(self, *a, **kw):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return None
+
+    def top_pools(self, chain="bsc", version="v3"):
+        return [CURRENT, RICHER, THIN]
+
+    def token_allowlist(self):
+        return set(ALLOWLIST)
+
+
+@pytest.fixture
+def hire(monkeypatch):
+    from docket.hire.catalogue import _run_yield_router
+
+    monkeypatch.setattr("docket.agents.pancake.pools.PoolClient", _PoolClient)
+    return _run_yield_router
+
+
+def test_the_hire_names_which_pool_it_used_as_the_baseline(hire):
+    out = hire({"pool": "0xricher"})
+    assert out["current"]["pool_id"] == "0xricher"
+    assert "0xricher" in out["current_pool_chosen_by"]
+
+
+def test_a_baseline_named_in_another_casing_is_still_the_pool_it_names(hire):
+    """The explorer serves ids lowercase and a caller pasting a checksummed address is
+    naming the same pool. Failing to match it would silently compare against a different
+    baseline."""
+    out = hire({"pool": "0xRICHER"})
+    assert out["current"]["pool_id"] == "0xricher"
+
+
+def test_a_baseline_that_is_not_in_the_set_is_said_rather_than_quietly_substituted(hire):
+    """The failure this test exists to prevent: a named pool that is not in the eligible
+    set falling back to the deepest one while the payload reports that no pool was named.
+    Every delta in the response is measured from this row, so a false sentence about which
+    row it is misdescribes the whole comparison."""
+    out = hire({"pool": "0xnowhere"})
+    said = out["current_pool_chosen_by"]
+    assert out["current"]["pool_id"] == "0xcurrent"
+    assert "0xnowhere" in said
+    assert "not in the eligible set" in said
+    assert "no pool was named" not in said
+
+
+def test_a_hire_that_names_no_pool_says_the_baseline_stood_in(hire):
+    out = hire({})
+    assert out["current"]["pool_id"] == "0xcurrent"
+    assert "no pool was named" in out["current_pool_chosen_by"]
+    assert "not a pool anybody is known to be in" in out["current_pool_chosen_by"]
+
+
+def test_the_hire_needs_no_wallet_and_drafts_nothing(hire):
+    out = hire({})
+    assert out["actions"] == []
+    assert out["submitted"] is False
+
+
+# ------------------------------------------------------------------ what it may say
+
+
 def test_no_string_in_the_output_implies_a_docket_recommendation():
     out = _preview(reader=_Reader()).preview(
         position_size_usd=200,

@@ -197,13 +197,15 @@ def test_the_derivation_is_cross_checked_against_venus_s_own_answer():
     assert check["derived_headroom_usd"] == str(WEIGHTED_USD - BORROWED_USD)
     assert check["venus_headroom_usd"] == str(-SHORTFALL_USD)
     assert check["difference_usd"] == "0"
+    assert check["exactly_equal"] is True
 
 
 def test_a_derivation_that_disagrees_with_venus_reports_the_gap_rather_than_hiding_it():
     state = _underwater(shortfall=SHORTFALL_USD + 7 * E18)
     check = assess(state)["cross_check"]
     assert check["difference_usd"] == str(7 * E18)
-    assert check["agrees"] is False
+    assert check["exactly_equal"] is False
+    assert "no tolerance here" in check["method"]
 
 
 def _keys(value) -> list[str]:

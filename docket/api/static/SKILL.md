@@ -321,8 +321,15 @@ Three things to carry into any answer built on this layer:
   An ERC-8004 registration says nothing about what job an agent does, so no agent in
   `/agents` carries a category and you must not infer one from a name or description. If
   asked which registry agents do LP rebalancing, say Docket does not know.
-- **Three of the four categories are empty, and say so.** `service_count` is 0 and
-  `empty` explains why, with no date in it. Report a bare shelf as bare.
+- **All four categories have a service in them today, and every one of those services
+  previews rather than acts.** No shelf returns `service_count` 0 right now, and the
+  empty state has not gone away: a category with nothing in it returns 0 and an `empty`
+  sentence explaining why, with no date in it. Report a bare shelf as bare, and report a
+  stocked one as what it is — read `limitations` before quoting any card. Two of the four
+  carry a caveat about their own name: `health_factor` is named after a figure Venus does
+  not publish, so `health-guard` repeats Venus's liquidity and shortfall verbatim and
+  derives a ratio with its method stated inline; and `yield_optimisation` invites "the
+  highest APR", so `yield-router` states the set that superlative is bounded by.
 - **`identity` and `agent_path` are different facts.** `agent_id: null` means no
   ERC-8004 identity was ever registered for that service. `agent_id` set with
   `agent_path: null` means the identity is registered on chain and is not in the

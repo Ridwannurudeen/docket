@@ -46,6 +46,76 @@ UNCATEGORISED_NOTE = (
 )
 
 SERVICES: dict[str, ServiceRecord] = {
+    "health-guard": ServiceRecord(
+        service_id="health-guard",
+        category=Category.HEALTH_FACTOR,
+        # The category whose own name is a figure Venus does not publish. That is stated in
+        # the first breath of the limitations rather than worked around, because printing
+        # an invented ratio under the label the shelf is named after is the exact
+        # fabrication this inventory exists to refuse.
+        agent_id=None,
+        registration_uri=None,
+        activation="one_shot",
+        # No recorded hired-versus-manual run stands behind this, so it carries no figures
+        # and cites no evidence. The grid set that precedent and it holds here.
+        metrics=(),
+        evidence=(),
+        limitations=(
+            "Venus Core Pool on BSC and nothing else: no Isolated Pools, no other lending "
+            "market, no other chain. Venus publishes no health factor — it publishes "
+            "liquidity and shortfall in USD — so the collateral ratio in the report is "
+            "derived here rather than read, and it carries its formula, its inputs and its "
+            "scales inline; anybody looking for Aave's figure is looking for a number this "
+            "protocol never produced. Only the markets getAssetsIn reports the account has "
+            "entered are read, which is the same set the comptroller itself iterates, so a "
+            "supply in a market the account never entered is not collateral and does not "
+            "appear. Prices come from whichever oracle the comptroller currently names, "
+            "read at the same block. What a hire returns is a preview and structurally only "
+            "a preview: the object that produces it holds no session key, no signer and no "
+            "submitter, it has no armed counterpart class in this build, and no execution "
+            "path for a Venus call exists here — so acting on a drafted action needs work "
+            "this stage did not do, on top of a session the wallet's owner grants on chain. "
+            "Drafted actions are repay and supply-collateral only; borrowing and withdrawing "
+            "are not encoded and no argument produces one. An action changes a balance Venus "
+            "holds at the block it lands in and establishes nothing about a liquidation that "
+            "did not happen, because that is a claim about a world nobody observed. No "
+            "recorded run stands behind this service yet, so it publishes no measured "
+            "figures."
+        ),
+    ),
+    "yield-router": ServiceRecord(
+        service_id="yield-router",
+        category=Category.YIELD_OPTIMISATION,
+        # The other shelf that was bare. What fills it is a bounded claim rather than a
+        # superlative: the comparison names the set it is a comparison within, and the set
+        # names its source, its moment and everything it turned away.
+        agent_id=None,
+        registration_uri=None,
+        activation="one_shot",
+        metrics=(),
+        evidence=(),
+        limitations=(
+            "PancakeSwap v3 pools on BSC, read from PancakeSwap's own explorer snapshot, and "
+            "nothing else: no other venue, no v2 pools, no farms, no lending. Every rate is "
+            "a 24h observation annualised by 365 — one day, not a forecast — and it is a "
+            "rate over the pool's TVL rather than over any position, so a concentrated "
+            "position earns at it only while it is in range and earns nothing while it is "
+            "not. Clearing the plausibility gate is not an endorsement: the gate rejects "
+            "figures that cannot be true and says nothing about figures that merely should "
+            "not be leaned on. Every claim is bounded by the stated eligible set, so highest "
+            "here always means highest within that set at that moment and never highest "
+            "anywhere. The switching cost is supplied by the caller and is not derived — "
+            "Docket reads no BNB price here and does not invent one — and a break-even is "
+            "only as good as the number it was handed. A move is drafted as one swap leg "
+            "through the same PancakeSwap V2 router the grid uses; adding the resulting "
+            "assets as liquidity to the destination pool is not built in this stage, so a "
+            "drafted move gets the caller into the right asset and no further. Nothing is "
+            "signed, approved, submitted or held and there is no execution guarantee of any "
+            "kind: a drafted swap is a record of what acting would commit to, and acting "
+            "needs a session the wallet's owner grants on chain. No recorded run stands "
+            "behind this service yet, so it publishes no measured figures."
+        ),
+    ),
     "grid-operator": ServiceRecord(
         service_id="grid-operator",
         category=Category.GRID_TRADING,

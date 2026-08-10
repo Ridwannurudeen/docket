@@ -128,9 +128,15 @@ NO_RATIO = (
 CROSS_CHECK_METHOD = (
     "weighted_collateral - borrowed, derived here, against liquidity - shortfall, which is "
     "the same quantity the comptroller publishes. They are computed from the same inputs by "
-    "two different parties, so a difference is a reason to distrust the derived ratio. Small "
-    "nonzero differences are expected from integer truncation and from the two reads landing "
-    "at different blocks."
+    "two different parties, so the gap between them is what says whether the derived ratio "
+    "can be leaned on. exactly_equal compares them for exact equality and nothing else — "
+    "there is no tolerance here, because a tolerance is a judgement about how much "
+    "disagreement is acceptable and this record does not make one. Read difference_usd "
+    "against the two magnitudes printed beside it: three truncating integer divisions per "
+    "market, in an order that need not match the comptroller's, put the last few units of "
+    "1e-18 USD beyond reach, and the two reads can also land at different blocks. A "
+    "difference of that size is arithmetic; a difference near the magnitudes themselves is "
+    "a reason to distrust the ratio."
 )
 PREVIEW_REASON = (
     "This is a preview. It holds no session, no signer and no submitter, and there is no "
@@ -352,7 +358,12 @@ def assess(state) -> dict:
             "derived_headroom_usd": str(derived_headroom),
             "venus_headroom_usd": str(venus_headroom),
             "difference_usd": str(abs(derived_headroom - venus_headroom)),
-            "agrees": derived_headroom == venus_headroom,
+            # `exactly_equal` rather than `agrees`, because the two are different claims
+            # and only this one is checkable without a judgement. A live account read on
+            # 2026-08-10 came back 245 units of 1e-18 USD apart on a headroom of 1.2e11 —
+            # truncation, and a field called `agrees` would have reported that correct
+            # derivation as a disagreement.
+            "exactly_equal": derived_headroom == venus_headroom,
             "method": CROSS_CHECK_METHOD,
         },
     }
