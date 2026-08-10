@@ -14,7 +14,13 @@ import re
 import pytest
 
 from docket.api.models import BANNED_FIELD_NAMES
+from web3 import Web3
+
 from docket.execution.authority import (
+    ACCOUNT_ABI,
+    ALTANA_KEYSTORE,
+    KEYSTORE_ABI,
+    BscChainReader,
     AltanaSessionAuthority,
     CallPermission,
     IntegrationGap,
@@ -23,7 +29,10 @@ from docket.execution.authority import (
     SessionStatus,
     SpendPermission,
     StubSessionAuthority,
+    UndelegatedWallet,
+    account_key_hash,
     check,
+    keystore_key_id,
 )
 from docket.execution.intent import ActionIntent, Condition, commit
 
@@ -35,6 +44,14 @@ SWAP_SELECTOR = "0x38ed1739"
 APPROVE_SELECTOR = "0x095ea7b3"
 CALLDATA = bytes.fromhex("38ed1739") + b"\x00" * 96
 FROZEN_NOW = 2_000_000_000
+# A session signer and its uncompressed SEC1 public key. Generated for this test file
+# and never funded: the pair only has to be well formed for the two derivations below.
+SESSION_KEY = "0x11111111111111111111111111111111111111aB"
+PUBLIC_KEY = "0x04" + "11" * 32 + "22" * 32
+KEY_ID = Web3.keccak(bytes.fromhex(PUBLIC_KEY[2:]))
+KEY_HASH = Web3.keccak(
+    (2).to_bytes(32, "big") + Web3.keccak(bytes(12) + bytes.fromhex(SESSION_KEY[2:]))
+)
 
 
 def _intent(**overrides) -> ActionIntent:
@@ -298,98 +315,214 @@ def test_an_unknown_session_is_refused_rather_than_treated_as_absent_limits():
 # ------------------------------------------------------------------- the altana side
 
 
-def test_the_altana_authority_cannot_be_built_without_a_chain_surface_to_read():
-    """The gap, made structural. If Docket cannot read a session's revoked flag, expiry
-    and remaining cap from the chain, then `can_execute` would be answering from local
-    memory — which is the exact thing this package promised it would never present as a
-    limit. So there is no constructor that produces one."""
-    with pytest.raises(IntegrationGap) as exc:
-        AltanaSessionAuthority(account=OWNER)
-    message = str(exc.value)
-    assert "session" in message.lower()
-    for expected in ("address", "abi", "chain"):
-        assert expected in message.lower(), expected
+class FakeChain:
+    """The four reads, answered from a dict. Every test below drives a real
+    `AltanaSessionAuthority`; only the endpoint is fake."""
+
+    def __init__(self, **overrides):
+        self.state = {
+            "valid": True,
+            "registered": (KEY_ID,),
+            "spend": ((USDT, 2, 100 * 10**18, 0, 0, 10 * 10**18, FROZEN_NOW),),
+            "can_execute": True,
+            "block": 115_155_027,
+        }
+        self.state.update(overrides)
+        self.asked = []
+
+    def block_number(self):
+        return self.state["block"]
+
+    def is_valid_key(self, wallet, key_id):
+        self.asked.append(("is_valid_key", wallet, key_id))
+        return self.state["valid"]
+
+    def registered_key_ids(self, wallet):
+        self.asked.append(("registered_key_ids", wallet))
+        return self.state["registered"]
+
+    def spend_infos(self, wallet, key_hash):
+        self.asked.append(("spend_infos", wallet, key_hash))
+        return self.state["spend"]
+
+    def can_execute(self, wallet, key_hash, target, calldata):
+        self.asked.append(("can_execute", wallet, key_hash, target, calldata))
+        return self.state["can_execute"]
 
 
-def test_the_gap_names_what_would_close_it():
-    """An error that says only "not implemented" leaves the next person to rediscover
-    the whole question."""
-    gap = AltanaSessionAuthority.integration_gap()
-    lowered = gap.lower()
-    assert "typescript" in lowered or "sidecar" in lowered
-    assert "eth_call" in lowered
-    assert "56" in gap
+def _ref(**overrides) -> SessionRef:
+    fields = {
+        "session_id": "grid-session-1",
+        "account": OWNER,
+        "key_address": SESSION_KEY,
+        "chain_id": 56,
+        "expiry": FROZEN_NOW + 86_400,
+        "public_key": PUBLIC_KEY,
+    }
+    fields.update(overrides)
+    return SessionRef(**fields)
 
 
-def test_the_altana_authority_can_be_built_once_the_surface_is_supplied():
-    """Given a session-manager address and the view ABI to read it with, the same class
-    is a live authority: `status` becomes an eth_call and nothing else changes."""
-    asked = []
+def _live(**overrides) -> AltanaSessionAuthority:
+    return AltanaSessionAuthority(account=OWNER, reader=FakeChain(**overrides))
 
-    def reader(session_id, token):
-        asked.append((session_id, token))
-        return (False, FROZEN_NOW + 86_400, 100 * 10**18, 115_155_027)
 
-    authority = AltanaSessionAuthority(
-        account=OWNER,
-        session_manager="0x1111111111111111111111111111111111111111",
-        reader=reader,
-    )
-    assert authority.enforces_on_chain is True
-    ref = SessionRef(
-        session_id="0xabc",
-        account=OWNER,
-        key_address=OWNER,
-        chain_id=56,
-        expiry=FROZEN_NOW + 86_400,
-    )
-    status = authority.status(ref, permissions=_permissions())
+def test_the_keystore_this_build_reads_is_the_one_it_was_checked_against():
+    """Pinned rather than configured. Checked from this machine on 2026-08-10: 8,756
+    bytes of code on chain 56, and VERSION() reading 1.0.1."""
+    assert ALTANA_KEYSTORE == "0x6572427ED530BadcF7375Cf9A4709D8d2b0E7E0a"
+    assert AltanaSessionAuthority(account=OWNER, reader=FakeChain()).keystore == ALTANA_KEYSTORE
+
+
+def test_the_two_identifiers_for_one_key_are_derived_differently_and_are_not_swappable():
+    """The single most likely source of a silent wrong answer here. The KeyStore files a
+    key under keccak of its 65-byte public key; the wallet's own table files it under a
+    type-tagged hash of the 20-byte address."""
+    assert keystore_key_id(bytes.fromhex(PUBLIC_KEY[2:])) == KEY_ID
+    assert account_key_hash(SESSION_KEY) == KEY_HASH
+    assert KEY_ID != KEY_HASH
+    padded = bytes(12) + bytes.fromhex(SESSION_KEY[2:])
+    assert KEY_HASH == Web3.keccak((2).to_bytes(32, "big") + Web3.keccak(padded))
+
+
+def test_a_public_key_that_is_not_sec1_uncompressed_is_refused():
+    with pytest.raises(ValueError):
+        keystore_key_id(b"\x04" * 33)
+    with pytest.raises(ValueError):
+        keystore_key_id(b"\x02" + b"\x11" * 64)
+
+
+def test_a_reference_with_no_public_key_cannot_produce_a_keystore_id():
+    """Refused rather than guessed: an id derived from the wrong bytes reads as a key the
+    KeyStore has never heard of, which is indistinguishable from a revoked one."""
+    with pytest.raises(ValueError):
+        _ref(public_key=None).key_id
+
+
+def test_a_live_status_is_four_reads_and_says_which_ones():
+    authority = _live()
+    status = authority.status(_ref(), permissions=_permissions(), call=(ROUTER_V2, CALLDATA))
     assert status.source == "chain"
-    assert asked == [("0xabc", USDT)]
-    assert status.remaining_cap[USDT] == 100 * 10**18
+    assert status.reads == (
+        "KeyStore.isValidKey",
+        "KeyStore.getKeys",
+        "account.spendInfos",
+        "account.canExecute",
+    )
     assert status.read_at_block == 115_155_027
-    assert authority.can_execute(_intent(), ref, permissions=_permissions())[0]
+    assert status.call_allowed is True
+    assert authority.enforces_on_chain is True
+
+
+def test_the_remaining_cap_is_the_limit_less_what_this_period_already_spent():
+    """`currentSpent`, not `spent`, and never the field named `current` — that one is the
+    start of the current period and is a timestamp, not a balance."""
+    status = _live().status(_ref(), permissions=_permissions())
+    assert status.remaining_cap[USDT] == 100 * 10**18 - 10 * 10**18
+    assert status.call_allowed is None
+
+
+def test_a_key_the_keystore_no_longer_lists_reads_as_revoked():
+    """Revocation removes the id from getKeys in the same transaction. An expiry passing
+    does not, because no transaction fires when a timestamp goes by — which is how the two
+    are told apart without decoding a struct."""
+    ok, reason = _live(registered=(), valid=False).can_execute(
+        _intent(), _ref(), permissions=_permissions()
+    )
+    assert not ok and "revoked" in reason.lower()
+
+
+def test_a_key_still_listed_but_no_longer_valid_reads_as_unusable_rather_than_revoked():
+    ok, reason = _live(valid=False).can_execute(_intent(), _ref(), permissions=_permissions())
+    assert not ok
+    assert "revoked" not in reason.lower()
+    assert "usable" in reason.lower()
+
+
+def test_the_wallets_own_canexecute_outranks_dockets_copy_of_the_grant():
+    """The read that moves the allowlist question onto the chain. Docket's copy says this
+    call is permitted; the wallet says no, and no is the answer."""
+    ok, reason = _live(can_execute=False).can_execute(
+        _intent(), _ref(), permissions=_permissions(), calldata=CALLDATA
+    )
+    assert not ok
+    assert "canexecute" in reason.lower()
+
+
+def test_a_live_session_inside_every_bound_passes():
+    authority = _live()
+    ok, reason = authority.can_execute(
+        _intent(), _ref(), permissions=_permissions(), calldata=CALLDATA
+    )
+    assert ok, reason
+    assert ("can_execute", OWNER, KEY_HASH, ROUTER_V2, CALLDATA) in authority._reader.asked
+
+
+def test_a_cap_already_spent_down_refuses_the_next_action():
+    spent = ((USDT, 2, 100 * 10**18, 0, 0, 99 * 10**18, FROZEN_NOW),)
+    ok, reason = _live(spend=spent).can_execute(_intent(), _ref(), permissions=_permissions())
+    assert not ok and "cap" in reason.lower()
+
+
+def test_a_wallet_that_has_never_been_delegated_is_a_state_of_its_own():
+    """Not an outage and not a refusal — an address with no account code has no keys and
+    no caps because there is nothing there to hold them. Reporting it as an unreachable
+    node would send somebody to debug the wrong thing."""
+
+    class Undelegated(FakeChain):
+        def spend_infos(self, wallet, key_hash):
+            raise UndelegatedWallet(f"{wallet} carries no account code on chain 56")
+
+    authority = AltanaSessionAuthority(account=OWNER, reader=Undelegated())
+    ok, reason = authority.can_execute(_intent(), _ref(), permissions=_permissions())
+    assert not ok
+    assert "no account code" in reason.lower()
+    assert "could not be read" not in reason.lower()
 
 
 def test_a_live_authority_that_cannot_reach_the_chain_refuses_rather_than_guesses():
     """An outage is not an authorisation. The one thing `can_execute` must never do is
     fall back to what it remembers."""
 
-    def broken(session_id, token):
-        raise RuntimeError("every BSC endpoint failed")
+    class Outage(FakeChain):
+        def is_valid_key(self, wallet, key_id):
+            raise RuntimeError("every BSC endpoint failed")
 
-    authority = AltanaSessionAuthority(
-        account=OWNER,
-        session_manager="0x1111111111111111111111111111111111111111",
-        reader=broken,
+    ok, reason = AltanaSessionAuthority(account=OWNER, reader=Outage()).can_execute(
+        _intent(), _ref(), permissions=_permissions()
     )
-    ref = SessionRef(
-        session_id="0xabc",
-        account=OWNER,
-        key_address=OWNER,
-        chain_id=56,
-        expiry=FROZEN_NOW + 86_400,
-    )
-    ok, reason = authority.can_execute(_intent(), ref, permissions=_permissions())
     assert not ok
     assert "could not be read" in reason.lower()
 
 
+def test_reading_a_status_without_the_granted_permissions_is_refused():
+    with pytest.raises(ValueError):
+        _live().status(_ref())
+
+
 def test_granting_and_revoking_through_the_altana_authority_are_owner_actions():
-    """Docket holds a session, never the owner key. Both of these are signed by the
-    owner, so this class refuses them rather than pretending it could."""
-    authority = AltanaSessionAuthority(
-        account=OWNER,
-        session_manager="0x1111111111111111111111111111111111111111",
-        reader=lambda session_id, token: (False, FROZEN_NOW + 86_400, 10**18, 115_155_027),
-    )
-    ref = SessionRef(
-        session_id="0xabc", account=OWNER, key_address=OWNER, chain_id=56, expiry=FROZEN_NOW + 1
-    )
+    """Docket holds a session, never the owner key. Both are signed by the owner, so this
+    class refuses them rather than pretending it could."""
+    authority = _live()
     with pytest.raises(IntegrationGap):
         authority.grant(_permissions(), expiry=FROZEN_NOW + 86_400)
     with pytest.raises(IntegrationGap):
-        authority.revoke(ref)
+        authority.revoke(_ref())
+
+
+def test_the_gap_that_is_left_is_named_precisely_rather_than_implied():
+    """Three planes, and only one of them is missing. An honest gap beats a fabricated
+    capability, and it also beats an honest gap vaguer than it needs to be."""
+    gap = AltanaSessionAuthority.integration_gap()
+    lowered = gap.lower()
+    assert "eth_call" in lowered
+    assert "0x6572427ed530badcf7375cf9a4709d8d2b0e7e0a" in lowered
+    assert "56" in gap
+    assert "typescript" in lowered
+    assert "owner" in lowered
+    assert "register=false" in lowered
+    assert "not been exercised against a live granted session" in lowered
+    assert "not published" in lowered
 
 
 # ------------------------------------------------------------------ no verdicts
@@ -412,3 +545,112 @@ def test_nothing_in_this_module_carries_verdict_language():
             assert not re.search(rf"\b{re.escape(word)}\b", value.lower()), (
                 f"authority carries verdict language {word!r} in {value[:80]!r}"
             )
+
+
+# ------------------------------------------------------------------- the reader
+
+
+class _Fn:
+    def __init__(self, answer):
+        self._answer = answer
+
+    def call(self):
+        return self._answer
+
+
+class _Functions:
+    def __init__(self, answers, log):
+        self._answers = answers
+        self._log = log
+
+    def __getattr__(self, name):
+        def bind(*args):
+            self._log.append((name, args))
+            return _Fn(self._answers[name])
+
+        return bind
+
+
+class _Eth:
+    def __init__(self, answers, log, code):
+        self._answers = answers
+        self._log = log
+        self._code = code
+        self.block_number = 115_155_027
+
+    def contract(self, address=None, abi=None):
+        contract = type("_C", (), {})()
+        contract.functions = _Functions(self._answers, self._log)
+        return contract
+
+    def get_code(self, address):
+        self._log.append(("get_code", (address,)))
+        return self._code
+
+
+class _W3:
+    def __init__(self, answers, log, code=b"\x60\x80"):
+        self.eth = _Eth(answers, log, code)
+
+
+def _reader_over(answers, code=b"\x60\x80"):
+    log = []
+    w3 = _W3(answers, log, code)
+    return BscChainReader(rpc=lambda do: do(w3)), log
+
+
+def test_the_abi_fragments_encode_the_selectors_found_in_the_deployed_bytecode():
+    """The one thing that could quietly be wrong here is a mistranscribed argument list,
+    which produces a selector no contract answers. Each of these was recomputed and
+    matched against the runtime bytecode at ALTANA_KEYSTORE and at the account
+    implementation 0x4B5d20CD8a3927B500540d9BcCDDc27385c9fA79 on 2026-08-10."""
+    w3 = Web3()
+    keystore = w3.eth.contract(abi=KEYSTORE_ABI)
+    account = w3.eth.contract(abi=ACCOUNT_ABI)
+    assert keystore.encode_abi("isValidKey", args=[OWNER, KEY_ID])[:10] == "0x8fd4f06b"
+    assert keystore.encode_abi("getKeys", args=[OWNER])[:10] == "0x34e80c34"
+    assert account.encode_abi("spendInfos", args=[KEY_HASH])[:10] == "0xdcc09ebf"
+    assert (
+        account.encode_abi("canExecute", args=[KEY_HASH, ROUTER_V2, CALLDATA])[:10] == "0xff619c6b"
+    )
+
+
+def test_the_reader_asks_the_keystore_about_the_wallet_and_the_wallet_about_itself():
+    reader, log = _reader_over(
+        {
+            "isValidKey": True,
+            "getKeys": [KEY_ID],
+            "spendInfos": [(USDT, 2, 100, 0, 0, 10, FROZEN_NOW)],
+            "canExecute": True,
+        }
+    )
+    assert reader.is_valid_key(OWNER, KEY_ID) is True
+    assert reader.registered_key_ids(OWNER) == (KEY_ID,)
+    assert reader.spend_infos(OWNER, KEY_HASH)[0][0] == USDT
+    assert reader.can_execute(OWNER, KEY_HASH, ROUTER_V2, CALLDATA) is True
+    assert [name for name, _ in log if name != "get_code"] == [
+        "isValidKey",
+        "getKeys",
+        "spendInfos",
+        "canExecute",
+    ]
+
+
+def test_the_reader_refuses_an_account_read_against_an_address_with_no_code():
+    """An undelegated EOA answers `spendInfos` with a revert that reads like any other
+    failure. Checking for code first turns it into a state with a name and a fix."""
+    reader, _ = _reader_over({"spendInfos": [], "canExecute": False}, code=b"")
+    with pytest.raises(UndelegatedWallet):
+        reader.spend_infos(OWNER, KEY_HASH)
+    with pytest.raises(UndelegatedWallet):
+        reader.can_execute(OWNER, KEY_HASH, ROUTER_V2, CALLDATA)
+
+
+def test_the_keystore_reads_do_not_need_the_wallet_to_exist_at_all():
+    """They are a read of the KeyStore's own storage about an address, so they answer for
+    a wallet that has never been delegated — which is how "no keys" stays distinguishable
+    from "no account"."""
+    reader, log = _reader_over({"isValidKey": False, "getKeys": []}, code=b"")
+    assert reader.is_valid_key(OWNER, KEY_ID) is False
+    assert reader.registered_key_ids(OWNER) == ()
+    assert not [name for name, _ in log if name == "get_code"]
