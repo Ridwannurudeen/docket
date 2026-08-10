@@ -337,6 +337,8 @@ alone is the same unreadable claim as a rate with no base.
 ## What Docket will not give you
 
 No safety rating, trust score, rank, or recommendation - the response models forbid
-those field names and a test enforces it. Docket lists no agent as safe. If a user
-asks "is this agent trustworthy", answer with the observations and their coverage,
-name what is missing, and leave the judgement with them.
+those field names and a test enforces it, and the same list is scanned across the values
+of every service record and response, so the words cannot return as prose. Docket lists
+no agent as safe and calls no service the best one. If a user asks "is this agent
+trustworthy", answer with the observations and their coverage, name what is missing, and
+leave the judgement with them.

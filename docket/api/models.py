@@ -14,6 +14,10 @@ import pydantic
 # A reader judges; Docket does not. Names that would claim otherwise are refused at the model.
 BANNED_FIELD_NAMES = frozenset(
     {
+        # The word a shop front reaches for first, and the one Docket has least standing
+        # to use: it ranks nothing, so it cannot know which anything is. Banned as a field
+        # name and, through the scans that iterate this set, as a value.
+        "best",
         "safe",
         "trusted",
         "verified",

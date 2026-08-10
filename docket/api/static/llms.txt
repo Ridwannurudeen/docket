@@ -707,10 +707,12 @@ quote any other number Docket publishes.
 Docket publishes observations. It does not publish verdicts.
 
 No endpoint returns a safety rating, a trust score, a rank, or a recommendation. No
-response field is named safe, trusted, verified, recommended, rank, score, or
-rating; a test in this repository fails the build if one ever is. Docket lists no
-agent as safe, and an agent's presence in any Docket response is not a claim that it
-is honest, competent, solvent, or fit for any purpose.
+response field is named best, safe, trusted, verified, recommended, rank, score, or
+rating; a test in this repository fails the build if one ever is, and the same list is
+scanned across the VALUES of every service record and every /services response, so the
+words cannot come back as prose either. Docket lists no agent as safe and calls none of
+them best, and an agent's presence in any Docket response is not a claim that it is
+honest, competent, solvent, or fit for any purpose.
 
 What Docket can tell you: what an agent declared on chain, how much feedback it has
 received, whether a host answered its declared endpoint at one moment, and how much

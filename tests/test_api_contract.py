@@ -52,6 +52,13 @@ def test_banned_names_cover_the_obvious_temptations():
         assert name in BANNED_FIELD_NAMES
 
 
+def test_the_word_a_marketplace_reaches_for_first_is_banned_too():
+    """ "Best" is the one a shop front wants and the one Docket has least standing to say:
+    it ranks nothing, so it cannot know. It was honoured in the copy rules and missing from
+    the set the tests actually iterate, which left the value-level scans blind to it."""
+    assert "best" in BANNED_FIELD_NAMES
+
+
 def test_every_statistic_carries_its_coverage():
     """StatsResponse must not be able to report a count without the snapshot it came from."""
     required = {"snapshot_id", "captured_at", "sampled", "expected", "dropped"}
