@@ -24,6 +24,7 @@ build-backend = "setuptools.build_meta"
 packages = [
     "docket",
     "docket.advantage",
+    "docket.advantage.v2",
     "docket.api",
     "docket.agents",
     "docket.agents.grid",
