@@ -25,6 +25,7 @@ from docket.marketplace.models import (
     EvidenceRef,
     Metric,
     ServiceRecord,
+    is_share_unit,
 )
 from docket.marketplace.registry import (
     CATEGORY_DECLARATION,
@@ -123,6 +124,55 @@ def test_a_rate_without_its_denominator_is_refused():
             method="one GET per declared endpoint",
             value=92.857,
         )
+
+
+@pytest.mark.parametrize(
+    "unit",
+    [
+        "%",
+        "percent",
+        "percentage",
+        "pct",
+        "share",
+        "% of attempted",
+        "share of the snapshot",
+        "response rate",
+        "ratio",
+        "proportion",
+        "bps",
+        "basis points",
+    ],
+)
+def test_a_share_is_recognised_by_how_it_is_spelled_not_by_an_exact_match(unit):
+    """An allowlist of exact spellings is open at the back: `pct` is as much a rate as `%`,
+    and one that did not happen to be listed would construct with no base at all. The guard
+    matches the way a share is written, so a new spelling is caught rather than admitted."""
+    assert is_share_unit(unit)
+    with pytest.raises(ValueError):
+        Metric(
+            name="Endpoints that answered",
+            unit=unit,
+            window="one sweep",
+            observed_at="2026-08-07",
+            method="one GET per declared endpoint",
+            value=92.857,
+        )
+
+
+@pytest.mark.parametrize(
+    "unit",
+    ["seconds", "position NFTs the wallet held", "receipts in the chain", "vectors"],
+)
+def test_a_measured_quantity_is_not_mistaken_for_a_share(unit):
+    assert not is_share_unit(unit)
+    Metric(
+        name="Elapsed",
+        unit=unit,
+        window="one recorded run",
+        observed_at="2026-08-08",
+        method="advantage task 01",
+        value=43.063,
+    )
 
 
 def test_a_numerator_without_its_denominator_is_refused():

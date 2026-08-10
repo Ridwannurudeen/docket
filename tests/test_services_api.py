@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 
 from docket.api.models import BANNED_FIELD_NAMES
 from docket.api import create_app
-from docket.marketplace.models import CATEGORIES, Category
+from docket.marketplace.models import CATEGORIES, Category, is_share_unit
 from docket.marketplace.registry import SERVICES, records_in
 from docket.store import Store
 
@@ -241,7 +241,9 @@ def test_every_rate_in_a_service_response_carries_its_denominator(client):
             seen += 1
             assert metric["window"].strip() and metric["observed_at"].strip()
             assert metric["method"].strip()
-            if metric["unit"] in ("%", "percent", "share"):
+            # The same predicate the model guards with, so this test cannot go on
+            # checking three spellings after the guard has learned more.
+            if is_share_unit(metric["unit"]):
                 assert metric["denominator"] is not None, metric["name"]
             if metric["numerator"] is not None:
                 assert metric["denominator"] is not None, metric["name"]

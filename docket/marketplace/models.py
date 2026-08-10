@@ -26,6 +26,7 @@ record carries nothing that says what job an agent does, so Docket declares a ca
 for its own services and assigns none to anybody else's — see `CATEGORY_DECLARATION`.
 """
 
+import re
 from dataclasses import dataclass
 from enum import Enum
 
@@ -107,9 +108,37 @@ ACTIVATIONS: dict[str, str] = {
 # a kind means adding something Docket actually publishes to point at.
 EVIDENCE_KINDS = frozenset({"advantage_task"})
 
-# Units that express a share of a population. A figure in one of these is unreadable
-# without the base it was divided by, so the base is required rather than encouraged.
-SHARE_UNITS = frozenset({"%", "percent", "share"})
+# How a share of a population gets written. Matched as words inside the unit rather than
+# as an exact value, because an allowlist of exact spellings is open at the back: "pct" is
+# as much a rate as "%", and a spelling nobody thought to list would construct with no
+# base at all. A unit naming a share is unreadable without what it was divided by, so the
+# base is required rather than encouraged — and the guard only ever fires where no
+# denominator was supplied, so the cost of catching a count that happens to read like a
+# rate is naming its population, which was the discipline anyway.
+SHARE_WORDS = frozenset(
+    {
+        "percent",
+        "percentage",
+        "pct",
+        "share",
+        "rate",
+        "ratio",
+        "proportion",
+        "bps",
+        "basis points",
+        "per cent",
+        "per mille",
+        "permille",
+    }
+)
+
+
+def is_share_unit(unit: str) -> bool:
+    """Whether this unit expresses a share of something rather than a quantity of it."""
+    lowered = unit.lower()
+    if "%" in lowered:
+        return True
+    return any(re.search(rf"\b{re.escape(word)}\b", lowered) for word in SHARE_WORDS)
 
 
 def _require_text(value: str, field: str, subject: str) -> None:
@@ -144,7 +173,7 @@ class Metric:
             raise ValueError(
                 f"metric {self.name!r}: a numerator and its denominator travel together"
             )
-        if self.unit in SHARE_UNITS and self.denominator is None:
+        if is_share_unit(self.unit) and self.denominator is None:
             raise ValueError(
                 f"metric {self.name!r}: a share in {self.unit!r} needs the population it is "
                 "a share of. Counts may stand alone; rates may not."
@@ -157,7 +186,7 @@ class Metric:
         inside the string."""
         if self.numerator is None:
             return f"{self.value:g} {self.unit}"
-        if self.unit in SHARE_UNITS:
+        if is_share_unit(self.unit):
             share = f" ({self.value:g}%)" if self.value is not None else ""
             return f"{self.numerator} of {self.denominator}{share}"
         return f"{self.numerator} of {self.denominator} {self.unit}"
