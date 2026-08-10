@@ -9,9 +9,12 @@ service Docket runs.
 """
 
 import re
+from dataclasses import asdict
+from pathlib import Path
 
 import pytest
 
+from docket.advantage.harness import load
 from docket.api.models import BANNED_FIELD_NAMES
 from docket.hire.catalogue import SERVICES as HIRE_SERVICES
 from docket.marketplace.models import (
@@ -25,8 +28,10 @@ from docket.marketplace.models import (
 )
 from docket.marketplace.registry import (
     CATEGORY_DECLARATION,
+    EMPTY_CATEGORY,
     SERVICES,
     all_records,
+    category_counts,
     get_record,
     records_in,
 )
@@ -338,3 +343,157 @@ def test_every_metric_on_every_record_survives_the_denominator_rule():
             if metric.numerator is not None:
                 assert metric.denominator is not None
             assert str(metric.denominator or "") in metric.render() or metric.numerator is None
+
+
+# ------------------------------------------------------------- the inventory
+#
+# The three records as they actually stand, asserted rather than described. These are
+# the tests that have to be edited on purpose when Stage 3 stocks a shelf or registers
+# an identity — which is the point of writing them this way.
+
+
+def _experiment(task_id: str) -> dict:
+    """The recorded run a metric cites, read from the file /advantage serves."""
+    path = Path(__file__).resolve().parents[1] / "docket" / "advantage" / "experiments"
+    return asdict(load(next(path.glob(f"{task_id}*.json"))))
+
+
+def _figure(record: ServiceRecord, name: str) -> Metric:
+    return next(metric for metric in record.metrics if metric.name == name)
+
+
+def test_one_of_the_four_categories_is_stocked_and_the_other_three_say_so():
+    """The honest starting inventory. Four job cards over three bare shelves is what this
+    stage was told to avoid, so the bareness is asserted rather than glossed."""
+    assert category_counts() == {
+        Category.REBALANCING: 1,
+        Category.GRID_TRADING: 0,
+        Category.YIELD_OPTIMISATION: 0,
+        Category.HEALTH_FACTOR: 0,
+    }
+    assert [r.service_id for r in records_in(Category.REBALANCING)] == ["range-doctor"]
+
+
+def test_the_empty_shelves_say_why_and_promise_nothing():
+    lowered = EMPTY_CATEGORY.lower()
+    assert "no service here yet" in lowered
+    for promise in ("coming soon", "shortly", "next release", "will be"):
+        assert promise not in lowered, promise
+
+
+def test_range_doctor_is_declared_into_rebalancing_because_that_is_its_subject():
+    record = SERVICES["range-doctor"]
+    assert record.category is Category.REBALANCING
+    assert record.activation == "one_shot"
+
+
+def test_the_two_services_outside_the_four_are_listed_rather_than_filed_wrongly():
+    """warden-scan is a security service and solvent-signal relays a dated read. Neither
+    is one of BNB's four jobs, and neither is hidden for it."""
+    for service_id in ("warden-scan", "solvent-signal"):
+        assert SERVICES[service_id].category is None
+        assert service_id in {record.service_id for record in all_records()}
+
+
+def test_only_solvent_signal_carries_an_identity_and_the_others_say_they_do_not():
+    assert (
+        SERVICES["solvent-signal"].agent_id
+        == "56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:136384"
+    )
+    for service_id in ("range-doctor", "warden-scan"):
+        record = SERVICES[service_id]
+        assert record.agent_id is None
+        assert "no bsc identity bound yet" in record.identity_line.lower()
+
+
+def test_the_bound_identity_is_written_the_way_a_snapshot_stores_one():
+    """Lowercased, three parts, chain first. The registry address is checksummed
+    everywhere it is quoted for a human; an agent_id is not, and a mixed-case one would
+    never match a row in /agents."""
+    agent_id = SERVICES["solvent-signal"].agent_id
+    assert agent_id == agent_id.lower()
+    chain, address, token = agent_id.split(":")
+    assert chain == "56"
+    assert address.startswith("0x") and len(address) == 42
+    assert token == "136384"
+
+
+def test_no_service_claims_a_registration_document_docket_does_not_serve():
+    """SOLVENT's registration JSON is said to be served, but no URI for it is recorded
+    anywhere in this repository. An invented one would be the same class of fabrication
+    as an invented category."""
+    for record in SERVICES.values():
+        assert record.registration_uri is None
+
+
+def test_each_service_points_at_its_own_recorded_run():
+    expected = {
+        "range-doctor": "/advantage#01-liquidity",
+        "solvent-signal": "/advantage#02-trading",
+        "warden-scan": "/advantage#03-security",
+    }
+    for service_id, url in expected.items():
+        assert [ref.url for ref in SERVICES[service_id].evidence] == [url]
+
+
+def test_the_timings_on_a_record_are_the_timings_in_the_experiment_it_cites():
+    """The figures are transcribed, so they are checked against the file rather than
+    trusted. A record that drifts from the run it cites is a record that cites nothing."""
+    for service_id, task_id in (
+        ("range-doctor", "01"),
+        ("solvent-signal", "02"),
+        ("warden-scan", "03"),
+    ):
+        elapsed = _figure(SERVICES[service_id], "Elapsed")
+        recorded = _experiment(task_id)["agent_arm"]["seconds"]
+        assert elapsed.value == round(recorded, 3), service_id
+
+
+def test_range_doctors_figures_are_the_ones_the_hire_itself_returned():
+    result = _experiment("01")["agent_arm"]["output"]["result"]
+    read = _figure(SERVICES["range-doctor"], "Position NFTs read")
+    assert (read.numerator, read.denominator) == (
+        result["positions_examined"],
+        result["positions_held"],
+    )
+    skipped = _figure(SERVICES["range-doctor"], "Positions counted but not detailed")
+    assert (skipped.numerator, skipped.denominator) == (
+        result["closed_skipped"],
+        result["positions_examined"],
+    )
+
+
+def test_solvents_anchor_figure_is_the_one_the_manual_arm_recomputed():
+    experiment = _experiment("02")
+    anchored = _figure(SERVICES["solvent-signal"], "Receipts covered by the last on-chain anchor")
+    assert anchored.numerator == experiment["manual_arm"]["output"]["anchored_count"]
+    assert (
+        anchored.denominator
+        == experiment["agent_arm"]["output"]["result"]["source"]["receipt_count"]
+    )
+
+
+def test_warden_scans_record_carries_the_run_it_lost():
+    """The unflattering figure is the one that has to survive. One of four vectors, with
+    the denominator attached, and the three that got through said in the limitations."""
+    experiment = _experiment("03")
+    named = _figure(SERVICES["warden-scan"], "Hostile vectors named")
+    assert named.numerator == len(experiment["agent_arm"]["output"]["result"]["detections"])
+    assert named.denominator == len(experiment["manual_arm"]["output"]["vectors"])
+    assert named.render().startswith("1 of 4")
+    limitations = SERVICES["warden-scan"].limitations.lower()
+    assert "three of those four survive verbatim" in limitations
+    assert "one observation, not a pattern" in limitations
+
+
+def test_range_doctor_states_the_limits_its_own_audit_named():
+    limitations = SERVICES["range-doctor"].limitations.lower()
+    for phrase in ("v3", "read-only", "tokensowed", "ticks rather than prices"):
+        assert phrase in limitations, phrase
+
+
+def test_solvent_signal_is_sold_as_a_dated_record_rather_than_a_live_one():
+    limitations = SERVICES["solvent-signal"].limitations.lower()
+    assert "historical record, not a live feed" in limitations
+    assert "2026-06-28" in limitations
+    assert "has published nothing since" in limitations

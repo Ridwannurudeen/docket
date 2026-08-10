@@ -609,11 +609,21 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             return None, IDENTITY_UNBOUND
         if snapshot_id is None:
             return None, IDENTITY_NO_SNAPSHOT
-        # Drained into a set rather than short-circuited with any(): a suspended
+        # Drained into a dict rather than short-circuited with any(): a suspended
         # iter_agents generator holds its sqlite connection open for the whole request.
-        held = {row["agent_id"] for row in Store(db_path).iter_agents(snapshot_id)}
-        if record.agent_id in held:
-            return f"/agents/{record.agent_id}", IDENTITY_IN_SNAPSHOT
+        #
+        # Keyed on the lowercased id, and the STORED id is what gets linked. An agent_id
+        # carries an address, and an address that differs only in case is the same
+        # address — every one of the 104,006 rows on this database is lowercase, but that
+        # is 8004scan's formatting rather than a guarantee, and matching case-sensitively
+        # would answer "not in the served snapshot" about an agent that is in it.
+        held = {
+            row["agent_id"].lower(): row["agent_id"]
+            for row in Store(db_path).iter_agents(snapshot_id)
+        }
+        stored = held.get(record.agent_id.lower())
+        if stored is not None:
+            return f"/agents/{stored}", IDENTITY_IN_SNAPSHOT
         return None, IDENTITY_OUTSIDE_SNAPSHOT
 
     @app.get("/categories", response_model=CategoryResponse)

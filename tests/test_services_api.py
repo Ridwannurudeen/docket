@@ -218,6 +218,18 @@ def test_a_bound_identity_inside_the_snapshot_is_linked_to_its_own_record(
     assert linked.json()["agent_id"] == SOLVENT_AGENT_ID
 
 
+def test_an_identity_stored_in_another_case_is_still_the_same_agent(tmp_path):
+    """An agent_id carries an address, and an address differing only in case is the same
+    address. Every row on the live database is lowercase, but that is the upstream's
+    formatting — matching case-sensitively would deny an agent that is right there, and
+    the link has to point at the id the snapshot actually stores."""
+    checksummed = "56:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:136384"
+    client = _client(tmp_path, [UNRELATED, {**BOUND, "agent_id": checksummed}])
+    body = client.get("/services/solvent-signal").json()
+    assert body["agent_path"] == f"/agents/{checksummed}"
+    assert client.get(body["agent_path"]).status_code == 200
+
+
 # --------------------------------------------------------- the honesty contract
 
 
