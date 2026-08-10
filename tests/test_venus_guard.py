@@ -274,6 +274,26 @@ def test_the_repay_floor_is_the_debt_it_retires_and_says_so_in_those_words():
     assert "not a token received" in repay.output_means.lower()
 
 
+def test_neither_venus_floor_claims_an_enforcement_the_chain_does_not_offer():
+    """Stage 2's floor rides in the calldata and the router reverts a trade that lands
+    under it. Neither Venus call offers that: `mint` takes no minimum-out argument, and
+    `repayBorrow` caps the amount at what is owed instead of reverting, so a repay drafted
+    for `amount` can be mined having retired less. A reader who learned the field on the
+    grid will carry the enforcement across unless each action says otherwise."""
+    for action in plan_actions(_underwater(), _policy()):
+        said = action.output_means.lower()
+        assert "no chain mechanism enforces" in said or "nothing on chain enforces" in said
+        assert "next account snapshot" in said or "next snapshot" in said
+    repay = next(
+        a for a in plan_actions(_underwater(), _policy()) if a.intent.selector == REPAY_SELECTOR
+    )
+    assert "caps a repay at what is owed" in repay.output_means.lower()
+    supply = next(
+        a for a in plan_actions(_underwater(), _policy()) if a.intent.selector == MINT_SELECTOR
+    )
+    assert "takes no minimum-out argument" in supply.output_means.lower()
+
+
 def test_a_supply_collateral_intent_floors_the_vtokens_it_expects_and_haircuts_them():
     """The exchange rate only rises, so vTokens per unit supplied only falls between the
     draft and the block it lands in. A floor taken straight off the current rate is stale

@@ -33,12 +33,24 @@ any of these intents needs an execution path this stage did not build.
 **Why `min_output` means two different things here.** The kernel's floor is "the least that
 must come back", written for a swap. Supplying collateral is close enough — `mint` really
 does return vTokens, and the floor is derived from the exchange rate with a haircut,
-because that rate only rises and so vTokens-per-unit only falls between drafting and
-landing. Repaying returns nothing at all: `repayBorrow(amount)` retires exactly `amount` of
-borrow balance and hands back no token. The floor on a repay is therefore the debt
-extinguished, `min_output == max_input`, and every repay action carries `output_means`
-saying so in those words. A field that reads as a payout when it is a debit is worth one
-sentence per action.
+because in normal operation that rate only rises and so vTokens-per-unit only falls between
+drafting and landing. Repaying returns nothing at all: `repayBorrow(amount)` is a call to
+retire `amount` of borrow balance that hands back no token. The floor on a repay is
+therefore the debt retired, `min_output == max_input`, and every repay action carries
+`output_means` saying so in those words. A field that reads as a payout when it is a debit
+is worth one sentence per action.
+
+**And neither floor is enforced by the chain.** This is the half of the kernel's property
+that does not survive the move off a router. A swap carries its floor in the calldata, so
+the router itself reverts a trade that would land under it; Venus offers no such mechanism
+to either of these calls. `mint` takes no minimum-out argument at all, and `repayBorrow`
+caps the amount at what is owed rather than reverting — so a repay drafted for `amount` can
+be mined successfully having retired less, if the debt shrank in between. Both calls also
+signal failure by returning an error code rather than reverting, which means a confirmed
+transaction is not by itself evidence that anything happened. These floors are commitments
+recorded on the intent and checkable against the next account snapshot; they are not bounds
+the chain will hold anyone to, and each action says so in its own words. A reader who
+learned `min_output` on the grid would otherwise carry the enforcement across with the name.
 """
 
 from dataclasses import dataclass
@@ -440,9 +452,14 @@ def _repay(row, market, policy, condition, deadline, state, nonce) -> GuardActio
         kind="repay",
         output_means=(
             "min_output here is the borrow balance this call retires, not a token received: "
-            f"repayBorrow({amount}) extinguishes {amount} of debt in {row.symbol} and hands "
-            "back nothing. The floor equals the input for that reason, and slippage_bps is "
-            "zero because there is no price in this call to slip against."
+            f"repayBorrow({amount}) is a call to retire {amount} of debt in {row.symbol} "
+            "that hands back nothing. The floor equals the input for that reason, and "
+            "slippage_bps is zero because there is no price in this call to slip against. "
+            "No chain mechanism enforces that floor, unlike a swap's: Venus caps a repay at "
+            "what is owed rather than reverting, so if the debt shrank before this landed "
+            f"the call succeeds having retired less than {amount}, and it signals failure by "
+            "returning an error code rather than reverting. What was actually retired is "
+            "read from the next account snapshot, not from the transaction succeeding."
         ),
         bound_by=bound_by,
         checks=(
@@ -492,8 +509,12 @@ def _supply(row, market, policy, condition, deadline, state, nonce) -> GuardActi
         output_means=(
             f"min_output is the fewest {row.symbol} this mint may return. At the exchange "
             f"rate read at block {row.as_of_block} it would return {exact}; the floor is "
-            f"{policy.slippage_bps}bps below that because the rate only rises, so vTokens "
-            "per unit supplied only falls between this draft and the block it lands in."
+            f"{policy.slippage_bps}bps below that because in normal operation the rate only "
+            "rises, so vTokens per unit supplied only falls between this draft and the block "
+            "it lands in. Nothing on chain enforces that floor: Venus's mint takes no "
+            "minimum-out argument and signals failure by returning an error code rather than "
+            "reverting, so the floor is a commitment recorded here and checked against the "
+            "next account snapshot, not a bound the call itself would revert against."
         ),
         bound_by=f"the policy caps a supply in {row.symbol} at {market.max_supply}",
         checks=(
