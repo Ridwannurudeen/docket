@@ -27,6 +27,7 @@ packages = [
     "docket.api",
     "docket.agents",
     "docket.agents.pancake",
+    "docket.escrow",
     "docket.hire",
     "experiments",
 ]
