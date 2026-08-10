@@ -37,10 +37,23 @@ BSC_CHAIN_ID = 56
 # 5%. Not a policy — a wall. A grid that wants to trade through more slippage than
 # this is not a grid whose author has thought about what fills it.
 SLIPPAGE_BPS_CEILING = 500
-# What an observed price may be compared against. Closed, because a free-text
-# condition is one nobody can evaluate the same way twice — and an intent whose
-# trigger cannot be re-evaluated by a reader is an intent nobody can audit.
-CONDITION_KINDS = frozenset({"price_at_or_below", "price_at_or_above"})
+# What an observation may be compared against, and which way each comparison runs. Closed,
+# because a free-text condition is one nobody can evaluate the same way twice — and an
+# intent whose trigger cannot be re-evaluated by a reader is an intent nobody can audit.
+#
+# The direction is a lookup rather than an `if kind == "price_at_or_below"` with an else,
+# which is what this was. That shape silently evaluated every kind but one as at-or-above,
+# so the first `_at_or_below` kind added after the grid's would have fired on exactly the
+# observations it was written to exclude.
+CONDITION_DIRECTIONS = {
+    "price_at_or_below": "at_or_below",
+    "price_at_or_above": "at_or_above",
+    # What Venus publishes about a borrower, in 1e18-scaled USD. Not a price: the subject
+    # is the account's own shortfall, and a guard that fires on it is answering a
+    # different question from a grid that fires on a quote.
+    "shortfall_at_or_above": "at_or_above",
+}
+CONDITION_KINDS = frozenset(CONDITION_DIRECTIONS)
 
 
 def commit(calldata: bytes) -> str:
@@ -86,14 +99,14 @@ class Condition:
         _whole_number(self.threshold, "threshold", f"condition {self.kind}")
 
     def holds(self, observed: int) -> bool:
-        """Whether this predicate is true of an observed price, in the same atomic units.
+        """Whether this predicate is true of an observation, in the same atomic units.
 
         Both comparisons are inclusive. A grid level set exactly at the observed price
         is a level that has been reached, and excluding the boundary would mean a level
         that is hit precisely never fires.
         """
         _whole_number(observed, "observed", f"condition {self.kind}")
-        if self.kind == "price_at_or_below":
+        if CONDITION_DIRECTIONS[self.kind] == "at_or_below":
             return observed <= self.threshold
         return observed >= self.threshold
 
