@@ -232,9 +232,11 @@ def test_the_break_even_method_is_stated_inline_with_its_arithmetic():
 
 
 def _move(**overrides):
+    # USDT, not WBNB: every fixture pool here is USDT/USDC, and a leg buying WBNB on the
+    # way into one of them is the incoherence `plan_move` now refuses.
     fields = {
         "token_in": USDC,
-        "token_out": WBNB,
+        "token_out": USDT,
         "amount": 1_000 * E18,
         "cap": 5_000 * E18,
         "reader": _Reader(),
@@ -253,7 +255,7 @@ def test_a_move_is_one_swap_leg_built_through_the_stage_two_kernel():
     assert isinstance(intent, ActionIntent)
     assert intent.target == PANCAKE_V2_ROUTER
     assert intent.token_in == Web3.to_checksum_address(USDC)
-    assert intent.token_out == Web3.to_checksum_address(WBNB)
+    assert intent.token_out == Web3.to_checksum_address(USDT)
     assert intent.policy_version == POLICY_VERSION
     assert intent.matches(actions[0].calldata)
 
@@ -263,7 +265,7 @@ def test_the_floor_comes_from_a_live_quote_less_the_slippage_allowed():
     intent = _move(reader=reader, amount=1_000 * E18)[0].intent
     # Checksummed before the quote as well as before the encode, so the bytes that get
     # hashed into the commitment are the same however the caller spelled the addresses.
-    checksummed = (Web3.to_checksum_address(USDC), Web3.to_checksum_address(WBNB))
+    checksummed = (Web3.to_checksum_address(USDC), Web3.to_checksum_address(USDT))
     assert reader.quoted == [(1_000 * E18, checksummed)]
     assert intent.min_output == 3 * E18 * (10_000 - intent.slippage_bps) // 10_000
 
@@ -355,13 +357,65 @@ def test_a_preview_handed_a_recipient_drafts_the_swap_leg_and_still_sends_nothin
         switching_cost_usd=12,
         wallet=WALLET,
         token_in=USDC,
-        token_out=WBNB,
+        token_out=USDT,
         amount=1_000 * E18,
         cap=5_000 * E18,
     )
     assert out["submitted"] is False
     assert len(out["actions"]) == 1
-    assert out["actions"][0]["intent"]["token_out"] == Web3.to_checksum_address(WBNB)
+    assert out["actions"][0]["intent"]["token_out"] == Web3.to_checksum_address(USDT)
+
+
+def test_a_move_that_buys_an_asset_the_destination_pool_does_not_hold_is_refused():
+    """The leg says it "gets the caller into the right asset". A destination allowlist and
+    an asset allowlist can both pass while the two disagree with each other — buying WBNB
+    on the way into a USDT/USDC pool clears every check and arrives holding nothing that
+    pool wants."""
+    top = compare(CURRENT, _universe())[0]
+    with pytest.raises(ValueError, match="neither side of"):
+        plan_move(
+            top,
+            _universe(),
+            token_in=USDC,
+            token_out=WBNB,
+            amount=1_000 * E18,
+            cap=5_000 * E18,
+            reader=_Reader(),
+            wallet=WALLET,
+        )
+
+
+def test_the_drafted_move_carries_the_break_even_of_the_candidate_it_chose():
+    """The comparison labels every candidate with whether it pays for itself inside the
+    horizon, then the draft picks the top rate — which may be one of the labelled-past-it
+    ones. The label has to travel with the action, or the action reads as endorsed by a
+    comparison that said the opposite two keys away."""
+    out = _preview(reader=_Reader()).preview(
+        position_size_usd=10_000,
+        switching_cost_usd=12,
+        wallet=WALLET,
+        token_in=USDC,
+        token_out=USDT,
+        amount=1_000 * E18,
+        cap=5_000 * E18,
+    )
+    action = out["actions"][0]
+    chosen = next(c for c in out["candidates"] if c["pool_id"] == action["destination_pool"])
+    assert action["break_even"] == chosen["break_even"]
+
+
+def test_a_recipient_named_over_an_empty_set_is_refused_in_words():
+    out = _preview(universe=_universe(pools=()), reader=_Reader())
+    with pytest.raises(ValueError, match="no eligible pool"):
+        out.preview(
+            position_size_usd=10_000,
+            switching_cost_usd=12,
+            wallet=WALLET,
+            token_in=USDC,
+            token_out=USDT,
+            amount=1_000 * E18,
+            cap=5_000 * E18,
+        )
 
 
 def test_the_preview_holds_nothing_that_could_send_a_transaction():
@@ -444,6 +498,18 @@ def test_a_hire_that_names_no_pool_says_the_baseline_stood_in(hire):
     out = hire({})
     assert out["current"]["pool_id"] == "0xcurrent"
     assert "no pool was named" in out["current_pool_chosen_by"]
+
+
+def test_a_position_size_of_zero_is_the_callers_figure_and_not_the_default(hire):
+    """`or` reads an explicit 0 as absent and swaps the 10,000 default in, then echoes that
+    back as though the caller had asked for it. A zero position is a strange thing to send,
+    but answering a different question from the one asked — and reporting the substituted
+    number as the input — is the failure, not the size. The line below this one in the
+    catalogue already handles a zero cost correctly."""
+    out = hire({"position_size_usd": 0})
+    for candidate in out["candidates"]:
+        assert candidate["break_even"]["position_size_usd"] == 0
+        assert candidate["break_even"]["days_to_recover"] is None
     assert "not a pool anybody is known to be in" in out["current_pool_chosen_by"]
 
 
@@ -462,7 +528,7 @@ def test_no_string_in_the_output_implies_a_docket_recommendation():
         switching_cost_usd=40,
         wallet=WALLET,
         token_in=USDC,
-        token_out=WBNB,
+        token_out=USDT,
         amount=E18,
         cap=E18,
     )

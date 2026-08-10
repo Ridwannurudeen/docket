@@ -284,7 +284,11 @@ def _run_yield_router(payload: dict) -> dict:
         )
     horizon = payload.get("horizon_days")
     out = YieldRouterPreview(universe=universe, current=current).preview(
-        position_size_usd=float(payload.get("position_size_usd") or ROUTER_POSITION_USD),
+        position_size_usd=float(
+            payload.get("position_size_usd")
+            if payload.get("position_size_usd") is not None
+            else ROUTER_POSITION_USD
+        ),
         switching_cost_usd=float(
             payload.get("switching_cost_usd")
             if payload.get("switching_cost_usd") is not None

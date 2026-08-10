@@ -49,8 +49,8 @@ HORIZON_DAYS = 30
 
 # What this build is willing to move. Three assets, and the list is short because every
 # entry is a decision somebody has to have made: these are the BSC addresses already
-# pinned elsewhere in this repository — WBNB and USDT by the grid, USDC by the Venus
-# reader — rather than a set assembled to look comprehensive.
+# pinned elsewhere in this repository — WBNB and USDT by the grid, USDC by the health
+# guard's own policy — rather than a set assembled to look comprehensive.
 MOVE_ASSETS = frozenset(
     {
         Web3.to_checksum_address("0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"),
@@ -292,13 +292,16 @@ def plan_move(
 ) -> list[MoveAction]:
     """One bounded swap leg toward a destination inside the stated set.
 
-    Three refusals, all before any bytes are built. The destination has to be in the
+    Four refusals, all before any bytes are built. The destination has to be in the
     universe, which is what "allowlisted destination" means here — the eligible set is the
     allowlist, so a pool that did not clear the gate is not somewhere this routes to. Both
-    assets have to be on `MOVE_ASSETS`. And an amount past the cap is refused rather than
-    trimmed to it, because silently shrinking a size produces an action nobody asked for.
+    assets have to be on `MOVE_ASSETS`. The asset bought has to be one the destination pool
+    actually holds, because two allowlists that pass independently can still disagree with
+    each other, and a leg that lands in the wrong asset satisfies both. And an amount past
+    the cap is refused rather than trimmed to it, because silently shrinking a size produces
+    an action nobody asked for.
     """
-    destinations = {str(pool.get("id") or "?") for pool in universe.included}
+    destinations = {str(pool.get("id") or "?"): pool for pool in universe.included}
     if candidate.pool_id not in destinations:
         raise ValueError(
             f"{candidate.pool_id} is not in the eligible set this comparison was drawn "
@@ -310,6 +313,16 @@ def plan_move(
             raise ValueError(
                 f"{name} {token} is not on this build's move allowlist of {sorted(MOVE_ASSETS)}"
             )
+    destination = destinations[candidate.pool_id]
+    held = {
+        str((destination.get(side) or {}).get("id") or "").lower() for side in ("token0", "token1")
+    }
+    if str(token_out).lower() not in held:
+        raise ValueError(
+            f"token_out {token_out} is neither side of {candidate.pool_id}, which holds "
+            f"{sorted(held)}. This leg is meant to arrive in an asset that pool wants, and "
+            "buying anything else clears both allowlists while landing in the wrong place"
+        )
     if amount > cap:
         raise ValueError(
             f"the move is {amount} and the cap is {cap}. It is refused rather than "
@@ -427,25 +440,39 @@ class YieldRouterPreview:
                 }
             )
 
-        actions: list[MoveAction] = []
+        drafted: list[dict] = []
         if wallet is not None:
+            if not candidates:
+                raise ValueError(
+                    f"no eligible pool to route to: the set from {self.universe.source} at "
+                    f"{self.universe.observed_at} came out empty, so there is no destination "
+                    "and no comparison behind one"
+                )
             top = candidates[0]
-            actions = plan_move(
-                top,
-                self.universe,
-                token_in=token_in,
-                token_out=token_out,
-                amount=amount,
-                cap=cap,
-                reader=self._reader,
-                wallet=wallet,
-            )
+            # The draft takes the top observed rate, which may be one of the candidates the
+            # comparison just labelled as not paying for itself inside the horizon. That
+            # label travels with the action rather than sitting two keys away in a list, so
+            # the draft cannot read as endorsed by a comparison that said the opposite.
+            chosen = next(row for row in rows if row["pool_id"] == top.pool_id)
+            drafted = [
+                action.as_record() | {"break_even": chosen["break_even"]}
+                for action in plan_move(
+                    top,
+                    self.universe,
+                    token_in=token_in,
+                    token_out=token_out,
+                    amount=amount,
+                    cap=cap,
+                    reader=self._reader,
+                    wallet=wallet,
+                )
+            ]
         return {
             "current": current.as_record(),
             "candidates": rows,
             "ordering": ORDERING,
             "universe": self.universe.as_record(),
-            "actions": [action.as_record() for action in actions],
+            "actions": drafted,
             "submitted": False,
             "why_not_submitted": PREVIEW_REASON,
         }
