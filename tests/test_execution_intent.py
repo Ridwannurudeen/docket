@@ -93,6 +93,12 @@ def test_every_kind_declares_which_way_its_comparison_runs():
     new `_at_or_below` kind would have evaluated as at-or-above and fired on exactly the
     observations it was written to exclude. It is a lookup now, and every kind is in it."""
     assert set(CONDITION_DIRECTIONS) == CONDITION_KINDS
+    # `holds` compares against the literal "at_or_below" and falls through to at-or-above
+    # for anything else, so the values are as load-bearing as the keys: a direction spelt
+    # "below" would read as at-or-above and pass the endswith check below on a kind spelt
+    # to match it. Pinning the domain is what the mapped-ness assertion cannot do — it is
+    # a tautology, since CONDITION_KINDS is built from this dict.
+    assert set(CONDITION_DIRECTIONS.values()) == {"at_or_below", "at_or_above"}
     for kind, direction in CONDITION_DIRECTIONS.items():
         assert kind.endswith(direction), kind
 

@@ -538,10 +538,12 @@ def _supply(row, market, policy, condition, deadline, state, nonce) -> GuardActi
 class HealthGuardPreview:
     """The whole guard, with nothing anywhere in this build that could send it.
 
-    Deliberately the only class in this module. The grid ships a preview and an armed
+    Deliberately the only class in this module that does anything with a chain — the other
+    three are the two policies and the action record. The grid ships a preview and an armed
     operator and keeps them apart structurally; this ships the preview alone, because no
     execution path for a Venus call exists here and a class that implied one would be
-    describing work that has not been done.
+    describing work that has not been done. The test pins the whole set of class names, so
+    an armed sibling cannot arrive quietly.
     """
 
     def __init__(self, *, reader, policy: GuardPolicy) -> None:

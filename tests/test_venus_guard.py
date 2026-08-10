@@ -426,9 +426,15 @@ def test_the_preview_holds_nothing_that_could_send_a_transaction():
         "self._submitter",
     ):
         assert forbidden not in source, forbidden
-    assert [c.__name__ for c in vars(guard_module).values() if inspect.isclass(c)].count(
-        "HealthGuardPreview"
-    ) == 1
+    # The whole closed set, not a count of how many classes are named HealthGuardPreview —
+    # which is one whatever else this module grows. An armed sibling would be a new name,
+    # so the name is what has to be pinned.
+    defined = {
+        c.__name__
+        for c in vars(guard_module).values()
+        if inspect.isclass(c) and c.__module__ == guard_module.__name__
+    }
+    assert defined == {"MarketPolicy", "GuardPolicy", "GuardAction", "HealthGuardPreview"}
 
 
 def test_each_action_says_which_checks_ran_and_that_a_router_quote_is_not_one_of_them():
