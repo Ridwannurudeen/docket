@@ -55,8 +55,14 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/openapi.json` | Generated OpenAPI 3.1 schema |
 
 `/agents` parameters: `has_feedback`, `declares_callable`, `responded` (booleans),
-`publisher` (exact match), `limit` (default 50, capped at 100), `offset`. `total` is
+`name_family` (exact match), `limit` (default 50, capped at 100), `offset`. `total` is
 counted after filtering and before pagination.
+
+`name_family` is the first token of the name an agent declared, lowercased, or
+`owner:0x...` where the registry generated the name. It is a grouping heuristic over a
+self-declared string and **not** verified minter provenance: Docket reads nothing about
+who deployed an agent, so two unrelated owners who choose the same first word share a
+key. Never present it as "who published this agent".
 
 `agent_id` is `{chain_id}:{registry_address}:{token_id}` and contains colons. Send it
 literally; do not URL-encode the colons.
@@ -168,8 +174,8 @@ Read `coverage` first, every time:
 The same snapshot 3 figures, in full: 506 sampled of 506 expected, 31 declaring a
 callable endpoint, 78 endpoint registration rows resolved, 35 endpoints evaluated, 14
 of them reached by an HTTP request, 13 responded (92.857% of attempted, 37.143% of
-evaluated), 10 blocked by policy, 11 unresolved, 1 timed out, across 421 distinct
-publishers.
+evaluated), 10 blocked by policy, 11 unresolved, 1 timed out, across 421 distinct name
+families.
 
 ## Workflow 4: hire Range Doctor for a wallet
 

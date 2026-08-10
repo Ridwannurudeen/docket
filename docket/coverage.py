@@ -35,10 +35,10 @@ def coverage_report(store: Store, snapshot_id: int) -> dict:
     sampled = store.agent_count(snapshot_id)
     expected = int(meta.get("expected") or 0)
     counts = Counter()
-    publishers = Counter()
+    families = Counter()
     for agent in store.iter_agents(snapshot_id):
         sig = signals_for(agent)
-        publishers[sig["publisher"]] += 1
+        families[sig["name_family"]] += 1
         for key in ("placeholder_name", "callable", "has_feedback", "describes_itself", "x402"):
             if sig[key]:
                 counts[key] += 1
@@ -70,9 +70,12 @@ def coverage_report(store: Store, snapshot_id: int) -> dict:
         "placeholder_name": counts["placeholder_name"],
         "describes_itself": counts["describes_itself"],
         "x402": counts["x402"],
-        "distinct_publishers": len(publishers),
-        "top_publishers": [
-            {"publisher": p, "count": n, "share_pct": pct(n)} for p, n in publishers.most_common(5)
+        # Grouped by the first token of a self-declared name, not by minter. `signals.name_family`
+        # carries the whole caveat; the field is named for what it measures so a reader of the
+        # number alone cannot mistake it for provenance read off chain.
+        "distinct_name_families": len(families),
+        "top_name_families": [
+            {"name_family": f, "count": n, "share_pct": pct(n)} for f, n in families.most_common(5)
         ],
         "endpoints_resolved": sum(endpoint_kinds.values()),
         "endpoints_probeable": sum(endpoint_kinds[k] for k in _PROBE_KINDS),
@@ -121,15 +124,19 @@ def render_markdown(report: dict) -> str:
         f"| Declares a callable endpoint (A2A or MCP) | {report['callable']:,} | {report['callable_pct']}% |",
         f"| Supports x402 | {report['x402']:,} | |",
         f"| Auto-generated placeholder name | {report['placeholder_name']:,} | |",
-        f"| Distinct publishers | {report['distinct_publishers']:,} | |",
+        f"| Distinct name families | {report['distinct_name_families']:,} | |",
         "",
-        "## Largest publishers",
+        "## Largest name families",
         "",
-        "| Publisher | Agents | Share of snapshot |",
+        "Grouped by the first token of the name each agent declared, or by owner where the "
+        "registry generated the name. This is a name heuristic, not verified minter "
+        "provenance — two unrelated owners choosing the same first word share a row.",
+        "",
+        "| Name family | Agents | Share of snapshot |",
         "| --- | ---: | ---: |",
     ]
-    for row in report["top_publishers"]:
-        lines.append(f"| {row['publisher']} | {row['count']:,} | {row['share_pct']}% |")
+    for row in report["top_name_families"]:
+        lines.append(f"| {row['name_family']} | {row['count']:,} | {row['share_pct']}% |")
     lines += ["", "## Endpoint liveness", ""]
     if report["endpoints_evaluated"]:
         window = report["liveness_observed_at"]

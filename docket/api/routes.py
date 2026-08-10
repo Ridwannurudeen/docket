@@ -176,7 +176,7 @@ def _summary(agent: dict, signals: dict) -> AgentSummary:
         declares_callable=signals["callable"],
         protocols=agent["supported_protocols"],
         x402=signals["x402"],
-        publisher=signals["publisher"],
+        name_family=signals["name_family"],
         placeholder_name=signals["placeholder_name"],
     )
 
@@ -374,8 +374,8 @@ def create_app(
             responded_pct_of_evaluated=report["responded_pct_of_evaluated"],
             blocked_by_policy=report["blocked"],
             unresolved=report["unresolved"],
-            distinct_publishers=report["distinct_publishers"],
-            top_publishers=report["top_publishers"],
+            distinct_name_families=report["distinct_name_families"],
+            top_name_families=report["top_name_families"],
             probe_method=PROBE_METHOD,
         )
 
@@ -384,7 +384,7 @@ def create_app(
         has_feedback: bool | None = None,
         declares_callable: bool | None = None,
         responded: bool | None = None,
-        publisher: str | None = None,
+        name_family: str | None = None,
         limit: int = DEFAULT_LIMIT,
         offset: int = 0,
     ) -> ListResponse:
@@ -406,7 +406,7 @@ def create_app(
                 and signals["callable"] != declares_callable
             ):
                 continue
-            if publisher is not None and signals["publisher"] != publisher:
+            if name_family is not None and signals["name_family"] != name_family:
                 continue
             if responded is not None and (agent["agent_id"] in responders) != responded:
                 continue
@@ -416,7 +416,7 @@ def create_app(
             "has_feedback": has_feedback,
             "declares_callable": declares_callable,
             "responded": responded,
-            "publisher": publisher,
+            "name_family": name_family,
         }
         label = ", ".join(
             f"{key}={str(value).lower() if isinstance(value, bool) else value}"

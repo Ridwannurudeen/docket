@@ -120,9 +120,9 @@
                 </p>
               </li>
               <li class="metric">
-                <p class="metric-label">Distinct publishers</p>
-                <p class="metric-value" data-field="publishers"><span class="skeleton"></span></p>
-                <p class="metric-note" data-field="publishers-note">
+                <p class="metric-label">Distinct name families</p>
+                <p class="metric-value" data-field="families"><span class="skeleton"></span></p>
+                <p class="metric-note" data-field="families-note">
                   <span class="skeleton skeleton-wide"></span>
                 </p>
               </li>
@@ -153,9 +153,16 @@
               </div>
             </section>
 
-            <section aria-labelledby="publishers-heading">
-              <h3 id="publishers-heading">Who minted them</h3>
-              <div data-region="publishers">
+            <section aria-labelledby="families-heading">
+              <h3 id="families-heading">Name families</h3>
+              <p class="section-note">
+                Agents are grouped by the first word of the name they declared, or by owner
+                address where the registry generated the name. That is all this key is: a
+                heuristic over a string an agent chose for itself. Docket does not read who
+                deployed or minted anything, so two unrelated owners who pick the same first
+                word share a row here.
+              </p>
+              <div data-region="families">
                 <span class="skeleton skeleton-row skeleton-wide"></span>
                 <span class="skeleton skeleton-row skeleton-wide"></span>
               </div>

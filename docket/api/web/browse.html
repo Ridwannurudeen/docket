@@ -6,7 +6,7 @@
     <title>Browse agents — Docket</title>
     <meta
       name="description"
-      content="Filter the ERC-8004 agents in Docket's current snapshot by feedback, declared endpoint, observed response and publisher."
+      content="Filter the ERC-8004 agents in Docket's current snapshot by feedback, declared endpoint, observed response and name family."
     />
     <link rel="stylesheet" href="/static/style.css" />
     <script type="module" src="/static/app.js"></script>
@@ -93,10 +93,13 @@
               </label>
             </fieldset>
             <div class="field">
-              <label for="publisher-filter">Publisher</label>
-              <select id="publisher-filter" data-filter="publisher">
-                <option value="">All publishers</option>
+              <label for="name-family-filter">Name family</label>
+              <select id="name-family-filter" data-filter="name_family">
+                <option value="">All name families</option>
               </select>
+              <p class="dim">
+                The first word of the name an agent declared, not a record of who minted it.
+              </p>
             </div>
             <button type="button" class="btn" data-action="clear">Clear filters</button>
           </div>

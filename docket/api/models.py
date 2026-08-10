@@ -61,7 +61,10 @@ class AgentSummary(pydantic.BaseModel):
     declares_callable: bool
     protocols: list[str]
     x402: bool
-    publisher: str
+    # The first token of the name this agent declared, or "owner:0x..." where the registry
+    # generated the name. A grouping heuristic over a self-declared string, NOT verified
+    # minter provenance — see `signals.name_family`.
+    name_family: str
     placeholder_name: bool
 
 
@@ -108,8 +111,8 @@ class StatsResponse(pydantic.BaseModel):
     responded_pct_of_evaluated: float
     blocked_by_policy: int
     unresolved: int
-    distinct_publishers: int
-    top_publishers: list[dict]
+    distinct_name_families: int
+    top_name_families: list[dict]
     probe_method: str
 
 

@@ -187,6 +187,24 @@ def test_agents_list_is_filterable_and_states_coverage(client):
     assert callable_only["total"] == 1
 
 
+def test_agents_are_filterable_and_labelled_by_name_family_not_publisher(client):
+    """The key is the first token of a name the agent chose for itself. Serving it as
+    `publisher` claimed Docket had read minter provenance off chain; it never had."""
+    body = client.get("/agents").json()
+    # QUIET's name is registry-generated and it declares no owner, so it has no family.
+    assert {item["name_family"] for item in body["items"]} == {"solvent", "unknown"}
+    assert "publisher" not in body["items"][0]
+    narrowed = client.get("/agents", params={"name_family": "solvent"}).json()
+    assert narrowed["total"] == 1
+    assert narrowed["items"][0]["agent_id"] == AGENT["agent_id"]
+    assert narrowed["coverage"]["filter"] == "name_family=solvent"
+    stats = client.get("/stats").json()
+    assert stats["distinct_name_families"] == 2
+    assert {row["name_family"] for row in stats["top_name_families"]} == {"solvent", "unknown"}
+    for retired in ("distinct_publishers", "top_publishers"):
+        assert retired not in stats
+
+
 def test_agent_detail_resolves_a_colon_bearing_id_and_carries_observations(client):
     body = client.get(f"/agents/{AGENT['agent_id']}").json()
     assert body["agent_id"] == AGENT["agent_id"]

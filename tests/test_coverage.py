@@ -4,9 +4,18 @@ from docket.coverage import coverage_report, render_markdown
 from docket.store import Store
 
 PACKAGE = Path(__file__).resolve().parents[1] / "docket"
-# The labels this rename retired. Kept as exact tokens rather than as the word "probed",
-# which is still the right word for the method prose and the outcome vocabulary.
-RETIRED_LABELS = ("endpoints_probed", "responded_pct_of_probed", "agents_probed")
+# The labels these renames retired. Kept as exact tokens rather than as the bare words
+# "probed" and "publisher", both of which remain the right word in prose: the probe method
+# still describes probing, and the disclaimer on `name_family` has to be able to say the
+# key is not publisher provenance.
+RETIRED_LABELS = (
+    "endpoints_probed",
+    "responded_pct_of_probed",
+    "agents_probed",
+    "publisher_key",
+    "distinct_publishers",
+    "top_publishers",
+)
 
 
 def _seed(store: Store) -> int:
@@ -107,7 +116,7 @@ def test_report_counts_are_generated_from_the_store(tmp_path):
     assert rep["with_feedback"] == 1
     assert rep["callable"] == 2
     assert rep["placeholder_name"] == 1
-    assert rep["distinct_publishers"] == 4  # the two Ave.ai rows collapse to one
+    assert rep["distinct_name_families"] == 4  # the two Ave.ai rows collapse to one
 
 
 def test_coverage_carries_the_population_the_snapshot_swept(tmp_path):
@@ -131,14 +140,23 @@ def test_a_snapshot_that_never_recorded_its_population_says_unspecified(tmp_path
     assert "unspecified" in render_markdown(rep)
 
 
-def test_top_publisher_share_is_reported(tmp_path):
+def test_top_name_family_share_is_reported(tmp_path):
     store = Store(tmp_path / "d.sqlite3")
     sid = _seed(store)
     rep = coverage_report(store, sid)
-    top = rep["top_publishers"][0]
-    assert top["publisher"] == "ave.ai"
+    top = rep["top_name_families"][0]
+    assert top["name_family"] == "ave.ai"
     assert top["count"] == 2
     assert round(top["share_pct"], 1) == 40.0
+
+
+def test_markdown_says_the_family_table_is_not_minter_provenance(tmp_path):
+    """The table groups by a name anyone can choose. Headed "Largest publishers" it read as a
+    claim about who minted what, which is a claim from chain data Docket never made."""
+    store = Store(tmp_path / "d.sqlite3")
+    md = render_markdown(coverage_report(store, _seed(store))).lower()
+    assert "name famil" in md
+    assert "not" in md and "provenance" in md
 
 
 def test_markdown_states_partial_coverage_explicitly(tmp_path):

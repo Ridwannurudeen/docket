@@ -234,13 +234,13 @@ function paintVocabulary() {
     .join("");
 }
 
-function paintPublishers(stats) {
-  const target = region("publishers");
+function paintNameFamilies(stats) {
+  const target = region("families");
   if (!target) return;
-  const rows = stats.top_publishers
+  const rows = stats.top_name_families
     .map(
       (row) => `<tr>
-        <td class="mono">${escapeHTML(row.publisher)}</td>
+        <td class="mono">${escapeHTML(row.name_family)}</td>
         <td class="num">${escapeHTML(fmtInt(row.count))}</td>
         <td class="num">${escapeHTML(fmtPct(row.share_pct))}</td>
       </tr>`,
@@ -248,8 +248,8 @@ function paintPublishers(stats) {
     .join("");
   target.innerHTML = `<div class="table-wrap">
       <table>
-        <caption>The five largest publishers in this snapshot, of ${escapeHTML(fmtInt(stats.distinct_publishers))} distinct keys. Share is of the ${escapeHTML(fmtInt(stats.coverage.sampled))} agents sampled.</caption>
-        <thead><tr><th scope="col">Publisher key</th><th scope="col" class="num">Agents</th><th scope="col" class="num">Share of snapshot</th></tr></thead>
+        <caption>The five largest name families in this snapshot, of ${escapeHTML(fmtInt(stats.distinct_name_families))} distinct keys. Share is of the ${escapeHTML(fmtInt(stats.coverage.sampled))} agents sampled. Grouped by the first word of a name each agent chose for itself, so it is not a record of who deployed them.</caption>
+        <thead><tr><th scope="col">Name family</th><th scope="col" class="num">Agents</th><th scope="col" class="num">Share of snapshot</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -292,10 +292,10 @@ function paintStats(stats) {
       `${fmtInt(stats.endpoints_evaluated)} evaluated`,
   );
 
-  fill("publishers", fmtInt(stats.distinct_publishers));
+  fill("families", fmtInt(stats.distinct_name_families));
   fill(
-    "publishers-note",
-    `distinct publisher keys across ${fmtInt(cov.sampled)} agents`,
+    "families-note",
+    `distinct first-word name keys across ${fmtInt(cov.sampled)} agents`,
   );
 
   // Every attempt that was not an answer. Taken from `attempted` rather than from
@@ -309,7 +309,7 @@ function paintStats(stats) {
   fill("breakdown-other", fmtInt(other));
 
   fill("probe-method", stats.probe_method);
-  paintPublishers(stats);
+  paintNameFamilies(stats);
 }
 
 async function initIndex() {
@@ -335,7 +335,7 @@ let browseRequest = 0;
 
 function readFilters() {
   const params = new URLSearchParams(window.location.search);
-  const state = { publisher: params.get("publisher") || "" };
+  const state = { name_family: params.get("name_family") || "" };
   for (const key of BOOLEAN_FILTERS) state[key] = params.get(key) === "true";
   const offset = Number.parseInt(params.get("offset") || "0", 10);
   state.offset = Number.isFinite(offset) && offset > 0 ? offset : 0;
@@ -347,7 +347,7 @@ function filtersToQuery(state) {
   for (const key of BOOLEAN_FILTERS) {
     if (state[key]) params.set(key, "true");
   }
-  if (state.publisher) params.set("publisher", state.publisher);
+  if (state.name_family) params.set("name_family", state.name_family);
   if (state.offset) params.set("offset", String(state.offset));
   return params;
 }
@@ -357,7 +357,8 @@ function describeFilters(state) {
   if (state.has_feedback) parts.push("has at least one feedback record");
   if (state.declares_callable) parts.push("declares an A2A or MCP endpoint");
   if (state.responded) parts.push("had an endpoint answer in this snapshot");
-  if (state.publisher) parts.push(`was minted by ${state.publisher}`);
+  if (state.name_family)
+    parts.push(`carries the name family ${state.name_family}`);
   return parts;
 }
 
@@ -370,7 +371,7 @@ function syncControls(state) {
 }
 
 function stateFromControls() {
-  const state = { offset: 0, publisher: "" };
+  const state = { offset: 0, name_family: "" };
   for (const control of document.querySelectorAll("[data-filter]")) {
     const key = control.dataset.filter;
     state[key] = control.type === "checkbox" ? control.checked : control.value;
@@ -421,7 +422,7 @@ function browseRow(item, responders) {
       <td class="num">${escapeHTML(fmtInt(item.feedback_count))}</td>
       <td>${protocols}</td>
       <td>${endpoint}</td>
-      <td class="mono">${escapeHTML(item.publisher)}</td>
+      <td class="mono">${escapeHTML(item.name_family)}</td>
     </tr>`;
 }
 
@@ -436,8 +437,8 @@ function emptyState(listing, state) {
       <p>
         Snapshot ${escapeHTML(listing.coverage.snapshot_id)} holds
         ${escapeHTML(fmtInt(listing.coverage.sampled))} agents, and only the few that declare an
-        A2A or MCP endpoint were ever probed — so combining the endpoint filters with a publisher
-        narrows the population fast.
+        A2A or MCP endpoint were ever probed — so combining the endpoint filters with a name
+        family narrows the population fast.
       </p>
       <p class="btn-row"><button type="button" class="btn" data-action="clear">Clear all filters</button></p>
     </div>`;
@@ -485,7 +486,7 @@ function paintResults(listing, responders, state) {
               <th scope="col" class="num">Feedback</th>
               <th scope="col">Declared protocols</th>
               <th scope="col">Endpoint</th>
-              <th scope="col">Publisher</th>
+              <th scope="col">Name family</th>
             </tr>
           </thead>
           <tbody>${listing.items.map((item) => browseRow(item, responders)).join("")}</tbody>
@@ -547,31 +548,31 @@ function clearFilters() {
       has_feedback: false,
       declares_callable: false,
       responded: false,
-      publisher: "",
+      name_family: "",
       offset: 0,
     },
     true,
   );
 }
 
-async function fillPublisherOptions(selected) {
-  const select = document.querySelector('[data-filter="publisher"]');
+async function fillNameFamilyOptions(selected) {
+  const select = document.querySelector('[data-filter="name_family"]');
   if (!select) return;
   let options = "";
   try {
     const stats = await fetchJSON("/stats");
-    options = stats.top_publishers
+    options = stats.top_name_families
       .map(
         (row) =>
-          `<option value="${escapeHTML(row.publisher)}">${escapeHTML(row.publisher)} (${escapeHTML(fmtInt(row.count))})</option>`,
+          `<option value="${escapeHTML(row.name_family)}">${escapeHTML(row.name_family)} (${escapeHTML(fmtInt(row.count))})</option>`,
       )
       .join("");
   } catch (err) {
     // The listing does not depend on this, so say the list is missing rather than fail the page.
-    options = `<option value="" disabled>Publisher list unavailable: ${escapeHTML(err.code)}</option>`;
+    options = `<option value="" disabled>Name family list unavailable: ${escapeHTML(err.code)}</option>`;
   }
-  select.innerHTML = `<option value="">All publishers</option>${options}`;
-  // A shared link may name a publisher outside the top five; keep it selectable.
+  select.innerHTML = `<option value="">All name families</option>${options}`;
+  // A shared link may name a family outside the top five; keep it selectable.
   if (
     selected &&
     !Array.from(select.options).some((option) => option.value === selected)
@@ -595,7 +596,7 @@ async function initBrowse() {
   const clear = document.querySelector('[data-action="clear"]');
   if (clear) clear.addEventListener("click", clearFilters);
   window.addEventListener("popstate", () => goToBrowse(readFilters(), false));
-  await fillPublisherOptions(state.publisher);
+  await fillNameFamilyOptions(state.name_family);
   goToBrowse(state, false);
 }
 
@@ -717,7 +718,8 @@ function paintAgent(detail, example) {
           <dt>Token id</dt><dd class="mono">${escapeHTML(detail.token_id)}</dd>
           <dt>Agent id</dt><dd class="mono">${escapeHTML(detail.agent_id)}</dd>
           <dt>Owner</dt><dd class="mono">${detail.owner_address ? escapeHTML(detail.owner_address) : DASH}</dd>
-          <dt>Publisher key</dt><dd class="mono">${escapeHTML(detail.publisher)}</dd>
+          <dt>Name family</dt><dd class="mono">${escapeHTML(detail.name_family)}</dd>
+          <dd class="dim">The first word of the name this agent declared. Not a record of who minted it.</dd>
           <dt>Feedback records</dt><dd class="num">${escapeHTML(fmtInt(detail.feedback_count))}</dd>
           <dt>Declared protocols</dt><dd>${protocols}</dd>
           <dt>Declares x402 payments</dt><dd>${detail.x402 ? "yes" : "no"}</dd>

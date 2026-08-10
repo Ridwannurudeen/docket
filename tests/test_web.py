@@ -83,6 +83,18 @@ def test_ui_uses_no_verdict_language():
             assert not re.search(pattern, text), f"{f.name} contains verdict language: {word!r}"
 
 
+def test_pages_do_not_present_the_name_key_as_minter_provenance():
+    """ "Who minted them" over a table grouped by the first word of a self-chosen name is a
+    provenance claim Docket cannot make. The pages say what the key is instead."""
+    index = (WEB_DIR / "index.html").read_text(encoding="utf-8").lower()
+    assert "who minted them" not in index
+    assert "name famil" in index
+    browse = (WEB_DIR / "browse.html").read_text(encoding="utf-8").lower()
+    assert "name famil" in browse
+    app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8").lower()
+    assert "was minted by" not in app_js
+
+
 def test_no_emoji_used_as_iconography():
     emoji = re.compile("[\U0001f300-\U0001faff\u2600-\u27bf]")
     for f in WEB_DIR.glob("*.html"):
@@ -101,7 +113,7 @@ def test_browse_and_agent_pages_are_served(client):
 def test_browse_reflects_its_filters_into_the_query_string():
     """A narrowed view has to be a link someone can send, and the back button has to walk it."""
     browse = (WEB_DIR / "browse.html").read_text(encoding="utf-8")
-    for name in ("has_feedback", "declares_callable", "responded", "publisher"):
+    for name in ("has_feedback", "declares_callable", "responded", "name_family"):
         assert f'data-filter="{name}"' in browse, name
     app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
     assert "URLSearchParams" in app_js

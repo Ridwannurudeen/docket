@@ -77,9 +77,10 @@ GET /stats
                                   and never either one without saying which
       blocked_by_policy           targets Docket refused to contact (see "blocked")
       unresolved                  hostnames that would not resolve (see "unresolved")
-      distinct_publishers         distinct publisher keys in the snapshot
-      top_publishers              the five largest, with counts and share of the
-                                  snapshot
+      distinct_name_families      distinct name-family keys in the snapshot
+      top_name_families           the five largest, with counts and share of the
+                                  snapshot. Each row is {name_family, count,
+                                  share_pct}
       probe_method                one line stating how liveness was measured
 
     curl -s "$DOCKET/stats"
@@ -92,10 +93,15 @@ GET /agents
                                        a claim the agent made, not a probe result
       responded           true|false   at least one of the agent's probed endpoints
                                        returned outcome "responded" in this snapshot
-      publisher           string       exact match on the publisher key, e.g.
-                                       "openodds.ai". The key groups agents minted by
-                                       one publisher or family; when an agent has no
-                                       usable name it is "owner:0x..."
+      name_family         string       exact match on the name-family key, e.g.
+                                       "openodds.ai". The key is the first token of
+                                       the name the agent declared, lowercased; where
+                                       the registry generated the name it is
+                                       "owner:0x..." instead. It is a heuristic over a
+                                       self-declared string and NOT verified minter
+                                       provenance — Docket reads nothing about who
+                                       deployed an agent, so two unrelated owners who
+                                       pick the same first word share a key
       limit               int          default 50, clamped into [1, 100]
       offset              int          default 0, negatives clamped to 0
 
@@ -103,8 +109,8 @@ GET /agents
     "total" is the count after filtering and before pagination, so it does not change
     as you page. Each item carries: agent_id, token_id, name, description,
     owner_address, has_feedback, feedback_count, declares_callable, protocols, x402,
-    publisher, placeholder_name (true when the name is a registry-generated
-    "Agent #123" rather than one the publisher chose).
+    name_family, placeholder_name (true when the name is a registry-generated
+    "Agent #123" rather than one the agent chose).
 
     curl -s "$DOCKET/agents?declares_callable=true&limit=3"
     curl -s "$DOCKET/agents?responded=true&limit=5"
