@@ -81,6 +81,21 @@ def test_escrow_abi_fragments_match_the_vendored_artifacts():
     assert checked >= 8
 
 
+def test_every_router_error_signature_the_explainer_knows_is_real():
+    """The explainer matches reverts by selector, computed from these strings. A typo
+    would not fail loudly — it would just never match, and every revert would degrade to
+    'the call reverted', which is precisely the unhelpful output it exists to prevent."""
+    from docket.escrow.settle import ROUTER_ERROR_SIGNATURES
+
+    truth = {
+        e["name"] + "(" + ",".join(i["type"] for i in e.get("inputs", [])) + ")"
+        for e in _load("EvaluatorRouter.json")
+        if e.get("type") == "error"
+    }
+    for sig in ROUTER_ERROR_SIGNATURES:
+        assert sig in truth, f"{sig} is not an error on EvaluatorRouter"
+
+
 def test_the_job_struct_field_order_is_the_one_the_reader_assumes():
     """`status` is field 7 and the last field is a bytes32 deliverable. Reading `[-1]`
     as status finds nothing and reports every job as unsubmitted, which is exactly the
