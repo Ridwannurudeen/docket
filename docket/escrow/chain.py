@@ -39,7 +39,7 @@ RETRY_PAUSE_S = 0.5
 # a run reading `[-1]` as status when status is field 7 and the last field is a bytes32
 # deliverable.
 JOB_FIELDS = (
-    "jobId",
+    "id",
     "client",
     "provider",
     "evaluator",
@@ -62,7 +62,7 @@ COMMERCE_ABI = [
                 "name": "",
                 "type": "tuple",
                 "components": [
-                    {"name": "jobId", "type": "uint256"},
+                    {"name": "id", "type": "uint256"},
                     {"name": "client", "type": "address"},
                     {"name": "provider", "type": "address"},
                     {"name": "evaluator", "type": "address"},
