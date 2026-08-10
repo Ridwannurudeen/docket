@@ -155,9 +155,26 @@ class Store:
         return len(payload)
 
     def latest_snapshot_id(self, chain_id: int = 56) -> int | None:
+        """The newest snapshot row, finished or not — what a sweep resuming its own run wants."""
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT id FROM snapshots WHERE chain_id = ? ORDER BY id DESC LIMIT 1",
+                (chain_id,),
+            ).fetchone()
+        return int(row["id"]) if row else None
+
+    def latest_complete_snapshot_id(self, chain_id: int = 56) -> int | None:
+        """The newest snapshot that ran to the end — what a reader must be served.
+
+        A sweep in flight, or one that crashed, is still the newest row while its counts are
+        being written. Serving it would publish a partial capture as the whole of what Docket
+        observed: every count understated, and `complete` computed against an `expected` the
+        run never reached.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT id FROM snapshots WHERE chain_id = ? AND finished_at IS NOT NULL "
+                "AND sampled IS NOT NULL ORDER BY id DESC LIMIT 1",
                 (chain_id,),
             ).fetchone()
         return int(row["id"]) if row else None

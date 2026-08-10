@@ -128,6 +128,36 @@ def test_a_blocked_target_is_evaluated_but_never_attempted(tmp_path):
         assert retired not in body
 
 
+def test_the_served_snapshot_is_the_newest_COMPLETE_one(tmp_path):
+    """Resolution defaults to a snapshot that finished. Taking the newest row instead would,
+    the moment a refresh loop runs, serve a sweep still being written as the whole capture —
+    every count understated and `complete` computed against an `expected` nothing reached."""
+    db = tmp_path / "sweeps.sqlite3"
+    store = Store(db)
+    done = store.begin_snapshot(chain_id=56, expected=2)
+    store.upsert_agents([AGENT, QUIET], done)
+    store.finish_snapshot(done, sampled=2, expected=2)
+    crashed = store.begin_snapshot(chain_id=56, expected=2)
+    store.upsert_agents([AGENT], crashed)  # one page in, then the sweep died
+
+    client = TestClient(create_app(db))
+    assert client.get("/health").json()["snapshot_id"] == done
+    assert client.get("/stats").json()["coverage"]["snapshot_id"] == done
+    assert client.get("/agents").json()["total"] == 2  # not the crashed sweep's 1
+    # Naming it explicitly is still honoured: an operator may inspect a partial sweep.
+    assert TestClient(create_app(db, snapshot_id=crashed)).get("/agents").json()["total"] == 1
+
+
+def test_only_an_unfinished_sweep_reports_no_snapshot_rather_than_serving_it(tmp_path):
+    db = tmp_path / "crashed.sqlite3"
+    store = Store(db)
+    store.upsert_agents([AGENT], store.begin_snapshot(chain_id=56, expected=2))
+    resp = TestClient(create_app(db)).get("/stats")
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "no_snapshot"
+    assert "complete" in resp.json()["error"]["message"]  # says why, not just that
+
+
 def test_agents_list_is_filterable_and_states_coverage(client):
     body = client.get("/agents").json()
     assert body["total"] == 2 and len(body["items"]) == 2
@@ -201,9 +231,7 @@ def test_agent_facing_docs_name_the_public_host(client):
         body = client.get(path).text
         assert PUBLIC_HOST in body, f"{path} does not name the public host"
         assert "no public host" not in body, f"{path} still denies a public host"
-        assert "no public deployment" not in body, (
-            f"{path} still denies a public deployment"
-        )
+        assert "no public deployment" not in body, f"{path} still denies a public deployment"
 
 
 def test_cors_advertises_only_methods_that_are_actually_served(client):
@@ -215,9 +243,7 @@ def test_cors_advertises_only_methods_that_are_actually_served(client):
             "Access-Control-Request-Method": "GET",
         },
     )
-    advertised = {
-        m.strip() for m in preflight.headers["access-control-allow-methods"].split(",")
-    }
+    advertised = {m.strip() for m in preflight.headers["access-control-allow-methods"].split(",")}
     for method in advertised:
         assert client.request(method, "/agents").status_code != 405
 

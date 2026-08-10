@@ -195,7 +195,9 @@ def create_app(
     the stats beside it must describe the same capture, even mid-sweep."""
     db_path = Path(db_path)
     if snapshot_id is None:
-        snapshot_id = Store(db_path).latest_snapshot_id(CHAIN_ID)
+        # The newest COMPLETE sweep, never merely the newest row. An explicit snapshot_id is
+        # still honoured, so an operator can inspect a partial capture on purpose.
+        snapshot_id = Store(db_path).latest_complete_snapshot_id(CHAIN_ID)
     # Read once, at startup: a missing document should fail the app that ships it, not the one
     # request that happened to ask for it.
     llms_body = (STATIC_DIR / "llms.txt").read_text(encoding="utf-8")
@@ -241,8 +243,9 @@ def create_app(
                 detail={
                     "code": "no_snapshot",
                     "message": (
-                        f"No snapshot has been ingested into {db_path.name} yet. "
-                        "Run the ingest sweep, then retry."
+                        f"No complete snapshot has been ingested into {db_path.name} yet. "
+                        "A sweep that has begun but not finished is not served. Run the "
+                        "ingest sweep to completion, then retry."
                     ),
                 },
             )

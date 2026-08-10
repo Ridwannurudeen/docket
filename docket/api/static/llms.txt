@@ -29,8 +29,11 @@ Responses are JSON except /llms.txt (text/plain) and /skill.md (text/markdown). 
 is GET-only from any origin, no credentials, so a cross-origin browser page cannot
 hire; hire from a CLI, a server, or same-origin.
 
-Docket serves one snapshot at a time. Which one is stated in every response that
-carries a number, and at GET /health.
+Docket serves one snapshot at a time: the newest sweep that ran to completion. A sweep
+that has begun and not finished is never served, because its counts are still being
+written and every figure taken from it would understate its own population. Which
+snapshot you are reading is stated in every response that carries a number, and at
+GET /health.
 
 
 ## Endpoints
@@ -236,7 +239,8 @@ Branch on "code", which is stable. "message" is prose for a human and may change
                                     x402 challenge alongside this error
       service_failed           502  the service could not complete; the message names
                                     the failure, usually an upstream one
-      no_snapshot              503  nothing has been ingested yet
+      no_snapshot              503  no sweep has run to completion yet. A sweep that
+                                    began and did not finish is not served
 
 
 ## Coverage: why every number carries one

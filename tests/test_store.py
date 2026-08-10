@@ -87,6 +87,31 @@ def test_snapshot_records_partial_coverage(tmp_path: Path):
     assert row[0] == 100 and row[1] == 1 and row[2] is not None
 
 
+def test_latest_complete_snapshot_skips_a_sweep_that_never_finished(tmp_path: Path):
+    """A crashed or in-flight sweep is the newest ROW, and its counts are still moving. The
+    live database carries exactly this: snapshot 2 was begun on 2026-08-07 and never closed."""
+    store = Store(tmp_path / "d.sqlite3")
+    first = store.begin_snapshot(chain_id=56, expected=10)
+    store.finish_snapshot(first, sampled=10)
+    crashed = store.begin_snapshot(chain_id=56, expected=10)
+    assert store.latest_snapshot_id(56) == crashed  # the newest row, still the newest row
+    assert store.latest_complete_snapshot_id(56) == first  # never the unfinished one
+
+    third = store.begin_snapshot(chain_id=56, expected=10)
+    store.finish_snapshot(third, sampled=10)
+    assert store.latest_complete_snapshot_id(56) == third  # a later finish wins again
+
+
+def test_latest_complete_snapshot_is_per_chain_and_none_when_nothing_finished(tmp_path: Path):
+    store = Store(tmp_path / "d.sqlite3")
+    store.begin_snapshot(chain_id=56, expected=10)
+    assert store.latest_complete_snapshot_id(56) is None  # no finished sweep to serve
+    other = store.begin_snapshot(chain_id=97, expected=4)
+    store.finish_snapshot(other, sampled=4)
+    assert store.latest_complete_snapshot_id(56) is None  # another chain's is not this chain's
+    assert store.latest_complete_snapshot_id(97) == other
+
+
 def test_endpoints_roundtrip_and_upsert_is_idempotent(tmp_path: Path):
     store = Store(tmp_path / "d.sqlite3")
     sid = store.begin_snapshot(chain_id=56, expected=None)
