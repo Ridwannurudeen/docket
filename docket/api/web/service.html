@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Agent — Docket</title>
+    <title>Service — Docket</title>
     <meta
       name="description"
-      content="One ERC-8004 agent: what it declares about itself, and every timestamped probe Docket made of the endpoints it declared."
+      content="One Docket service: what arrives, what to send, what it costs, what has been observed of it, what it cannot do — and the control that runs it."
     />
     <link rel="stylesheet" href="/static/style.css?v=2" />
     <script type="module" src="/static/app.js?v=2"></script>
   </head>
-  <body data-page="agent">
+  <body data-page="service">
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="site-header">
@@ -46,12 +46,8 @@
     <main id="main">
       <div class="wrap">
         <section class="hero">
-          <p class="section-note"><a href="/research">Back to the listing</a></p>
-          <p class="status-line" data-region="snapshot" aria-live="polite">
-            <span class="skeleton skeleton-wide"></span>
-          </p>
-          <div data-region="partial" hidden></div>
-          <div class="wrap-anywhere" data-region="agent">
+          <p class="section-note"><a href="/">Back to the services</a></p>
+          <div class="wrap-anywhere" data-region="service">
             <span class="skeleton skeleton-row skeleton-wide"></span>
             <span class="skeleton skeleton-row skeleton-wide"></span>
             <span class="skeleton skeleton-row skeleton-wide"></span>
@@ -60,12 +56,29 @@
             <div class="notice notice-warn">
               <h3>This page reads live data with JavaScript</h3>
               <p>
-                With JavaScript off, this agent's record cannot be filled in — and Docket will not
-                show you a stale one instead. The same record is served as JSON at
-                <a href="/agents">/agents</a>, documented in <a href="/llms.txt">/llms.txt</a>.
+                With JavaScript off, this service cannot be filled in or run from the page — and
+                Docket will not show you a stale copy instead. Everything here is served as JSON,
+                and the work runs from a terminal with no account, key or wallet:
+              </p>
+              <pre>curl -s /services
+curl -s /services/range-doctor
+curl -s -X POST /hire/range-doctor \
+  -H 'content-type: application/json' \
+  -d '{"wallet":"0x…"}'</pre>
+              <p>
+                <a href="/llms.txt">/llms.txt</a> carries every service's input schema and the
+                whole contract for that request.
               </p>
             </div>
           </noscript>
+        </section>
+
+        <section aria-labelledby="activate-heading">
+          <h2 id="activate-heading">Run it</h2>
+          <div class="wrap-anywhere" data-region="activate">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
+          <div class="wrap-anywhere" data-region="outcome"></div>
         </section>
       </div>
     </main>
@@ -73,6 +86,8 @@
     <footer class="site-footer">
       <div class="wrap">
         <p class="footer-links">
+          <a href="/categories">/categories</a>
+          <a href="/services">/services</a>
           <a href="/stats">/stats</a>
           <a href="/agents">/agents</a>
           <a href="/llms.txt">/llms.txt</a>

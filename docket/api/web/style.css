@@ -444,6 +444,68 @@ section {
   gap: var(--s-3);
 }
 
+/* ------------------------------------------------------------ marketplace */
+
+/* Wider tracks than `.cards`: a job panel holds a whole service card, and three of the
+   four hold a paragraph saying why they are empty. Both need room to read as prose. */
+.jobs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--s-3);
+}
+
+.job h3 {
+  margin-bottom: var(--s-1);
+}
+
+.job > .section-note {
+  margin-bottom: var(--s-3);
+}
+
+.service {
+  padding: var(--s-3);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.service + .service {
+  margin-top: var(--s-3);
+}
+
+.service h4 {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.service > :last-child {
+  margin-bottom: 0;
+}
+
+/* A figure and the population it was measured against, on one line that cannot be
+   quoted with the denominator left behind. */
+.facts {
+  margin: 0 0 var(--s-3);
+  font-size: var(--fs-sm);
+}
+
+.facts li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-2);
+  padding: var(--s-1) 0;
+  border-bottom: var(--border-w) solid var(--border);
+}
+
+.facts li:last-child {
+  border-bottom: 0;
+}
+
+.fact-key {
+  color: var(--fg-dim);
+}
+
 /* ---------------------------------------------------------------- tables */
 
 .table-wrap {
@@ -639,7 +701,10 @@ pre {
   text-transform: uppercase;
 }
 
-select {
+select,
+input[type="text"],
+input[type="number"],
+textarea {
   max-width: 100%;
   padding: var(--s-2) var(--s-3);
   border: var(--border-w) solid var(--border);
@@ -648,6 +713,40 @@ select {
   color: var(--fg);
   font: inherit;
   font-size: var(--fs-sm);
+}
+
+/* An address is 42 characters and a payload is paragraphs. Both are typed here, so
+   neither control is left at a browser default width. */
+input[type="text"],
+input[type="number"],
+textarea {
+  width: 100%;
+}
+
+textarea {
+  font-family: var(--mono);
+  resize: vertical;
+}
+
+/* --------------------------------------------------------------- activation */
+
+.activate {
+  display: grid;
+  gap: var(--s-3);
+  max-width: var(--measure);
+  padding: var(--s-4);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--muted);
+}
+
+.activate .field > .dim {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.activate > :last-child {
+  margin-bottom: 0;
 }
 
 /* --------------------------------------------------------------- buttons */

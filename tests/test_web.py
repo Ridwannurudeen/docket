@@ -89,8 +89,8 @@ def test_pages_do_not_present_the_name_key_as_minter_provenance():
     index = (WEB_DIR / "index.html").read_text(encoding="utf-8").lower()
     assert "who minted them" not in index
     assert "name famil" in index
-    browse = (WEB_DIR / "browse.html").read_text(encoding="utf-8").lower()
-    assert "name famil" in browse
+    research = (WEB_DIR / "research.html").read_text(encoding="utf-8").lower()
+    assert "name famil" in research
     app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8").lower()
     assert "was minted by" not in app_js
 
@@ -139,19 +139,19 @@ def test_no_emoji_used_as_iconography():
         assert not found, f"{f.name} uses emoji as icons: {found[:3]}"
 
 
-def test_browse_and_agent_pages_are_served(client):
-    for path in ("/browse", "/agent"):
+def test_research_and_agent_pages_are_served(client):
+    for path in ("/research", "/agent"):
         resp = client.get(path, headers={"accept": "text/html"})
         assert resp.status_code == 200, path
         assert resp.headers["content-type"].startswith("text/html"), path
         assert "<title>" in resp.text, path
 
 
-def test_browse_reflects_its_filters_into_the_query_string():
+def test_research_reflects_its_filters_into_the_query_string():
     """A narrowed view has to be a link someone can send, and the back button has to walk it."""
-    browse = (WEB_DIR / "browse.html").read_text(encoding="utf-8")
+    research = (WEB_DIR / "research.html").read_text(encoding="utf-8")
     for name in ("has_feedback", "declares_callable", "responded", "name_family"):
-        assert f'data-filter="{name}"' in browse, name
+        assert f'data-filter="{name}"' in research, name
     app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
     assert "URLSearchParams" in app_js
     assert "window.history.pushState" in app_js
@@ -167,13 +167,13 @@ def test_registry_text_is_wrapped_rather_than_left_to_break_the_layout():
     assert ".wrap-anywhere" in css
     assert "overflow-wrap: anywhere" in css
     assert "word-break: break-word" in css
-    for name, container in (("browse.html", "results"), ("agent.html", "agent")):
+    for name, container in (("research.html", "results"), ("agent.html", "agent")):
         text = (WEB_DIR / name).read_text(encoding="utf-8")
         assert f'class="wrap-anywhere" data-region="{container}"' in text, name
 
 
 def test_pages_declare_viewport_and_language():
-    for name in ("index.html", "browse.html", "agent.html", "advantage.html"):
+    for name in ("index.html", "research.html", "agent.html", "advantage.html", "service.html"):
         text = (WEB_DIR / name).read_text(encoding="utf-8")
         assert 'lang="en"' in text
         assert "width=device-width" in text

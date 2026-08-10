@@ -104,6 +104,48 @@ export async function fetchJSON(path) {
   return body;
 }
 
+/** POST a JSON document to this origin, raising the API's own error.code.
+    Same-origin only: Docket's CORS is GET-only and credential-free, so a cross-origin
+    page cannot hire — which is deliberate, and is why this never takes an absolute URL. */
+export async function postJSON(path, body) {
+  let resp;
+  try {
+    resp = await fetch(path, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (cause) {
+    const err = new Error(
+      `Could not reach ${path}. Docket may not be running.`,
+    );
+    err.code = "network_error";
+    throw err;
+  }
+  let payload = null;
+  try {
+    payload = await resp.json();
+  } catch (cause) {
+    payload = null;
+  }
+  /* A 402 carries the x402 challenge AND the error object in one body. Only the error
+     is surfaced here: the allowance is what the reader can act on, and the challenge is
+     for a paying client rather than for a page. */
+  if (!resp.ok || (payload && payload.error)) {
+    const api = payload && payload.error ? payload.error : {};
+    const err = new Error(
+      api.message || `POST ${path} failed with status ${resp.status}.`,
+    );
+    err.code = api.code || `http_${resp.status}`;
+    err.status = resp.status;
+    throw err;
+  }
+  return payload;
+}
+
 /* -------------------------------------------------------------- formatting */
 
 export function fmtInt(value) {
@@ -215,6 +257,367 @@ function paintCoverage(coverage) {
   } else {
     banner.innerHTML = "";
     banner.hidden = true;
+  }
+}
+
+/* -------------------------------------------------------------- marketplace */
+
+/* A card is a decision, not the contract. The full description, the limits and the
+   evidence live on the service page, so the card carries the opening of the
+   description and says outright that it was cut — a summary that hid its own truncation
+   is how a caveat disappears. */
+function summarise(text, limit = 260) {
+  const value = String(text || "").trim();
+  if (value.length <= limit) return { text: value, cut: false };
+  const cut = value.slice(0, limit);
+  const boundary = cut.lastIndexOf(" ");
+  return {
+    text: `${(boundary > 0 ? cut.slice(0, boundary) : cut).trim()}…`,
+    cut: true,
+  };
+}
+
+function metricLines(metrics) {
+  if (!metrics.length) return "";
+  /* `display` is the figure with its denominator already inside the string. The page
+     never touches the numerator on its own, so no template here can print a share
+     stripped of the population it was measured against. */
+  return `<ul class="facts">${metrics
+    .map(
+      (metric) =>
+        `<li><span class="fact-key">${escapeHTML(metric.name)}</span>
+           <span class="num">${escapeHTML(metric.display)}</span>
+           <span class="dim">${escapeHTML(metric.window)}</span></li>`,
+    )
+    .join("")}</ul>`;
+}
+
+function serviceCard(card) {
+  const href = `/service?${new URLSearchParams({ id: card.service_id }).toString()}`;
+  const summary = summarise(card.what_you_get);
+  const more = summary.cut
+    ? ` <a href="${href}">Read the whole description</a>.`
+    : "";
+  return `<div class="service">
+      <h4><a href="${href}">${escapeHTML(card.name)}</a></h4>
+      <p>${escapeHTML(summary.text)}${more}</p>
+      <ul class="facts">
+        <li><span class="fact-key">Price</span> <span class="num">${escapeHTML(card.price_display)}</span></li>
+        <li><span class="fact-key">Typical run</span> <span class="num">${escapeHTML(fmtInt(card.typical_seconds))} seconds</span></li>
+        <li><span class="fact-key">What activating does</span> ${escapeHTML(card.activation_means)}</li>
+      </ul>
+      ${metricLines(card.metrics)}
+      <p class="dim">${escapeHTML(card.identity)}</p>
+      <p class="btn-row"><a class="btn btn-primary" href="${href}">Open and run it</a></p>
+    </div>`;
+}
+
+function jobPanel(category, cards) {
+  const body = cards.length
+    ? cards.map(serviceCard).join("")
+    : `<p class="dim">${escapeHTML(category.empty)}</p>`;
+  return `<section class="panel job" aria-labelledby="job-${escapeHTML(category.category)}">
+      <h3 id="job-${escapeHTML(category.category)}">${escapeHTML(category.job)}</h3>
+      <p class="dim">${escapeHTML(category.does)}</p>
+      <p class="section-note">
+        <span class="num">${escapeHTML(fmtInt(category.service_count))}</span>
+        ${category.service_count === 1 ? "service" : "services"} here
+      </p>
+      ${body}
+    </section>`;
+}
+
+/* The home is category-first, and the categories come from the API rather than from the
+   markup: a job label typed into a page is a label that drifts from /categories the
+   first time one is reworded. */
+async function paintJobs() {
+  const jobs = region("jobs");
+  const other = region("uncategorised");
+  if (!jobs) return;
+  let categories;
+  let listing;
+  try {
+    [categories, listing] = await Promise.all([
+      fetchJSON("/categories"),
+      fetchJSON("/services"),
+    ]);
+  } catch (err) {
+    renderError(jobs, err);
+    if (other) other.innerHTML = "";
+    return;
+  }
+  fill("declaration", categories.declaration);
+  const byCategory = new Map();
+  for (const card of listing.services) {
+    if (card.category === null) continue;
+    if (!byCategory.has(card.category)) byCategory.set(card.category, []);
+    byCategory.get(card.category).push(card);
+  }
+  jobs.innerHTML = `<div class="jobs">${categories.categories
+    .map((category) =>
+      jobPanel(category, byCategory.get(category.category) || []),
+    )
+    .join("")}</div>`;
+
+  if (!other) return;
+  const loose = listing.services.filter((card) => card.category === null);
+  if (!loose.length) {
+    other.innerHTML = "";
+    return;
+  }
+  other.innerHTML = `<p class="section-note">
+      These do work that is not one of the four jobs above. They are listed as themselves
+      rather than filed under a category they do not belong to, and Docket declares no
+      category for them.
+    </p>
+    <div class="jobs">${loose
+      .map((card) => `<div class="panel job">${serviceCard(card)}</div>`)
+      .join("")}</div>`;
+}
+
+/* ---------------------------------------------------------- service detail */
+
+/* The one declared string field that carries newlines is warden-scan's payload — the
+   recorded payload in the advantage report is four paragraphs. A single-line input
+   cannot hold one, so the reader would silently scan a different text than the one they
+   pasted. */
+const TEXTAREA_FIELDS = new Set(["payload"]);
+
+function inputControl(name, field) {
+  const id = `field-${name}`;
+  const required = field.required ? " required" : "";
+  const value =
+    field.default === undefined || field.default === null
+      ? ""
+      : escapeHTML(field.default);
+  if (TEXTAREA_FIELDS.has(name)) {
+    return `<textarea id="${id}" name="${escapeHTML(name)}" rows="6"${required}></textarea>`;
+  }
+  const type = field.type === "integer" ? "number" : "text";
+  return `<input id="${id}" name="${escapeHTML(name)}" type="${type}" value="${value}"${required} />`;
+}
+
+function activationForm(record) {
+  const fields = Object.entries(record.input_schema);
+  const controls = fields.length
+    ? fields
+        .map(
+          ([name, field]) => `<div class="field">
+            <label for="field-${escapeHTML(name)}">
+              ${escapeHTML(name)}${field.required ? "" : " (optional)"}
+            </label>
+            ${inputControl(name, field)}
+            <p class="dim">${escapeHTML(field.description || "")}</p>
+          </div>`,
+        )
+        .join("")
+    : `<p class="dim">This service takes no arguments: what arrives is whatever was last
+         published, so there is nothing for you to supply.</p>`;
+  return `<form class="activate" data-activate novalidate>
+      ${controls}
+      <p class="btn-row">
+        <button type="submit" class="btn btn-primary" data-run>Run it now</button>
+        <span class="dim">
+          Typical run ${escapeHTML(fmtInt(record.typical_seconds))} seconds. One attempt, and the
+          result is whatever it returns.
+        </span>
+      </p>
+      <p class="dim">
+        No account, key or wallet is needed. Docket verifies payment authorizations and does not
+        settle them, so nothing here moves any funds; the receipt states which tier served the
+        run. Where a payment recipient is configured, a caller has an allowance of 20 hires an
+        hour and the response says so when it is spent.
+      </p>
+    </form>`;
+}
+
+function paintServiceRecord(record) {
+  const category = record.category_job
+    ? `<p><span class="badge">${escapeHTML(record.category_job)}</span>
+         <span class="dim">— Docket's own declaration about a service Docket runs, not a
+         property read from chain</span></p>`
+    : `<p><span class="badge">Not one of the four job categories</span>
+         <span class="dim">— this does work outside them, and Docket will not file it under
+         a job it does not do</span></p>`;
+  const identity = record.agent_path
+    ? `<p>${escapeHTML(record.identity)} <a href="${escapeHTML(record.agent_path)}">Read what Docket observed of it</a>.</p>
+       <p class="dim">${escapeHTML(record.identity_note)}</p>`
+    : `<p>${escapeHTML(record.identity)}</p>
+       <p class="dim">${escapeHTML(record.identity_note)}</p>`;
+  const evidence = record.evidence.length
+    ? `<ul class="facts">${record.evidence
+        .map(
+          (ref) =>
+            `<li><a href="${escapeHTML(ref.url)}">${escapeHTML(ref.label)}</a></li>`,
+        )
+        .join("")}</ul>`
+    : `<p class="dim">No recorded run is published for this service yet.</p>`;
+
+  region("service").innerHTML = `<h1>${escapeHTML(record.name)}</h1>
+    ${category}
+    <p class="lede">${escapeHTML(record.what_you_get)}</p>
+    <div class="panel">
+      <dl class="deflist">
+        <dt>Price</dt><dd class="num">${escapeHTML(record.price_display)} (${escapeHTML(record.price_atomic)} atomic units of <span class="mono">${escapeHTML(record.asset)}</span>)</dd>
+        <dt>Typical run</dt><dd class="num">${escapeHTML(fmtInt(record.typical_seconds))} seconds</dd>
+        <dt>What activating does</dt><dd>${escapeHTML(record.activation_means)}</dd>
+        <dt>How an agent calls it</dt><dd class="mono">${escapeHTML(record.hire_method)} ${escapeHTML(record.hire_path)}</dd>
+      </dl>
+    </div>
+    <section aria-labelledby="observed-heading">
+      <h2 id="observed-heading">What has been observed of it</h2>
+      <p class="section-note">
+        Single observations from recorded runs, not averages. Each figure carries the population
+        it was measured against and the record it came from.
+      </p>
+      <div class="panel">
+        ${metricLines(record.metrics) || '<p class="dim">Nothing has been recorded for this service yet.</p>'}
+        ${record.metrics
+          .map(
+            (metric) =>
+              `<p class="dim"><strong>${escapeHTML(metric.name)}:</strong> ${escapeHTML(metric.method)}, observed ${escapeHTML(metric.observed_at)}.</p>`,
+          )
+          .join("")}
+      </div>
+    </section>
+    <section aria-labelledby="evidence-heading">
+      <h2 id="evidence-heading">The record behind it</h2>
+      <div class="panel">${evidence}</div>
+    </section>
+    <section aria-labelledby="limits-heading">
+      <h2 id="limits-heading">What it cannot do</h2>
+      <div class="notice notice-warn">
+        <p>${escapeHTML(record.limitations)}</p>
+      </div>
+    </section>
+    <section aria-labelledby="identity-heading">
+      <h2 id="identity-heading">Its identity on chain</h2>
+      <div class="panel">${identity}</div>
+    </section>`;
+}
+
+/* A failure of the run itself, rendered where the result would have gone. Deliberately
+   not `renderError`: that one offers a reload, and reloading would throw away what the
+   reader typed into the form. */
+function paintRunFailure(container, err) {
+  container.innerHTML = `<div class="panel panel-error" role="alert">
+      <p class="error-code">${escapeHTML(err && err.code ? err.code : "request_failed")}</p>
+      <p>${escapeHTML(err && err.message ? err.message : "The run failed.")}</p>
+      <p class="dim">Nothing was charged for a request Docket could not read. Your input is still
+        in the form above.</p>
+    </div>`;
+}
+
+function readForm(record, form) {
+  const body = {};
+  for (const [name, field] of Object.entries(record.input_schema)) {
+    const control = form.elements.namedItem(name);
+    if (!control) continue;
+    const raw = control.value.trim();
+    /* An omitted optional field is omitted, never sent as "" or 0: the service reads
+       `limit` explicitly so that an explicit 0 stays 0, and a blank sent as one would
+       turn "use the default" into "read nothing". */
+    if (!raw && !field.required) continue;
+    body[name] = field.type === "integer" ? Number.parseInt(raw, 10) : raw;
+  }
+  return body;
+}
+
+function paintOutcome(record, answer) {
+  const receipt = answer.receipt || {};
+  const payment = receipt.payment || {};
+  const rejected = payment.authorization_rejected
+    ? `<dt>Authorization</dt><dd>not accepted: ${escapeHTML(payment.authorization_rejected)}</dd>`
+    : "";
+  region("outcome").innerHTML = `<section aria-labelledby="result-heading">
+      <h3 id="result-heading">What came back</h3>
+      <pre>${escapeHTML(JSON.stringify(answer.result, null, 2))}</pre>
+    </section>
+    <section aria-labelledby="receipt-heading">
+      <h3 id="receipt-heading">The receipt</h3>
+      <div class="panel">
+        <dl class="deflist">
+          <dt>Service</dt><dd class="mono">${escapeHTML(receipt.service)}</dd>
+          <dt>Delivered at</dt><dd>${escapeHTML(receipt.delivered_at)}</dd>
+          <dt>Input hash</dt><dd class="mono">${escapeHTML(receipt.input_hash)}</dd>
+          <dt>Output hash</dt><dd class="mono">${escapeHTML(receipt.output_hash)}</dd>
+          <dt>Payment</dt><dd class="mono">${escapeHTML(payment.status)}</dd>
+          ${rejected}
+        </dl>
+        <p class="dim">
+          A receipt records delivery and nothing else. It does not assert the work is correct,
+          and Docket does not sign it — it is a self-check for you. Both hashes are plain
+          SHA-256 over canonical JSON and need none of Docket's code to recompute;
+          <a href="/llms.txt">/llms.txt</a> carries the exact recipe. A payment status of
+          <span class="mono">verified_unsettled</span> means a signature was checked and
+          nothing was settled, broadcast or moved.
+        </p>
+      </div>
+    </section>`;
+}
+
+function wireActivation(record) {
+  const target = region("activate");
+  if (!target) return;
+  target.innerHTML = activationForm(record);
+  const form = target.querySelector("[data-activate]");
+  const button = form.querySelector("[data-run]");
+  const outcome = region("outcome");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const missing = Object.entries(record.input_schema)
+      .filter(([name, field]) => {
+        const control = form.elements.namedItem(name);
+        return field.required && control && !control.value.trim();
+      })
+      .map(([name]) => name);
+    if (missing.length) {
+      paintRunFailure(outcome, {
+        code: "missing_field",
+        message: `${record.service_id} needs ${missing.join(", ")}.`,
+      });
+      return;
+    }
+    button.disabled = true;
+    outcome.innerHTML = `<div class="notice" role="status">
+        <p>Running ${escapeHTML(record.name)}. It usually takes about
+        ${escapeHTML(fmtInt(record.typical_seconds))} seconds, and this is one attempt.</p>
+      </div>`;
+    try {
+      paintOutcome(
+        record,
+        await postJSON(record.hire_path, readForm(record, form)),
+      );
+    } catch (err) {
+      paintRunFailure(outcome, err);
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+async function initService() {
+  const id = new URLSearchParams(window.location.search).get("id");
+  const target = region("service");
+  const activate = region("activate");
+  if (!id) {
+    activate.innerHTML = "";
+    target.innerHTML = `<div class="panel panel-error" role="alert">
+        <p class="error-code">no_service_requested</p>
+        <p>This page shows one service, named by an <code>id</code> in the address. None was
+          given.</p>
+        <p class="btn-row"><a class="btn" href="/">Pick one from the services</a></p>
+      </div>`;
+    return;
+  }
+  try {
+    const record = await fetchJSON(`/services/${encodeURIComponent(id)}`);
+    document.title = `${record.name} — Docket`;
+    paintServiceRecord(record);
+    wireActivation(record);
+  } catch (err) {
+    activate.innerHTML = "";
+    renderError(target, err);
   }
 }
 
@@ -369,6 +772,9 @@ function paintStats(stats) {
 
 async function initIndex() {
   paintVocabulary();
+  /* The jobs first, and awaited separately: a /stats that cannot be read must not leave
+     the shop front empty, and an empty shelf must not be hidden by a failing statistic. */
+  await paintJobs();
   try {
     paintStats(await fetchJSON("/stats"));
   } catch (err) {
@@ -837,7 +1243,14 @@ async function initAgent() {
 
 /* --------------------------------------------------------------- dispatch */
 
-const PAGES = { index: initIndex, browse: initBrowse, agent: initAgent };
+/* The page key follows the route; the functions follow what they do. /research serves
+   the registry browser that used to be at /browse, and browsing is still what it does. */
+const PAGES = {
+  index: initIndex,
+  research: initBrowse,
+  agent: initAgent,
+  service: initService,
+};
 
 const page = document.body.dataset.page;
 if (Object.prototype.hasOwnProperty.call(PAGES, page)) {

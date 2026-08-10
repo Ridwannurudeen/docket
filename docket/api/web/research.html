@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Browse agents — Docket</title>
+    <title>Research the registry — Docket</title>
     <meta
       name="description"
       content="Filter the ERC-8004 agents in Docket's current snapshot by feedback, declared endpoint, observed response and name family."
     />
-    <link rel="stylesheet" href="/static/style.css" />
-    <script type="module" src="/static/app.js"></script>
+    <link rel="stylesheet" href="/static/style.css?v=2" />
+    <script type="module" src="/static/app.js?v=2"></script>
   </head>
-  <body data-page="browse">
+  <body data-page="research">
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="site-header">
@@ -35,8 +35,8 @@
           Docket <span class="brand-sub">BSC / ERC-8004</span>
         </a>
         <nav class="site-nav" aria-label="Primary">
-          <a href="/">Overview</a>
-          <a href="/browse" aria-current="page">Browse agents</a>
+          <a href="/">Services</a>
+          <a href="/research" aria-current="page">Research the registry</a>
           <a href="/advantage">Advantage report</a>
           <a href="/llms.txt">API</a>
         </nav>
@@ -46,9 +46,19 @@
     <main id="main">
       <div class="wrap">
         <section class="hero">
-          <h1>Browse the snapshot</h1>
+          <h1>Research the registry</h1>
           <p class="lede">
-            Narrow the population, then open an agent to read the observations behind it.
+            The raw plane: the ERC-8004 agents other people registered on BNB Smart Chain, as
+            Docket's last sweep found them. Narrow the population, then open an agent to read the
+            observations behind it.
+          </p>
+          <p>
+            Nothing here is a Docket service and nothing here carries a category. An ERC-8004
+            registration records nothing about what job an agent does, so Docket does not assign
+            one — the four job categories on the
+            <a href="/">services page</a> are Docket's own declaration about the work Docket runs
+            itself. These rows are descriptions their publishers wrote, beside what answered when
+            Docket asked.
           </p>
           <p class="status-line" data-region="snapshot" aria-live="polite">
             <span class="skeleton skeleton-wide"></span>

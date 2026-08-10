@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Docket — observations about ERC-8004 agents on BNB Smart Chain</title>
+    <title>Docket — hire an agent for the job you have, on BNB Smart Chain</title>
     <meta
       name="description"
-      content="Docket reads the ERC-8004 registry on BNB Smart Chain, asks each declared endpoint whether anything answers, and publishes what it saw with the coverage it was measured in."
+      content="Docket runs a small number of agent services on BNB Smart Chain, publishes the recorded run behind each one, and hands you the control that runs it. Every figure carries the population it was measured against."
     />
-    <link rel="stylesheet" href="/static/style.css" />
-    <script type="module" src="/static/app.js"></script>
+    <link rel="stylesheet" href="/static/style.css?v=2" />
+    <script type="module" src="/static/app.js?v=2"></script>
   </head>
   <body data-page="index">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -35,8 +35,8 @@
           Docket <span class="brand-sub">BSC / ERC-8004</span>
         </a>
         <nav class="site-nav" aria-label="Primary">
-          <a href="/" aria-current="page">Overview</a>
-          <a href="/browse">Browse agents</a>
+          <a href="/" aria-current="page">Services</a>
+          <a href="/research">Research the registry</a>
           <a href="/advantage">Advantage report</a>
           <a href="/llms.txt">API</a>
         </nav>
@@ -46,40 +46,64 @@
     <main id="main">
       <div class="wrap">
         <section class="hero">
-          <h1>What answered, and what only claimed to.</h1>
+          <h1>Hire an agent for the job you have.</h1>
           <p class="lede">
-            Docket reads the ERC-8004 agent registry on BNB Smart Chain, asks every endpoint an
-            agent declared whether anything answers there, and publishes exactly what it saw.
+            Pick the job below, read what the service does and what it cannot do, and run it from
+            the page. No account, no key, no wallet — the first request is served.
           </p>
           <p>
-            It does not rate, rank or vouch for any agent. Each figure below is stated inside the
-            snapshot and sample size it was counted in, because a count without its population
-            cannot be read.
+            Every service here is one Docket runs itself and can show a recorded run behind. Each
+            figure on a card carries the population it was measured against, each service states
+            its own limits, and Docket rates, ranks and endorses nothing. The evidence sits under
+            the shop front rather than instead of it: it is further down this page, and every
+            claim links to the record it came from.
+          </p>
+          <noscript>
+            <div class="notice notice-warn">
+              <h3>This page reads live data with JavaScript</h3>
+              <p>
+                With JavaScript off, nothing on this page can be filled in — and Docket will not
+                show you a stale number instead. The same content is served as JSON at
+                <a href="/categories">/categories</a>, <a href="/services">/services</a>,
+                <a href="/stats">/stats</a> and <a href="/agents">/agents</a>, and
+                <a href="/llms.txt">/llms.txt</a> documents all of it.
+              </p>
+            </div>
+          </noscript>
+        </section>
+
+        <section aria-labelledby="jobs-heading">
+          <h2 id="jobs-heading">Pick the job you need done</h2>
+          <p class="section-note" data-field="declaration">
+            <span class="skeleton skeleton-wide"></span>
+          </p>
+          <div data-region="jobs">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
+        </section>
+
+        <section aria-labelledby="other-heading">
+          <h2 id="other-heading">Services outside those four jobs</h2>
+          <div data-region="uncategorised">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
+        </section>
+
+        <section aria-labelledby="measured">
+          <h2 id="measured">The evidence under all of this</h2>
+          <p class="section-note">
+            Docket also reads the ERC-8004 registry on BNB Smart Chain and asks every endpoint an
+            agent declared whether anything answers there. That is a separate plane from the
+            services above: it is what other people registered, and Docket describes it without
+            rating, ranking or vouching for any of it. Read every figure with the denominator
+            printed under it. None of them is a count of working agents.
           </p>
           <p class="status-line" data-region="snapshot" aria-live="polite">
             <span class="skeleton skeleton-wide"></span>
           </p>
           <div data-region="partial" hidden></div>
           <div data-region="slice"></div>
-          <noscript>
-            <div class="notice notice-warn">
-              <h3>This page reads live data with JavaScript</h3>
-              <p>
-                With JavaScript off, nothing on this page can be filled in — and Docket will not
-                show you a stale number instead. The same evidence is served as JSON at
-                <a href="/stats">/stats</a>, <a href="/agents">/agents</a> and
-                <a href="/llms.txt">/llms.txt</a>.
-              </p>
-            </div>
-          </noscript>
-        </section>
-
-        <section aria-labelledby="measured">
-          <h2 id="measured">What this snapshot holds</h2>
-          <p class="section-note">
-            Read every figure with the denominator printed under it. None of them is a count of
-            working agents.
-          </p>
 
           <div data-region="stats">
             <ul class="metrics">
@@ -208,13 +232,14 @@
         <section aria-labelledby="next">
           <h2 id="next">Go look at the evidence</h2>
           <p>
-            Browse the snapshot, narrow it to agents whose declared endpoint actually answered, then
-            open one and read the probe behind that claim — the URL, the outcome, the status code
-            and the time it was observed.
+            Browse the registry snapshot, narrow it to agents whose declared endpoint actually
+            answered, then open one and read the probe behind that claim — the URL, the outcome,
+            the status code and the time it was observed. Those are other people's agents: Docket
+            assigns them no category and makes no claim about what job any of them does.
           </p>
           <p class="btn-row">
-            <a class="btn btn-primary" href="/browse">
-              Browse agents
+            <a class="btn btn-primary" href="/research">
+              Research the registry
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -229,6 +254,7 @@
                 <path d="M13 6l6 6-6 6"></path>
               </svg>
             </a>
+            <a class="btn" href="/advantage">Read the advantage report</a>
             <a class="btn" href="/llms.txt">Read the API for agents</a>
           </p>
         </section>
@@ -238,6 +264,8 @@
     <footer class="site-footer">
       <div class="wrap">
         <p class="footer-links">
+          <a href="/categories">/categories</a>
+          <a href="/services">/services</a>
           <a href="/stats">/stats</a>
           <a href="/agents">/agents</a>
           <a href="/llms.txt">/llms.txt</a>

@@ -24,7 +24,12 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -399,13 +404,28 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
 
     # Kept out of the schema: /llms.txt and the OpenAPI document describe the machine contract,
     # and a page a human reads is not an endpoint an agent should be told to call.
+    @app.get("/research", include_in_schema=False)
+    def research_page() -> FileResponse:
+        """The raw registry browser. It moved from /browse when the home became the shop
+        front: this is the fact plane, and it is now framed as the place to research the
+        registry rather than as the site's own listing."""
+        return FileResponse(WEB_DIR / "research.html")
+
     @app.get("/browse", include_in_schema=False)
-    def browse() -> FileResponse:
-        return FileResponse(WEB_DIR / "browse.html")
+    def browse() -> RedirectResponse:
+        """Moved, not removed. /browse was published, so it keeps landing on the page it
+        named — permanently, and at one canonical URL rather than two that drift."""
+        return RedirectResponse("/research", status_code=308)
 
     @app.get("/agent", include_in_schema=False)
     def agent_page() -> FileResponse:
         return FileResponse(WEB_DIR / "agent.html")
+
+    @app.get("/service", include_in_schema=False)
+    def service_page() -> FileResponse:
+        """One service: what it does, what it cannot do, the evidence behind it, and the
+        control that runs it. The activation step the site did not have."""
+        return FileResponse(WEB_DIR / "service.html")
 
     @app.get("/advantage", include_in_schema=False)
     def advantage_page() -> FileResponse:
