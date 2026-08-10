@@ -344,6 +344,17 @@ def test_llms_txt_does_not_describe_an_inventory_docket_no_longer_has(client):
         assert "no category returns service_count 0 today" in body
 
 
+def test_llms_txt_does_not_describe_an_identity_inventory_docket_no_longer_has(client):
+    """The same rot as the stocked-shelf count, four paragraphs further down, and this one
+    had no guard: it still said three of four after two services were added, when five of
+    six carry no on-chain identity. A count that is derivable from the registry should be
+    checked against it rather than reviewed."""
+    body = " ".join(client.get("/llms.txt").text.lower().split())
+    words = {0: "none", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
+    unbound = sum(1 for record in SERVICES.values() if record.agent_id is None)
+    assert f"{words[unbound]} of the {words[len(SERVICES)]} services are in this state" in body
+
+
 def test_skill_md_teaches_the_category_first_route(client):
     body = client.get("/skill.md").text
     for path in ("/categories", "/services"):

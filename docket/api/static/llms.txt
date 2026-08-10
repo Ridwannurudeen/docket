@@ -543,7 +543,7 @@ The identity cross-link has three states and says which one it is, because "no l
 
   agent_id null
       No ERC-8004 identity has been registered for this service at all. agent_path is
-      null and identity_note says so. Three of the four services are in this state.
+      null and identity_note says so. Five of the six services are in this state.
 
   agent_id set, agent_path set
       The bound identity is in the snapshot Docket is serving; open agent_path for its
