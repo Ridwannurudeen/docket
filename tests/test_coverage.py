@@ -110,6 +110,27 @@ def test_report_counts_are_generated_from_the_store(tmp_path):
     assert rep["distinct_publishers"] == 4  # the two Ave.ai rows collapse to one
 
 
+def test_coverage_carries_the_population_the_snapshot_swept(tmp_path):
+    store = Store(tmp_path / "d.sqlite3")
+    sid = store.begin_snapshot(chain_id=56, expected=2, population="min_feedbacks>=1")
+    store.upsert_agents([{"agent_id": "56:r:1", "token_id": "1", "chain_id": 56}], sid)
+    store.finish_snapshot(sid, sampled=1)
+    rep = coverage_report(store, sid)
+    assert rep["population"] == "min_feedbacks>=1"
+    md = render_markdown(rep)
+    assert "min_feedbacks>=1" in md
+
+
+def test_a_snapshot_that_never_recorded_its_population_says_unspecified(tmp_path):
+    """Never guessed at. A pre-existing snapshot did not record which query it ran, and
+    inventing "all" for it would publish a filtered slice as a whole-registry census."""
+    store = Store(tmp_path / "d.sqlite3")
+    sid = _seed(store)
+    rep = coverage_report(store, sid)
+    assert rep["population"] is None
+    assert "unspecified" in render_markdown(rep)
+
+
 def test_top_publisher_share_is_reported(tmp_path):
     store = Store(tmp_path / "d.sqlite3")
     sid = _seed(store)

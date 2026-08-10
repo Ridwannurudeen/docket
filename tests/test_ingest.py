@@ -163,6 +163,22 @@ def test_targeted_sweep_surfaces_dropped_when_bounded(tmp_path):
     assert result["dropped"] == 150  # a bounded filtered sweep states its own incompleteness
 
 
+def test_targeted_sweep_persists_the_predicate_that_narrowed_it(tmp_path):
+    """`min_feedbacks` was returned to the caller and then forgotten. Stored, it travels with
+    every figure drawn from the snapshot, so a filtered total can never be read as a census."""
+    store = Store(tmp_path / "d.sqlite3")
+    client = Scan8004Client(transport=httpx.MockTransport(_filtered_handler(150)), pace=False)
+    result = ingest_targeted(store, client, min_feedbacks=3)
+    assert store.snapshot(result["snapshot_id"])["population"] == "min_feedbacks>=3"
+
+
+def test_unfiltered_sweep_says_so_rather_than_leaving_it_blank(tmp_path):
+    store = Store(tmp_path / "d.sqlite3")
+    client = Scan8004Client(transport=httpx.MockTransport(_paged_handler(250, 100)), pace=False)
+    result = ingest_bsc(store, client)
+    assert store.snapshot(result["snapshot_id"])["population"] == "all"
+
+
 def test_targeted_sweep_records_its_own_snapshot(tmp_path):
     store = Store(tmp_path / "d.sqlite3")
     client = Scan8004Client(transport=httpx.MockTransport(_filtered_handler(150)), pace=False)

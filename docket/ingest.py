@@ -46,7 +46,14 @@ def _sweep(
     first_items, expected = client.list_agents(
         chain_id, limit=MAX_LIMIT, offset=0, min_feedbacks=min_feedbacks
     )
-    sid = snapshot_id if snapshot_id is not None else store.begin_snapshot(chain_id, expected)
+    # Persisted beside `expected`, because the two are only readable together: 506 of 506 is a
+    # complete sweep of the agents with feedback, and a census of nothing.
+    population = "all" if min_feedbacks is None else f"min_feedbacks>={min_feedbacks}"
+    sid = (
+        snapshot_id
+        if snapshot_id is not None
+        else store.begin_snapshot(chain_id, expected, population)
+    )
 
     pages = 0
     offset = 0

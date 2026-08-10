@@ -128,6 +128,24 @@ def test_a_blocked_target_is_evaluated_but_never_attempted(tmp_path):
         assert retired not in body
 
 
+def test_every_coverage_object_names_the_population_it_was_drawn_from(tmp_path):
+    """`filter` says which subset of the snapshot a response describes. `population` says what
+    the snapshot itself was swept from — the question 506 of 506 could not answer before."""
+    db = tmp_path / "population.sqlite3"
+    store = Store(db)
+    sid = store.begin_snapshot(chain_id=56, expected=1, population="min_feedbacks>=1")
+    store.upsert_agents([AGENT], sid)
+    store.finish_snapshot(sid, sampled=1, expected=1)
+    client = TestClient(create_app(db, snapshot_id=sid))
+    for path in ("/stats", "/agents", f"/agents/{AGENT['agent_id']}"):
+        cov = client.get(path).json()["coverage"]
+        assert cov["population"] == "min_feedbacks>=1", path
+
+
+def test_a_snapshot_with_no_recorded_population_serves_null_not_a_guess(client):
+    assert client.get("/stats").json()["coverage"]["population"] is None
+
+
 def test_the_served_snapshot_is_the_newest_COMPLETE_one(tmp_path):
     """Resolution defaults to a snapshot that finished. Taking the newest row instead would,
     the moment a refresh loop runs, serve a sweep still being written as the whole capture —

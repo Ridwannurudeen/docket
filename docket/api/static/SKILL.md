@@ -145,14 +145,23 @@ Read `coverage` first, every time:
 
 ```json
 {"snapshot_id": 3, "captured_at": "2026-08-07T17:51:02.942750+00:00",
- "sampled": 506, "expected": 506, "dropped": 0, "complete": true, "filter": null}
+ "sampled": 506, "expected": 506, "dropped": 0, "complete": true,
+ "population": null, "filter": null}
 ```
 
 - `complete: false` or `dropped > 0` means rows are missing and every count in that
   response understates its population. Say so when you quote it.
+- `complete: true` is completeness against `population`, never against the registry. A
+  filtered sweep that reached the end of its own query is complete and is not a census.
+- `population` names the query the snapshot itself was swept from - `"all"`, or a
+  predicate such as `"min_feedbacks>=1"`. `null` means the sweep predated the field and
+  recorded none: read that as unspecified, never as `"all"`. Snapshot 3 is such a sweep;
+  its actual filter was `min_feedbacks>=1`, which is why "506 of 506, complete" describes
+  the agents with feedback and not BNB Smart Chain.
 - `filter` names the subset the response describes. `/agents?has_feedback=true`
   returns `"filter": "has_feedback=true"`; a count taken from it is a count of that
-  subset only.
+  subset only. It is a different question from `population` - one narrows the response,
+  the other narrowed the sweep - and they are not interchangeable.
 - `captured_at` is when the snapshot was taken, not now. Liveness outcomes are
   observations from that moment and go stale.
 

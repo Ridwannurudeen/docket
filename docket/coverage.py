@@ -59,7 +59,10 @@ def coverage_report(store: Store, snapshot_id: int) -> dict:
         "sampled": sampled,
         "expected": expected,
         "dropped": max(expected - sampled, 0),
+        # Complete against `expected`, which is the total for the query `population` names —
+        # never against the registry. The two must be read together or the first overstates.
         "complete": expected == sampled and sampled > 0,
+        "population": meta.get("population"),
         "with_feedback": counts["has_feedback"],
         "with_feedback_pct": pct(counts["has_feedback"]),
         "callable": counts["callable"],
@@ -108,6 +111,9 @@ def render_markdown(report: dict) -> str:
         f"Captured {report['captured_at']} from chain {report['chain_id']}.",
         f"Stored **{report['sampled']:,}** of **{report['expected']:,}** agents the API "
         f"reported (`dropped={report['dropped']:,}`).",
+        "",
+        f"Population swept: **{report['population'] or 'unspecified'}**. Both figures above "
+        f"are totals for that query, not for the registry.",
         "",
         "| Signal | Agents | Share |",
         "| --- | ---: | ---: |",

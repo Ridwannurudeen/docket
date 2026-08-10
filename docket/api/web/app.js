@@ -182,6 +182,13 @@ function displayName(agent) {
   return name ? name : "(no name)";
 }
 
+/* Which query the snapshot was swept from. A sweep that predated the field recorded
+   none, and it is shown as unspecified rather than guessed at — reading a filtered
+   slice as "all" is the exact overclaim this field exists to prevent. */
+function populationLabel(coverage) {
+  return coverage.population || "unspecified";
+}
+
 /* Coverage is the same shape on /stats, /agents and /agents/{id}, so one
    painter serves every page and no page can quote a figure without it. */
 function paintCoverage(coverage) {
@@ -194,7 +201,8 @@ function paintCoverage(coverage) {
     <span><span class="status-key">id</span> <strong class="num">${escapeHTML(coverage.snapshot_id)}</strong></span>
     <span><span class="status-key">captured</span> <strong title="${escapeHTML(captured || "")}">${escapeHTML(relativeTime(captured))}</strong></span>
     <span><span class="status-key">sampled</span> <strong class="num">${escapeHTML(fmtInt(coverage.sampled))} of ${escapeHTML(fmtInt(coverage.expected))}</strong></span>
-    <span><span class="status-key">dropped</span> <strong class="num">${escapeHTML(fmtInt(coverage.dropped))}</strong></span>`;
+    <span><span class="status-key">dropped</span> <strong class="num">${escapeHTML(fmtInt(coverage.dropped))}</strong></span>
+    <span><span class="status-key">population</span> <strong class="mono">${escapeHTML(populationLabel(coverage))}</strong></span>`;
 
   const banner = region("partial");
   if (!banner) return;
@@ -736,10 +744,11 @@ function paintAgent(detail, example) {
         <dl class="deflist">
           <dt>Snapshot</dt><dd class="num">${escapeHTML(cov.snapshot_id)}</dd>
           <dt>Captured</dt><dd title="${escapeHTML(cov.captured_at || "")}">${escapeHTML(relativeTime(cov.captured_at))}</dd>
+          <dt>Population swept</dt><dd class="mono">${escapeHTML(populationLabel(cov))}</dd>
           <dt>Agents sampled</dt><dd class="num">${escapeHTML(fmtInt(cov.sampled))}</dd>
           <dt>Agents expected</dt><dd class="num">${escapeHTML(fmtInt(cov.expected))}</dd>
           <dt>Dropped</dt><dd class="num">${escapeHTML(fmtInt(cov.dropped))}</dd>
-          <dt>Complete</dt><dd>${cov.complete ? "yes" : "no"}</dd>
+          <dt>Complete</dt><dd>${cov.complete ? "yes" : "no"} — against the population above, not the registry</dd>
         </dl>
       </div>
     </section>`;

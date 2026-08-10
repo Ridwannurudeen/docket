@@ -159,6 +159,7 @@ def _coverage(report: dict, applied_filter: str | None = None) -> Coverage:
         expected=report["expected"],
         dropped=report["dropped"],
         complete=report["complete"],
+        population=report["population"],
         filter=applied_filter,
     )
 

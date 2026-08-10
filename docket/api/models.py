@@ -39,6 +39,13 @@ class Coverage(pydantic.BaseModel):
     expected: int
     dropped: int
     complete: bool
+    # Which query the SNAPSHOT was swept from: "all", or the predicate that narrowed it, e.g.
+    # "min_feedbacks>=1". Null where the sweep predated this field and never recorded one.
+    # Required, never defaulted, and never inferred: `complete` is measured against `expected`,
+    # which is a total for this query alone, so without it 506 of 506 reads as a whole-registry
+    # census. `filter` below is the other question — which subset of the snapshot is in THIS
+    # response — and the two are not interchangeable.
+    population: str | None
     # What subset of the snapshot this response describes, e.g. "has_feedback=true".
     filter: str | None = None
 

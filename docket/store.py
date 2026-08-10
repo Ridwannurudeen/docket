@@ -19,7 +19,11 @@ CREATE TABLE IF NOT EXISTS snapshots (
     expected INTEGER,
     sampled INTEGER,
     started_at TEXT NOT NULL,
-    finished_at TEXT
+    finished_at TEXT,
+    -- Which query this snapshot swept: "all" for the whole registry, or the predicate that
+    -- narrowed it, e.g. "min_feedbacks>=1". NULL where a sweep predating this column never
+    -- recorded one; that reads as unspecified and is never filled in by guesswork.
+    population TEXT
 );
 CREATE TABLE IF NOT EXISTS agents (
     snapshot_id INTEGER NOT NULL,
@@ -77,6 +81,12 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as conn:
             conn.executescript(SCHEMA)
+            # CREATE TABLE IF NOT EXISTS leaves an existing table alone, so a database written
+            # before a column existed never gains it from SCHEMA. Added here instead, and only
+            # when absent: the live database holds real sweeps and must migrate, not be rebuilt.
+            columns = {r["name"] for r in conn.execute("PRAGMA table_info(snapshots)")}
+            if "population" not in columns:
+                conn.execute("ALTER TABLE snapshots ADD COLUMN population TEXT")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -88,11 +98,18 @@ class Store:
         finally:
             conn.close()
 
-    def begin_snapshot(self, chain_id: int, expected: int | None) -> int:
+    def begin_snapshot(
+        self, chain_id: int, expected: int | None, population: str | None = None
+    ) -> int:
+        """Open a snapshot. `population` is the query it sweeps — "all", or the predicate that
+        narrowed it. Recorded here rather than left to the caller's memory: `expected` says how
+        many rows a query claimed, and without the query beside it a filtered total reads as a
+        census of the whole registry."""
         with self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO snapshots (chain_id, expected, started_at) VALUES (?, ?, ?)",
-                (chain_id, expected, _now()),
+                "INSERT INTO snapshots (chain_id, expected, started_at, population) "
+                "VALUES (?, ?, ?, ?)",
+                (chain_id, expected, _now(), population),
             )
             return int(cur.lastrowid)
 

@@ -254,15 +254,28 @@ omits the coverage it was counted in. Every "coverage" object has:
       expected      agents the registry API said the query would return
       dropped       expected - sampled. Above 0, the snapshot is missing rows and
                     every count in the response understates its population
-      complete      true only when sampled == expected and sampled > 0
-      filter        which subset of the snapshot this response describes, e.g.
-                    "declares_callable=true", or null for the whole snapshot
+      complete      true only when sampled == expected and sampled > 0. It is
+                    completeness against `population` below, never against the
+                    registry: a filtered sweep that reached the end of its own query
+                    is complete and is not a census
+      population    which query the SNAPSHOT was swept from: "all" for the whole
+                    registry, or the predicate that narrowed it, e.g.
+                    "min_feedbacks>=1". Null where the sweep predated this field and
+                    recorded none — read that as unspecified, not as "all"
+      filter        which subset of the snapshot THIS RESPONSE describes, e.g.
+                    "declares_callable=true", or null for the whole snapshot. Not the
+                    same question as `population`, and not interchangeable with it
 
-The population itself is a choice worth stating. BNB Smart Chain carries roughly
-247,278 registered ERC-8004 agents, of which 506 (0.205%) have ever received a single
-feedback record. The default snapshot covers those 506, not the whole registry,
-because a full sweep of 247,278 is not something Docket has done. Any figure below is
-a figure about that feedback population.
+The population itself is a choice worth stating, which is why it is now a field rather
+than a paragraph. BNB Smart Chain carries roughly 247,278 registered ERC-8004 agents,
+of which 506 (0.205%) have ever received a single feedback record. The default snapshot
+covers those 506, not the whole registry, because a full sweep of 247,278 is not
+something Docket has done. Any figure below is a figure about that feedback population.
+
+Snapshot 3 was swept before `population` existed, so it serves null. That is Docket
+declining to backfill a value the sweep never recorded; the filter it actually used is
+`min_feedbacks>=1`, stated in this file and on the human pages, and every sweep from
+here on records its own.
 
 When you quote a Docket number, quote its coverage with it.
 

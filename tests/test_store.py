@@ -87,6 +87,41 @@ def test_snapshot_records_partial_coverage(tmp_path: Path):
     assert row[0] == 100 and row[1] == 1 and row[2] is not None
 
 
+def test_snapshot_records_the_population_it_swept(tmp_path: Path):
+    """`expected` states how many rows the query claimed. `population` states which query —
+    without it, 506 of 506 reads as a whole-registry census."""
+    store = Store(tmp_path / "d.sqlite3")
+    filtered = store.begin_snapshot(chain_id=56, expected=506, population="min_feedbacks>=1")
+    store.finish_snapshot(filtered, sampled=506)
+    assert store.snapshot(filtered)["population"] == "min_feedbacks>=1"
+    whole = store.begin_snapshot(chain_id=56, expected=9, population="all")
+    assert store.snapshot(whole)["population"] == "all"
+
+
+def test_a_database_predating_the_column_is_migrated_not_rejected(tmp_path: Path):
+    """The live database was written before this column existed. Its rows cannot state a
+    population they never recorded, so they read as None — unspecified, never guessed at."""
+    path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(path) as conn:
+        conn.executescript(
+            """CREATE TABLE snapshots (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   chain_id INTEGER NOT NULL,
+                   expected INTEGER,
+                   sampled INTEGER,
+                   started_at TEXT NOT NULL,
+                   finished_at TEXT
+               );
+               INSERT INTO snapshots (chain_id, expected, sampled, started_at, finished_at)
+               VALUES (56, 506, 506, '2026-08-07T17:50:23+00:00', '2026-08-07T17:51:02+00:00');"""
+        )
+    store = Store(path)
+    assert store.snapshot(1)["population"] is None
+    assert store.latest_complete_snapshot_id(56) == 1  # still readable, still servable
+    fresh = store.begin_snapshot(chain_id=56, expected=1, population="all")
+    assert store.snapshot(fresh)["population"] == "all"
+
+
 def test_latest_complete_snapshot_skips_a_sweep_that_never_finished(tmp_path: Path):
     """A crashed or in-flight sweep is the newest ROW, and its counts are still moving. The
     live database carries exactly this: snapshot 2 was begun on 2026-08-07 and never closed."""
