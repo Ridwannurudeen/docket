@@ -364,6 +364,7 @@ def create_app(
         report = coverage_report(Store(db_path), _serving())
         return StatsResponse(
             coverage=_coverage(report),
+            registry_total=report["registry_total"],
             with_feedback=report["with_feedback"],
             callable_declared=report["callable"],
             endpoints_resolved=report["endpoints_resolved"],

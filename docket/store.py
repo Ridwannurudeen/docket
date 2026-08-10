@@ -196,6 +196,21 @@ class Store:
             ).fetchone()
         return int(row["id"]) if row else None
 
+    def registry_total(self, chain_id: int = 56) -> int | None:
+        """The largest agent total any sweep of this chain has recorded, finished or not.
+
+        `expected` is what the registry API answered when a sweep asked it, so it is a recorded
+        observation and does not depend on that sweep completing. It is the only chain-wide
+        figure Docket holds, and a filtered snapshot cannot be read without it: 506 of 506 is
+        complete, and complete is a fraction of a percent of the chain. None where no sweep has
+        recorded a total — never the served snapshot's own figure standing in for the registry.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT MAX(expected) AS m FROM snapshots WHERE chain_id = ?", (chain_id,)
+            ).fetchone()
+        return int(row["m"]) if row and row["m"] is not None else None
+
     def snapshot(self, snapshot_id: int) -> dict:
         with self._conn() as conn:
             row = conn.execute("SELECT * FROM snapshots WHERE id = ?", (snapshot_id,)).fetchone()

@@ -55,6 +55,13 @@ GET /stats
     was computed from. No parameters. Fields:
 
       coverage                    see "Coverage" below; required, never absent
+      registry_total              the largest chain-wide agent total any sweep has
+                                  recorded — the scale `coverage.complete` is silent
+                                  about. A snapshot swept from a filtered query is
+                                  complete the moment it reaches the end of THAT
+                                  query, so quote this beside it or a complete slice
+                                  reads as a census. Null where no sweep has recorded
+                                  a total; never the served snapshot's own figure
       with_feedback               agents in this snapshot with >= 1 feedback record
       callable_declared           agents declaring an A2A or MCP protocol
       endpoints_resolved          endpoint registration rows read from agent cards,
@@ -282,6 +289,12 @@ Snapshot 3 was swept before `population` existed, so it serves null. That is Doc
 declining to backfill a value the sweep never recorded; the filter it actually used is
 `min_feedbacks>=1`, stated in this file and on the human pages, and every sweep from
 here on records its own.
+
+The scale of what the filter left out is served too, at /stats as `registry_total`:
+247,146 on the current database, being the largest chain-wide total any sweep here has
+recorded. `coverage.complete` is completeness against `coverage.expected`, and reading
+the two without `registry_total` beside them is how "506 of 506, complete" turns into a
+claim about BNB Smart Chain.
 
 When you quote a Docket number, quote its coverage with it.
 

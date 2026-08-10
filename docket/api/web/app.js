@@ -255,9 +255,48 @@ function paintNameFamilies(stats) {
     </div>`;
 }
 
+/* "sampled 506 of 506, complete" is true and reads as a census of the chain. It is
+   completeness against the query the sweep ran, and that query left most of BNB Smart
+   Chain out. Both halves of this sentence come from the API — the filter the snapshot
+   recorded and the largest total any sweep measured — so neither can go stale in the
+   markup. Where no wider sweep exists there is nothing to compare against, and the
+   comparison is left unsaid rather than invented. */
+function paintSlice(stats) {
+  const target = region("slice");
+  if (!target) return;
+  const cov = stats.coverage;
+  const swept =
+    cov.population === null
+      ? "a query it did not record"
+      : `the query <code>${escapeHTML(populationLabel(cov))}</code>`;
+  const unrecorded =
+    cov.population === null
+      ? ` Which query is not stored on that snapshot, and Docket does not backfill one a sweep
+         never recorded — it shows as unspecified rather than as "all".`
+      : "";
+  const scale =
+    stats.registry_total !== null && stats.registry_total > cov.expected
+      ? ` That query is a filtered slice of the <strong class="num">${escapeHTML(fmtInt(stats.registry_total))}</strong>
+         agents the registry has reported to Docket for this chain, so "complete" above means
+         complete for the slice and is not a census.`
+      : ` No wider sweep of this chain has been recorded here, so there is no registry-wide
+         figure to read this against — "complete" above means complete for that query alone,
+         and is not a census.`;
+  target.innerHTML = `<div class="notice">
+      <h3>What this snapshot is a slice of</h3>
+      <p>
+        Snapshot ${escapeHTML(cov.snapshot_id)} swept ${swept}, and stored
+        <strong class="num">${escapeHTML(fmtInt(cov.sampled))}</strong> of the
+        <strong class="num">${escapeHTML(fmtInt(cov.expected))}</strong> agents that query
+        returned.${scale}${unrecorded}
+      </p>
+    </div>`;
+}
+
 function paintStats(stats) {
   const cov = stats.coverage;
   paintCoverage(cov);
+  paintSlice(stats);
 
   fill("sampled", fmtInt(cov.sampled));
   fill(

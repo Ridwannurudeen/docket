@@ -146,6 +146,32 @@ def test_a_snapshot_with_no_recorded_population_serves_null_not_a_guess(client):
     assert client.get("/stats").json()["coverage"]["population"] is None
 
 
+def test_stats_carries_the_registry_total_the_snapshot_is_a_slice_of(tmp_path):
+    """`complete: true` on 506 of 506 is true and says nothing about scale. The registry total
+    is the figure that makes the filtered snapshot readable, so it is served, not narrated."""
+    db = tmp_path / "slice.sqlite3"
+    store = Store(db)
+    swept = store.begin_snapshot(chain_id=56, expected=247065, population="all")
+    store.finish_snapshot(swept, sampled=2000)
+    sid = store.begin_snapshot(chain_id=56, expected=1, population="min_feedbacks>=1")
+    store.upsert_agents([AGENT], sid)
+    store.finish_snapshot(sid, sampled=1, expected=1)
+
+    body = TestClient(create_app(db, snapshot_id=sid)).get("/stats").json()
+    assert body["registry_total"] == 247065
+    assert body["coverage"]["complete"] is True
+    assert body["coverage"]["expected"] == 1  # complete against its own query, not the chain
+    assert body["registry_total"] > body["coverage"]["expected"]
+
+
+def test_registry_total_equal_to_the_snapshot_means_no_wider_measurement(client):
+    """The fixture's only sweep IS the served snapshot, so the largest total recorded is that
+    snapshot's own. The figure is still reported — it is a real record — and it is the human
+    page that declines to print a slice comparison when there is no wider sweep behind it."""
+    body = client.get("/stats").json()
+    assert body["registry_total"] == body["coverage"]["expected"] == 2
+
+
 def test_the_served_snapshot_is_the_newest_COMPLETE_one(tmp_path):
     """Resolution defaults to a snapshot that finished. Taking the newest row instead would,
     the moment a refresh loop runs, serve a sweep still being written as the whole capture —

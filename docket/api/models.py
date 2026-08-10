@@ -97,6 +97,11 @@ class ListResponse(pydantic.BaseModel):
 
 class StatsResponse(pydantic.BaseModel):
     coverage: Coverage
+    # The scale `coverage.complete` is silent about: the largest chain-wide total any sweep has
+    # recorded. A snapshot swept from a filtered query is complete the moment it reaches the end
+    # of that query, so without this a complete filtered slice reads as a census. Null where no
+    # sweep has recorded a total — never the served snapshot's own figure standing in for it.
+    registry_total: int | None
     with_feedback: int
     callable_declared: int
     endpoints_resolved: int

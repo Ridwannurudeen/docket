@@ -32,6 +32,7 @@ def _latest_observations(store: Store, snapshot_id: int) -> list[dict]:
 
 def coverage_report(store: Store, snapshot_id: int) -> dict:
     meta = store.snapshot(snapshot_id)
+    chain_id = int(meta.get("chain_id") or 0)
     sampled = store.agent_count(snapshot_id)
     expected = int(meta.get("expected") or 0)
     counts = Counter()
@@ -54,7 +55,7 @@ def coverage_report(store: Store, snapshot_id: int) -> dict:
 
     return {
         "snapshot_id": snapshot_id,
-        "chain_id": int(meta.get("chain_id") or 0),
+        "chain_id": chain_id,
         "captured_at": meta.get("finished_at") or meta.get("started_at"),
         "sampled": sampled,
         "expected": expected,
@@ -63,6 +64,10 @@ def coverage_report(store: Store, snapshot_id: int) -> dict:
         # never against the registry. The two must be read together or the first overstates.
         "complete": expected == sampled and sampled > 0,
         "population": meta.get("population"),
+        # The scale `complete` is silent about. A snapshot swept from a filtered query is
+        # complete the moment it reaches the end of that query, which says nothing about how
+        # much of the chain the query left out.
+        "registry_total": store.registry_total(chain_id),
         "with_feedback": counts["has_feedback"],
         "with_feedback_pct": pct(counts["has_feedback"]),
         "callable": counts["callable"],
@@ -116,7 +121,9 @@ def render_markdown(report: dict) -> str:
         f"reported (`dropped={report['dropped']:,}`).",
         "",
         f"Population swept: **{report['population'] or 'unspecified'}**. Both figures above "
-        f"are totals for that query, not for the registry.",
+        f"are totals for that query, not for the registry — the largest chain-wide total any "
+        f"sweep here has recorded is "
+        f"**{f'{report['registry_total']:,}' if report['registry_total'] else 'unmeasured'}**.",
         "",
         "| Signal | Agents | Share |",
         "| --- | ---: | ---: |",

@@ -98,6 +98,23 @@ def test_snapshot_records_the_population_it_swept(tmp_path: Path):
     assert store.snapshot(whole)["population"] == "all"
 
 
+def test_registry_total_is_the_largest_total_any_sweep_recorded(tmp_path: Path):
+    """The only chain-wide figure Docket holds. A filtered snapshot is unreadable without it:
+    506 of 506 is complete, and complete is a fraction of a percent of the chain."""
+    store = Store(tmp_path / "d.sqlite3")
+    assert store.registry_total(56) is None  # nothing swept, nothing to claim
+    full = store.begin_snapshot(chain_id=56, expected=247065, population="all")
+    store.finish_snapshot(full, sampled=2000)
+    crashed = store.begin_snapshot(chain_id=56, expected=247146, population="all")
+    filtered = store.begin_snapshot(chain_id=56, expected=506, population="min_feedbacks>=1")
+    store.finish_snapshot(filtered, sampled=506)
+    # The crashed sweep's `expected` still counts: it is what the API answered when asked,
+    # recorded before the sweep died, and it does not depend on the sweep finishing.
+    assert store.registry_total(56) == 247146
+    assert store.snapshot(crashed)["sampled"] is None
+    assert store.registry_total(97) is None  # another chain's sweeps are not this chain's
+
+
 def test_a_database_predating_the_column_is_migrated_not_rejected(tmp_path: Path):
     """The live database was written before this column existed. Its rows cannot state a
     population they never recorded, so they read as None — unspecified, never guessed at."""

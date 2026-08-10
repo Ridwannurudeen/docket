@@ -95,6 +95,30 @@ def test_pages_do_not_present_the_name_key_as_minter_provenance():
     assert "was minted by" not in app_js
 
 
+def test_landing_states_the_sampled_figure_is_a_filtered_slice():
+    """ "sampled 506 of 506, complete" is true and reads as a census of BNB Smart Chain. The
+    landing has to say which query produced the 506 and how large the registry it came from is."""
+    index = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    assert 'data-region="slice"' in index, "the landing has no region for the disclosure"
+    app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    assert "paintSlice" in app_js
+    # Both halves of the sentence are read from the API, never authored into the page.
+    for source in ("stats.registry_total", "populationLabel(cov)"):
+        assert source in app_js, source
+    lowered = app_js.lower()
+    for phrase in ("filtered slice", "not a census"):
+        assert phrase in lowered, phrase
+
+
+def test_no_registry_figure_is_typed_into_a_page():
+    """Every number on this site is read from the API at runtime. A registry total hard-coded
+    into the markup would go stale silently, and staleness in a denominator is the whole bug."""
+    for f in WEB_DIR.glob("*"):
+        text = f.read_text(encoding="utf-8")
+        for stale in ("247,278", "247278", "247,065", "247065", "247,146", "247146"):
+            assert stale not in text, f"{f.name} hard-codes a registry total: {stale}"
+
+
 def test_no_emoji_used_as_iconography():
     emoji = re.compile("[\U0001f300-\U0001faff\u2600-\u27bf]")
     for f in WEB_DIR.glob("*.html"):
