@@ -30,6 +30,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..advantage.harness import compare, load
 from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
+from ..escrow import constants as escrow_constants
+from ..escrow.chain import JobNotFound, JobReader
+from ..escrow.flow import hire_calls
 from ..hire.catalogue import SERVICES, get_service
 from ..hire.receipts import build_receipt
 from ..hire.x402 import build_challenge, parse_payment_header, verify_authorization
@@ -117,6 +120,14 @@ def _for_publication(experiment: dict) -> dict:
     return experiment
 
 
+def _jsonable(value):
+    """Contract args carry bytes (`optParams`, `evidence`); JSON does not. Render them
+    as hex so a caller can paste the value straight back into an encoder."""
+    if isinstance(value, (bytes, bytearray)):
+        return "0x" + value.hex()
+    return value
+
+
 def _error(status_code: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(
         status_code=status_code, content={"error": {"code": code, "message": message}}
@@ -132,7 +143,9 @@ async def _http_error(request: Request, exc: StarletteHTTPException) -> JSONResp
     return _error(exc.status_code, code, str(exc.detail))
 
 
-async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+async def _validation_error(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
     first = exc.errors()[0]
     where = ".".join(str(part) for part in first["loc"][1:])
     return _error(422, "invalid_query_parameter", f"{where}: {first['msg']}")
@@ -175,7 +188,9 @@ def _responding_agent_ids(store: Store, snapshot_id: int) -> set[str]:
     }
 
 
-def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = None) -> FastAPI:
+def create_app(
+    db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = None
+) -> FastAPI:
     """Serve one snapshot read-only. Resolved once here rather than per request: a listing and
     the stats beside it must describe the same capture, even mid-sweep."""
     db_path = Path(db_path)
@@ -285,6 +300,7 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             "stats": "/stats",
             "agents": "/agents",
             "hire": "/hire",
+            "escrow": "/escrow",
             "advantage": "/advantage.json",
             "health": "/health",
         }
@@ -333,7 +349,11 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         seconds, both costs, and the ratio between the timings. It carries no verdict,
         and neither does anything else here.
         """
-        return {"method": ADVANTAGE_METHOD, "page": "/advantage", "experiments": experiments}
+        return {
+            "method": ADVANTAGE_METHOD,
+            "page": "/advantage",
+            "experiments": experiments,
+        }
 
     @app.get("/stats", response_model=StatsResponse)
     def stats() -> StatsResponse:
@@ -366,14 +386,19 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         limit = min(max(limit, 1), MAX_LIMIT)
         offset = max(offset, 0)
         store = Store(db_path)
-        responders = _responding_agent_ids(store, sid) if responded is not None else set()
+        responders = (
+            _responding_agent_ids(store, sid) if responded is not None else set()
+        )
 
         matched: list[AgentSummary] = []
         for agent in store.iter_agents(sid):
             signals = signals_for(agent)
             if has_feedback is not None and signals["has_feedback"] != has_feedback:
                 continue
-            if declares_callable is not None and signals["callable"] != declares_callable:
+            if (
+                declares_callable is not None
+                and signals["callable"] != declares_callable
+            ):
                 continue
             if publisher is not None and signals["publisher"] != publisher:
                 continue
@@ -469,6 +494,113 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             ]
         )
 
+    @app.get("/escrow", response_model=None)
+    def escrow_terms() -> dict:
+        """The second hire rail: funds held in escrow for a real job, rather than paid
+        per call. Static — the addresses and the window are read from chain once and
+        written down, not fetched per request.
+
+        Docket publishes the sequence; the buyer signs it. Nothing here asks for a key.
+        """
+        c = escrow_constants
+        sequence = hire_calls(
+            provider="0x0000000000000000000000000000000000000000",
+            budget_atomic=10**16,
+            expires_in_s=7 * 86400,
+            description="<your job description>",
+        )
+        return {
+            "rail": "erc-8183-escrow",
+            "chain_id": c.CHAIN_ID,
+            "what_this_is": (
+                "An on-chain escrow hire. You fund a job, the provider delivers, and the "
+                "budget moves to them once a dispute window closes. Use /hire instead if "
+                "you want a single call answered now and paid for now."
+            ),
+            "contracts": {
+                "commerce": c.COMMERCE,
+                "router": c.ROUTER,
+                "policy": c.POLICY,
+            },
+            "payment_token": {
+                "address": c.PAYMENT_TOKEN,
+                "symbol": c.PAYMENT_TOKEN_SYMBOL,
+                "decimals": c.PAYMENT_TOKEN_DECIMALS,
+                "note": "You also need BNB for gas. The kernel takes no platform fee today.",
+            },
+            "dispute_window_seconds": c.DISPUTE_WINDOW_S,
+            "dispute_window_plain": (
+                "7 days. There is no early-accept path in this policy, so a funded job "
+                "cannot be settled sooner however willing both sides are. Budget for it "
+                "before you fund, not after."
+            ),
+            "hire_sequence": [
+                {
+                    "step": s["step"],
+                    "to": s["to"],
+                    "function": s["function"],
+                    "args": {k: _jsonable(v) for k, v in s["args"].items()},
+                    "needs": s["needs"],
+                    "note": s["note"],
+                }
+                for s in sequence
+            ],
+            "sequence_note": (
+                "The three calls that take a job id come back without calldata here, "
+                "because the id does not exist until createJob lands. Read it from that "
+                "receipt and encode the rest against it."
+            ),
+            "buyer_lever": {
+                "function": "dispute(uint256 jobId)",
+                "to": c.POLICY,
+                "note": (
+                    "Your one lever during the window, and it is client-only. A disputed "
+                    "job goes to the policy's voters "
+                    f"({c.VOTE_QUORUM} of {c.ACTIVE_VOTERS} to reject)."
+                ),
+            },
+            "settlement": {
+                "function": "settle(uint256 jobId, bytes evidence)",
+                "to": c.ROUTER,
+                "permissionless": True,
+                "note": (
+                    "Anyone may call this once the window has elapsed and the job is "
+                    "undisputed, so Docket closes jobs it brokered without the buyer "
+                    "coming back. Check any job with GET /escrow/job/{job_id}."
+                ),
+            },
+            "docket_does_not": [
+                "ask for, hold, or proxy your private key",
+                "take custody of escrowed funds at any point",
+                "sign anything on your behalf",
+                "have any way to shorten or waive the dispute window",
+            ],
+            "verified_on": c.VERIFIED_ON,
+            "evidence": c.EVIDENCE,
+        }
+
+    @app.get("/escrow/job/{job_id}", response_model=None)
+    def escrow_job(job_id: int) -> JSONResponse | dict:
+        """One job's live state, read from chain at request time."""
+        try:
+            return JobReader().job_state(job_id)
+        except JobNotFound:
+            return _error(
+                404,
+                "job_not_found",
+                f"No ERC-8183 job {job_id} on chain {escrow_constants.CHAIN_ID}. "
+                "GET /escrow carries the addresses and the sequence that creates one.",
+            )
+        except Exception:
+            # An unreachable node is not an absent job. Reporting it as 404 would tell a
+            # caller their job does not exist, which is a different and worse untruth.
+            return _error(
+                502,
+                "chain_unreachable",
+                f"Could not read chain {escrow_constants.CHAIN_ID} just now. The job may "
+                "well exist; Docket could not reach a node to check. Retry.",
+            )
+
     @app.post("/hire/{service_id}", response_model=None)
     async def hire(service_id: str, request: Request) -> JSONResponse | dict:
         """Run one service and return the result bound to a receipt.
@@ -526,7 +658,9 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
                 "settle them, so signing the offer below does not raise the allowance."
             )
             if verdict is not None and not verdict[0]:
-                message += f" The authorization presented was also not accepted: {verdict[1]}."
+                message += (
+                    f" The authorization presented was also not accepted: {verdict[1]}."
+                )
             return JSONResponse(
                 status_code=402,
                 content={
@@ -549,7 +683,9 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         # allowance for it would charge for work never performed.
         except ValueError as exc:
             _refund_allowance(client_ip)
-            return _error(422, "invalid_field", f"{service.id} could not read that request: {exc}")
+            return _error(
+                422, "invalid_field", f"{service.id} could not read that request: {exc}"
+            )
         # Everything else is the deliberate other side of that boundary: the request was
         # readable, the work was attempted on this caller's behalf, and upstream resources
         # were spent on it. That hire stays spent whether or not it finished.

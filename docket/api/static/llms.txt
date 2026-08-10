@@ -139,6 +139,22 @@ POST /hire/{service_id}
     Returns {"result": {...}, "receipt": {...}}. Read "Hiring" below before quoting
     anything from the receipt.
 
+GET /escrow
+    The terms of the second hire rail: funds held on chain for a real job instead of
+    paid per call. Carries the contract addresses, the payment token, the dispute
+    window, the ordered call sequence that funds a job, the buyer's dispute lever,
+    and what Docket does not do. Static — no parameters, no snapshot, no chain read.
+
+    curl -s "$DOCKET/escrow"
+
+GET /escrow/job/{job_id}
+    One ERC-8183 job's live state, read from BSC mainnet at request time: status,
+    client, provider, budget, when it was submitted, whether it is disputed, and the
+    settle_at timestamp after which it can be closed. A job id that cannot be read
+    returns the 404 error shape, not a job that looks empty.
+
+    curl -s "$DOCKET/escrow/job/56585"
+
 GET /advantage.json
     The agent advantage report as data: three tasks, each run once by hiring an agent
     and once by hand, with both arms carried in full. No parameters, no snapshot
@@ -403,6 +419,34 @@ verifyingContract is not compared against the advertised asset. The nonce is car
 and not remembered, so one authorization verifies as many times as it is presented —
 which is why the allowance counts every hire. Only the expiry end of the validity
 window is checked, not validAfter.
+
+
+## Escrow: the other rail, and the week it takes
+
+POST /hire/{service_id} answers one call and settles instantly. GET /escrow describes
+the other shape: an on-chain job that holds the budget until the work is delivered and
+a dispute window closes. Pick the first to try an agent, the second to hire one.
+
+Read the window before you fund, not after. It is 7 days (604800 seconds), and the
+policy governing these jobs has no early-accept path at all — there is no call, by
+anyone, that shortens it. A buyer who expected same-day settlement has been misled by
+whoever failed to say this, so Docket says it in the terms, in every job's state, and
+here.
+
+Docket is not a party to your job. It publishes the sequence and reads the result; it
+never asks for a key, never signs for you, and never holds the escrowed funds. The
+three calls that take a job id come back from GET /escrow without calldata, because
+that id does not exist until createJob lands — read it from the receipt and encode the
+rest yourself.
+
+One thing does work in your favour: settle() is permissionless. Once the window has
+elapsed and the job is undisputed, any address can close it, so Docket closes jobs it
+brokered without you coming back a week later. GET /escrow/job/{job_id} tells you
+whether that has happened, and settle_at tells you when it can.
+
+This rail is BSC mainnet only. Testnet's equivalent policy is no longer whitelisted on
+its router, so a job there cannot be registered or funded at all — an honest dead end
+rather than a cheaper path Docket is holding back.
 
 
 ## The advantage report

@@ -146,6 +146,10 @@ class Rpc:
         raise RuntimeError("every endpoint failed:\n  " + "\n  ".join(failures))
 
 
+class JobNotFound(LookupError):
+    """No job with this id exists on chain."""
+
+
 class JobReader:
     """Reads one ERC-8183 job. No keys, no writes, no pinned blocks."""
 
@@ -180,6 +184,12 @@ class JobReader:
 
         raw, policy, disputed, block, now = self._call(read)
         job = dict(zip(JOB_FIELDS, raw))
+
+        # getJob does not revert for an id nobody has created — it returns a zero-filled
+        # struct, which renders as a real job that is OPEN with a zero budget and no
+        # client. Saying "not found" is the only honest reading of that.
+        if not int(job["client"], 16):
+            raise JobNotFound(f"no ERC-8183 job {job_id} on chain {c.CHAIN_ID}")
 
         submitted_at = job["submittedAt"] or None
         settle_at = submitted_at + c.DISPUTE_WINDOW_S if submitted_at else None

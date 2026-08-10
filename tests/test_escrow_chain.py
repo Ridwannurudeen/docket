@@ -13,7 +13,7 @@ import pytest
 from web3.exceptions import ContractLogicError
 
 from docket.escrow import constants as c
-from docket.escrow.chain import JobReader, Rpc
+from docket.escrow.chain import JobNotFound, JobReader, Rpc
 
 NOW = 1786400000
 SUBMITTED_AT = NOW - c.DISPUTE_WINDOW_S - 60  # ripe: submitted just over a window ago
@@ -131,6 +131,24 @@ def test_an_unbound_job_reports_no_policy_without_asking_it_about_disputes():
     state = JobReader(w3=_w3(status=0, submitted_at=0, policy=zero)).job_state(1)
     assert state["policy"] is None
     assert state["disputed"] is False
+
+
+def test_an_id_nobody_created_is_not_found_rather_than_an_empty_job():
+    """getJob does not revert for an unknown id — it returns a zero-filled struct, which
+    renders as a real OPEN job with a zero budget and no client. Caught only when the
+    route was exercised against the live chain; the fake had been raising instead."""
+    zero = "0x" + "0" * 40
+    empty = _W3(
+        {
+            "commerce": {
+                "getJob": [0, zero, zero, zero, "", 0, 0, 0, zero, 0, b"\x00" * 32]
+            },
+            "router": {"jobPolicy": zero},
+            "policy": {"disputed": False},
+        }
+    )
+    with pytest.raises(JobNotFound):
+        JobReader(w3=empty).job_state(999999999)
 
 
 def test_an_outage_raises_rather_than_returning_a_job_that_looks_unfunded():
