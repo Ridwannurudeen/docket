@@ -26,6 +26,7 @@ packages = [
     "docket.advantage",
     "docket.api",
     "docket.agents",
+    "docket.agents.grid",
     "docket.agents.pancake",
     "docket.escrow",
     "docket.execution",
