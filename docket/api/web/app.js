@@ -371,7 +371,7 @@ async function paintJobs() {
       category for them.
     </p>
     <div class="jobs">${loose
-      .map((card) => `<div class="panel job">${serviceCard(card)}</div>`)
+      .map((card) => `<div class="panel">${serviceCard(card)}</div>`)
       .join("")}</div>`;
 }
 
