@@ -252,8 +252,9 @@ Say these plainly if the rail comes up:
 
 - Docket never holds the key, the signature, or the escrowed funds. It publishes the
   call sequence; the user executes it.
-- Three of the five calls come back without calldata until a job id exists. That is
-  correct behaviour, not a broken response — `createJob` has to land first.
+- `hire_sequence` is a template: target, function and argument shape per step, and no
+  calldata field on any of them. That is correct behaviour, not a truncated response.
+  The steps needing a job id say so in `needs`; `createJob` has to land first.
 - `settle()` is permissionless, so the wait does not require the user to come back;
   Docket closes jobs it brokered once `settle_at` passes.
 - Mainnet only. The testnet route is dead at the router, not withheld.

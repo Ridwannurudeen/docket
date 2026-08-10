@@ -81,6 +81,20 @@ def test_escrow_terms_carry_the_ordered_call_sequence(client):
     assert all("note" in s for s in steps)
 
 
+def test_the_docs_do_not_promise_a_calldata_field_the_response_lacks(client):
+    """The docs once implied /escrow served calldata for the steps that did not need a
+    job id. It serves none, for any step. An agent told not to invent endpoints will go
+    looking for a field that was never there — the same class of bug as telling it there
+    was no public deployment."""
+    steps = client.get("/escrow").json()["hire_sequence"]
+    assert all("calldata" not in s for s in steps)
+    for doc in ("/llms.txt", "/skill.md"):
+        body = client.get(doc).text
+        assert "without calldata" not in body, (
+            f"{doc} implies some steps carry calldata"
+        )
+
+
 def test_escrow_terms_name_the_buyers_lever_and_not_the_voters_one(client):
     """voteReject is restricted to whitelisted voters; pointing a buyer at it would
     produce a confusing revert and nothing else."""

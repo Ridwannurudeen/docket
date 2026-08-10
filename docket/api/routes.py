@@ -546,9 +546,12 @@ def create_app(
                 for s in sequence
             ],
             "sequence_note": (
-                "The three calls that take a job id come back without calldata here, "
-                "because the id does not exist until createJob lands. Read it from that "
-                "receipt and encode the rest against it."
+                "This is a template, not signable bytes: each step gives the target, the "
+                "function and the argument shape, with your own values to fill in. Nothing "
+                "here is pre-encoded, because two of the arguments cannot be known from a "
+                "template — the job id does not exist until createJob lands (those steps "
+                "carry needs: ['job_id']), and expiredAt depends on when you send it. "
+                "Encode against the target contract's own ABI once you have both."
             ),
             "buyer_lever": {
                 "function": "dispute(uint256 jobId)",

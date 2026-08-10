@@ -434,10 +434,14 @@ whoever failed to say this, so Docket says it in the terms, in every job's state
 here.
 
 Docket is not a party to your job. It publishes the sequence and reads the result; it
-never asks for a key, never signs for you, and never holds the escrowed funds. The
-three calls that take a job id come back from GET /escrow without calldata, because
-that id does not exist until createJob lands — read it from the receipt and encode the
-rest yourself.
+never asks for a key, never signs for you, and never holds the escrowed funds.
+
+What GET /escrow returns is a template, not signable bytes. Each step carries the
+target address, the function, and the argument shape; no step carries calldata, and you
+should not expect a calldata field. Two arguments make pre-encoding impossible anyway:
+the job id does not exist until createJob lands, and expiredAt depends on when you send
+it. The steps that need the id say so in `needs`. Encode against the target contract's
+own ABI once you have your values.
 
 One thing does work in your favour: settle() is permissionless. Once the window has
 elapsed and the job is undisputed, any address can close it, so Docket closes jobs it
