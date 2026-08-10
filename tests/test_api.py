@@ -231,6 +231,23 @@ def test_agents_are_filterable_and_labelled_by_name_family_not_publisher(client)
         assert retired not in stats
 
 
+def test_the_retired_publisher_filter_is_refused_not_silently_ignored(client):
+    """FastAPI drops unknown query parameters, so `?publisher=x` answered a caller who asked
+    for one slice with the ENTIRE snapshot and `filter: null` — a narrower request served
+    wider, with nothing in the response saying so. llms.txt taught clients that parameter, so
+    this reaches real callers; it is refused by name instead."""
+    resp = client.get("/agents", params={"publisher": "solvent"})
+    assert resp.status_code == 422
+    err = resp.json()["error"]
+    assert err["code"] == "invalid_query_parameter"
+    assert "publisher" in err["message"]
+    assert "name_family" in err["message"]  # names the replacement, not just the mistake
+    # Refused even when it would have changed nothing, so a client cannot learn the wrong name
+    # from a request that happened to work.
+    assert client.get("/agents", params={"publisher": "nothing-matches-this"}).status_code == 422
+    assert client.get("/agents", params={"name_family": "solvent"}).status_code == 200
+
+
 def test_agent_detail_resolves_a_colon_bearing_id_and_carries_observations(client):
     body = client.get(f"/agents/{AGENT['agent_id']}").json()
     assert body["agent_id"] == AGENT["agent_id"]

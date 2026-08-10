@@ -112,6 +112,12 @@ GET /agents
       limit               int          default 50, clamped into [1, 100]
       offset              int          default 0, negatives clamped to 0
 
+    `publisher` was the former name of `name_family` and is now REFUSED with 422
+    invalid_query_parameter, not ignored. An ignored filter would answer a request for
+    one slice with the whole snapshot and `filter: null`, which is a narrower question
+    silently served wider. Every other unrecognised parameter is still ignored; this one
+    is refused because Docket published it and clients learned it.
+
     Returns {"items": [...], "total": N, "limit": L, "offset": O, "coverage": {...}}.
     "total" is the count after filtering and before pagination, so it does not change
     as you page. Each item carries: agent_id, token_id, name, description,

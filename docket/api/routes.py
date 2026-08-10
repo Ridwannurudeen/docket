@@ -79,6 +79,11 @@ ADVANTAGE_METHOD = (
 # recomputing a ratio from them gets the same answer either way.
 DISPLAYED_SECONDS_DP = 3
 CHAIN_ID = 56
+# Retired by the name_family rename, and refused by name rather than ignored. FastAPI drops
+# query parameters it does not declare, so leaving this unhandled answers a caller who asked
+# for one publisher's agents with the ENTIRE snapshot and `filter: null` — a narrower request
+# served wider, with nothing in the body saying so. /llms.txt taught clients this parameter.
+RETIRED_FILTER = "publisher"
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
 # How much work one caller may take per hour. The allowance counts EVERY hire, not
@@ -382,6 +387,7 @@ def create_app(
 
     @app.get("/agents", response_model=ListResponse)
     def list_agents(
+        request: Request,
         has_feedback: bool | None = None,
         declares_callable: bool | None = None,
         responded: bool | None = None,
@@ -389,6 +395,22 @@ def create_app(
         limit: int = DEFAULT_LIMIT,
         offset: int = 0,
     ) -> ListResponse:
+        # Before _serving(), so a caller learns their request is malformed whatever state the
+        # store is in — and refused even when the filter would have matched nothing, or a
+        # client learns the wrong name from a request that happened to look fine.
+        if RETIRED_FILTER in request.query_params:
+            raise HTTPException(
+                422,
+                detail={
+                    "code": "invalid_query_parameter",
+                    "message": (
+                        f"{RETIRED_FILTER}: no such filter. It was renamed to name_family, "
+                        "which groups agents by the first token of a self-declared name and "
+                        "never carried minter provenance. Send name_family instead — this "
+                        "request is refused rather than answered with the whole snapshot."
+                    ),
+                },
+            )
         sid = _serving()
         limit = min(max(limit, 1), MAX_LIMIT)
         offset = max(offset, 0)
