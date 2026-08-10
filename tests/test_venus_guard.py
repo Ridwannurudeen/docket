@@ -274,6 +274,20 @@ def test_the_repay_floor_is_the_debt_it_retires_and_says_so_in_those_words():
     assert "not a token received" in repay.output_means.lower()
 
 
+def test_the_ratio_names_the_one_debt_venus_counts_and_this_derivation_does_not():
+    """Venus adds VAIController.getVAIRepayAmount to the borrow side of its own liquidity
+    figure; this sum walks the per-market rows only. For an account that has minted VAI the
+    ratio is therefore too favourable, and the cross-check gap is that debt rather than the
+    truncation its method otherwise blames. Both strings have to name it, because the
+    cross-check fires loudest on exactly the accounts the cause inventory omitted."""
+    assessment = assess(_underwater())
+    for method in (
+        assessment["collateral_ratio_method"],
+        assessment["cross_check"]["method"],
+    ):
+        assert "vai" in method.lower(), method
+
+
 def test_neither_venus_floor_claims_an_enforcement_the_chain_does_not_offer():
     """Stage 2's floor rides in the calldata and the router reverts a trade that lands
     under it. Neither Venus call offers that: `mint` takes no minimum-out argument, and

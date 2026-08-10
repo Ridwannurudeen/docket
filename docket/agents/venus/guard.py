@@ -131,7 +131,12 @@ RATIO_METHOD = (
     "collateralFactor from comptroller.markets, price from oracle.getUnderlyingPrice on the "
     "oracle comptroller.oracle names, and the set of markets from comptroller.getAssetsIn. "
     "Integer division throughout, truncating. A result below 1e18 means the weighted "
-    "collateral no longer covers the debt."
+    "collateral no longer covers the debt. One debt Venus counts is missing from the "
+    "denominator: VAI minted against this account. The comptroller adds "
+    "VAIController.getVAIRepayAmount to the borrow side of its own figure and this sum walks "
+    "the per-market rows only, so for an account that has minted VAI the ratio above is too "
+    "favourable by exactly that amount. Venus's own liquidity and shortfall, printed beside "
+    "this, do count it."
 )
 NO_RATIO = (
     "No ratio is stated: nothing is owed, so there is no denominator. A collateral ratio "
@@ -146,8 +151,12 @@ CROSS_CHECK_METHOD = (
     "disagreement is acceptable and this record does not make one. Read difference_usd "
     "against the two magnitudes printed beside it: three truncating integer divisions per "
     "market, in an order that need not match the comptroller's, put the last few units of "
-    "1e-18 USD beyond reach, and the two reads can also land at different blocks. A "
-    "difference of that size is arithmetic; a difference near the magnitudes themselves is "
+    "1e-18 USD beyond reach, and the two reads can also land at different blocks. There is "
+    "one systematic cause besides those: minted VAI is a debt the comptroller counts on its "
+    "borrow side and this derivation does not, so an account that has minted VAI shows a "
+    "difference of about that debt, with the derived headroom the larger of the two. A "
+    "difference of the size truncation explains is arithmetic; one that matches a VAI "
+    "balance is this derivation's known gap; a difference near the magnitudes themselves is "
     "a reason to distrust the ratio."
 )
 PREVIEW_REASON = (
