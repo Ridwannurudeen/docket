@@ -412,10 +412,18 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         return FileResponse(WEB_DIR / "research.html")
 
     @app.get("/browse", include_in_schema=False)
-    def browse() -> RedirectResponse:
+    def browse(request: Request) -> RedirectResponse:
         """Moved, not removed. /browse was published, so it keeps landing on the page it
-        named — permanently, and at one canonical URL rather than two that drift."""
-        return RedirectResponse("/research", status_code=308)
+        named — permanently, and at one canonical URL rather than two that drift.
+
+        The query travels with it. Every filter on that page lives in the query string, so
+        a narrowed view is a link somebody sends; dropping it would answer a request for
+        one slice with the whole snapshot and say nothing about having done so — the same
+        defect as the retired `publisher` filter, and this status is permanent, so a
+        browser would go on applying the broken mapping from its own cache.
+        """
+        query = request.url.query
+        return RedirectResponse(f"/research?{query}" if query else "/research", status_code=308)
 
     @app.get("/agent", include_in_schema=False)
     def agent_page() -> FileResponse:

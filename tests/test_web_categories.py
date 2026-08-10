@@ -71,6 +71,17 @@ def test_the_old_browse_url_moves_rather_than_breaking(client):
     assert client.get("/browse").status_code == 200
 
 
+def test_the_moved_url_carries_the_filters_it_was_asked_for(client):
+    """Every filter on that page lives in the query string, so a narrowed view is a link
+    someone sends. A redirect that dropped it would answer a request for one slice with
+    the whole snapshot and say nothing about it — the same defect as the retired
+    `publisher` filter, and 308 is permanent, so a browser would cache the broken mapping."""
+    query = "has_feedback=true&name_family=gembots"
+    resp = client.get(f"/browse?{query}", follow_redirects=False)
+    assert resp.status_code == 308
+    assert resp.headers["location"] == f"/research?{query}"
+
+
 # ------------------------------------------------------- the home leads with jobs
 
 
