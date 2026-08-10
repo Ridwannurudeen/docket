@@ -295,6 +295,21 @@ def test_llms_txt_documents_every_path_the_spec_declares(client):
         assert path in body, f"/llms.txt does not document {path}"
 
 
+def test_both_registry_figures_are_dated_and_reconciled(client):
+    """247,278 (read by hand) and 247,146 (the largest total a sweep recorded) describe the
+    same quantity four paragraphs apart. Undated and unreconciled they read as a contradiction,
+    and a reader cannot tell which to quote — so each carries when it was taken, and the file
+    says outright why they differ."""
+    llms = client.get("/llms.txt").text
+    assert "247,278" in llms and "247,146" in llms
+    assert "not in conflict" in llms
+    for path in ("/llms.txt", "/skill.md"):
+        body = client.get(path).text
+        assert "247,278" in body, path
+        # The hand reading is dated wherever it appears, so it cannot be quoted as current.
+        assert "2026-08-07" in body, path
+
+
 def test_skill_md_is_served_as_markdown(client):
     resp = client.get("/skill.md")
     assert resp.status_code == 200

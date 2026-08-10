@@ -83,7 +83,7 @@ population. Quote it with its coverage, or do not quote it.
   is 13 of the 35 endpoints evaluated (37.143%) once the 10 targets Docket refused and
   the 11 hostnames that would not resolve are counted back in - in snapshot 3 captured
   2026-08-07, which covers the 506 BSC agents that have any feedback - 0.205% of the
-  roughly 247,278 registered."
+  roughly 247,278 registered when that was read on 2026-08-07."
 
 `responded_pct_of_attempted` and `responded_pct_of_evaluated` are each named for their
 own denominator, so neither can be requoted against the other or against the registry.
@@ -174,7 +174,11 @@ Read `coverage` first, every time:
   larger. On a database whose every sweep was filtered it would itself be a filtered total,
   and it may equal `coverage.expected`; never quote it as the registry's size. Quote it
   whenever you quote `complete`: "506 of 506, complete" without it is how a filtered slice
-  becomes a claim about BNB Smart Chain.
+  becomes a claim about BNB Smart Chain. It is smaller than the ~247,278 quoted above
+  because that was an untimed hand reading on 2026-08-07 while this is the largest total a
+  sweep actually recorded, timestamped 15:26 UTC that day. The two are not in conflict -
+  the registry grows by thousands a day - but Docket did not record when the hand reading
+  was taken, so it does not claim which came first. Both are already stale.
 - `captured_at` is when the snapshot was taken, not now. Liveness outcomes are
   observations from that moment and go stale.
 

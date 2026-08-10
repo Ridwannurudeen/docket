@@ -294,10 +294,11 @@ omits the coverage it was counted in. Every "coverage" object has:
                     same question as `population`, and not interchangeable with it
 
 The population itself is a choice worth stating, which is why it is now a field rather
-than a paragraph. BNB Smart Chain carries roughly 247,278 registered ERC-8004 agents,
-of which 506 (0.205%) have ever received a single feedback record. The default snapshot
-covers those 506, not the whole registry, because a full sweep of 247,278 is not
-something Docket has done. Any figure below is a figure about that feedback population.
+than a paragraph. BNB Smart Chain carried roughly 247,278 registered ERC-8004 agents
+when that was read by hand on 2026-08-07, of which 506 (0.205%) had ever received a
+single feedback record. The default snapshot covers those 506, not the whole registry,
+because a full sweep of that size is not something Docket has done. Any figure below is
+a figure about that feedback population.
 
 Snapshot 3 was swept before `population` existed, so it serves null. That is Docket
 declining to backfill a value the sweep never recorded; the filter it actually used is
@@ -312,6 +313,16 @@ filtered it would be a filtered total, so it can never be quoted as the registry
 `coverage.complete` is completeness against `coverage.expected`, and reading those two
 without `registry_total` beside them is how "506 of 506, complete" turns into a claim
 about BNB Smart Chain.
+
+The two registry figures in this file are not in conflict. 247,278 is a reading taken by
+hand on 2026-08-07, with no time of day recorded. 247,146 is the largest total any sweep
+RECORDED in the database `registry_total` is computed from, and that one is timestamped:
+the sweep began 2026-08-07 at 15:26 UTC. The registry grows by thousands of agents a day
+— the two sweeps on record read 247,065 at 14:39 UTC and 247,146 at 15:26 UTC the same
+day — so a hand reading of 247,278 is consistent with a later moment on that date, though
+Docket did not record when it was taken and does not claim the order. Both were true when
+taken and both are already stale. Quote `registry_total` when you want a figure Docket can
+show you the record for, and quote neither as the size of the registry today.
 
 When you quote a Docket number, quote its coverage with it.
 
@@ -380,7 +391,8 @@ Read what that does and does not say.
   - There are two rates because there are two denominators, and one number cannot
     carry both. 92.857% is a share of the 14 endpoints a request was issued to. 37.143%
     is a share of all 35 evaluated. Neither is 37% of 506 agents, and neither,
-    emphatically, is a share of the 247,278 agents on BNB Smart Chain.
+    emphatically, is a share of the ~247,278 agents BNB Smart Chain carried on
+    2026-08-07.
   - The gap between the two is the 21 endpoints nothing was sent to. Quoting the
     higher rate without saying what it excludes overstates how much of the declared
     surface answered;
