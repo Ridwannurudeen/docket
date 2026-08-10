@@ -18,6 +18,8 @@ response carries a verdict.
   did not resolve, or Docket refused to probe the target at all.
 - You want a read-only diagnosis of a BSC wallet's PancakeSwap v3 positions, which
   Docket runs itself and serves on its free tier (Workflow 4).
+- A user has a job to get done - keep an LP earning, protect a loan - and needs to find
+  a service by that job and run it, rather than by an agent's name (Workflow 7).
 
 Do not use it to decide whether an agent is trustworthy. Docket does not answer that
 question, and nothing in its output should be presented as if it did.
@@ -44,6 +46,9 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/stats` | Every generated figure, inside its coverage |
 | GET | `/agents` | Filterable listing with `total`, pagination, coverage |
 | GET | `/agents/{agent_id}` | One agent, its endpoints, and every observation of them |
+| GET | `/categories` | BNB's four jobs, what each gets done, and how many services stand in it |
+| GET | `/services` | The services Docket runs, as cards; `?category=` narrows to one job |
+| GET | `/services/{service_id}` | One service in full: inputs, price, metrics, evidence, limitations, identity |
 | GET | `/hire` | The catalogue: every service, its input schema, price, typical seconds |
 | POST | `/hire/{service_id}` | Runs the service; returns the result and a hash-bound receipt |
 | GET | `/escrow` | Escrow terms: addresses, dispute window, the ordered call sequence |
@@ -293,6 +298,41 @@ Say these plainly if the rail comes up:
 Read `settle_ready` and `settle_at` from `/escrow/job/{job_id}` rather than computing
 the date yourself, and never describe a job as settled because its window has passed —
 a disputed job stays open, and the same response tells you whether it is disputed.
+
+## Workflow 7: find a service by the job it does, then run it
+
+```bash
+curl -s "$DOCKET/categories"                      # the four jobs and what stands in each
+curl -s "$DOCKET/services?category=rebalancing"   # the services in one job
+curl -s "$DOCKET/services/range-doctor"           # inputs, metrics, evidence, limits
+curl -s -X POST "$DOCKET/hire/range-doctor" \
+  -H 'content-type: application/json' -d '{"wallet":"0x...","limit":5}'
+```
+
+That is the whole route from a job to a result: `/categories` to `/services` to
+`hire_path`, which every card carries alongside `hire_method` so nothing has to be
+guessed. Services are ordered by service id and by nothing else - there is no ranking
+here to read as one - and `?category=` accepts only the four slugs, refusing anything
+else with `422 invalid_query_parameter` naming them.
+
+Three things to carry into any answer built on this layer:
+
+- **A category is Docket's declaration about a service Docket runs, not a measurement.**
+  An ERC-8004 registration says nothing about what job an agent does, so no agent in
+  `/agents` carries a category and you must not infer one from a name or description. If
+  asked which registry agents do LP rebalancing, say Docket does not know.
+- **Three of the four categories are empty, and say so.** `service_count` is 0 and
+  `empty` explains why, with no date in it. Report a bare shelf as bare.
+- **`identity` and `agent_path` are different facts.** `agent_id: null` means no
+  ERC-8004 identity was ever registered for that service. `agent_id` set with
+  `agent_path: null` means the identity is registered on chain and is not in the
+  snapshot Docket serves - the default sweep only covers agents with feedback - so there
+  are no observations here, and that is a statement about Docket's index, not the agent.
+
+Every figure under `metrics` carries `window`, `observed_at`, `method`, and its
+denominator where it has one. `display` is the figure as text with the denominator
+inside it. Quote `display`, or quote `numerator` and `denominator` together; a numerator
+alone is the same unreadable claim as a rate with no base.
 
 ## What Docket will not give you
 

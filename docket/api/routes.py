@@ -36,16 +36,31 @@ from ..escrow.flow import hire_calls
 from ..hire.catalogue import SERVICES, get_service
 from ..hire.receipts import build_receipt
 from ..hire.x402 import build_challenge, parse_payment_header, verify_authorization
+from ..marketplace.models import CATEGORIES, Category, ServiceRecord
+from ..marketplace.registry import (
+    CATEGORY_DECLARATION,
+    EMPTY_CATEGORY,
+    all_records,
+    get_record,
+    records_in,
+)
 from ..signals import signals_for
 from ..store import Store
 from .models import (
     AgentDetail,
     AgentSummary,
     CatalogueResponse,
+    CategoryListing,
+    CategoryResponse,
     Coverage,
     EndpointObservation,
+    EvidenceLink,
     ListResponse,
+    MetricFigure,
+    ServiceCard,
+    ServiceDetail,
     ServiceListing,
+    ServicesResponse,
     StatsResponse,
 )
 
@@ -103,10 +118,80 @@ PROBE_METHOD = (
     "does anything useful."
 )
 _STATUS_CODES = {404: "not_found", 405: "method_not_allowed"}
+# Stated on every /services response. Docket publishes no ranking, so the only orders
+# available to it are the ones a reader can predict — and an order that reorders itself
+# between requests would be read as one.
+SERVICE_ORDERING = (
+    "Ordered by service id, ascending. Docket ranks nothing: there is no relevance, "
+    "quality or popularity order here, and there is no order a reader cannot reproduce."
+)
+# The three states of the cross-link from a service into the fact plane. Each says which
+# case it is, because a missing link and an absent identity are different facts.
+IDENTITY_UNBOUND = (
+    "There is no agent record to cross-link to: no ERC-8004 identity has been registered "
+    "for this service, on BSC or anywhere else."
+)
+IDENTITY_IN_SNAPSHOT = (
+    "The snapshot Docket serves holds this agent. Its declared endpoints and every "
+    "observation Docket made of them are at the agent path below."
+)
+IDENTITY_OUTSIDE_SNAPSHOT = (
+    "The snapshot Docket serves does not hold this agent, so there is no /agents record to "
+    "open for it here. Docket's default sweep covers the agents carrying at least one "
+    "feedback record, which is a small slice of the registry — an identity outside that "
+    "slice is registered on chain and is simply not in what Docket indexed."
+)
+IDENTITY_NO_SNAPSHOT = (
+    "Docket is serving no completed snapshot just now, so it cannot say whether this agent "
+    "is in one. The identity above is the binding; the index is what is missing."
+)
 
 
 class MarkdownResponse(PlainTextResponse):
     media_type = "text/markdown"
+
+
+def _metric_figure(metric) -> MetricFigure:
+    """`display` carries the denominator inside the string, so a card cannot render the
+    numerator alone however it is templated."""
+    return MetricFigure(
+        name=metric.name,
+        unit=metric.unit,
+        window=metric.window,
+        observed_at=metric.observed_at,
+        method=metric.method,
+        value=metric.value,
+        numerator=metric.numerator,
+        denominator=metric.denominator,
+        display=metric.render(),
+    )
+
+
+def _category_job(category: Category | None) -> str | None:
+    if category is None:
+        return None
+    return next(entry.job for entry in CATEGORIES if entry.category is category)
+
+
+def _card(record: ServiceRecord) -> ServiceCard:
+    return ServiceCard(
+        service_id=record.service_id,
+        name=record.name,
+        category=None if record.category is None else record.category.value,
+        category_job=_category_job(record.category),
+        what_you_get=record.what_you_get,
+        price_display=record.price_display,
+        price_atomic=record.price_atomic,
+        asset=record.asset,
+        typical_seconds=record.typical_seconds,
+        activation=record.activation,
+        activation_means=record.activation_means,
+        metrics=[_metric_figure(metric) for metric in record.metrics],
+        agent_id=record.agent_id,
+        identity=record.identity_line,
+        hire_method="POST",
+        hire_path=f"/hire/{record.service_id}",
+    )
 
 
 def _published_seconds(value: float | None) -> float | None:
@@ -148,9 +233,7 @@ async def _http_error(request: Request, exc: StarletteHTTPException) -> JSONResp
     return _error(exc.status_code, code, str(exc.detail))
 
 
-async def _validation_error(
-    request: Request, exc: RequestValidationError
-) -> JSONResponse:
+async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
     first = exc.errors()[0]
     where = ".".join(str(part) for part in first["loc"][1:])
     return _error(422, "invalid_query_parameter", f"{where}: {first['msg']}")
@@ -194,9 +277,7 @@ def _responding_agent_ids(store: Store, snapshot_id: int) -> set[str]:
     }
 
 
-def create_app(
-    db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = None
-) -> FastAPI:
+def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = None) -> FastAPI:
     """Serve one snapshot read-only. Resolved once here rather than per request: a listing and
     the stats beside it must describe the same capture, even mid-sweep."""
     db_path = Path(db_path)
@@ -308,6 +389,8 @@ def create_app(
             "openapi": "/openapi.json",
             "stats": "/stats",
             "agents": "/agents",
+            "categories": "/categories",
+            "services": "/services",
             "hire": "/hire",
             "escrow": "/escrow",
             "advantage": "/advantage.json",
@@ -415,19 +498,14 @@ def create_app(
         limit = min(max(limit, 1), MAX_LIMIT)
         offset = max(offset, 0)
         store = Store(db_path)
-        responders = (
-            _responding_agent_ids(store, sid) if responded is not None else set()
-        )
+        responders = _responding_agent_ids(store, sid) if responded is not None else set()
 
         matched: list[AgentSummary] = []
         for agent in store.iter_agents(sid):
             signals = signals_for(agent)
             if has_feedback is not None and signals["has_feedback"] != has_feedback:
                 continue
-            if (
-                declares_callable is not None
-                and signals["callable"] != declares_callable
-            ):
+            if declares_callable is not None and signals["callable"] != declares_callable:
                 continue
             if name_family is not None and signals["name_family"] != name_family:
                 continue
@@ -501,6 +579,92 @@ def create_app(
             endpoints=sorted(kinds),
             observations=observations,
             coverage=_coverage(coverage_report(store, sid)),
+        )
+
+    def _identity_link(record: ServiceRecord) -> tuple[str | None, str]:
+        """Where this service's bound identity can be inspected, and why it cannot be when
+        it cannot. Deliberately not routed through `_serving()`: the marketplace does not
+        depend on a snapshot, and a service should not 503 because no sweep has landed."""
+        if record.agent_id is None:
+            return None, IDENTITY_UNBOUND
+        if snapshot_id is None:
+            return None, IDENTITY_NO_SNAPSHOT
+        # Drained into a set rather than short-circuited with any(): a suspended
+        # iter_agents generator holds its sqlite connection open for the whole request.
+        held = {row["agent_id"] for row in Store(db_path).iter_agents(snapshot_id)}
+        if record.agent_id in held:
+            return f"/agents/{record.agent_id}", IDENTITY_IN_SNAPSHOT
+        return None, IDENTITY_OUTSIDE_SNAPSHOT
+
+    @app.get("/categories", response_model=CategoryResponse)
+    def categories() -> CategoryResponse:
+        """BNB's four jobs, each with what it gets done and how many services stand in it.
+
+        A zero here is the honest answer and not a gap being papered over: Docket lists a
+        service where it runs the work and can show a recorded run behind it, and it will
+        not stock a shelf with registry agents whose job nothing on chain states.
+        """
+        listings = []
+        for entry in CATEGORIES:
+            stocked = records_in(entry.category)
+            listings.append(
+                CategoryListing(
+                    category=entry.category.value,
+                    job=entry.job,
+                    does=entry.does,
+                    service_count=len(stocked),
+                    empty=None if stocked else EMPTY_CATEGORY,
+                    services_path=f"/services?category={entry.category.value}",
+                )
+            )
+        return CategoryResponse(categories=listings, declaration=CATEGORY_DECLARATION)
+
+    @app.get("/services", response_model=ServicesResponse)
+    def list_services(category: Category | None = None) -> ServicesResponse:
+        """The services Docket runs, optionally narrowed to one job.
+
+        `category` is typed as the closed set, so anything else is refused with 422
+        invalid_query_parameter naming the four permitted values rather than answered with
+        the whole catalogue. Services outside those four are listed with a null category:
+        filing one under a job it does not do would be the fabrication this layer exists
+        to avoid.
+        """
+        records = all_records() if category is None else records_in(category)
+        return ServicesResponse(
+            services=[_card(record) for record in records],
+            total=len(records),
+            category=None if category is None else category.value,
+            ordering=SERVICE_ORDERING,
+            declaration=CATEGORY_DECLARATION,
+        )
+
+    @app.get("/services/{service_id}", response_model=ServiceDetail)
+    def get_service_detail(service_id: str) -> ServiceDetail:
+        """One service in full: what arrives, what to send, what it costs, what has been
+        observed of it, what it cannot do, and where its identity can be read."""
+        record = get_record(service_id)
+        if record is None:
+            raise HTTPException(
+                404,
+                detail={
+                    "code": "service_not_found",
+                    "message": (
+                        f"No service {service_id!r} in Docket's marketplace. GET /services "
+                        "lists every service it runs; GET /categories lists the four jobs."
+                    ),
+                },
+            )
+        agent_path, identity_note = _identity_link(record)
+        return ServiceDetail(
+            **_card(record).model_dump(),
+            registration_uri=record.registration_uri,
+            input_schema=record.input_schema,
+            limitations=record.limitations,
+            evidence=[
+                EvidenceLink(kind=ref.kind, url=ref.url, label=ref.label) for ref in record.evidence
+            ],
+            agent_path=agent_path,
+            identity_note=identity_note,
         )
 
     @app.get("/hire", response_model=CatalogueResponse)
@@ -690,9 +854,7 @@ def create_app(
                 "settle them, so signing the offer below does not raise the allowance."
             )
             if verdict is not None and not verdict[0]:
-                message += (
-                    f" The authorization presented was also not accepted: {verdict[1]}."
-                )
+                message += f" The authorization presented was also not accepted: {verdict[1]}."
             return JSONResponse(
                 status_code=402,
                 content={
@@ -715,9 +877,7 @@ def create_app(
         # allowance for it would charge for work never performed.
         except ValueError as exc:
             _refund_allowance(client_ip)
-            return _error(
-                422, "invalid_field", f"{service.id} could not read that request: {exc}"
-            )
+            return _error(422, "invalid_field", f"{service.id} could not read that request: {exc}")
         # Everything else is the deliberate other side of that boundary: the request was
         # readable, the work was attempted on this caller's behalf, and upstream resources
         # were spent on it. That hire stays spent whether or not it finished.

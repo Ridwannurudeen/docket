@@ -142,5 +142,99 @@ class CatalogueResponse(pydantic.BaseModel):
     services: list[ServiceListing]
 
 
+class MetricFigure(pydantic.BaseModel):
+    """One observed figure about a service, with everything needed to read it.
+
+    `numerator` and `denominator` travel together or not at all, and a share cannot be
+    built without them — enforced in `marketplace.models.Metric`, which is what builds
+    these. `display` is the same figure as text with its denominator inside the string,
+    so a card cannot render a rate stripped of its base.
+    """
+
+    name: str
+    unit: str
+    window: str
+    observed_at: str
+    method: str
+    value: float | None
+    numerator: int | None
+    denominator: int | None
+    display: str
+
+
+class EvidenceLink(pydantic.BaseModel):
+    """A pointer at something this origin already serves, so the claim behind a service
+    can be opened and checked here rather than taken on trust."""
+
+    kind: str
+    url: str
+    label: str
+
+
+class ServiceCard(pydantic.BaseModel):
+    """One service as a marketplace listing shows it: the job, the offer, and the way to
+    run it. `category` is Docket's own declaration about a service Docket runs, never a
+    property measured on an agent — the response that carries these says so."""
+
+    service_id: str
+    name: str
+    category: str | None
+    category_job: str | None
+    what_you_get: str
+    price_display: str
+    price_atomic: int
+    asset: str
+    typical_seconds: int
+    activation: str
+    activation_means: str
+    metrics: list[MetricFigure]
+    agent_id: str | None
+    identity: str
+    hire_method: str
+    hire_path: str
+
+
+class ServiceDetail(ServiceCard):
+    """Everything a caller needs to activate one service, plus what it cannot do.
+
+    `agent_path` is the cross-link into the fact plane, and it is null unless the bound
+    identity is actually in the snapshot being served — a link that 404s is a dead end,
+    and `identity_note` says which case this is.
+    """
+
+    registration_uri: str | None
+    input_schema: dict
+    limitations: str
+    evidence: list[EvidenceLink]
+    agent_path: str | None
+    identity_note: str
+
+
+class ServicesResponse(pydantic.BaseModel):
+    services: list[ServiceCard]
+    total: int
+    category: str | None
+    ordering: str
+    declaration: str
+
+
+class CategoryListing(pydantic.BaseModel):
+    """One job category. `empty` is prose where nothing stands in it yet and null where
+    something does: a count of zero is a fact, and the reason for it is the part a
+    reader actually needs."""
+
+    category: str
+    job: str
+    does: str
+    service_count: int
+    empty: str | None
+    services_path: str
+
+
+class CategoryResponse(pydantic.BaseModel):
+    categories: list[CategoryListing]
+    declaration: str
+
+
 class ErrorBody(pydantic.BaseModel):
     error: dict[str, str]
