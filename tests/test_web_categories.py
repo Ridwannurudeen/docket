@@ -172,6 +172,16 @@ def test_the_service_page_states_the_limitations_and_the_evidence(client):
         assert field in app_js, field
 
 
+def test_a_card_that_names_an_identity_does_not_imply_docket_indexed_it(client):
+    """The detail page carries the note; a card is where the reader decides. "Bound to the
+    BSC ERC-8004 agent …" alone reads as an agent Docket has observations for, and for the
+    one binding Docket's own stock has, it has none — that agent is not in the served
+    snapshot. So the card says where that question is answered."""
+    app_js = _read("app.js")
+    assert "card.agent_id" in app_js
+    assert "snapshot holds that agent is stated on the service page" in app_js
+
+
 def test_a_metric_can_only_be_rendered_with_its_denominator_attached(client):
     """`display` carries the denominator inside the string. Painting `numerator` on its
     own is how a rate loses its base, so the page has no access to it."""

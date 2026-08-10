@@ -298,6 +298,12 @@ function serviceCard(card) {
   const more = summary.cut
     ? ` <a href="${href}">Read the whole description</a>.`
     : "";
+  /* A binding on chain is not an entry in Docket's index, and on a card the first reads
+     as the second. The service page answers it in full — for the one identity Docket's
+     own stock has, the answer is that the served snapshot does not hold it. */
+  const identity = card.agent_id
+    ? `${card.identity} Whether Docket's snapshot holds that agent is stated on the service page.`
+    : card.identity;
   return `<div class="service">
       <h4><a href="${href}">${escapeHTML(card.name)}</a></h4>
       <p>${escapeHTML(summary.text)}${more}</p>
@@ -307,7 +313,7 @@ function serviceCard(card) {
         <li><span class="fact-key">What activating does</span> ${escapeHTML(card.activation_means)}</li>
       </ul>
       ${metricLines(card.metrics)}
-      <p class="dim">${escapeHTML(card.identity)}</p>
+      <p class="dim">${escapeHTML(identity)}</p>
       <p class="btn-row"><a class="btn btn-primary" href="${href}">Open and run it</a></p>
     </div>`;
 }
