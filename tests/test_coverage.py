@@ -1,5 +1,12 @@
+from pathlib import Path
+
 from docket.coverage import coverage_report, render_markdown
 from docket.store import Store
+
+PACKAGE = Path(__file__).resolve().parents[1] / "docket"
+# The labels this rename retired. Kept as exact tokens rather than as the word "probed",
+# which is still the right word for the method prose and the outcome vocabulary.
+RETIRED_LABELS = ("endpoints_probed", "responded_pct_of_probed", "agents_probed")
 
 
 def _seed(store: Store) -> int:
@@ -128,11 +135,12 @@ def test_liveness_figures_are_computed_from_probe_rows(tmp_path):
     rep = coverage_report(store, sid)
     assert rep["endpoints_resolved"] == 5  # every kind enrichment found
     assert rep["endpoints_probeable"] == 4  # the web URL is not a probe target
-    assert rep["endpoints_probed"] == 4
+    assert rep["endpoints_evaluated"] == 4
+    assert rep["endpoints_attempted"] == 3  # the loopback target was blocked, never requested
     assert rep["endpoints_responded"] == 2  # the 404 answered: the host is up
     assert rep["failed"] == 1
     assert rep["blocked"] == 1
-    assert rep["agents_probed"] == 3
+    assert rep["agents_attempted"] == 2  # the third agent's only endpoint was blocked
     assert rep["agents_responded"] == 1  # both responses belong to the same agent
     assert rep["liveness_observed_at"] == {
         "first": "2026-08-07T10:00:00+00:00",
@@ -140,16 +148,74 @@ def test_liveness_figures_are_computed_from_probe_rows(tmp_path):
     }
 
 
-def test_responded_pct_divides_by_probed_not_by_sampled(tmp_path):
+def test_each_rate_is_named_for_its_own_denominator(tmp_path):
     store = Store(tmp_path / "d.sqlite3")
     sid = _seed(store)
     _seed_probes(store, sid)
     rep = coverage_report(store, sid)
     assert rep["sampled"] == 5
-    assert rep["responded_pct"] == 50.0  # 2 responded of 4 probed
+    assert rep["responded_pct_of_attempted"] == 66.667  # 2 responded of 3 requested
+    assert rep["responded_pct_of_evaluated"] == 50.0  # 2 responded of 4 considered
     # 2 of 5 sampled agents would read as 40% — a liveness figure dressed up as a
-    # registry-wide claim. The denominator must be what was actually probed.
-    assert rep["responded_pct"] != round(100.0 * rep["endpoints_responded"] / rep["sampled"], 3)
+    # registry-wide claim. Neither denominator is the snapshot.
+    for rate in ("responded_pct_of_attempted", "responded_pct_of_evaluated"):
+        assert rep[rate] != round(100.0 * rep["endpoints_responded"] / rep["sampled"], 3)
+
+
+def _seed_outcomes(store: Store, sid: int, counts: dict[str, int]) -> None:
+    """One observation per outcome per distinct URL, so nothing collapses in `_latest`."""
+    rows = []
+    for outcome, n in counts.items():
+        for i in range(n):
+            rows.append(
+                {
+                    "snapshot_id": sid,
+                    "agent_id": f"56:r:{outcome}-{i}",
+                    "url": f"https://{outcome}-{i}.example/a2a",
+                    "observed_at": "2026-08-07T17:51:00+00:00",
+                    "outcome": outcome,
+                    "status_code": 200 if outcome == "responded" else None,
+                    "elapsed_ms": None,
+                    "detail": None,
+                }
+            )
+    store.record_liveness(rows)
+
+
+def test_attempted_counts_only_targets_an_http_request_reached(tmp_path):
+    """The live snapshot 3 shape. 35 endpoints were considered; 21 of them — every blocked
+    target and every name that would not resolve — never had a request issued at all, so a
+    rate over 35 divides responses by endpoints nothing was ever sent to."""
+    store = Store(tmp_path / "d.sqlite3")
+    sid = _seed(store)
+    _seed_outcomes(store, sid, {"responded": 13, "timeout": 1, "blocked": 10, "unresolved": 11})
+    rep = coverage_report(store, sid)
+    assert rep["endpoints_evaluated"] == 35
+    assert rep["endpoints_attempted"] == 14
+    assert rep["endpoints_attempted"] == (
+        rep["endpoints_evaluated"] - rep["blocked"] - rep["unresolved"]
+    )
+    assert rep["endpoints_responded"] == 13
+    assert rep["responded_pct_of_attempted"] == 92.857
+    assert rep["responded_pct_of_evaluated"] == 37.143
+
+
+def test_the_retired_probed_labels_survive_nowhere_in_the_package(tmp_path):
+    """A wrong label must not live on as an alias. The old names promised a denominator of
+    endpoints probed while counting endpoints nothing was ever sent to, so they are gone from
+    the report, the response models, the agent-facing documents and the human pages alike."""
+    store = Store(tmp_path / "d.sqlite3")
+    sid = _seed(store)
+    _seed_probes(store, sid)
+    rep = coverage_report(store, sid)
+    for label in RETIRED_LABELS:
+        assert label not in rep
+    for path in PACKAGE.rglob("*"):
+        if path.suffix not in (".py", ".html", ".js", ".txt", ".md"):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for label in RETIRED_LABELS:
+            assert label not in text, f"{path.name} still carries the retired label {label!r}"
 
 
 def test_reprobing_an_endpoint_is_history_not_another_endpoint(tmp_path):
@@ -171,7 +237,7 @@ def test_reprobing_an_endpoint_is_history_not_another_endpoint(tmp_path):
         ]
     )
     rep = coverage_report(store, sid)
-    assert rep["endpoints_probed"] == 4  # not 5
+    assert rep["endpoints_evaluated"] == 4  # not 5
     assert rep["endpoints_responded"] == 3  # the latest observation of that endpoint wins
     assert rep["failed"] == 0
     assert rep["liveness_observed_at"]["last"] == "2026-08-07T11:00:00+00:00"
@@ -186,8 +252,10 @@ def test_markdown_liveness_section_states_the_probe_method(tmp_path):
     assert "8s timeout" in md
     assert "no redirects followed" in md
     assert "SSRF guard" in md
-    assert "50.0% of probed endpoints responded" in md.replace("**", "")
-    assert "not of the 5 agents in this snapshot" in md
+    flat = md.replace("**", "")
+    assert "66.667% of the 3 endpoints a request reached responded" in flat
+    assert "50.0% of all 4 evaluated" in flat
+    assert "not of the 5 agents in this snapshot" in flat
 
 
 def test_unresolved_is_reported_apart_from_blocked(tmp_path):

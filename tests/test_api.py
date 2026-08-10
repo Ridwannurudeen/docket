@@ -82,12 +82,50 @@ def test_stats_never_reports_a_number_without_coverage(client):
     assert "probe_method" in body and body["probe_method"]
 
 
-def test_responded_pct_divides_by_probed_not_by_registry(client):
+def test_both_responded_rates_carry_their_own_denominator(client):
     body = client.get("/stats").json()
-    # 1 endpoint probed, 1 responded -> 100% of probed, NOT 50% of the 2 agents.
-    assert body["endpoints_probed"] == 1
+    # 1 endpoint evaluated and requested, 1 responded -> 100% either way, NOT 50% of the 2 agents.
+    assert body["endpoints_evaluated"] == 1
+    assert body["endpoints_attempted"] == 1
     assert body["endpoints_responded"] == 1
-    assert body["responded_pct_of_probed"] == 100.0
+    assert body["responded_pct_of_attempted"] == 100.0
+    assert body["responded_pct_of_evaluated"] == 100.0
+
+
+def test_a_blocked_target_is_evaluated_but_never_attempted(tmp_path):
+    """The live bug: /stats divided responses by every observation, including the ones an SSRF
+    refusal or a dead hostname meant no request was ever issued for."""
+    db = tmp_path / "blocked.sqlite3"
+    store = Store(db)
+    sid = store.begin_snapshot(chain_id=56, expected=1)
+    store.upsert_agents([AGENT], sid)
+    store.record_liveness(
+        [
+            {
+                "snapshot_id": sid,
+                "agent_id": AGENT["agent_id"],
+                "url": url,
+                "observed_at": "2026-08-07T10:00:00+00:00",
+                "outcome": outcome,
+                "status_code": 200 if outcome == "responded" else None,
+                "elapsed_ms": None,
+                "detail": None,
+            }
+            for url, outcome in (
+                ("https://a.example/a2a", "responded"),
+                ("npm://some-package", "blocked"),
+                ("https://gone.example/a2a", "unresolved"),
+            )
+        ]
+    )
+    store.finish_snapshot(sid, sampled=1, expected=1)
+    body = TestClient(create_app(db, snapshot_id=sid)).get("/stats").json()
+    assert body["endpoints_evaluated"] == 3
+    assert body["endpoints_attempted"] == 1  # blocked and unresolved reached no host
+    assert body["responded_pct_of_attempted"] == 100.0
+    assert body["responded_pct_of_evaluated"] == 33.333
+    for retired in ("endpoints_probed", "responded_pct_of_probed"):
+        assert retired not in body
 
 
 def test_agents_list_is_filterable_and_states_coverage(client):

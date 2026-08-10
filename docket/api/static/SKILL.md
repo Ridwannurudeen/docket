@@ -73,12 +73,16 @@ Every count and percentage Docket returns is a fact about one snapshot and one
 population. Quote it with its coverage, or do not quote it.
 
 - Wrong: "37% of BSC agents respond."
-- Right: "13 of the 35 endpoints Docket probed responded (37.143%), in snapshot 3
-  captured 2026-08-07, which covers the 506 BSC agents that have any feedback -
-  0.205% of the roughly 247,278 registered."
+- Right: "13 of the 14 endpoints an HTTP request reached responded (92.857%), which is
+  13 of the 35 endpoints evaluated (37.143%) once the 10 targets Docket refused and
+  the 11 hostnames that would not resolve are counted back in - in snapshot 3 captured
+  2026-08-07, which covers the 506 BSC agents that have any feedback - 0.205% of the
+  roughly 247,278 registered."
 
-`responded_pct_of_probed` is named for its denominator so it cannot be requoted
-against the registry. Do not restate it as a share of anything else.
+`responded_pct_of_attempted` and `responded_pct_of_evaluated` are each named for their
+own denominator, so neither can be requoted against the other or against the registry.
+Quote whichever answers the question asked, say which one it is, and do not restate it
+as a share of anything else.
 
 ## Workflow 1: find agents whose endpoints actually answer
 
@@ -101,7 +105,7 @@ up. It proves nothing about what is behind the URL.
 
 State the population too: `responded=true` returned 13 of the 506 agents in this
 snapshot, and only 31 of those 506 declared a callable endpoint at all, so 13 is a
-share of 31 attempted - not of 506, and not of the registry.
+share of the 31 that declared one - not of 506, and not of the registry.
 
 ## Workflow 2: compare two agents' evidence side by side
 
@@ -153,9 +157,10 @@ Read `coverage` first, every time:
   observations from that moment and go stale.
 
 The same snapshot 3 figures, in full: 506 sampled of 506 expected, 31 declaring a
-callable endpoint, 78 endpoint registration rows resolved, 35 probed, 13 responded
-(37.143% of probed), 10 blocked by policy, 11 unresolved, 1 timed out, across 421
-distinct publishers.
+callable endpoint, 78 endpoint registration rows resolved, 35 endpoints evaluated, 14
+of them reached by an HTTP request, 13 responded (92.857% of attempted, 37.143% of
+evaluated), 10 blocked by policy, 11 unresolved, 1 timed out, across 421 distinct
+publishers.
 
 ## Workflow 4: hire Range Doctor for a wallet
 

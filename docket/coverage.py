@@ -14,6 +14,11 @@ from .store import Store
 # are recorded but never probed, so a probe count must not be read against all of them.
 _PROBE_KINDS = ("a2a", "mcp")
 _FAILURE_OUTCOMES = ("timeout", "refused", "error")
+# Outcomes that can only have been reached by issuing an HTTP request. `blocked` and
+# `unresolved` are the two that cannot: one is a refusal Docket made before opening a
+# connection, the other a hostname that never resolved, and neither target was ever sent
+# anything. A response rate over them divides answers by endpoints nobody asked.
+_ATTEMPTED_OUTCOMES = ("responded", *_FAILURE_OUTCOMES)
 
 
 def _latest_observations(store: Store, snapshot_id: int) -> list[dict]:
@@ -43,7 +48,7 @@ def coverage_report(store: Store, snapshot_id: int) -> dict:
 
     endpoint_kinds = Counter(e["kind"] for e in store.iter_endpoints(snapshot_id))
     observations = _latest_observations(store, snapshot_id)
-    probed = len(observations)
+    attempted = [o for o in observations if o["outcome"] in _ATTEMPTED_OUTCOMES]
     responded = [o for o in observations if o["outcome"] == "responded"]
     stamps = sorted(o["observed_at"] for o in observations)
 
@@ -68,17 +73,28 @@ def coverage_report(store: Store, snapshot_id: int) -> dict:
         ],
         "endpoints_resolved": sum(endpoint_kinds.values()),
         "endpoints_probeable": sum(endpoint_kinds[k] for k in _PROBE_KINDS),
-        "endpoints_probed": probed,
+        # Two counts, because they answer two different questions and one number cannot.
+        # `evaluated` is every endpoint liveness considered; `attempted` is the subset an
+        # HTTP request actually reached.
+        "endpoints_evaluated": len(observations),
+        "endpoints_attempted": len(attempted),
         "endpoints_responded": len(responded),
-        # Share of the endpoints actually probed. Dividing by `sampled` would restate a probe
-        # result as a claim about the whole registry — the flattering lie available here.
-        "responded_pct": round(100.0 * len(responded) / probed, 3) if probed else 0.0,
+        # Both rates published, each named for its own denominator. The share of attempted
+        # says how often a reachable target answered; the share of evaluated says how much
+        # of the declared surface answered at all. Publishing only one of them under a name
+        # that promises the other is the failure this pair replaces.
+        "responded_pct_of_attempted": (
+            round(100.0 * len(responded) / len(attempted), 3) if attempted else 0.0
+        ),
+        "responded_pct_of_evaluated": (
+            round(100.0 * len(responded) / len(observations), 3) if observations else 0.0
+        ),
         # Kept apart deliberately: `blocked` is a refusal we made, `unresolved` is a name that
         # would not resolve. Summing them would publish DNS trouble as a safety statistic.
         "blocked": sum(1 for o in observations if o["outcome"] == "blocked"),
         "unresolved": sum(1 for o in observations if o["outcome"] == "unresolved"),
         "failed": sum(1 for o in observations if o["outcome"] in _FAILURE_OUTCOMES),
-        "agents_probed": len({o["agent_id"] for o in observations}),
+        "agents_attempted": len({o["agent_id"] for o in attempted}),
         "agents_responded": len({o["agent_id"] for o in responded}),
         "liveness_observed_at": {"first": stamps[0], "last": stamps[-1]} if stamps else None,
     }
@@ -109,13 +125,15 @@ def render_markdown(report: dict) -> str:
     for row in report["top_publishers"]:
         lines.append(f"| {row['publisher']} | {row['count']:,} | {row['share_pct']}% |")
     lines += ["", "## Endpoint liveness", ""]
-    if report["endpoints_probed"]:
+    if report["endpoints_evaluated"]:
         window = report["liveness_observed_at"]
         lines += [
             f"Enrichment resolved **{report['endpoints_resolved']:,}** endpoint URLs from agent "
             f"cards, of which **{report['endpoints_probeable']:,}** are A2A or MCP. "
-            f"**{report['endpoints_probed']:,}** were probed between {window['first']} and "
-            f"{window['last']}.",
+            f"**{report['endpoints_evaluated']:,}** were evaluated between {window['first']} and "
+            f"{window['last']}, and **{report['endpoints_attempted']:,}** of those had a request "
+            f"issued — the rest were refused by the guard or would not resolve, so nothing was "
+            f"ever sent to them.",
             "",
             "Method: one GET per endpoint, single attempt, 8s timeout, no redirects followed, "
             "every target vetted by an SSRF guard before any connection is opened, and a host "
@@ -130,9 +148,12 @@ def render_markdown(report: dict) -> str:
             f"| Unresolved — the host did not resolve, so nothing was probed | "
             f"{report['unresolved']:,} |",
             "",
-            f"**{report['responded_pct']}%** of probed endpoints responded, covering "
-            f"**{report['agents_responded']:,}** of the **{report['agents_probed']:,}** agents "
-            f"probed. That share is of the endpoints probed — not of the "
+            f"**{report['responded_pct_of_attempted']}%** of the "
+            f"**{report['endpoints_attempted']:,}** endpoints a request reached responded, and "
+            f"**{report['responded_pct_of_evaluated']}%** of all "
+            f"**{report['endpoints_evaluated']:,}** evaluated did. Those responses cover "
+            f"**{report['agents_responded']:,}** of the **{report['agents_attempted']:,}** agents "
+            f"a request was issued for. Both shares are of endpoints — not of the "
             f"{report['sampled']:,} agents in this snapshot.",
             "",
             "A response means a host answered. It is not evidence that the agent behind the URL "

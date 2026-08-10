@@ -51,22 +51,33 @@ GET /stats
     Every generated figure for the served snapshot, each one inside the coverage it
     was computed from. No parameters. Fields:
 
-      coverage                 see "Coverage" below; required, never absent
-      with_feedback            agents in this snapshot with >= 1 feedback record
-      callable_declared        agents declaring an A2A or MCP protocol
-      endpoints_resolved       endpoint registration rows read from agent cards, over
-                               all kinds (a2a, mcp, web, service). One URL registered
-                               under two kinds counts twice: on snapshot 3 this is 78
-                               rows over 43 distinct (agent, URL) pairs
-      endpoints_probed         endpoints actually probed. Only a2a and mcp are probed
-      endpoints_responded      of those probed, how many got an HTTP response
-      responded_pct_of_probed  named for its denominator. It is a share of
-                               endpoints_probed and of nothing else
-      blocked_by_policy        targets Docket refused to contact (see "blocked")
-      unresolved               hostnames that would not resolve (see "unresolved")
-      distinct_publishers      distinct publisher keys in the snapshot
-      top_publishers           the five largest, with counts and share of the snapshot
-      probe_method             one line stating how liveness was measured
+      coverage                    see "Coverage" below; required, never absent
+      with_feedback               agents in this snapshot with >= 1 feedback record
+      callable_declared           agents declaring an A2A or MCP protocol
+      endpoints_resolved          endpoint registration rows read from agent cards,
+                                  over all kinds (a2a, mcp, web, service). One URL
+                                  registered under two kinds counts twice: on snapshot
+                                  3 this is 78 rows over 43 distinct (agent, URL) pairs
+      endpoints_evaluated         endpoints liveness considered. Only a2a and mcp are
+                                  considered at all
+      endpoints_attempted         of those, the ones an HTTP request actually reached.
+                                  A target Docket refused on policy grounds, or whose
+                                  hostname would not resolve, was never sent anything:
+                                  it is evaluated and it is not attempted
+      endpoints_responded         of those attempted, how many got an HTTP response
+      responded_pct_of_attempted  named for its denominator: a share of
+                                  endpoints_attempted and of nothing else. This is how
+                                  often a target Docket could reach answered
+      responded_pct_of_evaluated  the same responses over every endpoint evaluated, so
+                                  it is the lower figure. Quote this one about the
+                                  declared surface, the other about reachable hosts,
+                                  and never either one without saying which
+      blocked_by_policy           targets Docket refused to contact (see "blocked")
+      unresolved                  hostnames that would not resolve (see "unresolved")
+      distinct_publishers         distinct publisher keys in the snapshot
+      top_publishers              the five largest, with counts and share of the
+                                  snapshot
+      probe_method                one line stating how liveness was measured
 
     curl -s "$DOCKET/stats"
 
@@ -306,13 +317,21 @@ the population "BSC agents with >= 1 feedback record".
 
     Of the 506 agents in this snapshot, 31 declare a callable A2A or MCP endpoint.
     Enrichment resolved 78 endpoint registration rows from their cards; 35 of those
-    were A2A or MCP and were probed. 13 responded -- 37.143% of the 35 probed. The
-    other 22: 11 unresolved, 10 blocked by policy, 1 timed out.
+    were A2A or MCP and were evaluated. An HTTP request reached 14 of the 35 -- the
+    other 21 were 10 targets Docket refused on policy grounds and 11 hostnames that
+    would not resolve, none of which was ever sent anything. Of the 14 attempted, 13
+    responded and 1 timed out: 92.857% of attempted, 37.143% of evaluated.
 
 Read what that does and does not say.
 
-  - 37.143% is a share of the 35 endpoints probed. It is not 37% of 506 agents, and
-    it is emphatically not 37% of the 247,278 agents on BNB Smart Chain.
+  - There are two rates because there are two denominators, and one number cannot
+    carry both. 92.857% is a share of the 14 endpoints a request reached. 37.143% is
+    a share of all 35 evaluated. Neither is 37% of 506 agents, and neither,
+    emphatically, is a share of the 247,278 agents on BNB Smart Chain.
+  - The gap between the two is the 21 endpoints nothing was sent to. Quoting the
+    higher rate without saying what it excludes overstates the reachable surface;
+    quoting the lower one as "how often an agent's endpoint answers" charges the
+    agents for Docket's own refusals and for DNS.
   - The 13 responses mean 13 hosts answered. None of them is a working-agent count.
   - The 10 blocked are Docket's own refusals. They are not misconduct findings.
   - 31 of 506 declaring a callable endpoint is a count of claims agents made about

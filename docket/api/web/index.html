@@ -106,9 +106,9 @@
                 </p>
               </li>
               <li class="metric">
-                <p class="metric-label">Endpoints probed</p>
-                <p class="metric-value" data-field="probed"><span class="skeleton"></span></p>
-                <p class="metric-note" data-field="probed-note">
+                <p class="metric-label">Endpoints evaluated</p>
+                <p class="metric-value" data-field="evaluated"><span class="skeleton"></span></p>
+                <p class="metric-note" data-field="evaluated-note">
                   <span class="skeleton skeleton-wide"></span>
                 </p>
               </li>
@@ -130,10 +130,17 @@
 
             <section aria-labelledby="breakdown">
               <h3 id="breakdown">Where the probes ended up</h3>
+              <p class="section-note">
+                Only the endpoints a request actually reached can be read as a response rate.
+                Docket refused some targets itself and could not resolve others, so nothing was
+                ever sent to them — they are counted, and they are counted separately.
+              </p>
               <div class="panel">
                 <dl class="deflist">
-                  <dt>Endpoints probed</dt>
-                  <dd data-field="breakdown-probed"><span class="skeleton"></span></dd>
+                  <dt>Endpoints evaluated</dt>
+                  <dd data-field="breakdown-evaluated"><span class="skeleton"></span></dd>
+                  <dt>A request was issued</dt>
+                  <dd data-field="breakdown-attempted"><span class="skeleton"></span></dd>
                   <dt>A host answered</dt>
                   <dd data-field="breakdown-responded"><span class="skeleton"></span></dd>
                   <dt>Docket declined to connect</dt>

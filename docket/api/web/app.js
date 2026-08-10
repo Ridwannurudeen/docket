@@ -269,16 +269,19 @@ function paintStats(stats) {
     `of ${fmtInt(cov.sampled)} agents. A claim they made, not a probe result`,
   );
 
-  fill("probed", fmtInt(stats.endpoints_probed));
+  fill("evaluated", fmtInt(stats.endpoints_evaluated));
   fill(
-    "probed-note",
-    `of ${fmtInt(stats.endpoints_resolved)} endpoint rows resolved. Only A2A and MCP are probed`,
+    "evaluated-note",
+    `of ${fmtInt(stats.endpoints_resolved)} endpoint rows resolved. Only A2A and MCP are probed, ` +
+      `and only ${fmtInt(stats.endpoints_attempted)} had a request issued`,
   );
 
   fill("responded", fmtInt(stats.endpoints_responded));
   fill(
     "responded-note",
-    `${fmtPct(stats.responded_pct_of_probed, 3)} of the ${fmtInt(stats.endpoints_probed)} probed`,
+    `${fmtPct(stats.responded_pct_of_attempted, 3)} of the ${fmtInt(stats.endpoints_attempted)} a ` +
+      `request reached; ${fmtPct(stats.responded_pct_of_evaluated, 3)} of all ` +
+      `${fmtInt(stats.endpoints_evaluated)} evaluated`,
   );
 
   fill("publishers", fmtInt(stats.distinct_publishers));
@@ -287,12 +290,11 @@ function paintStats(stats) {
     `distinct publisher keys across ${fmtInt(cov.sampled)} agents`,
   );
 
-  const other =
-    stats.endpoints_probed -
-    stats.endpoints_responded -
-    stats.blocked_by_policy -
-    stats.unresolved;
-  fill("breakdown-probed", fmtInt(stats.endpoints_probed));
+  // Every attempt that was not an answer. Taken from `attempted` rather than from
+  // `evaluated`, so the targets no request reached are not folded in as failures.
+  const other = stats.endpoints_attempted - stats.endpoints_responded;
+  fill("breakdown-evaluated", fmtInt(stats.endpoints_evaluated));
+  fill("breakdown-attempted", fmtInt(stats.endpoints_attempted));
   fill("breakdown-responded", fmtInt(stats.endpoints_responded));
   fill("breakdown-blocked", fmtInt(stats.blocked_by_policy));
   fill("breakdown-unresolved", fmtInt(stats.unresolved));

@@ -90,10 +90,15 @@ class StatsResponse(pydantic.BaseModel):
     with_feedback: int
     callable_declared: int
     endpoints_resolved: int
-    endpoints_probed: int
+    # `evaluated` is every endpoint liveness considered; `attempted` is the subset an HTTP
+    # request actually reached. A blocked or unresolved target is evaluated and never attempted.
+    endpoints_evaluated: int
+    endpoints_attempted: int
     endpoints_responded: int
-    # Named for its denominator so the number cannot be requoted against the whole registry.
-    responded_pct_of_probed: float
+    # Both rates, each named for its own denominator, so neither can be requoted against a
+    # population it was not divided by.
+    responded_pct_of_attempted: float
+    responded_pct_of_evaluated: float
     blocked_by_policy: int
     unresolved: int
     distinct_publishers: int
