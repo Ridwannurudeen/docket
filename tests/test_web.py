@@ -110,6 +110,19 @@ def test_landing_states_the_sampled_figure_is_a_filtered_slice():
         assert phrase in lowered, phrase
 
 
+def test_a_full_sweep_is_not_told_it_is_a_slice():
+    """The census claim is gated on what was swept, not on arithmetic. Deciding it from
+    `registry_total > expected` alone would tell a genuine whole-registry sweep that it "is not
+    a census" — the same class of mislabel this stage exists to remove, pointed the other way.
+    `registry_total` still gates the scale FIGURE, which is a separate question."""
+    app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    assert 'cov.population === "all"' in app_js
+    assert "was the whole registry" in app_js
+    # The heading turns on the same fact, so a census is not filed under "is a slice of".
+    assert "What this snapshot covers" in app_js
+    assert 'census ? "What this snapshot covers"' in app_js
+
+
 def test_no_registry_figure_is_typed_into_a_page():
     """Every number on this site is read from the API at runtime. A registry total hard-coded
     into the markup would go stale silently, and staleness in a denominator is the whole bug."""

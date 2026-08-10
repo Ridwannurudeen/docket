@@ -265,8 +265,13 @@ function paintSlice(stats) {
   const target = region("slice");
   if (!target) return;
   const cov = stats.coverage;
-  const swept =
-    cov.population === null
+  /* What was swept decides whether this is a slice at all. A sweep that recorded
+     population "all" IS the registry as it found it, and telling it otherwise from an
+     arithmetic accident would be this stage's own bug pointed the other way. */
+  const census = cov.population === "all";
+  const swept = census
+    ? "the whole registry"
+    : cov.population === null
       ? "a query it did not record"
       : `the query <code>${escapeHTML(populationLabel(cov))}</code>`;
   const unrecorded =
@@ -274,17 +279,27 @@ function paintSlice(stats) {
       ? ` Which query is not stored on that snapshot, and Docket does not backfill one a sweep
          never recorded — it shows as unspecified rather than as "all".`
       : "";
-  const scale =
-    stats.registry_total !== null && stats.registry_total > cov.expected
-      ? ` That query is a filtered slice: at least
-         <strong class="num">${escapeHTML(fmtInt(stats.registry_total))}</strong> agents were
-         registered when a sweep here last measured this chain — a lower bound, not a count of
-         it — so "complete" above means complete for the slice and is not a census.`
-      : ` No wider sweep of this chain has been recorded here, so there is no registry-wide
-         figure to read this against — "complete" above means complete for that query alone,
-         and is not a census.`;
+  /* Whether a scale FIGURE exists is a separate question from whether this is a slice, so
+     registry_total gates the number and never the claim. */
+  const wider =
+    stats.registry_total !== null && stats.registry_total > cov.expected;
+  let scale;
+  if (census) {
+    scale = ` That query was the whole registry, so "complete" above is completeness against
+       this chain as that sweep found it, rather than against a slice of it.`;
+  } else if (wider) {
+    scale = ` That query is a filtered slice: at least
+       <strong class="num">${escapeHTML(fmtInt(stats.registry_total))}</strong> agents were
+       registered when a sweep here last measured this chain — a lower bound, not a count of
+       it — so "complete" above means complete for the slice and is not a census.`;
+  } else {
+    scale = ` No wider sweep of this chain has been recorded here, so there is no measured
+       figure to read this against — "complete" above is completeness against that query
+       alone, and how much of the chain the query covered is not something Docket has
+       measured.`;
+  }
   target.innerHTML = `<div class="notice">
-      <h3>What this snapshot is a slice of</h3>
+      <h3>${census ? "What this snapshot covers" : "What this snapshot is a slice of"}</h3>
       <p>
         Snapshot ${escapeHTML(cov.snapshot_id)} swept ${swept}, and stored
         <strong class="num">${escapeHTML(fmtInt(cov.sampled))}</strong> of the
