@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 from docket.api.models import BANNED_FIELD_NAMES
 from docket.api import create_app
 from docket.marketplace.models import CATEGORIES, Category, is_share_unit
-from docket.marketplace.registry import SERVICES, records_in
+from docket.marketplace.registry import SERVICES, category_counts, records_in
 from docket.store import Store
 
 SOLVENT_AGENT_ID = "56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:136384"
@@ -299,6 +299,31 @@ def test_llms_txt_documents_the_service_paths(client):
     for path in ("/categories", "/services", "/services/{service_id}"):
         assert path in body, path
     assert "ordered by service id" in body.lower()
+
+
+def test_llms_txt_names_every_service_a_caller_can_hire(client):
+    """The existing drift guard requires every OpenAPI *path* in llms.txt, which is a
+    weaker promise than it looks: `/hire/{service_id}` is one path however many services
+    stand behind it. So a service added to the catalogue is invisible to an agent that
+    only ever reads the documentation, unless the documentation names it. This binds the
+    prose to the stock."""
+    body = client.get("/llms.txt").text
+    for service_id in SERVICES:
+        assert service_id in body, f"/llms.txt never names {service_id}"
+
+
+def test_llms_txt_does_not_describe_an_inventory_docket_no_longer_has(client):
+    """Prose goes stale where a test does not look. The count of stocked shelves is the
+    single most quotable claim on this site and the easiest one to leave behind after a
+    category is filled, so it is checked against the registry rather than reviewed."""
+    # Whitespace-normalised: llms.txt is wrapped prose, and a sentence that happens to
+    # break across two lines is still the same claim.
+    body = " ".join(client.get("/llms.txt").text.lower().split())
+    words = {1: "one", 2: "two", 3: "three", 4: "four"}
+    stocked = sum(1 for count in category_counts().values() if count)
+    empty = len(Category) - stocked
+    assert f"{words[stocked]} of the four have a service in them" in body
+    assert f"the other {words[empty]} return service_count 0" in body
 
 
 def test_skill_md_teaches_the_category_first_route(client):

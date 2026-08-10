@@ -503,9 +503,15 @@ Three rules govern that layer, and they are the reason it is small.
       Docket does not know and does not guess.
 
   An empty category says it is empty.
-      One of the four has a service in it. The other three return service_count 0 and an
-      "empty" sentence saying why, and there is no placeholder card and no date. A
-      four-category marketplace over three bare shelves would read as stock that exists.
+      Two of the four have a service in them — rebalancing and grid_trading. The other
+      two return service_count 0 and an "empty" sentence saying why, and there is no
+      placeholder card and no date. A four-category marketplace over four bare shelves
+      would read as stock that exists, and so would one stocked with a card claiming more
+      than the service behind it does. Read grid-operator's limitations before quoting
+      it: a hire of it returns a preview built against the chain and cannot submit
+      anything, because the object that runs it holds no session key and has no method
+      that sends. Acting on a grid level needs a session the wallet's owner grants on
+      chain, and Docket never holds the owner key.
 
   A service that is not one of the four is listed as itself.
       warden-scan is a security service and solvent-signal relays a dated regime read.
@@ -517,7 +523,7 @@ The identity cross-link has three states and says which one it is, because "no l
 
   agent_id null
       No ERC-8004 identity has been registered for this service at all. agent_path is
-      null and identity_note says so. Two of the three services are in this state.
+      null and identity_note says so. Three of the four services are in this state.
 
   agent_id set, agent_path set
       The bound identity is in the snapshot Docket is serving; open agent_path for its

@@ -180,7 +180,8 @@ from docket.execution.authority import AltanaSessionAuthority, SessionRef, \
 
 WALLET      = "0x..."   # the Altana account
 SESSION_KEY = "0x..."   # session signer address
-PUBLIC_KEY  = "0x04..." # session.publicKey, SEC1 uncompressed
+PUBLIC_KEY  = "0x04..." # session.publicKey, SEC1 uncompressed (65 bytes)
+EXPIRY      = 0         # the unix seconds the grant in 5 was given
 ROUTER = "0x10ED43C718714eb63d5aA57B78B54704E256024E"
 USDT   = "0x55d398326f99059fF775485246999027B3197955"
 
