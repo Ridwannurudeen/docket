@@ -200,6 +200,14 @@ def test_the_registry_browser_moved_intact(client):
     assert "research" in _read("app.js")
 
 
+def test_nothing_inside_the_site_still_links_at_the_moved_url(client):
+    """The redirect is there for links other people already hold. A link this site emits
+    itself should go straight to the page rather than take a hop it controls."""
+    for path in WEB_DIR.glob("*"):
+        text = path.read_text(encoding="utf-8")
+        assert 'href="/browse"' not in text, f"{path.name} still links at /browse"
+
+
 def test_the_research_page_says_docket_assigns_these_agents_no_category(client):
     """The one line that keeps the two planes apart in a reader's head."""
     research = _read("research.html").lower()

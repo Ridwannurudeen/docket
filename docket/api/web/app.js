@@ -1225,7 +1225,7 @@ async function initAgent() {
     target.innerHTML = `<div class="panel panel-error" role="alert">
         <p class="error-code">no_agent_requested</p>
         <p>This page shows one agent, named by an <code>id</code> in the address. None was given.</p>
-        <p class="btn-row"><a class="btn" href="/browse">Pick one from the listing</a></p>
+        <p class="btn-row"><a class="btn" href="/research">Pick one from the listing</a></p>
       </div>`;
     return;
   }
