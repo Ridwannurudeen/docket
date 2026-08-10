@@ -55,13 +55,18 @@ GET /stats
     was computed from. No parameters. Fields:
 
       coverage                    see "Coverage" below; required, never absent
-      registry_total              the largest chain-wide agent total any sweep has
-                                  recorded — the scale `coverage.complete` is silent
-                                  about. A snapshot swept from a filtered query is
-                                  complete the moment it reaches the end of THAT
-                                  query, so quote this beside it or a complete slice
-                                  reads as a census. Null where no sweep has recorded
-                                  a total; never the served snapshot's own figure
+      registry_total              a LOWER BOUND on the chain's size: the largest total
+                                  any sweep has recorded. Read it as "at least this
+                                  many agents were registered when some sweep last
+                                  measured", never as the registry's size — where
+                                  every sweep on record was filtered this is itself a
+                                  filtered total and the chain is larger, and it may
+                                  equal coverage.expected. It is the scale
+                                  `coverage.complete` is silent about, since a
+                                  snapshot swept from a filtered query is complete the
+                                  moment it reaches the end of THAT query: quote this
+                                  beside it or a complete slice reads as a census.
+                                  Null where no sweep has recorded a total at all
       with_feedback               agents in this snapshot with >= 1 feedback record
       callable_declared           agents declaring an A2A or MCP protocol
       endpoints_resolved          endpoint registration rows read from agent cards,
@@ -297,10 +302,13 @@ declining to backfill a value the sweep never recorded; the filter it actually u
 here on records its own.
 
 The scale of what the filter left out is served too, at /stats as `registry_total`:
-247,146 on the current database, being the largest chain-wide total any sweep here has
-recorded. `coverage.complete` is completeness against `coverage.expected`, and reading
-the two without `registry_total` beside them is how "506 of 506, complete" turns into a
-claim about BNB Smart Chain.
+247,146 on the current database, being the largest total any sweep here has recorded.
+It is a LOWER BOUND, not a census — at least that many agents were registered when a
+sweep last measured, and the chain may be larger. On a database whose every sweep was
+filtered it would be a filtered total, so it can never be quoted as the registry's size.
+`coverage.complete` is completeness against `coverage.expected`, and reading those two
+without `registry_total` beside them is how "506 of 506, complete" turns into a claim
+about BNB Smart Chain.
 
 When you quote a Docket number, quote its coverage with it.
 

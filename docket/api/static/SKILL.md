@@ -168,10 +168,13 @@ Read `coverage` first, every time:
   returns `"filter": "has_feedback=true"`; a count taken from it is a count of that
   subset only. It is a different question from `population` - one narrows the response,
   the other narrowed the sweep - and they are not interchangeable.
-- `/stats` adds `registry_total` beside the coverage: the largest chain-wide total any
-  sweep has recorded, 247,146 on the current database. Quote it whenever you quote
-  `complete`. "506 of 506, complete" without it is how a filtered slice becomes a claim
-  about BNB Smart Chain.
+- `/stats` adds `registry_total` beside the coverage: the largest total any sweep has
+  recorded, 247,146 on the current database. It is a **lower bound**, not a census - at
+  least that many agents were registered when a sweep last measured, and the chain may be
+  larger. On a database whose every sweep was filtered it would itself be a filtered total,
+  and it may equal `coverage.expected`; never quote it as the registry's size. Quote it
+  whenever you quote `complete`: "506 of 506, complete" without it is how a filtered slice
+  becomes a claim about BNB Smart Chain.
 - `captured_at` is when the snapshot was taken, not now. Liveness outcomes are
   observations from that moment and go stale.
 

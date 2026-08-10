@@ -276,9 +276,10 @@ function paintSlice(stats) {
       : "";
   const scale =
     stats.registry_total !== null && stats.registry_total > cov.expected
-      ? ` That query is a filtered slice of the <strong class="num">${escapeHTML(fmtInt(stats.registry_total))}</strong>
-         agents the registry has reported to Docket for this chain, so "complete" above means
-         complete for the slice and is not a census.`
+      ? ` That query is a filtered slice: at least
+         <strong class="num">${escapeHTML(fmtInt(stats.registry_total))}</strong> agents were
+         registered when a sweep here last measured this chain — a lower bound, not a count of
+         it — so "complete" above means complete for the slice and is not a census.`
       : ` No wider sweep of this chain has been recorded here, so there is no registry-wide
          figure to read this against — "complete" above means complete for that query alone,
          and is not a census.`;

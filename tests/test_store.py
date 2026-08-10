@@ -115,6 +115,27 @@ def test_registry_total_is_the_largest_total_any_sweep_recorded(tmp_path: Path):
     assert store.registry_total(97) is None  # another chain's sweeps are not this chain's
 
 
+def test_registry_total_is_only_a_lower_bound_when_every_sweep_was_filtered(tmp_path: Path):
+    """The state Stage 5's refresh loop produces on a fresh deployment: nothing but targeted
+    sweeps on record. The largest total recorded is then a FILTERED total, and the chain is
+    larger than it rather than equal to it — so the figure may only ever be read as "at least
+    this many", never as the size of the registry."""
+    store = Store(tmp_path / "d.sqlite3")
+    for expected in (506, 512):
+        sid = store.begin_snapshot(chain_id=56, expected=expected, population="min_feedbacks>=1")
+        store.finish_snapshot(sid, sampled=expected)
+    assert store.registry_total(56) == 512  # a filtered total, and a true lower bound
+    # It can equal the served snapshot's own `expected`, which is why no doc may promise it
+    # is "never the served snapshot's own figure".
+    assert store.registry_total(56) == store.snapshot(2)["expected"]
+
+
+def test_registry_total_states_the_lower_bound_reading_where_a_reader_will_see_it():
+    doc = Store.registry_total.__doc__.lower()
+    assert "lower bound" in doc
+    assert "at least" in doc
+
+
 def test_a_database_predating_the_column_is_migrated_not_rejected(tmp_path: Path):
     """The live database was written before this column existed. Its rows cannot state a
     population they never recorded, so they read as None — unspecified, never guessed at."""

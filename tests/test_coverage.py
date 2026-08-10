@@ -16,6 +16,10 @@ RETIRED_LABELS = (
     "distinct_publishers",
     "top_publishers",
 )
+# Claims the code contradicts. `registry_total` CAN equal the served snapshot's own `expected`
+# — a store whose every sweep was filtered returns exactly that — so a document promising
+# otherwise is describing behaviour Docket does not have.
+RETIRED_CLAIMS = ("never the served snapshot",)
 
 
 def _seed(store: Store) -> int:
@@ -255,6 +259,8 @@ def test_the_retired_probed_labels_survive_nowhere_in_the_package(tmp_path):
         text = path.read_text(encoding="utf-8")
         for label in RETIRED_LABELS:
             assert label not in text, f"{path.name} still carries the retired label {label!r}"
+        for claim in RETIRED_CLAIMS:
+            assert claim not in text, f"{path.name} still makes the retired claim {claim!r}"
 
 
 def test_reprobing_an_endpoint_is_history_not_another_endpoint(tmp_path):
