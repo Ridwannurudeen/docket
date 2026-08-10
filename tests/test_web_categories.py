@@ -248,3 +248,15 @@ def test_the_stylesheet_and_module_are_versioned_so_a_returning_reader_gets_them
         # load one has to version it for the same reason.
         if "/static/app.js" in text:
             assert 'src="/static/app.js?v=' in text, name
+
+
+def test_every_page_asks_for_the_same_version_of_the_same_two_files():
+    """One stylesheet and one module serve the whole site, so one token has to cover them.
+    A bump applied to some pages and not others is worse than no bump at all: the pages
+    that moved pull the new file, the pages that did not keep the old one out of cache,
+    and which design a reader sees depends on where they landed."""
+    tokens = set()
+    for name in PAGES:
+        text = _read(name)
+        tokens.update(re.findall(r'/static/(?:style\.css|app\.js)\?v=([^"]+)', text))
+    assert len(tokens) == 1, f"the site asks for several asset versions at once: {tokens}"
