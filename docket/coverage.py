@@ -86,12 +86,13 @@ def coverage_report(store: Store, snapshot_id: int) -> dict:
         "endpoints_probeable": sum(endpoint_kinds[k] for k in _PROBE_KINDS),
         # Two counts, because they answer two different questions and one number cannot.
         # `evaluated` is every endpoint liveness considered; `attempted` is the subset an
-        # HTTP request actually reached.
+        # HTTP request was actually issued to.
         "endpoints_evaluated": len(observations),
         "endpoints_attempted": len(attempted),
         "endpoints_responded": len(responded),
         # Both rates published, each named for its own denominator. The share of attempted
-        # says how often a reachable target answered; the share of evaluated says how much
+        # says how often an endpoint Docket sent a request to answered; the share of
+        # evaluated says how much
         # of the declared surface answered at all. Publishing only one of them under a name
         # that promises the other is the failure this pair replaces.
         "responded_pct_of_attempted": (
@@ -169,7 +170,8 @@ def render_markdown(report: dict) -> str:
             f"{report['unresolved']:,} |",
             "",
             f"**{report['responded_pct_of_attempted']}%** of the "
-            f"**{report['endpoints_attempted']:,}** endpoints a request reached responded, and "
+            f"**{report['endpoints_attempted']:,}** endpoints a request was issued to "
+            f"responded, and "
             f"**{report['responded_pct_of_evaluated']}%** of all "
             f"**{report['endpoints_evaluated']:,}** evaluated did. Those responses cover "
             f"**{report['agents_responded']:,}** of the **{report['agents_attempted']:,}** agents "

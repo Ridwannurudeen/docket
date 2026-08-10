@@ -343,7 +343,7 @@ function paintStats(stats) {
   fill(
     "responded-note",
     `${fmtPct(stats.responded_pct_of_attempted, 3)} of the ${fmtInt(stats.endpoints_attempted)} a ` +
-      `request reached; ${fmtPct(stats.responded_pct_of_evaluated, 3)} of all ` +
+      `request was issued to; ${fmtPct(stats.responded_pct_of_evaluated, 3)} of all ` +
       `${fmtInt(stats.endpoints_evaluated)} evaluated`,
   );
 
@@ -354,7 +354,7 @@ function paintStats(stats) {
   );
 
   // Every attempt that was not an answer. Taken from `attempted` rather than from
-  // `evaluated`, so the targets no request reached are not folded in as failures.
+  // `evaluated`, so the targets no request was issued to are not folded in as failures.
   const other = stats.endpoints_attempted - stats.endpoints_responded;
   fill("breakdown-evaluated", fmtInt(stats.endpoints_evaluated));
   fill("breakdown-attempted", fmtInt(stats.endpoints_attempted));

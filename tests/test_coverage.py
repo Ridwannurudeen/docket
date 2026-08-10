@@ -19,7 +19,15 @@ RETIRED_LABELS = (
 # Claims the code contradicts. `registry_total` CAN equal the served snapshot's own `expected`
 # — a store whose every sweep was filtered returns exactly that — so a document promising
 # otherwise is describing behaviour Docket does not have.
-RETIRED_CLAIMS = ("never the served snapshot",)
+RETIRED_CLAIMS = (
+    "never the served snapshot",
+    # A timeout is in the attempted set and nothing arrived anywhere. "Reached" describes an
+    # arrival Docket did not observe, so the attempted denominator is described by what Docket
+    # actually did — issue a request — not by what became of it.
+    "request reached",
+    "request actually reached",
+    "reached by an HTTP request",
+)
 
 
 def _seed(store: Store) -> int:
@@ -225,7 +233,7 @@ def _seed_outcomes(store: Store, sid: int, counts: dict[str, int]) -> None:
     store.record_liveness(rows)
 
 
-def test_attempted_counts_only_targets_an_http_request_reached(tmp_path):
+def test_attempted_counts_only_targets_a_request_was_issued_to(tmp_path):
     """The live snapshot 3 shape. 35 endpoints were considered; 21 of them — every blocked
     target and every name that would not resolve — never had a request issued at all, so a
     rate over 35 divides responses by endpoints nothing was ever sent to."""
@@ -298,7 +306,7 @@ def test_markdown_liveness_section_states_the_probe_method(tmp_path):
     assert "no redirects followed" in md
     assert "SSRF guard" in md
     flat = md.replace("**", "")
-    assert "66.667% of the 3 endpoints a request reached responded" in flat
+    assert "66.667% of the 3 endpoints a request was issued to responded" in flat
     assert "50.0% of all 4 evaluated" in flat
     assert "not of the 5 agents in this snapshot" in flat
 

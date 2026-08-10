@@ -75,18 +75,21 @@ GET /stats
                                   3 this is 78 rows over 43 distinct (agent, URL) pairs
       endpoints_evaluated         endpoints liveness considered. Only a2a and mcp are
                                   considered at all
-      endpoints_attempted         of those, the ones an HTTP request actually reached.
-                                  A target Docket refused on policy grounds, or whose
-                                  hostname would not resolve, was never sent anything:
-                                  it is evaluated and it is not attempted
+      endpoints_attempted         of those, the ones an HTTP request was issued to.
+                                  Issued, not arrived: a request that timed out is
+                                  attempted and reached nothing. A target Docket
+                                  refused on policy grounds, or whose hostname would
+                                  not resolve, was never sent anything at all: it is
+                                  evaluated and it is not attempted
       endpoints_responded         of those attempted, how many got an HTTP response
       responded_pct_of_attempted  named for its denominator: a share of
                                   endpoints_attempted and of nothing else. This is how
-                                  often a target Docket could reach answered
+                                  often an endpoint Docket sent a request to answered
       responded_pct_of_evaluated  the same responses over every endpoint evaluated, so
                                   it is the lower figure. Quote this one about the
-                                  declared surface, the other about reachable hosts,
-                                  and never either one without saying which
+                                  declared surface, the other about the endpoints a
+                                  request was issued to, and never either one without
+                                  saying which
       blocked_by_policy           targets Docket refused to contact (see "blocked")
       unresolved                  hostnames that would not resolve (see "unresolved")
       distinct_name_families      distinct name-family keys in the snapshot
@@ -367,19 +370,20 @@ the population "BSC agents with >= 1 feedback record".
 
     Of the 506 agents in this snapshot, 31 declare a callable A2A or MCP endpoint.
     Enrichment resolved 78 endpoint registration rows from their cards; 35 of those
-    were A2A or MCP and were evaluated. An HTTP request reached 14 of the 35 -- the
-    other 21 were 10 targets Docket refused on policy grounds and 11 hostnames that
+    were A2A or MCP and were evaluated. An HTTP request was issued to 14 of the 35 --
+    the other 21 were 10 targets Docket refused on policy grounds and 11 hostnames that
     would not resolve, none of which was ever sent anything. Of the 14 attempted, 13
     responded and 1 timed out: 92.857% of attempted, 37.143% of evaluated.
 
 Read what that does and does not say.
 
   - There are two rates because there are two denominators, and one number cannot
-    carry both. 92.857% is a share of the 14 endpoints a request reached. 37.143% is
-    a share of all 35 evaluated. Neither is 37% of 506 agents, and neither,
+    carry both. 92.857% is a share of the 14 endpoints a request was issued to. 37.143%
+    is a share of all 35 evaluated. Neither is 37% of 506 agents, and neither,
     emphatically, is a share of the 247,278 agents on BNB Smart Chain.
   - The gap between the two is the 21 endpoints nothing was sent to. Quoting the
-    higher rate without saying what it excludes overstates the reachable surface;
+    higher rate without saying what it excludes overstates how much of the declared
+    surface answered;
     quoting the lower one as "how often an agent's endpoint answers" charges the
     agents for Docket's own refusals and for DNS.
   - The 13 responses mean 13 hosts answered. None of them is a working-agent count.

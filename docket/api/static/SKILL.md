@@ -79,8 +79,8 @@ Every count and percentage Docket returns is a fact about one snapshot and one
 population. Quote it with its coverage, or do not quote it.
 
 - Wrong: "37% of BSC agents respond."
-- Right: "13 of the 14 endpoints an HTTP request reached responded (92.857%), which is
-  13 of the 35 endpoints evaluated (37.143%) once the 10 targets Docket refused and
+- Right: "13 of the 14 endpoints an HTTP request was issued to responded (92.857%), which
+  is 13 of the 35 endpoints evaluated (37.143%) once the 10 targets Docket refused and
   the 11 hostnames that would not resolve are counted back in - in snapshot 3 captured
   2026-08-07, which covers the 506 BSC agents that have any feedback - 0.205% of the
   roughly 247,278 registered."
@@ -180,7 +180,7 @@ Read `coverage` first, every time:
 
 The same snapshot 3 figures, in full: 506 sampled of 506 expected, 31 declaring a
 callable endpoint, 78 endpoint registration rows resolved, 35 endpoints evaluated, 14
-of them reached by an HTTP request, 13 responded (92.857% of attempted, 37.143% of
+of them with an HTTP request issued, 13 responded (92.857% of attempted, 37.143% of
 evaluated), 10 blocked by policy, 11 unresolved, 1 timed out, across 421 distinct name
 families.
 

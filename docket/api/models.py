@@ -108,7 +108,8 @@ class StatsResponse(pydantic.BaseModel):
     callable_declared: int
     endpoints_resolved: int
     # `evaluated` is every endpoint liveness considered; `attempted` is the subset an HTTP
-    # request actually reached. A blocked or unresolved target is evaluated and never attempted.
+    # request was actually issued to — issued, not arrived: a timeout is attempted and
+    # nothing was reached. A blocked or unresolved target is evaluated and never attempted.
     endpoints_evaluated: int
     endpoints_attempted: int
     endpoints_responded: int
