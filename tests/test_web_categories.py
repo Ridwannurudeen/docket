@@ -19,6 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from docket.api import create_app
+from docket.marketplace.registry import EMPTY_CATEGORY
 from docket.store import Store
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "docket" / "api" / "web"
@@ -106,12 +107,17 @@ def test_the_home_paints_the_four_jobs_from_the_api_rather_than_typing_them_in(c
 
 def test_a_category_with_nothing_in_it_renders_the_api_s_own_empty_sentence(client):
     """The empty state is served, not authored twice: the page prints what /categories
-    says and cannot soften it."""
+    says and cannot soften it.
+
+    Every shelf is stocked now, so the page's empty branch has nothing to paint from a
+    live response — which is exactly when a test like this rots into a no-op. The registry
+    is emptied here instead, so the sentence the page would print is still asserted to be
+    the API's own rather than one the markup carries.
+    """
     app_js = _read("app.js")
     assert "category.empty" in app_js or "entry.empty" in app_js
-    body = client.get("/categories").json()
-    empty = [c for c in body["categories"] if c["service_count"] == 0]
-    assert empty, "this test means nothing if every shelf is stocked"
+    assert EMPTY_CATEGORY not in _read("index.html"), "the page authors its own empty state"
+    assert all(c["empty"] is None for c in client.get("/categories").json()["categories"])
 
 
 def test_no_page_promises_stock_it_does_not_have(client):

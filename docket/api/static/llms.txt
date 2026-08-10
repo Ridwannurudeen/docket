@@ -163,8 +163,9 @@ GET /categories
                       fifth
       job             the job in plain language, e.g. "Keep LP earning"
       does            one line on what an agent in that category does
-      service_count   how many services Docket runs in it. Zero is a real answer, and
-                      three of the four are zero today
+      service_count   how many services Docket runs in it. Zero is a real answer; none
+                      of the four is zero today, and one going back to zero would be a
+                      real answer too
       empty           prose saying the category is empty and why, or null where it is
                       stocked. It carries no date, because nobody has committed to one
       services_path   the /services query that lists this category
@@ -489,9 +490,10 @@ what answered when Docket asked. Nothing on that plane carries a category, a ser
 a hire path, and this stage did not add one.
 
 /categories and /services are a second, much smaller layer above it: the work Docket
-runs itself. Three services today. A card there tells you what arrives, what to send,
-what it costs and how to run it, and /services/{service_id} adds what the service cannot
-do and what has been observed of it.
+runs itself. Six services today: range-doctor, grid-operator, yield-router, health-guard,
+solvent-signal and warden-scan. A card there tells you what arrives, what to send, what
+it costs and how to run it, and /services/{service_id} adds what the service cannot do
+and what has been observed of it.
 
 Three rules govern that layer, and they are the reason it is small.
 
@@ -503,15 +505,33 @@ Three rules govern that layer, and they are the reason it is small.
       Docket does not know and does not guess.
 
   An empty category says it is empty.
-      Two of the four have a service in them — rebalancing and grid_trading. The other
-      two return service_count 0 and an "empty" sentence saying why, and there is no
-      placeholder card and no date. A four-category marketplace over four bare shelves
-      would read as stock that exists, and so would one stocked with a card claiming more
-      than the service behind it does. Read grid-operator's limitations before quoting
-      it: a hire of it returns a preview built against the chain and cannot submit
-      anything, because the object that runs it holds no session key and has no method
-      that sends. Acting on a grid level needs a session the wallet's owner grants on
-      chain, and Docket never holds the owner key.
+      Four of the four have a service in them — rebalancing, grid_trading,
+      yield_optimisation and health_factor — so no category returns service_count 0
+      today. The mechanism has not gone away: a category with nothing in it returns 0 and
+      an "empty" sentence saying why, with no placeholder card and no date, and a shelf
+      emptying again would say so. A four-category marketplace over four bare shelves
+      would read as stock that exists, and so would one stocked with cards claiming more
+      than the services behind them do — so read the limitations before quoting any of
+      the four. Every one of them returns a preview built against the chain and none of
+      them can submit anything: grid-operator and health-guard both run from objects that
+      hold no session key, no signer and no submitter, health-guard has no armed
+      counterpart class in this build at all, and yield-router needs no wallet to run.
+      Acting on anything they draft needs a session the wallet's owner grants on chain,
+      and Docket never holds the owner key.
+
+  Two of those four carry a caveat about the claim in their own name.
+      health_factor is named after a figure Venus does not publish. Venus's comptroller
+      answers liquidity and shortfall in USD and nothing else about an account's
+      condition, so health-guard repeats those two verbatim and derives a collateral ratio
+      with its formula, inputs and scales stated inline — plus a cross-check of that
+      derivation against Venus's own figure. If you quote a ratio from it, quote the
+      method with it; it is not a protocol figure.
+
+      yield_optimisation invites "the highest APR", which is a claim about a population.
+      yield-router states that population: the eligible set, its source, the moment it was
+      read, the thresholds it was gated on and every pool it turned away with the reason.
+      Highest there means highest within that set at that moment, and a candidate whose
+      break-even runs past the stated horizon is shown with that fact rather than dropped.
 
   A service that is not one of the four is listed as itself.
       warden-scan is a security service and solvent-signal relays a dated regime read.
@@ -523,7 +543,7 @@ The identity cross-link has three states and says which one it is, because "no l
 
   agent_id null
       No ERC-8004 identity has been registered for this service at all. agent_path is
-      null and identity_note says so. Three of the four services are in this state.
+      null and identity_note says so. Five of the six services are in this state.
 
   agent_id set, agent_path set
       The bound identity is in the snapshot Docket is serving; open agent_path for its

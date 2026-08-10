@@ -20,7 +20,12 @@ from fastapi.testclient import TestClient
 from docket.api.models import BANNED_FIELD_NAMES
 from docket.api import create_app
 from docket.marketplace.models import CATEGORIES, Category, is_share_unit
-from docket.marketplace.registry import SERVICES, category_counts, records_in
+from docket.marketplace.registry import (
+    EMPTY_CATEGORY,
+    SERVICES,
+    category_counts,
+    records_in,
+)
 from docket.store import Store
 
 SOLVENT_AGENT_ID = "56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:136384"
@@ -90,21 +95,29 @@ def test_a_category_counts_only_what_is_actually_in_it(client):
         assert entry["service_count"] == expected, entry["category"]
 
 
-def test_an_empty_category_says_it_is_empty_and_why_without_promising_a_date(client):
-    """Shipping four categories over empty shelves scores worse than an honest narrow
-    scope. The shelf says it is bare, says why, and names no date."""
+def test_a_stocked_category_carries_no_empty_sentence_and_every_shelf_is_stocked(client):
+    """All four shelves have a service in them now, so `empty` is null on all four."""
     body = client.get("/categories").json()
-    empty = [e for e in body["categories"] if e["service_count"] == 0]
-    assert empty, "this test is meaningless if every category is stocked"
-    for entry in empty:
-        assert entry["empty"], f"{entry['category']} is empty and says nothing about it"
+    assert [e["service_count"] for e in body["categories"]] == [1, 1, 1, 1]
+    for entry in body["categories"]:
+        assert entry["empty"] is None, entry["category"]
+
+
+def test_the_empty_shelf_sentence_is_still_what_a_bare_category_would_serve(client, monkeypatch):
+    """Shipping four categories over empty shelves scores worse than an honest narrow
+    scope, and that guard has to survive the shelves being stocked — otherwise it quietly
+    stops being tested at the moment it stops firing. The registry is emptied here so the
+    route's own bare-shelf branch is exercised: it says it is bare, says why, names no
+    date, and it is the API's sentence rather than one the page authored."""
+    monkeypatch.setattr("docket.api.routes.records_in", lambda category: [])
+    body = client.get("/categories").json()
+    for entry in body["categories"]:
+        assert entry["service_count"] == 0
+        assert entry["empty"] == EMPTY_CATEGORY
         lowered = entry["empty"].lower()
         assert "no service here yet" in lowered
         for promise in ("coming soon", "soon", "shortly", "next release"):
             assert promise not in lowered, f"{entry['category']} promises: {promise}"
-    stocked = [e for e in body["categories"] if e["service_count"] > 0]
-    for entry in stocked:
-        assert entry["empty"] is None
 
 
 def test_categories_state_that_the_category_is_dockets_own_declaration(client):
@@ -319,11 +332,27 @@ def test_llms_txt_does_not_describe_an_inventory_docket_no_longer_has(client):
     # Whitespace-normalised: llms.txt is wrapped prose, and a sentence that happens to
     # break across two lines is still the same claim.
     body = " ".join(client.get("/llms.txt").text.lower().split())
-    words = {1: "one", 2: "two", 3: "three", 4: "four"}
+    words = {0: "none", 1: "one", 2: "two", 3: "three", 4: "four"}
     stocked = sum(1 for count in category_counts().values() if count)
     empty = len(Category) - stocked
     assert f"{words[stocked]} of the four have a service in them" in body
-    assert f"the other {words[empty]} return service_count 0" in body
+    # Both branches are held, because the count moves in both directions and the sentence
+    # for an all-stocked inventory is exactly as easy to leave behind as the other one.
+    if empty:
+        assert f"the other {words[empty]} return service_count 0" in body
+    else:
+        assert "no category returns service_count 0 today" in body
+
+
+def test_llms_txt_does_not_describe_an_identity_inventory_docket_no_longer_has(client):
+    """The same rot as the stocked-shelf count, four paragraphs further down, and this one
+    had no guard: it still said three of four after two services were added, when five of
+    six carry no on-chain identity. A count that is derivable from the registry should be
+    checked against it rather than reviewed."""
+    body = " ".join(client.get("/llms.txt").text.lower().split())
+    words = {0: "none", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
+    unbound = sum(1 for record in SERVICES.values() if record.agent_id is None)
+    assert f"{words[unbound]} of the {words[len(SERVICES)]} services are in this state" in body
 
 
 def test_skill_md_teaches_the_category_first_route(client):

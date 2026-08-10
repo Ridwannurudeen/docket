@@ -29,6 +29,7 @@ failure, which is worth more than a half-result that looks like an answer.
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import httpx
 
@@ -55,6 +56,26 @@ GRID_BAND_PCT = 10
 GRID_LEVELS = 6
 # 25 USDT a level. Small enough to be a demonstration rather than a position.
 GRID_SIZE_PER_LEVEL = 25 * 10**18
+# The two Venus markets the health guard is allowed to draft actions in, with their
+# underlyings named beside them. Both pairs were read from BSC mainnet on 2026-08-10 and
+# the preview re-reads each vToken's own underlying() and refuses where the two disagree —
+# a policy naming the wrong token would draft an action paying the right contract in the
+# wrong asset, and no later bound catches that.
+VENUS_VUSDT = "0xfD5840Cd36d94D7229439859C0112a4185BC0255"
+VENUS_VUSDC = "0xecA88125a5ADbe82614ffC12D0DB554E2e2867C8"
+VENUS_USDT = "0x55d398326f99059fF775485246999027B3197955"
+VENUS_USDC = "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"
+# 100 of each, 18 decimals on BSC. A demonstration rather than a position, the same
+# reasoning the grid's level size carries.
+GUARD_CAP = 100 * 10**18
+# One US dollar, 1e18-scaled as the comptroller reports shortfall. A trigger of zero is
+# refused by the policy itself, because it would hold of every account including one that
+# owes nothing due.
+GUARD_TRIGGER_USD = 10**18
+# What the yield comparison assumes when a caller supplies neither. Both are stated on the
+# response rather than buried: the break-even is only as good as the cost it was given.
+ROUTER_POSITION_USD = 10_000.0
+ROUTER_SWITCHING_COST_USD = 15.0
 SOLVENT_SIGNAL_URL = "https://solvent.gudman.xyz/signal"
 WARDEN_SCAN_URL = "https://warden.gudman.xyz/api/demo/scan"
 UPSTREAM_TIMEOUT_S = 30.0
@@ -164,6 +185,118 @@ def _run_grid_operator(payload: dict) -> dict:
     )
     filled = tuple(int(index) for index in payload.get("filled") or ())
     return GridPreview(plan, reader=reader, wallet=payload["wallet"]).preview(filled=filled)
+
+
+def _run_health_guard(payload: dict) -> dict:
+    """A preview, and structurally only a preview.
+
+    `HealthGuardPreview` is the only class in its module: there is no armed counterpart to
+    construct by mistake, and this build ships no path that submits a Venus call at all.
+    The caps below bound what the drafted actions may commit; the trigger is the shortfall
+    Venus has to be reporting before anything is drafted.
+    """
+    from ..agents.venus.guard import GuardPolicy, HealthGuardPreview, MarketPolicy
+    from ..agents.venus.markets import VenusReader
+
+    trigger = payload.get("trigger_shortfall_usd")
+    policy = GuardPolicy(
+        markets=(
+            MarketPolicy(
+                vtoken=VENUS_VUSDT, underlying=VENUS_USDT, max_repay=GUARD_CAP, max_supply=0
+            ),
+            MarketPolicy(
+                vtoken=VENUS_VUSDC, underlying=VENUS_USDC, max_repay=0, max_supply=GUARD_CAP
+            ),
+        ),
+        trigger_shortfall_usd=GUARD_TRIGGER_USD if trigger is None else int(trigger),
+    )
+    return HealthGuardPreview(reader=VenusReader(), policy=policy).preview(payload["wallet"])
+
+
+def _run_yield_router(payload: dict) -> dict:
+    """The whole comparison with no wallet anywhere in it, which is the point of it.
+
+    `pool` names the pool the caller's capital is in. With none supplied the deepest pool
+    in the eligible set stands in as the baseline — the explorer serves its rows by TVL
+    descending, so that is the first of them — and the choice is stated on the response
+    rather than implied, because a comparison against an unnamed baseline is a delta
+    against nothing.
+    """
+    from ..agents.pancake.pools import PoolClient
+    from ..agents.yield_router.router import YieldRouterPreview
+    from ..agents.yield_router.universe import eligible_pools
+
+    with PoolClient() as client:
+        rows = client.top_pools()
+        allowlist = client.token_allowlist()
+    universe = eligible_pools(
+        rows,
+        allowlist,
+        source="explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
+        observed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+    if not universe.included:
+        return {
+            "current": None,
+            "candidates": [],
+            "universe": universe.as_record(),
+            "note": (
+                "no pool in this snapshot cleared the gate, so there is nothing to compare "
+                "and no highest to name. Every row that was turned away is listed with its "
+                "reason under universe.excluded"
+            ),
+        }
+
+    # Three outcomes, and each one gets its own sentence. A named pool that is not in the
+    # set has to say so: substituting the baseline silently and then reporting "no pool was
+    # named" would be a false statement in served output about the very figure every delta
+    # below is measured from. Matched case-insensitively, because the explorer serves ids
+    # lowercase and a caller pasting a checksummed address is naming the same pool.
+    wanted = payload.get("pool")
+    matched = (
+        None
+        if wanted is None
+        else next(
+            (
+                row
+                for row in universe.included
+                if str(row.get("id") or "").lower() == str(wanted).lower()
+            ),
+            None,
+        )
+    )
+    current = universe.included[0] if matched is None else matched
+    if matched is not None:
+        chosen_by = f"the pool id you named ({wanted})"
+    elif wanted is not None:
+        chosen_by = (
+            f"you named {wanted} and it is not in the eligible set, so the first row of "
+            "that set stands in as the baseline instead and every delta below is measured "
+            "from that pool rather than yours. Whether the one you named was turned away, "
+            "and for what reason, is under universe.excluded — it may also simply not be "
+            "in this snapshot"
+        )
+    else:
+        chosen_by = (
+            "no pool was named, so the first row of the eligible set stands in as the "
+            "baseline. The explorer serves its rows by TVL descending, so that is the "
+            "deepest pool in the set and not a pool anybody is known to be in"
+        )
+    horizon = payload.get("horizon_days")
+    out = YieldRouterPreview(universe=universe, current=current).preview(
+        position_size_usd=float(
+            payload.get("position_size_usd")
+            if payload.get("position_size_usd") is not None
+            else ROUTER_POSITION_USD
+        ),
+        switching_cost_usd=float(
+            payload.get("switching_cost_usd")
+            if payload.get("switching_cost_usd") is not None
+            else ROUTER_SWITCHING_COST_USD
+        ),
+        **({} if horizon is None else {"horizon_days": int(horizon)}),
+    )
+    return out | {"current_pool_chosen_by": chosen_by}
 
 
 SERVICES: dict[str, Service] = {
@@ -299,6 +432,117 @@ SERVICES: dict[str, Service] = {
         price_atomic=10**16,
         asset=U_TOKEN,
         run=_run_grid_operator,
+    ),
+    "health-guard": Service(
+        id="health-guard",
+        name="Venus Health Guard Preview",
+        what_you_get=(
+            "A read-only report on what Venus Core Pool publishes about one BSC address's "
+            "lending position, and on what can honestly be derived from it. Venus publishes "
+            "liquidity and shortfall in USD and publishes no health factor at all — so you "
+            "get its own two figures verbatim, with the call and the block they came from, "
+            "and a collateral ratio computed here whose exact formula, inputs and scales are "
+            "stated inline beside it, together with a cross-check of that derivation against "
+            "Venus's own liquidity figure so you can see whether the two agree. For every "
+            "market the account has entered: supplied and borrowed balances, the collateral "
+            "factor, the exchange rate and the oracle price, each labelled with the call that "
+            "produced it. Where Venus reports a shortfall, you also get conservative draft "
+            "actions — repay and supply-collateral only, never borrow and never withdraw — "
+            "each fully bounded, with the exact contract and function, a hash of the calldata "
+            "that binds it, a cap, a floor, a deadline and a gas ceiling. Nothing is signed, "
+            "approved, submitted or held: the object that produces this holds no session key, "
+            "no signer and no submitter, it has no armed counterpart class in this build, and "
+            "no execution path for a Venus call exists here at all. Every figure comes back "
+            "with the block it was read at, so you can check any of it against the chain "
+            "yourself."
+        ),
+        input_schema={
+            "wallet": {
+                "type": "string",
+                "required": True,
+                "description": (
+                    "the 0x-prefixed BSC address whose Venus position to read; it is read "
+                    "and never touched"
+                ),
+            },
+            "trigger_shortfall_usd": {
+                "type": "integer",
+                "required": False,
+                "default": GUARD_TRIGGER_USD,
+                "description": (
+                    "the shortfall Venus has to be reporting, 1e18-scaled USD as the "
+                    "comptroller reports it, before any action is drafted; zero is refused"
+                ),
+            },
+        },
+        typical_seconds=40,
+        price_display="0.01 $U",
+        price_atomic=10**16,
+        asset=U_TOKEN,
+        run=_run_health_guard,
+    ),
+    "yield-router": Service(
+        id="yield-router",
+        name="Yield Router Preview",
+        what_you_get=(
+            "A comparison of PancakeSwap v3 pools on BSC at the rates they were observed at, "
+            "bounded by a set you can reproduce. The eligible universe is built from "
+            "PancakeSwap's own explorer snapshot and stated in full: its size, its source, "
+            "the moment it was read, the thresholds it was gated on, and every pool that did "
+            "not make it together with the reason it was left out. Each pool in the set "
+            "carries its fee rate net of the protocol's own reported cut — the gross figure "
+            "overstates what a liquidity provider keeps by about half again — beside the "
+            "gross one, with the window the rate was observed over and the TVL it is a rate "
+            "against, plus liquidity, 24h volume and turnover. For every candidate you get a "
+            "break-even: how many days the extra yield takes to repay what moving costs, "
+            "against a stated horizon, with the arithmetic written out and the cost named as "
+            "the input you supplied rather than a figure Docket derived. A pool with a higher "
+            "rate whose break-even runs past that horizon is shown with that fact attached "
+            "rather than dropped. Ordering is by one named observed metric and the payload "
+            "says which, so no order here is an opinion Docket formed. No wallet is needed "
+            "for any of it, and nothing is signed, approved, submitted or moved."
+        ),
+        input_schema={
+            "pool": {
+                "type": "string",
+                "required": False,
+                "description": (
+                    "the pool id your capital is in, as the explorer spells it. With none "
+                    "given the first row of the eligible set stands in as the baseline and "
+                    "the response says so"
+                ),
+            },
+            "position_size_usd": {
+                "type": "number",
+                "required": False,
+                "default": ROUTER_POSITION_USD,
+                "description": "the size the break-even is computed for, in USD",
+            },
+            "switching_cost_usd": {
+                "type": "number",
+                "required": False,
+                "default": ROUTER_SWITCHING_COST_USD,
+                "description": (
+                    "what moving costs, in USD, covering gas on every leg plus the swap's "
+                    "own fee and price impact; supplied rather than derived, because Docket "
+                    "reads no BNB price here"
+                ),
+            },
+            "horizon_days": {
+                "type": "integer",
+                "required": False,
+                "default": 30,
+                "description": (
+                    "the horizon a break-even is judged against; every input is on the "
+                    "response, so another horizon can be applied without asking"
+                ),
+            },
+        },
+        typical_seconds=12,
+        price_display="0.01 $U",
+        price_atomic=10**16,
+        asset=U_TOKEN,
+        run=_run_yield_router,
     ),
     "solvent-signal": Service(
         id="solvent-signal",

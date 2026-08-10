@@ -412,19 +412,73 @@ def _figure(record: ServiceRecord, name: str) -> Metric:
     return next(metric for metric in record.metrics if metric.name == name)
 
 
-def test_two_of_the_four_categories_are_stocked_and_the_other_two_say_so():
-    """The inventory as it now stands. Grid was the shelf this stage was built to fill,
-    and the two still bare are asserted rather than glossed — four job cards over four
-    empty shelves is what the whole discipline exists to avoid, and so is a shelf filled
-    with something that does less than its card claims."""
+def test_all_four_categories_are_stocked_and_each_holds_exactly_one_service():
+    """The inventory as it now stands. Four shelves, one service each, and the hard part
+    was never the count — it was that each card has to be readable against what the
+    service actually does. A shelf filled with something that does less than its card
+    claims is worse than one left honestly empty, so the two tests below read the two new
+    cards against their own limits."""
     assert category_counts() == {
         Category.REBALANCING: 1,
         Category.GRID_TRADING: 1,
-        Category.YIELD_OPTIMISATION: 0,
-        Category.HEALTH_FACTOR: 0,
+        Category.YIELD_OPTIMISATION: 1,
+        Category.HEALTH_FACTOR: 1,
     }
     assert [r.service_id for r in records_in(Category.REBALANCING)] == ["range-doctor"]
     assert [r.service_id for r in records_in(Category.GRID_TRADING)] == ["grid-operator"]
+    assert [r.service_id for r in records_in(Category.YIELD_OPTIMISATION)] == ["yield-router"]
+    assert [r.service_id for r in records_in(Category.HEALTH_FACTOR)] == ["health-guard"]
+
+
+def test_the_health_factor_card_says_venus_publishes_no_health_factor():
+    """The one category named after a figure the protocol it reads does not have. Saying
+    so in the card's own limitations is the whole difference between filling a shelf and
+    fabricating one."""
+    record = SERVICES["health-guard"]
+    lowered = record.limitations.lower()
+    for phrase in (
+        "venus publishes no health factor",
+        "derived here rather than read",
+        "structurally only a preview",
+        "no execution path for a venus call exists here",
+        "repay and supply-collateral only",
+        "borrowing and withdrawing are not encoded",
+        "a liquidation that did not happen",
+        "no recorded run stands behind this service yet",
+    ):
+        assert phrase in lowered, phrase
+    assert record.activation == "one_shot"
+    assert record.agent_id is None
+
+
+def test_the_yield_card_bounds_its_own_superlative_and_promises_no_execution():
+    """ "Highest available APR" is a claim about a population. The card names the
+    population, and says the half of a move this build does not draft."""
+    record = SERVICES["yield-router"]
+    lowered = record.limitations.lower()
+    for phrase in (
+        "bounded by the stated eligible set",
+        "highest within that set at that moment",
+        "supplied by the caller and is not derived",
+        "not built in this stage",
+        "no execution guarantee of any kind",
+        "one day, not a forecast",
+        "no recorded run stands behind this service yet",
+    ):
+        assert phrase in lowered, phrase
+    assert record.activation == "one_shot"
+    assert record.agent_id is None
+
+
+def test_neither_new_service_publishes_a_figure_it_has_not_measured():
+    """The grid set the precedent: a shelf is stocked with an honest empty evidence list
+    rather than a fabricated metric, and an unbound identity is said rather than omitted."""
+    for service_id in ("health-guard", "yield-router"):
+        record = SERVICES[service_id]
+        assert record.metrics == ()
+        assert record.evidence == ()
+        assert record.registration_uri is None
+        assert "no bsc identity bound yet" in record.identity_line.lower()
 
 
 def test_the_grid_service_says_a_hire_previews_rather_than_trades():

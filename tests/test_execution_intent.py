@@ -16,6 +16,7 @@ from web3 import Web3
 from docket.api.models import BANNED_FIELD_NAMES
 from docket.execution import now
 from docket.execution.intent import (
+    CONDITION_DIRECTIONS,
     CONDITION_KINDS,
     SLIPPAGE_BPS_CEILING,
     ActionIntent,
@@ -73,10 +74,40 @@ def _intent(**overrides) -> ActionIntent:
 
 
 def test_a_condition_is_one_of_a_closed_set_of_predicates():
-    """A free-text condition is a condition nobody can evaluate the same way twice."""
-    assert CONDITION_KINDS == frozenset({"price_at_or_below", "price_at_or_above"})
+    """A free-text condition is a condition nobody can evaluate the same way twice.
+
+    The set is asserted exactly and is edited on purpose. `shortfall_at_or_above` joined
+    it for the Venus health guard, whose trigger is an account's own shortfall in USD
+    rather than a quote — the alternative was labelling that observation a price, which
+    would be a predicate whose name says one thing and whose subject is another.
+    """
+    assert CONDITION_KINDS == frozenset(
+        {"price_at_or_below", "price_at_or_above", "shortfall_at_or_above"}
+    )
     with pytest.raises(ValueError):
         _condition(kind="feels_cheap")
+
+
+def test_every_kind_declares_which_way_its_comparison_runs():
+    """The direction used to be an `if` on one kind with an else covering the rest, so any
+    new `_at_or_below` kind would have evaluated as at-or-above and fired on exactly the
+    observations it was written to exclude. It is a lookup now, and every kind is in it."""
+    assert set(CONDITION_DIRECTIONS) == CONDITION_KINDS
+    # `holds` compares against the literal "at_or_below" and falls through to at-or-above
+    # for anything else, so the values are as load-bearing as the keys: a direction spelt
+    # "below" would read as at-or-above and pass the endswith check below on a kind spelt
+    # to match it. Pinning the domain is what the mapped-ness assertion cannot do — it is
+    # a tautology, since CONDITION_KINDS is built from this dict.
+    assert set(CONDITION_DIRECTIONS.values()) == {"at_or_below", "at_or_above"}
+    for kind, direction in CONDITION_DIRECTIONS.items():
+        assert kind.endswith(direction), kind
+
+
+def test_a_shortfall_condition_answers_over_the_figure_venus_publishes():
+    shortfall = Condition("shortfall_at_or_above", "venus shortfall, 1e18 usd", 10**18)
+    assert shortfall.holds(2 * 10**18)
+    assert shortfall.holds(10**18)
+    assert not shortfall.holds(0)
 
 
 def test_a_condition_answers_over_an_observed_price_and_nothing_else():
