@@ -28,6 +28,7 @@ packages = [
     "docket.agents",
     "docket.agents.pancake",
     "docket.escrow",
+    "docket.execution",
     "docket.hire",
     "docket.marketplace",
     "experiments",
