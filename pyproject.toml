@@ -44,8 +44,7 @@ packages = [
 # scorer without them would carry the arithmetic and none of the observations.
 "docket.advantage" = [
     "experiments/*.json",
-    "v2/corpus/security/*.json",
-    "v2/corpus/liquidity/*.json",
+    "v2/corpus/*/*.json",
     "v2/specs/*.json",
     "v2/runs/*.json",
 ]
