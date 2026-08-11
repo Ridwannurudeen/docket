@@ -432,6 +432,29 @@ def test_the_page_shows_every_run_including_the_ones_that_failed(page, body):
     assert page.count(">failed</span>") == len(failed)
 
 
+def test_the_page_states_the_failure_reason_in_the_committed_security_record(page, body):
+    security = next(
+        experiment
+        for experiment in body["experiments"]
+        if experiment["experiment_id"] == "03-security-corpus"
+    )
+    errors = [
+        trial["error"]
+        for entry in security["run"]["payloads"]
+        for trial in entry["trials"]
+        if trial["error"] is not None
+    ]
+    statement = "All nine security scan failures were identical HTTP 429 rate limits"
+    shell = (WEB / "advantage-v2.html").read_text(encoding="utf-8")
+
+    assert len(errors) == 9
+    assert len(set(errors)) == 1
+    assert "429 Too Many Requests" in errors[0]
+    assert statement in shell
+    assert statement in page
+    assert "security scans failed on DNS" not in shell
+
+
 def test_the_page_carries_the_headline_figures_with_their_denominators(page):
     """The page is rendered from the same payload the JSON serves, so this is not a drift
     check so much as a check that the rendering did not drop the halves of a rate that make

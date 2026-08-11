@@ -106,9 +106,10 @@
               <dt>Every run is published, including the failures</dt>
               <dd>
                 A failed trial keeps its place in the denominator and is never re-run until it
-                passes. Nine of the security scans failed on DNS; they are shown where they happened
-                and counted as failed trials rather than as detections a scanner missed. Every
-                aggregate on this page has the runs it came from underneath it.
+                passes. All nine security scan failures were identical HTTP 429 rate limits; they
+                are shown where they happened and counted as failed trials rather than as detections
+                a scanner missed. Every aggregate on this page has the runs it came from underneath
+                it.
               </dd>
               <dt>Every rate carries its two counts</dt>
               <dd>
