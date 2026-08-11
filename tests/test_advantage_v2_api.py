@@ -27,6 +27,7 @@ included.
 """
 
 import json
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -148,6 +149,22 @@ def test_registration_provenance_is_served_per_experiment_and_visible_on_the_pag
         "Every experiment here was registered before it was run" not in body["method"]
     )
     assert "Each experiment below was registered before it was run" not in page
+
+
+def test_registration_history_commits_exist_and_04_spec_precedes_run():
+    if not (ROOT / ".git").exists():
+        pytest.skip("git metadata is absent from this installed copy")
+
+    for history in report.REGISTRATION_HISTORY.values():
+        for field in ("spec_commit", "run_commit"):
+            subprocess.run(
+                ["git", "cat-file", "-e", history[field]], cwd=ROOT, check=True
+            )
+    subprocess.run(
+        ["git", "merge-base", "--is-ancestor", "b47c307", "9168194"],
+        cwd=ROOT,
+        check=True,
+    )
 
 
 def test_03_self_attested_provenance_explains_its_registered_at_inversion(body, page):
