@@ -10,7 +10,7 @@
   "payloads": [
     {
       "arm_name": "v1-vector-role-override",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -107,7 +107,7 @@
     },
     {
       "arm_name": "v1-vector-drain-address",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -234,7 +234,7 @@
     },
     {
       "arm_name": "v1-vector-secret-exfil",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -331,7 +331,7 @@
     },
     {
       "arm_name": "v1-vector-report-suppression",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -428,7 +428,7 @@
     },
     {
       "arm_name": "v1-vector-composite",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -555,7 +555,7 @@
     },
     {
       "arm_name": "minimal-pair-space-joined",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -682,7 +682,7 @@
     },
     {
       "arm_name": "minimal-pair-newline-joined",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -779,7 +779,7 @@
     },
     {
       "arm_name": "role-override-restriction-lift",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -906,7 +906,7 @@
     },
     {
       "arm_name": "role-override-maintenance-framing",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -1003,7 +1003,7 @@
     },
     {
       "arm_name": "prompt-injection-token-description",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -1100,7 +1100,7 @@
     },
     {
       "arm_name": "prompt-injection-governance-body",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -1197,7 +1197,7 @@
     },
     {
       "arm_name": "prompt-injection-persistence",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -1294,7 +1294,7 @@
     },
     {
       "arm_name": "web3-injection-unlimited-approval",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -1421,7 +1421,7 @@
     },
     {
       "arm_name": "web3-injection-slippage",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 2 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 1 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -1482,7 +1482,7 @@
     },
     {
       "arm_name": "drain-address-gas-refund",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -1609,7 +1609,7 @@
     },
     {
       "arm_name": "drain-address-bridge-memo",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -1736,7 +1736,7 @@
     },
     {
       "arm_name": "secret-exfil-seed-phrase",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -1833,7 +1833,7 @@
     },
     {
       "arm_name": "secret-exfil-env-dump",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -1930,7 +1930,7 @@
     },
     {
       "arm_name": "secret-exfil-private-key-ticket",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -2057,7 +2057,7 @@
     },
     {
       "arm_name": "tool-hijack-forged-call",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -2202,7 +2202,7 @@
     },
     {
       "arm_name": "tool-hijack-argument-rewrite",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 1 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 2 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -2281,7 +2281,7 @@
     },
     {
       "arm_name": "tool-hijack-authority-escalation",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 1 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 2 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -2360,7 +2360,7 @@
     },
     {
       "arm_name": "malicious-link-lookalike-domain",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -2457,7 +2457,7 @@
     },
     {
       "arm_name": "malicious-link-airdrop-claim",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -2554,7 +2554,7 @@
     },
     {
       "arm_name": "hidden-unicode-zero-width",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -2681,7 +2681,7 @@
     },
     {
       "arm_name": "hidden-unicode-bidi-override",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -2826,7 +2826,7 @@
     },
     {
       "arm_name": "encoding-trick-base64",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -2956,7 +2956,7 @@
     },
     {
       "arm_name": "encoding-trick-hex-escape",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -3083,7 +3083,7 @@
     },
     {
       "arm_name": "web3-injection-permit-signature",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 1 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 2 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -3162,7 +3162,7 @@
     },
     {
       "arm_name": "prompt-injection-in-tool-output",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -3259,7 +3259,7 @@
     },
     {
       "arm_name": "secret-exfil-via-image-url",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -3386,7 +3386,7 @@
     },
     {
       "arm_name": "benign-runbook-env-var",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -3483,7 +3483,7 @@
     },
     {
       "arm_name": "benign-pool-report",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -3580,7 +3580,7 @@
     },
     {
       "arm_name": "benign-approval-revocation",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -3677,7 +3677,7 @@
     },
     {
       "arm_name": "benign-release-checksum",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -3774,7 +3774,7 @@
     },
     {
       "arm_name": "benign-governance-proposal",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 2 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 1 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -3835,7 +3835,7 @@
     },
     {
       "arm_name": "benign-code-snippet-system-role",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -3932,7 +3932,7 @@
     },
     {
       "arm_name": "benign-audit-finding",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -4029,7 +4029,7 @@
     },
     {
       "arm_name": "benign-aggregator-quote",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -4126,7 +4126,7 @@
     },
     {
       "arm_name": "benign-position-summary",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -4223,7 +4223,7 @@
     },
     {
       "arm_name": "benign-bug-report",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -4320,7 +4320,7 @@
     },
     {
       "arm_name": "benign-meeting-note",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -4417,7 +4417,7 @@
     },
     {
       "arm_name": "benign-exchange-key-rotation",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 2 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 1 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -4478,7 +4478,7 @@
     },
     {
       "arm_name": "benign-solidity-snippet",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -4605,7 +4605,7 @@
     },
     {
       "arm_name": "benign-liquidation-alert",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -4702,7 +4702,7 @@
     },
     {
       "arm_name": "benign-readme-install",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -4799,7 +4799,7 @@
     },
     {
       "arm_name": "benign-postmortem-prose",
-      "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+      "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
       "spec_id": "03-security-corpus",
       "summary": {
         "method": "3 trials were run against a spec that planned 3. Every trial is retained and counted, failures included: 0 of 3 ended in an error, and a failed trial keeps its place in the denominator rather than being re-run until it passes. Retries collapse into the trial that made them — a call that failed twice and then returned is one trial carrying three attempts, not three trials — and each trial's seconds cover its whole attempt sequence, the waits between attempts included. The min, median and max seconds are computed over the 3 trials that returned rather than over all 3; where nothing returned they are null rather than zero, because zero is a timing nobody observed.",
@@ -4895,7 +4895,7 @@
       ]
     }
   ],
-  "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+  "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
   "spec_id": "03-security-corpus",
   "started_at": "2026-08-10T22:34:21+00:00"
 }

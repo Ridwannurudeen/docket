@@ -1,6 +1,6 @@
 {
   "category": "security",
-  "claim": "Against a labelled 47-payload corpus, the hired scanner returns the labelled threat class more often than a stated keyword list does, and flags fewer benign payloads than a scanner that flags everything.",
+  "claim": "Against a labelled 47-payload corpus, the hired scanner's decision-level recall — the share of the labelled attacks it did not leave at ALLOW — exceeds the stated keyword list's, and its decision-level precision exceeds flag_everything's, which is the corpus base rate.",
   "dataset_ref": "docket/advantage/v2/corpus/security/payloads.json",
   "dataset_sha256": "11e9094f5a4a106d2f85be7a143c8c28ee6ee56c0521d1a0cda9672edab9f60a",
   "falsifier": "If the hired scanner's decision-level recall does not exceed keyword_match's, or its decision-level precision does not exceed flag_everything's (the corpus base rate), the claim is refuted and the report says so.",
@@ -46,8 +46,8 @@
     }
   ],
   "question": "Does the hired scanner name the threat classes a labelled corpus carries more often than a stated keyword list does, and does it flag fewer benign payloads than an arm that flags everything?",
-  "registered_at": "2026-08-10T22:33:12+00:00",
-  "spec_hash": "0xf7ad6c7700f9c14f8f8c521c28fc7854b7a9cecd3d406f15e20d1133f7ea4bc0",
+  "registered_at": "2026-08-11T10:22:08+00:00",
+  "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
   "spec_id": "03-security-corpus",
   "stopping_rule": "Three passes over every payload in the corpus, once. No payload is re-scanned because its result was unwelcome, and no payload was edited after its scan was seen."
 }
