@@ -55,7 +55,7 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/escrow/job/{job_id}` | One job's live on-chain state and when it can be settled |
 | GET | `/advantage.json` | Three hired-vs-manual experiments, both arms in full, with deltas |
 | GET | `/advantage` | The same report as a page for a human |
-| GET | `/advantage/v2.json` | Pre-registered experiments: every run, the nulls beside every figure, each falsifier's computed result |
+| GET | `/advantage/v2.json` | Hashed experiments with per-experiment registration provenance: every run, the nulls beside every figure, each falsifier's computed result |
 | GET | `/advantage/v2` | The same v2 report as a page for a human |
 | GET | `/llms.txt` | Full plain-text reference |
 | GET | `/skill.md` | This file |
@@ -271,7 +271,7 @@ question along with what that task's arm did not cover, and point them at
 `GET /advantage` to read both outputs themselves. Do not summarise this report as three
 wins; the record does not say that, and `notes` on each experiment says what it does say.
 
-### The v2 report: registered first, then run, then published either way
+### The v2 report: registration provenance stated per experiment, then every run published
 
 ```bash
 curl -s "$DOCKET/advantage/v2.json"
@@ -280,9 +280,11 @@ curl -s "$DOCKET/advantage/v2.json"
 Additive, not a replacement. `/advantage.json` is untouched and is where the only
 comparison against a person lives — performed by hand, once, n=1. v2 measures agent work
 against null baselines that are computed rather than asserted, over repeated trials,
-against a metric and a falsifier written down and hashed **before** the run. Every run
-record cites that hash, and `summary` names the claim that was refuted before any
-experiment is described.
+against a metric and a falsifier in a hashed specification that every run record cites.
+Git establishes 04's specification-before-run ordering; 01 and 03 are self-attested
+because each specification and completed run first entered git together. The provenance
+object also discloses 03's post-run claim and question re-registrations. `summary` names
+the claim that was refuted before any experiment is described.
 
 | Experiment | Result | The figure, with its null |
 | --- | --- | --- |

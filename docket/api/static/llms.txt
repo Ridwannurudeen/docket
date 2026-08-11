@@ -298,8 +298,11 @@ GET /advantage
     curl -s "$DOCKET/advantage"
 
 GET /advantage/v2.json
-    The second report: three experiments registered before they were run, every run
-    behind them, and each registered falsifier evaluated against what was measured.
+    The second report: three hashed experiments with registration provenance stated per
+    experiment. Git establishes 04's specification-before-run ordering; 01 and 03 are
+    self-attested because each specification and completed run first entered git together.
+    Every run is behind them, and each registered falsifier is evaluated against what was
+    measured.
     Additive — /advantage.json above is untouched and is the prior version rather than
     a superseded one. No parameters, no snapshot involved. Returns
     {"version", "page", "prior_version", "method", "summary", "experiments": [...]},
@@ -310,7 +313,10 @@ GET /advantage/v2.json
                      before any experiment is described
       experiments[]  each carrying:
         experiment_id   01-liquidity-arithmetic, 03-security-corpus or 04-grid-replay
-        spec            the pre-registration, hashed: claim, metric with its formula
+        registration_provenance
+                        git-provable for 04; self-attested for 01 and 03, with the
+                        relevant commits and any post-run re-registrations
+        spec            the hashed specification: claim, metric with its formula
                         written out, null_baselines with the argument for each,
                         n_planned, stopping_rule, falsifier, dataset_ref and its sha256
         run             the whole run record, cited against the spec's hash: every pool
@@ -768,15 +774,16 @@ Three results. Two of them are qualified, and the qualifications are the point:
 Quote a figure from this report with what it does not cover, the same way you would
 quote any other number Docket publishes.
 
-### v2: registered first, then run, then published either way
+### v2: registration provenance stated per experiment, then every run published
 
 A second report at GET /advantage/v2.json and GET /advantage/v2. It does not replace
 the three tasks above and nothing in it rewrites them: v1 is where the only comparison
 against a person lives, performed by hand, once. v2 measures agent work against null
 baselines that are computed rather than asserted, over repeated trials, against a
-metric and a falsifier written down and hashed BEFORE the run — and every run record
-cites that hash, so a metric chosen after the data was in cannot pass as one chosen
-before it.
+metric and a falsifier in a hashed specification that every run record cites. Git
+establishes 04's specification-before-run ordering; 01 and 03 are self-attested because
+each specification and completed run first entered git together. The provenance object
+also discloses 03's post-run claim and question re-registrations.
 
 One of its three claims is refuted by its own falsifier. That is stated in `summary`
 before the experiments, and the experiment behind it is served in full:
@@ -795,6 +802,11 @@ before the experiments, and the experiment behind it is served in full:
                             each — the hired scanner flagged 14 of 31 labelled attacks
                             where a stated 16-word keyword list flagged 12 of the same
                             31. Quote the margin with the figure: it is two payloads.
+                            The benign-meeting-note label is contestable. Reclassifying it
+                            as a ROLE_OVERRIDE attack gives the hired scanner 14 of 32 and
+                            keyword_match 13 of 32, so the claim survives by one payload
+                            rather than two. The corpus is left unedited because its bytes
+                            are hashed into the registration.
                             Its decision-level precision is 14 of 15 against a corpus
                             base rate of 31 of 47. It named the labelled class on 13 of
                             31. All nine of the 141 scan failures were identical HTTP 429
@@ -802,7 +814,12 @@ before the experiments, and the experiment behind it is served in full:
                             misses. This spec's claim
                             was re-registered after the run because the sentence first
                             registered could not fail; the falsifier that decides it is
-                            unchanged and predates the run.
+                            unchanged and predates the run. The question was rewritten
+                            after the run because keyword_match emits no classes, so asking
+                            whether the hired scanner named classes more often compared
+                            unlike outputs. It now asks the decision-level comparison in the
+                            claim and unchanged falsifier. The run-record diff repoints 48
+                            spec_hash citations and changes no observation.
 
   04-grid-replay            REFUTED. No transaction was sent: this is a replay of the
                             committed grid plan against 744 recorded hourly candles of

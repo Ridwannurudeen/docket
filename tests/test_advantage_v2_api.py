@@ -136,6 +136,45 @@ def test_registration_provenance_is_served_per_experiment_and_visible_on_the_pag
     assert "Each experiment below was registered before it was run" not in page
 
 
+def test_agent_facing_v2_prose_qualifies_registration_order_per_experiment(client, body):
+    security = next(
+        experiment
+        for experiment in body["experiments"]
+        if experiment["experiment_id"] == "03-security-corpus"
+    )
+    openapi = client.get("/openapi.json").json()
+    documents = {
+        "/llms.txt": client.get("/llms.txt").text,
+        "/skill.md": client.get("/skill.md").text,
+        "/openapi.json": openapi["paths"]["/advantage/v2.json"]["get"]["description"],
+    }
+    blanket_claims = (
+        "pre-registered experiments",
+        "three experiments registered before they were run",
+        "the pre-registration, hashed",
+        "registered first, then run",
+        "a registration hashed before the run",
+        "a metric and a falsifier written down and hashed before the run",
+    )
+
+    for path, document in documents.items():
+        normalized = " ".join(document.casefold().replace("**", "").split())
+        assert "git establishes 04" in normalized, path
+        assert "01 and 03 are self-attested" in normalized, path
+        for claim in blanket_claims:
+            assert claim not in normalized, (path, claim)
+
+    llms = " ".join(documents["/llms.txt"].split())
+    sensitivity = security["headline"]["margin"]["sensitivity"]
+    question_change = next(
+        change
+        for change in security["registration_provenance"]["post_run_re_registrations"]
+        if change["field"] == "question"
+    )
+    assert " ".join(sensitivity["statement"].split()) in llms
+    assert " ".join(question_change["statement"].split()) in llms
+
+
 def test_every_rate_in_the_document_carries_the_counts_it_came_from(body):
     """Walked rather than spot-checked. A rate is three fields or it is a bare float wearing
     a dict, and a denominator of zero reports null rather than dividing."""

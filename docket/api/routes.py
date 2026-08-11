@@ -489,16 +489,19 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
 
     @app.get("/advantage/v2.json")
     def advantage_v2_json() -> dict:
-        """The second report: pre-registered experiments, every run behind them, and each
-        registered falsifier evaluated against what was measured.
+        """The second report: hashed experiments with registration provenance stated per
+        experiment, every run behind them, and each registered falsifier evaluated against
+        what was measured. Git establishes 04's specification-before-run ordering; 01 and 03
+        are self-attested because each specification and completed run first entered git
+        together.
 
         Additive. `/advantage.json` above is untouched and stays the prior version rather
         than a superseded one, and this document links back to it in `prior_version`. What
-        is new here is the shape rather than the subject: a registration hashed before the
-        run and cited by it, null baselines computed and served beside every agent figure,
-        every trial including the ones that failed, and — the thing nothing served until
-        now — the result of each falsifier, computed. One of the three claims is refuted,
-        and `summary` says which before the experiments begin.
+        is new here is the shape rather than the subject: a hashed specification cited by its
+        run, null baselines computed and served beside every agent figure, every trial
+        including the ones that failed, and — the thing nothing served until now — the
+        result of each falsifier, computed. One of the three claims is refuted, and `summary`
+        says which before the experiments begin.
         """
         return advantage_v2
 
