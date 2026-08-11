@@ -368,6 +368,32 @@ def test_the_replay_is_stated_as_a_replay_everywhere_a_reader_can_land(body, pag
     assert "centralised" in replay["run"]["method"]
 
 
+def test_replay_discloses_the_post_registration_buy_and_hold_reading(body, page):
+    replay = next(
+        experiment
+        for experiment in body["experiments"]
+        if experiment["experiment_id"] == "04-grid-replay"
+    )
+    disclosure = replay["headline"]["null_interpretation"]
+
+    assert disclosure["state"] == "post_registration_reinterpretation"
+    assert disclosure["registered_same_money_reading"] == {
+        "quote_committed": 0,
+        "base_acquired": 0,
+        "average_buy_price": 547_860_000_000_000_000_000,
+    }
+    assert disclosure["published_capacity_reading"] == {
+        "quote_committed": 500_000_000_000_000_000_000,
+        "base_acquired": 912_641_915_817_909_684,
+        "average_buy_price": 547_860_000_000_000_000_000,
+    }
+    assert disclosure["falsifier_is_insensitive"] is True
+    assert "same-money rule gives buy-and-hold zero quote" in disclosure["statement"]
+    assert "published null gives it the five-level planned capacity" in disclosure["statement"]
+    assert "falsifier compares prices" in disclosure["statement"]
+    assert disclosure["statement"] in page
+
+
 def test_the_page_shows_every_run_including_the_ones_that_failed(page, body):
     """Aggregates alone are what this report exists not to be. Every pool row, every payload
     and every trigger is on the page, and the nine failed scans are shown where they happened

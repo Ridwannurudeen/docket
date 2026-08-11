@@ -104,12 +104,19 @@ def _headline(headline: dict) -> str:
     sensitivity_text = (
         f'<p class="dim">{_esc(sensitivity["statement"])}</p>' if sensitivity else ""
     )
+    interpretation = headline.get("null_interpretation")
+    interpretation_html = (
+        '<div class="panel"><h4>Null interpretation</h4>'
+        f'<p>{_esc(interpretation["statement"])}</p></div>'
+        if interpretation
+        else ""
+    )
     return (
         f'<p class="lede">{_esc(headline["statement"])}</p>'
         '<div class="panel"><h4>Margin over the null</h4>'
         f"<p>{_esc(headline['margin']['statement'])}</p>{sensitivity_text}</div>"
         '<div class="panel"><h4>The nulls, computed over the same data</h4>'
-        f'<dl class="deflist">{nulls}</dl></div>'
+        f'<dl class="deflist">{nulls}</dl></div>{interpretation_html}'
     )
 
 

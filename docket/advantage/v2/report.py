@@ -457,6 +457,30 @@ def _replay(record: dict) -> dict:
                     "draws that did worse is a rate over a denominator of zero."
                 ),
             },
+            "null_interpretation": {
+                "state": "post_registration_reinterpretation",
+                "registered_same_money_reading": {
+                    "quote_committed": fired["quote_committed"],
+                    "base_acquired": 0,
+                    "average_buy_price": hold["average_buy_price"],
+                },
+                "published_capacity_reading": {
+                    "quote_committed": hold["quote_committed"],
+                    "base_acquired": hold["base_acquired"],
+                    "average_buy_price": hold["average_buy_price"],
+                },
+                "falsifier_is_insensitive": True,
+                "statement": (
+                    "The registered same-money rule gives buy-and-hold zero quote because "
+                    "the replay committed zero; at the first-close price that acquires zero "
+                    "base. The published null gives it the five-level planned capacity: "
+                    f"{hold['quote_committed']} quote, acquiring {hold['base_acquired']} base "
+                    f"at {hold['average_buy_price']}. That is a post-registration "
+                    "reinterpretation. The falsifier compares prices and also fires "
+                    "independently because no buy level fired, so the choice of quote amount "
+                    "does not affect the refutation."
+                ),
+            },
         },
         "falsifier_result": record["falsifier_result"],
     }
