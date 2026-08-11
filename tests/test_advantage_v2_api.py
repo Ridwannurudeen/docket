@@ -27,6 +27,7 @@ included.
 """
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -99,20 +100,26 @@ def test_the_v2_document_carries_every_registration_and_its_whole_run(body):
         assert experiment["spec"] == spec.as_record()
         assert experiment["run"]["spec_hash"] == spec.spec_hash
         assert experiment["run"] == json.loads(
-            (V2 / "runs" / f"{experiment['experiment_id']}.json").read_text(encoding="utf-8")
+            (V2 / "runs" / f"{experiment['experiment_id']}.json").read_text(
+                encoding="utf-8"
+            )
         )
         for field in ("claim", "falsifier", "stopping_rule", "dataset_sha256"):
             assert experiment["spec"][field].strip(), experiment["experiment_id"]
         assert len(experiment["spec"]["null_baselines"]) >= 2
 
 
-def test_registration_provenance_is_served_per_experiment_and_visible_on_the_page(body, page):
+def test_registration_provenance_is_served_per_experiment_and_visible_on_the_page(
+    body, page
+):
     provenance = {
         experiment["experiment_id"]: experiment["registration_provenance"]
         for experiment in body["experiments"]
     }
 
-    assert {experiment_id: item["state"] for experiment_id, item in provenance.items()} == {
+    assert {
+        experiment_id: item["state"] for experiment_id, item in provenance.items()
+    } == {
         "01-liquidity-arithmetic": "self_attested",
         "03-security-corpus": "self_attested",
         "04-grid-replay": "git_provable",
@@ -124,19 +131,49 @@ def test_registration_provenance_is_served_per_experiment_and_visible_on_the_pag
     assert provenance["04-grid-replay"]["spec_commit"] == "b47c307"
     assert provenance["04-grid-replay"]["run_commit"] == "9168194"
     assert provenance["04-grid-replay"]["spec_precedes_run"] is True
-    assert provenance["01-liquidity-arithmetic"]["committed_run_producer"]["present"] is False
-    assert provenance["03-security-corpus"]["committed_run_producer"]["present"] is False
+    assert (
+        provenance["01-liquidity-arithmetic"]["committed_run_producer"]["present"]
+        is False
+    )
+    assert (
+        provenance["03-security-corpus"]["committed_run_producer"]["present"] is False
+    )
     assert provenance["04-grid-replay"]["committed_run_producer"] == {
         "present": True,
         "path": "docket/advantage/v2/replay.py",
     }
     assert page.count("self_attested") >= 2
     assert "git_provable" in page
-    assert "Every experiment here was registered before it was run" not in body["method"]
+    assert (
+        "Every experiment here was registered before it was run" not in body["method"]
+    )
     assert "Each experiment below was registered before it was run" not in page
 
 
-def test_agent_facing_v2_prose_qualifies_registration_order_per_experiment(client, body):
+def test_03_self_attested_provenance_explains_its_registered_at_inversion(body, page):
+    experiments = {
+        experiment["experiment_id"]: experiment for experiment in body["experiments"]
+    }
+    security = experiments["03-security-corpus"]
+    provenance = security["registration_provenance"]
+
+    assert datetime.fromisoformat(
+        security["spec"]["registered_at"]
+    ) > datetime.fromisoformat(security["run"]["finished_at"])
+    assert "current registered_at postdates the run" in provenance["statement"]
+    assert "post-run re-registrations" in provenance["statement"]
+    assert provenance["statement"] in page
+    assert (
+        "current registered_at postdates the run"
+        not in experiments["01-liquidity-arithmetic"]["registration_provenance"][
+            "statement"
+        ]
+    )
+
+
+def test_agent_facing_v2_prose_qualifies_registration_order_per_experiment(
+    client, body
+):
     security = next(
         experiment
         for experiment in body["experiments"]
@@ -196,7 +233,9 @@ def test_the_nulls_are_served_beside_every_agent_figure_with_a_margin(body):
     are in the same object as the headline they qualify."""
     for experiment in body["experiments"]:
         headline = experiment["headline"]
-        spec_nulls = {baseline["name"] for baseline in experiment["spec"]["null_baselines"]}
+        spec_nulls = {
+            baseline["name"] for baseline in experiment["spec"]["null_baselines"]
+        }
         served = {null["name"] for null in headline["nulls"]}
 
         assert headline["statement"].strip(), experiment["experiment_id"]
@@ -295,7 +334,10 @@ def test_an_unscored_security_payload_marks_the_run_incomplete_and_keeps_null_po
             {
                 "arm_name": "benign",
                 "trials": [
-                    {"error": None, "output": {"verdict": "ALLOW", "threat_classes": []}}
+                    {
+                        "error": None,
+                        "output": {"verdict": "ALLOW", "threat_classes": []},
+                    }
                 ],
             },
         ]
@@ -343,7 +385,9 @@ def test_03_serves_the_post_run_claim_re_registration_disclosure(body, page):
     assert changes[0]["statement"] in page
 
 
-def test_03_question_asks_the_decision_level_comparison_and_discloses_its_rewrite(body, page):
+def test_03_question_asks_the_decision_level_comparison_and_discloses_its_rewrite(
+    body, page
+):
     security = next(
         experiment
         for experiment in body["experiments"]
@@ -443,7 +487,10 @@ def test_replay_discloses_the_post_registration_buy_and_hold_reading(body, page)
     }
     assert disclosure["falsifier_is_insensitive"] is True
     assert "same-money rule gives buy-and-hold zero quote" in disclosure["statement"]
-    assert "published null gives it the five-level planned capacity" in disclosure["statement"]
+    assert (
+        "published null gives it the five-level planned capacity"
+        in disclosure["statement"]
+    )
     assert "falsifier compares prices" in disclosure["statement"]
     assert disclosure["statement"] in page
 
@@ -524,7 +571,9 @@ def test_the_page_reaches_no_verdict(page):
         assert word not in lowered, f"the v2 page reaches a verdict: {word!r}"
 
 
-def test_the_page_names_v1_as_the_prior_version_and_v1_does_not_know_about_v2(page, body):
+def test_the_page_names_v1_as_the_prior_version_and_v1_does_not_know_about_v2(
+    page, body
+):
     """One-way. v2 is additive, so it links back; v1 is unchanged, so it cannot link
     forward, and a v1 page that had learned about v2 would be a v1 page that had been
     edited."""
@@ -586,7 +635,9 @@ def test_the_service_card_figure_is_computed_from_the_record_and_cannot_drift(bo
     assert card.observed_at == report.run("03-security-corpus")["finished_at"][:10]
 
 
-def test_the_security_claim_is_no_longer_the_tautology_and_the_run_cites_the_new_hash(body):
+def test_the_security_claim_is_no_longer_the_tautology_and_the_run_cites_the_new_hash(
+    body,
+):
     """The registered claim's first clause could not fail: it compared class-level naming
     against a null that names no classes at all. It is re-registered in the words of the
     falsifier that actually decides it — unchanged, and registered before the run — and the
@@ -597,12 +648,16 @@ def test_the_security_claim_is_no_longer_the_tautology_and_the_run_cites_the_new
         if experiment["experiment_id"] == "03-security-corpus"
     )
     claim = security["spec"]["claim"]
-    run = json.loads((V2 / "runs" / "03-security-corpus.json").read_text(encoding="utf-8"))
+    run = json.loads(
+        (V2 / "runs" / "03-security-corpus.json").read_text(encoding="utf-8")
+    )
 
     assert "returns the labelled threat class more often" not in claim
     assert "decision-level recall" in claim and "decision-level precision" in claim
     assert run["spec_hash"] == security["spec"]["spec_hash"]
-    assert {entry["spec_hash"] for entry in run["payloads"]} == {security["spec"]["spec_hash"]}
+    assert {entry["spec_hash"] for entry in run["payloads"]} == {
+        security["spec"]["spec_hash"]
+    }
 
 
 def test_both_agent_facing_documents_carry_the_v2_path_in_lockstep(client):

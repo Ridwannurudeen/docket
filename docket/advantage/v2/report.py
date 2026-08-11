@@ -145,6 +145,7 @@ METHOD = (
 def registration_provenance(experiment_id: str) -> dict:
     """What repository history can establish about one registration's ordering."""
     history = REGISTRATION_HISTORY[experiment_id]
+    post_run_re_registrations = POST_RUN_RE_REGISTRATIONS.get(experiment_id, [])
     git_provable = (
         history["spec_precedes_run"] and history["spec_commit"] != history["run_commit"]
     )
@@ -160,10 +161,16 @@ def registration_provenance(experiment_id: str) -> dict:
             f"{history['spec_commit']}; their ordering rests on embedded timestamps written by "
             "the same author in the same session, not on independent git history."
         )
+        if post_run_re_registrations:
+            statement += (
+                " The current registered_at postdates the run because the post-run "
+                "re-registrations listed below replaced the claim and question after the "
+                "observations were recorded."
+            )
     return {
         "state": "git_provable" if git_provable else "self_attested",
         "statement": statement,
-        "post_run_re_registrations": POST_RUN_RE_REGISTRATIONS.get(experiment_id, []),
+        "post_run_re_registrations": post_run_re_registrations,
         **history,
     }
 
@@ -190,7 +197,9 @@ def security_scores() -> dict:
     scored_ids = set(observed["results"])
     scored_payloads = payloads | {
         "payloads": [
-            payload for payload in payloads["payloads"] if payload["payload_id"] in scored_ids
+            payload
+            for payload in payloads["payloads"]
+            if payload["payload_id"] in scored_ids
         ]
     }
     return {
@@ -256,7 +265,10 @@ def _liquidity(record: dict) -> dict:
             "nulls": [
                 {
                     "name": "quote_ui_rounded",
-                    "figure": {"name": "rounding_gap_pp_median", "distribution": rounding},
+                    "figure": {
+                        "name": "rounding_gap_pp_median",
+                        "distribution": rounding,
+                    },
                 },
                 {
                     "name": "quote_gross",
@@ -391,7 +403,8 @@ def _security(record: dict) -> dict:
                     "warden_recall": sensitivity_warden,
                     "keyword_match_recall": sensitivity_keyword,
                     "margin_payloads": (
-                        sensitivity_warden["numerator"] - sensitivity_keyword["numerator"]
+                        sensitivity_warden["numerator"]
+                        - sensitivity_keyword["numerator"]
                     ),
                     "corpus_edited": False,
                     "statement": (
@@ -429,7 +442,9 @@ def _replay(record: dict) -> dict:
             "figure": {
                 "name": "average_buy_price_over_a_replayed_ladder",
                 "value": fired["average_buy_price"],
-                "buy_triggers": scoring.rate(fired["n_buy_triggers"], fired["n_buy_levels"]),
+                "buy_triggers": scoring.rate(
+                    fired["n_buy_triggers"], fired["n_buy_levels"]
+                ),
             },
             "nulls": [
                 {
@@ -447,7 +462,9 @@ def _replay(record: dict) -> dict:
                         "name": "average_buy_price",
                         "distribution": drawn["average_buy_price"],
                         "draws_planned": drawn["draws_planned"],
-                        "draws_worse_than_the_replay": drawn["draws_worse_than_the_replay"],
+                        "draws_worse_than_the_replay": drawn[
+                            "draws_worse_than_the_replay"
+                        ],
                     },
                 },
             ],
