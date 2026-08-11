@@ -223,22 +223,45 @@ def test_03_serves_the_post_run_claim_re_registration_disclosure(body, page):
     )
     changes = security["registration_provenance"]["post_run_re_registrations"]
 
-    assert changes == [
-        {
-            "field": "claim",
-            "commit": "adb352b",
-            "timing": "after_run",
-            "falsifier_changed": False,
-            "spec_hash_citations_changed": 48,
-            "observations_changed": False,
-            "statement": (
-                "The claim was rewritten after the run at adb352b. Its falsifier is "
-                "byte-identical to the one that predates the run. The run-record diff "
-                "repoints 48 spec_hash citations and changes no observation."
-            ),
-        }
-    ]
+    assert changes[0] == {
+        "field": "claim",
+        "commit": "adb352b",
+        "timing": "after_run",
+        "falsifier_changed": False,
+        "spec_hash_citations_changed": 48,
+        "observations_changed": False,
+        "statement": (
+            "The claim was rewritten after the run at adb352b. Its falsifier is "
+            "byte-identical to the one that predates the run. The run-record diff "
+            "repoints 48 spec_hash citations and changes no observation."
+        ),
+    }
     assert changes[0]["statement"] in page
+
+
+def test_03_question_asks_the_decision_level_comparison_and_discloses_its_rewrite(body, page):
+    security = next(
+        experiment
+        for experiment in body["experiments"]
+        if experiment["experiment_id"] == "03-security-corpus"
+    )
+    question = security["spec"]["question"]
+    changes = security["registration_provenance"]["post_run_re_registrations"]
+
+    assert "name the threat classes" not in question
+    assert "flag a larger share of labelled attacks" in question
+    assert "precision" in question
+    assert page.index(question) < page.index(security["headline"]["statement"])
+    assert len(changes) == 2
+    question_change = changes[1]
+    assert question_change["field"] == "question"
+    assert question_change["timing"] == "after_run"
+    assert question_change["falsifier_changed"] is False
+    assert question_change["spec_hash_citations_changed"] == 48
+    assert question_change["observations_changed"] is False
+    assert "question was rewritten after the run" in question_change["statement"]
+    assert "keyword_match emits no classes" in question_change["statement"]
+    assert question_change["statement"] in page
 
 
 def test_every_falsifier_result_is_computed_and_one_of_them_fired(body):

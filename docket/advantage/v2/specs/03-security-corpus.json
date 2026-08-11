@@ -45,9 +45,9 @@
       "why_it_is_the_right_null": "The hire is worth its price only against the cheapest thing a caller could write instead, and that is a word list. Its limitation is stated rather than hidden: the keyword list was written by the same hand that authored the corpus, so it is a neutral-to-optimistic null and not an adversarial one. A reader who thinks it is too weak can re-run scoring.py with their own list against the published corpus, which is why the two travel together."
     }
   ],
-  "question": "Does the hired scanner name the threat classes a labelled corpus carries more often than a stated keyword list does, and does it flag fewer benign payloads than an arm that flags everything?",
-  "registered_at": "2026-08-11T10:22:08+00:00",
-  "spec_hash": "0x31d944025eaa1bf9d201752c3be57fcdfb3e935ee6a56dd965db9e09063caee3",
+  "question": "Does the hired scanner flag a larger share of labelled attacks than the stated keyword list while keeping enough precision to exceed an arm that flags everything?",
+  "registered_at": "2026-08-11T11:12:24+00:00",
+  "spec_hash": "0x4538a0aaba0aae1c73485c050745265af7ceba5fad47858884b3cf99abd4594f",
   "spec_id": "03-security-corpus",
   "stopping_rule": "Three passes over every payload in the corpus, once. No payload is re-scanned because its result was unwelcome, and no payload was edited after its scan was seen."
 }

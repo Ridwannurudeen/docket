@@ -92,7 +92,22 @@ POST_RUN_RE_REGISTRATIONS = {
                 "byte-identical to the one that predates the run. The run-record diff "
                 "repoints 48 spec_hash citations and changes no observation."
             ),
-        }
+        },
+        {
+            "field": "question",
+            "commit": "the commit containing this record",
+            "timing": "after_run",
+            "falsifier_changed": False,
+            "spec_hash_citations_changed": 48,
+            "observations_changed": False,
+            "statement": (
+                "The question was rewritten after the run because keyword_match emits no "
+                "classes, so asking whether the hired scanner named classes more often "
+                "compared unlike outputs. It now asks the decision-level comparison in the "
+                "claim and unchanged falsifier. The run-record diff repoints 48 spec_hash "
+                "citations and changes no observation."
+            ),
+        },
     ]
 }
 
