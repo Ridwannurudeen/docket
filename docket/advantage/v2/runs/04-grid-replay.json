@@ -1,0 +1,272 @@
+{
+  "buy_and_hold": {
+    "average_buy_price": 547860000000000000000,
+    "base_acquired": 912641915817909684,
+    "method": "No transaction was sent. This is a replay of a plan against recorded observations, and it is not a trading record. The whole allocation of 500 quote committed once at the first candle's close, 547.86, and held to the end of the window. Its average buy price is that close by construction. Base acquired floors at the fill, as it does in every arm here.",
+    "quote_committed": 500000000000000000000,
+    "trades": 1
+  },
+  "claim_refuted": true,
+  "comparison_is_empty": true,
+  "dataset_recheck": {
+    "attempts": [
+      {
+        "attempt": 1,
+        "error": null
+      }
+    ],
+    "bytes_fetched": 125725,
+    "matches": true,
+    "sha256_committed": "d642d970928d9ec45b228c047b4bc7fd99a62964515b68342c5eeb64c5003b72",
+    "sha256_fetched": "d642d970928d9ec45b228c047b4bc7fd99a62964515b68342c5eeb64c5003b72",
+    "url": "https://data-api.binance.vision/api/v3/klines?symbol=BNBUSDT&interval=1h&startTime=1782864000000&endTime=1785542399999&limit=1000"
+  },
+  "dataset_ref": "docket/advantage/v2/corpus/series/bnbusdt-1h-2026-07.json",
+  "dataset_sha256": "d642d970928d9ec45b228c047b4bc7fd99a62964515b68342c5eeb64c5003b72",
+  "falsifier_result": {
+    "checks": [
+      {
+        "clause": "no_buy_level_fired",
+        "observed": "No buy level fired over the window, so the ladder committed nothing and there is no average buy price to compare against either null.",
+        "refuted": true
+      },
+      {
+        "clause": "average_buy_price_not_below_buy_and_hold",
+        "observed": "There is no replayed average buy price to place against the first close, 547.86.",
+        "refuted": true
+      },
+      {
+        "clause": "fewer_than_half_the_draws_did_worse",
+        "observed": "No draw was comparable: the replay bought at no level, so the share of draws that did worse is a rate over a denominator of zero and is reported null.",
+        "refuted": true
+      }
+    ],
+    "refuted": true
+  },
+  "finding": "The claim is REFUTED. Over the 744 candles of the registered window, 0 of the plan's 5 buy levels fired and 4 of its 5 sell levels did. No buy level fired over the window, so the ladder committed nothing and there is no average buy price to compare against either null. There is no replayed average buy price to place against the first close, 547.86. No draw was comparable: the replay bought at no level, so the share of draws that did worse is a rate over a denominator of zero and is reported null. The comparison is empty. Buy-and-hold committed 500 of quote at 547.86 and held 0.912641915817909684 of base against the replay's 0. The series was re-fetched from the registered Binance URL during this run and its digest matched the committed file's, so the window is obtainable rather than only citable. The series is a centralised venue's and the plan addresses an on-chain pair, which is an assumption stated in the method above and not a fact established here. This is the result the pre-registration committed to publishing whichever way it came out, and it is published as it came out.",
+  "finished_at": "2026-08-11T10:10:37+00:00",
+  "method": "No transaction was sent. This is a replay of a plan against recorded observations, and it is not a trading record. Nothing here is an outcome anybody obtained: it is what the committed grid plan would have committed to over a window of prices that had already closed. The venue is the assumption a reader must meet before any figure below — the series is Binance's BNBUSDT, a centralised exchange's order book, while the plan addresses the WBNB/USDT pair on BSC through PancakeSwap. Replaying one against the other assumes the two prices track, which is an assumption and not a fact; the two books are close but they are not the same book, and no figure here is evidence about the venue the plan trades. Fills are at the level price with no fee, no slippage and no partial fill, all three of which would raise a real buyer's average price. Only candle closes are offered to the plan, so a venue that would have filled on an intra-hour wick would have triggered more levels than are counted here. Base acquired floors at every fill in every arm. Buy-and-hold commits the ladder's whole buy-side capacity rather than the part the ladder deployed, which is the reading under which the registered baseline's own sentence — in the market from the first hour, different exposure for the same money — is true; it moves nothing the falsifier tests, which compares average prices, and an average price does not depend on how much was committed at it. A lower average price is not a better outcome: it is a different position, held in less base for less money, and the base each arm acquired is reported beside the price each paid. The falsifier was evaluated clause by clause against the measured figures rather than restated, and its result is below.",
+  "n_candles": 744,
+  "n_planned": 744,
+  "notice": "No transaction was sent. This is a replay of a plan against recorded observations, and it is not a trading record.",
+  "plan": {
+    "base": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+    "base_decimals": 18,
+    "levels": [
+      {
+        "condition": {
+          "kind": "price_at_or_below",
+          "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+          "threshold": "519194000000000000000"
+        },
+        "index": 0,
+        "price": "519194000000000000000",
+        "side": "buy",
+        "size": "100000000000000000000",
+        "token_in": "0x55d398326f99059fF775485246999027B3197955",
+        "token_out": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+      },
+      {
+        "condition": {
+          "kind": "price_at_or_below",
+          "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+          "threshold": "524659200000000000000"
+        },
+        "index": 1,
+        "price": "524659200000000000000",
+        "side": "buy",
+        "size": "100000000000000000000",
+        "token_in": "0x55d398326f99059fF775485246999027B3197955",
+        "token_out": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+      },
+      {
+        "condition": {
+          "kind": "price_at_or_below",
+          "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+          "threshold": "530124400000000000000"
+        },
+        "index": 2,
+        "price": "530124400000000000000",
+        "side": "buy",
+        "size": "100000000000000000000",
+        "token_in": "0x55d398326f99059fF775485246999027B3197955",
+        "token_out": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+      },
+      {
+        "condition": {
+          "kind": "price_at_or_below",
+          "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+          "threshold": "535589600000000000000"
+        },
+        "index": 3,
+        "price": "535589600000000000000",
+        "side": "buy",
+        "size": "100000000000000000000",
+        "token_in": "0x55d398326f99059fF775485246999027B3197955",
+        "token_out": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+      },
+      {
+        "condition": {
+          "kind": "price_at_or_below",
+          "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+          "threshold": "541054800000000000000"
+        },
+        "index": 4,
+        "price": "541054800000000000000",
+        "side": "buy",
+        "size": "100000000000000000000",
+        "token_in": "0x55d398326f99059fF775485246999027B3197955",
+        "token_out": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+      },
+      {
+        "condition": {
+          "kind": "price_at_or_above",
+          "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+          "threshold": "551985200000000000000"
+        },
+        "index": 6,
+        "price": "551985200000000000000",
+        "side": "sell",
+        "size": "181164277592949955",
+        "token_in": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+        "token_out": "0x55d398326f99059fF775485246999027B3197955"
+      },
+      {
+        "condition": {
+          "kind": "price_at_or_above",
+          "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+          "threshold": "557450400000000000000"
+        },
+        "index": 7,
+        "price": "557450400000000000000",
+        "side": "sell",
+        "size": "179388157224391623",
+        "token_in": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+        "token_out": "0x55d398326f99059fF775485246999027B3197955"
+      },
+      {
+        "condition": {
+          "kind": "price_at_or_above",
+          "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+          "threshold": "562915600000000000000"
+        },
+        "index": 8,
+        "price": "562915600000000000000",
+        "side": "sell",
+        "size": "177646524629980053",
+        "token_in": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+        "token_out": "0x55d398326f99059fF775485246999027B3197955"
+      },
+      {
+        "condition": {
+          "kind": "price_at_or_above",
+          "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+          "threshold": "568380800000000000000"
+        },
+        "index": 9,
+        "price": "568380800000000000000",
+        "side": "sell",
+        "size": "175938384970076399",
+        "token_in": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+        "token_out": "0x55d398326f99059fF775485246999027B3197955"
+      },
+      {
+        "condition": {
+          "kind": "price_at_or_above",
+          "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+          "threshold": "573846000000000000000"
+        },
+        "index": 10,
+        "price": "573846000000000000000",
+        "side": "sell",
+        "size": "174262781303694719",
+        "token_in": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+        "token_out": "0x55d398326f99059fF775485246999027B3197955"
+      }
+    ],
+    "lower": "519194000000000000000",
+    "plan_hash": "0xb83ae2aa5e8afba22a8053ff691000e7591ad019ac16350f95dd1420b55789ab",
+    "quote": "0x55d398326f99059fF775485246999027B3197955",
+    "reference": "546520000000000000000",
+    "requested_levels": 11,
+    "side_rule": "buy_below_sell_above",
+    "size_per_level": "100000000000000000000",
+    "skipped_at_reference": 1,
+    "upper": "573846000000000000000"
+  },
+  "random_entry": {
+    "average_buy_price": {
+      "max": null,
+      "median": null,
+      "min": null,
+      "n": 0
+    },
+    "draws": [],
+    "draws_planned": 1000,
+    "draws_worse_than_the_replay": {
+      "denominator": 0,
+      "numerator": 0,
+      "value": null
+    },
+    "method": "No transaction was sent. This is a replay of a plan against recorded observations, and it is not a trading record. 0 draws of the planned 1000 from random.Random(20260811), each committing 100 of quote at each of 0 candle closes drawn uniformly without replacement from the 744 in the window. Every draw is listed with the candles it picked, so the distribution can be re-drawn rather than taken on trust; the median of an even sample is the lower of its two central draws, which is a price a draw obtained rather than the mean of two that no draw paid. No draw was taken: the replay bought at no level, so there is no trade count to match and no total to commit. That is reported as an empty comparison rather than as a distribution over trades of nothing.",
+    "n_drawn": 0,
+    "quote_committed": 0,
+    "seed": 20260811,
+    "size_per_trade": 100000000000000000000,
+    "trades": 0
+  },
+  "replay": {
+    "average_buy_price": null,
+    "base_acquired": 0,
+    "method": "No transaction was sent. This is a replay of a plan against recorded observations, and it is not a trading record. The plan is docket.agents.grid.plan.build_plan at plan hash 0xb83ae2aa5e8afba22a8053ff691000e7591ad019ac16350f95dd1420b55789ab, its band a function of the first candle's open (546.52) and of registered constants alone. Each of the 744 candles offers its close, and only its close, to docket.agents.grid.plan.next_action with the levels already filled; intra-hour highs and lows are not offered, which understates triggers against a venue that would have filled on a wick. A filled level never re-arms and a price outside the band fires nothing, so this is a first-touch count over a one-shot ladder and not a trade count. The window's lowest close is 542.21 against a highest buy level of 541.0548. Fills are at the level price with no fee, no slippage and no partial fill, each of which would raise a real buyer's average price; base acquired floors at every fill.",
+    "n_buy_levels": 5,
+    "n_buy_triggers": 0,
+    "n_candles": 744,
+    "n_sell_levels": 5,
+    "n_sell_triggers": 4,
+    "plan_hash": "0xb83ae2aa5e8afba22a8053ff691000e7591ad019ac16350f95dd1420b55789ab",
+    "quote_committed": 0,
+    "triggers": [
+      {
+        "base_offered": 181164277592949955,
+        "candle_index": 15,
+        "close": 554360000000000000000,
+        "level_index": 6,
+        "open_time": 1782918000000,
+        "price": 551985200000000000000,
+        "side": "sell"
+      },
+      {
+        "base_offered": 179388157224391623,
+        "candle_index": 35,
+        "close": 559930000000000000000,
+        "level_index": 7,
+        "open_time": 1782990000000,
+        "price": 557450400000000000000,
+        "side": "sell"
+      },
+      {
+        "base_offered": 177646524629980053,
+        "candle_index": 36,
+        "close": 563050000000000000000,
+        "level_index": 8,
+        "open_time": 1782993600000,
+        "price": 562915600000000000000,
+        "side": "sell"
+      },
+      {
+        "base_offered": 175938384970076399,
+        "candle_index": 66,
+        "close": 568420000000000000000,
+        "level_index": 9,
+        "open_time": 1783101600000,
+        "price": 568380800000000000000,
+        "side": "sell"
+      }
+    ]
+  },
+  "series_url": "https://data-api.binance.vision/api/v3/klines?symbol=BNBUSDT&interval=1h&startTime=1782864000000&endTime=1785542399999&limit=1000",
+  "spec_hash": "0xe7da3328dfb4b92df7430679b224727e1a0a26a7850b99bca5e8234934239699",
+  "spec_id": "04-grid-replay",
+  "started_at": "2026-08-11T10:10:35+00:00"
+}
