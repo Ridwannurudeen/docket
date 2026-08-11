@@ -1,0 +1,534 @@
+{
+  "arms": {
+    "quote_gross": "feeUSD24h annualised over tvlUSD, with no protocol subtraction",
+    "quote_ui_rounded": "the same function on the same figures at display precision",
+    "raw": "docket.agents.pancake.pools.net_fee_apr on the explorer's own figures"
+  },
+  "corpus_id": "liquidity-bsc-v3-top-2026-08-11",
+  "dataset_ref": "docket/advantage/v2/corpus/liquidity/pools.json",
+  "dataset_sha256": "f60b68ed4b7b4a04dec6f3772c9f8aab0955d0c1ad5d44397a16fddccfc015d5",
+  "fetched_at": "2026-08-11T06:27:12+00:00",
+  "finding": "Over 22 eligible pools, quoting gross moves the published net fee rate further than display rounding does: the median absolute gross gap is 1.2678 percentage points against a median absolute rounding gap of 0.000904, and the gross gap is the larger of the two on 22 of 22 pools. The largest rounding gap on any pool here is 0.082977 percentage points; the largest gross gap is 101.7989. Read as a share of the rate itself, quoting gross overstates by a median of 49.3% over 22 pools with a non-zero net rate, where rounding moves it by a median of 0.0554%. So the effect v1's narrative led with is the smaller one by three orders of magnitude, and the one it mentioned in passing is the one a reader should worry about. That is the finding the pre-registration committed to publishing either way, and the falsifier's first limb survives: the rounding gap is not zero on every pool, it is simply very small.",
+  "finished_at": "2026-08-11T06:33:28+00:00",
+  "gross_gap_pp": {
+    "max": 101.7989335404609,
+    "median": 1.2678240958325349,
+    "min": 0.0024146854641196986,
+    "n": 22
+  },
+  "gross_gap_relative": {
+    "max": 0.515381122849642,
+    "median": 0.4926531209128992,
+    "min": 0.47135563318332135,
+    "n": 22
+  },
+  "method": "Three rates per pool over the 22 eligible pools of the 28 in the registered snapshot, all from the same stored response bodies and all annualised the same naive way — one 24h window times 365, which is what every LP dashboard does and is a rate observed rather than a forecast. The raw arm is docket.agents.pancake.pools.net_fee_apr on the explorer's figures. The rounding arm is that same function on the same figures put through the display model, so it differs from the raw arm in the rounding and in nothing else; it says nothing about where a reader would have learned there is a protocol cut, which is the gross arm's subject. The gross arm annualises feeUSD24h without subtracting protocolFeeUSD24h. Gaps are signed and in percentage points of annualised rate; the distributions are over their absolute values, so one pool's overstatement cannot cancel another's, and every signed gap is kept in its own row. A relative gap against a pool that charged no fees is null rather than a division, and pools with no net rate are excluded from the relative distributions and counted by the n those distributions carry. No network call was made while this record was computed: the snapshot was fetched once, committed, and hashed into the pre-registration, and the arithmetic here reads that file. Nothing was signed and no transaction of any kind was made. The rates are a property of the pools and not of any position — a concentrated position earns at this rate only while it is in range — and the whole measurement is one 24h window, so a quiet day reads as a poor pool and a busy one as a fortune.",
+  "n_planned": 22,
+  "n_pools_in_snapshot": 28,
+  "pools": [
+    {
+      "displayed": {
+        "feeUSD24h": "$428.22",
+        "protocolFeeUSD24h": "$145.64",
+        "tvlUSD": "$40.04M"
+      },
+      "fee_tier": 500,
+      "gross_fee_apr": 0.0039038911717342918,
+      "gross_gap_pp": 0.13277117509524067,
+      "gross_gap_relative": 0.5153801556839697,
+      "net_fee_apr": 0.002576179420781885,
+      "pair": "USDT/USDC",
+      "pool": "0x4f31fa980a675570939b737ebdde0471a4be40eb",
+      "raw": {
+        "feeUSD24h": 428.2168178572,
+        "protocolFeeUSD24h": 145.63636024,
+        "tvlUSD": 40036756.05753184
+      },
+      "rounding_gap_pp": -2.128873153512713e-05,
+      "rounding_gap_relative": -8.263683563105972e-05,
+      "ui_rounded_net_fee_apr": 0.002575966533466534
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$550.14",
+        "protocolFeeUSD24h": "$181.56",
+        "tvlUSD": "$31.29M"
+      },
+      "fee_tier": 100,
+      "gross_fee_apr": 0.0064178850007566126,
+      "gross_gap_pp": 0.2118047768182958,
+      "gross_gap_relative": 0.49258789428994426,
+      "net_fee_apr": 0.004299837232573655,
+      "pair": "USDT/USDC",
+      "pool": "0x92b7807bf19b7dddf89b706143896d05228f3121",
+      "raw": {
+        "feeUSD24h": 550.1420946316,
+        "protocolFeeUSD24h": 181.5593821922,
+        "tvlUSD": 31287856.43819751
+      },
+      "rounding_gap_pp": -3.262066867902244e-05,
+      "rounding_gap_relative": -7.58648918891691e-05,
+      "ui_rounded_net_fee_apr": 0.0042995110258868645
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$73.00",
+        "protocolFeeUSD24h": "$23.39",
+        "tvlUSD": "$25.56M"
+      },
+      "fee_tier": 2500,
+      "gross_fee_apr": 0.0010426759528117703,
+      "gross_gap_pp": 0.033407758890862324,
+      "gross_gap_relative": 0.4714625462419016,
+      "net_fee_apr": 0.000708598363903147,
+      "pair": "USDT/PRDT",
+      "pool": "0x39ccdd72541652ceb60d5bbf0828fd2b1753f3f9",
+      "raw": {
+        "feeUSD24h": 73.00363366937,
+        "protocolFeeUSD24h": 23.390659247547,
+        "tvlUSD": 25555711.93280449
+      },
+      "rounding_gap_pp": -1.6135294853036105e-05,
+      "rounding_gap_relative": -0.00022770719881652898,
+      "ui_rounded_net_fee_apr": 0.0007084370109546167
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$23.55",
+        "protocolFeeUSD24h": "$7.77",
+        "tvlUSD": "$21.01M"
+      },
+      "fee_tier": 100,
+      "gross_fee_apr": 0.00040915299503174307,
+      "gross_gap_pp": 0.01350268306088044,
+      "gross_gap_relative": 0.492571845132144,
+      "net_fee_apr": 0.00027412616442293867,
+      "pair": "USDT/U",
+      "pool": "0xa0909f81785f87f3e79309f0e73a7d82208094e4",
+      "raw": {
+        "feeUSD24h": 23.551837129442,
+        "protocolFeeUSD24h": 7.772471327887,
+        "tvlUSD": 21010283.822019678
+      },
+      "rounding_gap_pp": 1.4720869779129113e-06,
+      "rounding_gap_relative": 5.3701075233434675e-05,
+      "ui_rounded_net_fee_apr": 0.0002741408852927178
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$7.53K",
+        "protocolFeeUSD24h": "$2.48K",
+        "tvlUSD": "$17.99M"
+      },
+      "fee_tier": 100,
+      "gross_fee_apr": 0.15275399714377808,
+      "gross_gap_pp": 5.041273775891376,
+      "gross_gap_relative": 0.492594463483508,
+      "net_fee_apr": 0.10234125938486431,
+      "pair": "USDT/WBNB",
+      "pool": "0x172fcd41e0913e95784454622d1c3724f546f849",
+      "raw": {
+        "feeUSD24h": 7526.874545028,
+        "protocolFeeUSD24h": 2484.061691856,
+        "tvlUSD": 17985187.034741517
+      },
+      "rounding_gap_pp": 0.011844044837637513,
+      "rounding_gap_relative": 0.0011573088809760318,
+      "ui_rounded_net_fee_apr": 0.10245969983324069
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$8.92",
+        "protocolFeeUSD24h": "$2.94",
+        "tvlUSD": "$14.70M"
+      },
+      "fee_tier": 100,
+      "gross_fee_apr": 0.00022157596551814984,
+      "gross_gap_pp": 0.00731231502243482,
+      "gross_gap_relative": 0.4925682957216462,
+      "net_fee_apr": 0.00014845281529380164,
+      "pair": "USDT/UUSD",
+      "pool": "0x1c3865814acbba11e7196df0b46c024472503196",
+      "raw": {
+        "feeUSD24h": 8.922185975137,
+        "protocolFeeUSD24h": 2.9444454585309,
+        "tvlUSD": 14697432.87955231
+      },
+      "rounding_gap_pp": 3.0177903477307446e-06,
+      "rounding_gap_relative": 0.0002032827967430771,
+      "ui_rounded_net_fee_apr": 0.00014848299319727894
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$2.47K",
+        "protocolFeeUSD24h": "$841.07",
+        "tvlUSD": "$13.91M"
+      },
+      "fee_tier": 500,
+      "gross_fee_apr": 0.06491529064763024,
+      "gross_gap_pp": 2.207595799564579,
+      "gross_gap_relative": 0.5153198387795884,
+      "net_fee_apr": 0.04283933265198445,
+      "pair": "BTCB/WBNB",
+      "pool": "0x6bbc40579ad1bbd243895ca0acb086bb6300d636",
+      "raw": {
+        "feeUSD24h": 2473.206472156,
+        "protocolFeeUSD24h": 841.0715202716,
+        "tvlUSD": 13906128.33018093
+      },
+      "rounding_gap_pp": -0.009602208404772133,
+      "rounding_gap_relative": -0.0022414467757418087,
+      "ui_rounded_net_fee_apr": 0.04274331056793673
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$3.13K",
+        "protocolFeeUSD24h": "$1.07K",
+        "tvlUSD": "$12.75M"
+      },
+      "fee_tier": 500,
+      "gross_fee_apr": 0.08966596977673667,
+      "gross_gap_pp": 3.049496813263187,
+      "gross_gap_relative": 0.5153701523602665,
+      "net_fee_apr": 0.059171001644104805,
+      "pair": "USDT/BTCB",
+      "pool": "0x46cf1cf8c69595804ba91dfdd8d6b960c9b0a7c4",
+      "raw": {
+        "feeUSD24h": 3132.669251647,
+        "protocolFeeUSD24h": 1065.4058528215,
+        "tvlUSD": 12752042.716966296
+      },
+      "rounding_gap_pp": -0.019845262449696283,
+      "rounding_gap_relative": -0.0033538831350294475,
+      "ui_rounded_net_fee_apr": 0.05897254901960784
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$2.80K",
+        "protocolFeeUSD24h": "$952.13",
+        "tvlUSD": "$11.44M"
+      },
+      "fee_tier": 500,
+      "gross_fee_apr": 0.08934336409240978,
+      "gross_gap_pp": 3.0381895797641203,
+      "gross_gap_relative": 0.5152839078862774,
+      "net_fee_apr": 0.05896146829476858,
+      "pair": "ETH/WBNB",
+      "pool": "0xd0e226f674bbf064f54ab47f42473ff80db98cba",
+      "raw": {
+        "feeUSD24h": 2799.898713746,
+        "protocolFeeUSD24h": 952.1270194952,
+        "tvlUSD": 11438600.291122366
+      },
+      "rounding_gap_pp": -0.000407756050285063,
+      "rounding_gap_relative": -6.915635958157467e-05,
+      "ui_rounded_net_fee_apr": 0.05895739073426573
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$2.20",
+        "protocolFeeUSD24h": "$0.73",
+        "tvlUSD": "$10.98M"
+      },
+      "fee_tier": 100,
+      "gross_fee_apr": 7.320352863736165e-05,
+      "gross_gap_pp": 0.0024146854641196986,
+      "gross_gap_relative": 0.49222364001042607,
+      "net_fee_apr": 4.9056673996164665e-05,
+      "pair": "USDT/USDf",
+      "pool": "0x24618d12b5ea15bb6fe3c81bbb9e011b5d5b107c",
+      "raw": {
+        "feeUSD24h": 2.202115974543,
+        "protocolFeeUSD24h": 0.726388130875,
+        "tvlUSD": 10979967.027135428
+      },
+      "rounding_gap_pp": -1.905537775854233e-05,
+      "rounding_gap_relative": -0.0038843599058574806,
+      "ui_rounded_net_fee_apr": 4.886612021857924e-05
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$114.00",
+        "protocolFeeUSD24h": "$37.62",
+        "tvlUSD": "$5.25M"
+      },
+      "fee_tier": 100,
+      "gross_fee_apr": 0.007924189000945495,
+      "gross_gap_pp": 0.26151163054818455,
+      "gross_gap_relative": 0.4925749665692726,
+      "net_fee_apr": 0.00530907269546365,
+      "pair": "USDT/USD1",
+      "pool": "0x9c4ee895e4f6ce07ada631c508d1306db7502cce",
+      "raw": {
+        "feeUSD24h": 113.9992217829,
+        "protocolFeeUSD24h": 37.62167001079,
+        "tvlUSD": 5250974.698583504
+      },
+      "rounding_gap_pp": 0.00011558759649213379,
+      "rounding_gap_relative": 0.0002177171101667112,
+      "ui_rounded_net_fee_apr": 0.005310228571428571
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$42.23K",
+        "protocolFeeUSD24h": "$13.55K",
+        "tvlUSD": "$4.86M"
+      },
+      "fee_tier": 10000,
+      "gross_fee_apr": 3.172769721627984,
+      "gross_gap_pp": 101.7989335404609,
+      "gross_gap_relative": 0.47243298756251034,
+      "net_fee_apr": 2.154780386223375,
+      "pair": "WBNB/TUT",
+      "pool": "0x6dafbf0ab4fd72e2a5c0ad5a1ed277d3bf8a8d1f",
+      "raw": {
+        "feeUSD24h": 42228.9050021774,
+        "protocolFeeUSD24h": 13549.2262942969,
+        "tvlUSD": 4858074.073489923
+      },
+      "rounding_gap_pp": -0.08297689394245467,
+      "rounding_gap_relative": -0.0003850828347657554,
+      "ui_rounded_net_fee_apr": 2.1539506172839507
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$212.03",
+        "protocolFeeUSD24h": "$67.94",
+        "tvlUSD": "$4.56M"
+      },
+      "fee_tier": 2500,
+      "gross_fee_apr": 0.016958142182622017,
+      "gross_gap_pp": 0.543407743530886,
+      "gross_gap_relative": 0.4715417306706661,
+      "net_fee_apr": 0.011524064747313158,
+      "pair": "Cheems/WBNB",
+      "pool": "0x38231d4ef9d33ebea944c75a21301ff6986499c3",
+      "raw": {
+        "feeUSD24h": 212.0250588636,
+        "protocolFeeUSD24h": 67.9414393206,
+        "tvlUSD": 4563539.192666937
+      },
+      "rounding_gap_pp": 0.0009454989528947383,
+      "rounding_gap_relative": 0.0008204561269192642,
+      "ui_rounded_net_fee_apr": 0.011533519736842105
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$1.01K",
+        "protocolFeeUSD24h": "$344.56",
+        "tvlUSD": "$4.46M"
+      },
+      "fee_tier": 500,
+      "gross_fee_apr": 0.08282668749021002,
+      "gross_gap_pp": 2.8169356577669555,
+      "gross_gap_relative": 0.515381122849642,
+      "net_fee_apr": 0.054657330912540464,
+      "pair": "USDT/WBNB",
+      "pool": "0x36696169c63e42cd08ce11f5deebbcebae652050",
+      "raw": {
+        "feeUSD24h": 1013.126258678,
+        "protocolFeeUSD24h": 344.564242561,
+        "tvlUSD": 4464636.889664079
+      },
+      "rounding_gap_pp": -0.019867620402028163,
+      "rounding_gap_relative": -0.0036349415659939913,
+      "ui_rounded_net_fee_apr": 0.05445865470852018
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$1.22K",
+        "protocolFeeUSD24h": "$415.73",
+        "tvlUSD": "$4.09M"
+      },
+      "fee_tier": 500,
+      "gross_fee_apr": 0.10896639191755329,
+      "gross_gap_pp": 3.7056721096172613,
+      "gross_gap_relative": 0.5153231919002841,
+      "net_fee_apr": 0.07190967082138068,
+      "pair": "ETH/USDT",
+      "pool": "0xbe141893e4c6ad9272e8c04bab7e6a10604501a5",
+      "raw": {
+        "feeUSD24h": 1222.475776803,
+        "protocolFeeUSD24h": 415.7331734182,
+        "tvlUSD": 4094874.1229378674
+      },
+      "rounding_gap_pp": -0.013496421991368579,
+      "rounding_gap_relative": -0.0018768577073441045,
+      "ui_rounded_net_fee_apr": 0.071774706601467
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$743.83",
+        "protocolFeeUSD24h": "$245.55",
+        "tvlUSD": "$4.07M"
+      },
+      "fee_tier": 100,
+      "gross_fee_apr": 0.06665963949587096,
+      "gross_gap_pp": 2.2005078227367822,
+      "gross_gap_relative": 0.4927845577757135,
+      "net_fee_apr": 0.04465456126850314,
+      "pair": "UB/USDC",
+      "pool": "0x916f992df86795f24de6c268cfb9031fbb1155da",
+      "raw": {
+        "feeUSD24h": 743.82901951158,
+        "protocolFeeUSD24h": 245.54611884981,
+        "tvlUSD": 4072893.19556767
+      },
+      "rounding_gap_pp": 0.003148295754108743,
+      "rounding_gap_relative": 0.0007050334086093411,
+      "ui_rounded_net_fee_apr": 0.044686044226044226
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$448.31",
+        "protocolFeeUSD24h": "$143.65",
+        "tvlUSD": "$3.89M"
+      },
+      "fee_tier": 2500,
+      "gross_fee_apr": 0.04205986439290235,
+      "gross_gap_pp": 1.3477338163510224,
+      "gross_gap_relative": 0.47152368742169265,
+      "net_fee_apr": 0.028582526229392127,
+      "pair": "Cake/USDT",
+      "pool": "0x7f51c8aaa6b0599abd16674e2b17fec7a9f674a1",
+      "raw": {
+        "feeUSD24h": 448.314218196,
+        "protocolFeeUSD24h": 143.654346236,
+        "tvlUSD": 3890518.7166783526
+      },
+      "rounding_gap_pp": 0.0003823385003758062,
+      "rounding_gap_relative": 0.00013376651780437726,
+      "ui_rounded_net_fee_apr": 0.028586349614395885
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$822.40",
+        "protocolFeeUSD24h": "$271.46",
+        "tvlUSD": "$3.76M"
+      },
+      "fee_tier": 100,
+      "gross_fee_apr": 0.07993250998122693,
+      "gross_gap_pp": 2.638398766033064,
+      "gross_gap_relative": 0.4927117783422904,
+      "net_fee_apr": 0.05354852232089629,
+      "pair": "USDT/FF",
+      "pool": "0x9f8f4615ff5143aee365fa34f34196fb85be7650",
+      "raw": {
+        "feeUSD24h": 822.40208793991,
+        "protocolFeeUSD24h": 271.457089801544,
+        "tvlUSD": 3755377.6575834677
+      },
+      "rounding_gap_pp": -0.00663148740877792,
+      "rounding_gap_relative": -0.001238407171917442,
+      "ui_rounded_net_fee_apr": 0.05348220744680851
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$951.71",
+        "protocolFeeUSD24h": "$323.62",
+        "tvlUSD": "$3.73M"
+      },
+      "fee_tier": 500,
+      "gross_fee_apr": 0.09311601801587292,
+      "gross_gap_pp": 3.16627488634409,
+      "gross_gap_relative": 0.5152329452954391,
+      "net_fee_apr": 0.06145326915243202,
+      "pair": "ETH/BTCB",
+      "pool": "0x4bba1018b967e59220b22ca03f68821a3276c9a6",
+      "raw": {
+        "feeUSD24h": 951.7138931532,
+        "protocolFeeUSD24h": 323.6164800735,
+        "tvlUSD": 3730567.290170237
+      },
+      "rounding_gap_pp": 0.000862092799693015,
+      "rounding_gap_relative": 0.00014028428618738462,
+      "ui_rounded_net_fee_apr": 0.06146189008042895
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$330.42",
+        "protocolFeeUSD24h": "$105.85",
+        "tvlUSD": "$3.44M"
+      },
+      "fee_tier": 2500,
+      "gross_fee_apr": 0.03507347886945678,
+      "gross_gap_pp": 1.1235952388129984,
+      "gross_gap_relative": 0.47135563318332135,
+      "net_fee_apr": 0.0238375264813268,
+      "pair": "Cake/WBNB",
+      "pool": "0x133b3d95bad5405d14d53473671200e9342896bf",
+      "raw": {
+        "feeUSD24h": 330.421260147,
+        "protocolFeeUSD24h": 105.8519903559,
+        "tvlUSD": 3438602.723229745
+      },
+      "rounding_gap_pp": -0.0009604969698890492,
+      "rounding_gap_relative": -0.0004029348307767828,
+      "ui_rounded_net_fee_apr": 0.02382792151162791
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$0.77",
+        "protocolFeeUSD24h": "$0.26",
+        "tvlUSD": "$3.43M"
+      },
+      "fee_tier": 500,
+      "gross_fee_apr": 8.167149494388999e-05,
+      "gross_gap_pp": 0.002777246150392276,
+      "gross_gap_relative": 0.5152682660785697,
+      "net_fee_apr": 5.3899033439967226e-05,
+      "pair": "USDT/satUSD",
+      "pool": "0xac0fe1c4126e4a9b644adfc1303827e3bb5dddf3",
+      "raw": {
+        "feeUSD24h": 0.768146663443,
+        "protocolFeeUSD24h": 0.261208927968,
+        "tvlUSD": 3432942.3301155125
+      },
+      "rounding_gap_pp": 3.7210358627183944e-05,
+      "rounding_gap_relative": 0.006903715382693989,
+      "ui_rounded_net_fee_apr": 5.4271137026239066e-05
+    },
+    {
+      "displayed": {
+        "feeUSD24h": "$322.77",
+        "protocolFeeUSD24h": "$109.77",
+        "tvlUSD": "$3.37M"
+      },
+      "fee_tier": 500,
+      "gross_fee_apr": 0.03493037877284472,
+      "gross_gap_pp": 1.1879143753140475,
+      "gross_gap_relative": 0.5153365424015746,
+      "net_fee_apr": 0.02305123501970424,
+      "pair": "WBNB/U",
+      "pool": "0x882e23dba77bfe0e514cf5bcdad7a58aceb01522",
+      "raw": {
+        "feeUSD24h": 322.76922915053,
+        "protocolFeeUSD24h": 109.76754924714,
+        "tvlUSD": 3372730.923019103
+      },
+      "rounding_gap_pp": 0.0018497917981218082,
+      "rounding_gap_relative": 0.0008024697143301009,
+      "ui_rounded_net_fee_apr": 0.02306973293768546
+    }
+  ],
+  "pools_url": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
+  "pools_where_gross_gap_exceeds_rounding_gap": {
+    "denominator": 22,
+    "numerator": 22,
+    "value": 1.0
+  },
+  "rounding_gap_pp": {
+    "max": 0.08297689394245467,
+    "median": 0.0009037958762938766,
+    "min": 1.4720869779129113e-06,
+    "n": 22
+  },
+  "rounding_gap_relative": {
+    "max": 0.006903715382693989,
+    "median": 0.000553984119693062,
+    "min": 5.3701075233434675e-05,
+    "n": 22
+  },
+  "spec_hash": "0x56af9f16038fd3bbfa94ab19eb14ab492e8d60656e7f9f86a5bcd7ea4bc002bd",
+  "spec_id": "01-liquidity-arithmetic"
+}

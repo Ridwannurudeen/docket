@@ -15,6 +15,7 @@
 # formatting — and the corpus carries a minimal pair whose whole content is one newline.
 docket/advantage/experiments/*.json -text
 docket/advantage/v2/corpus/security/*.json -text
+docket/advantage/v2/corpus/liquidity/*.json -text
 docket/advantage/v2/specs/*.json -text
 docket/advantage/v2/runs/*.json -text
 *.png binary
