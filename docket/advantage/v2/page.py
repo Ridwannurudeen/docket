@@ -100,10 +100,14 @@ def _headline(headline: dict) -> str:
         f"<dt>{_esc(null['name'])}</dt><dd>{_esc(_null_figure(null['figure']))}</dd>"
         for null in headline["nulls"]
     )
+    sensitivity = headline["margin"].get("sensitivity")
+    sensitivity_text = (
+        f'<p class="dim">{_esc(sensitivity["statement"])}</p>' if sensitivity else ""
+    )
     return (
         f'<p class="lede">{_esc(headline["statement"])}</p>'
         '<div class="panel"><h4>Margin over the null</h4>'
-        f"<p>{_esc(headline['margin']['statement'])}</p></div>"
+        f"<p>{_esc(headline['margin']['statement'])}</p>{sensitivity_text}</div>"
         '<div class="panel"><h4>The nulls, computed over the same data</h4>'
         f'<dl class="deflist">{nulls}</dl></div>'
     )
@@ -143,11 +147,16 @@ def _provenance(provenance: dict) -> str:
         if producer["present"]
         else "No executable producer for the committed run is present in the repository."
     )
+    changes = "".join(
+        f'<dt>Post-run re-registration</dt><dd>{_esc(change["statement"])}</dd>'
+        for change in provenance["post_run_re_registrations"]
+    )
     return (
         '<div class="panel"><h4>Registration provenance</h4><dl class="deflist">'
         f'<dt>State</dt><dd><span class="mono">{_esc(provenance["state"])}</span></dd>'
         f'<dt>What git establishes</dt><dd>{_esc(provenance["statement"])}</dd>'
         f'<dt>Run producer</dt><dd>{_esc(producer_text)}</dd>'
+        f"{changes}"
         "</dl></div>"
     )
 

@@ -78,6 +78,24 @@ REGISTRATION_HISTORY = {
     },
 }
 
+POST_RUN_RE_REGISTRATIONS = {
+    "03-security-corpus": [
+        {
+            "field": "claim",
+            "commit": "adb352b",
+            "timing": "after_run",
+            "falsifier_changed": False,
+            "spec_hash_citations_changed": 48,
+            "observations_changed": False,
+            "statement": (
+                "The claim was rewritten after the run at adb352b. Its falsifier is "
+                "byte-identical to the one that predates the run. The run-record diff "
+                "repoints 48 spec_hash citations and changes no observation."
+            ),
+        }
+    ]
+}
+
 PRIOR_VERSION = {
     "json": "/advantage.json",
     "page": "/advantage",
@@ -128,6 +146,7 @@ def registration_provenance(experiment_id: str) -> dict:
     return {
         "state": "git_provable" if git_provable else "self_attested",
         "statement": statement,
+        "post_run_re_registrations": POST_RUN_RE_REGISTRATIONS.get(experiment_id, []),
         **history,
     }
 
@@ -258,6 +277,17 @@ def _security(record: dict) -> dict:
         ),
     ]
     margin = warden["recall"]["numerator"] - keyword["recall"]["numerator"]
+    sensitivity_corpus = corpus()
+    for payload in sensitivity_corpus["payloads"]:
+        if payload["payload_id"] == "benign-meeting-note":
+            payload["labels"] = ["ROLE_OVERRIDE"]
+    observed = scoring.scan_results(record)
+    sensitivity_warden = scoring.score(sensitivity_corpus, observed["results"])[
+        "decision_level"
+    ]["recall"]
+    sensitivity_keyword = scoring.score(
+        sensitivity_corpus, scoring.keyword_match(sensitivity_corpus)
+    )["decision_level"]["recall"]
     return {
         # The labelled corpus travels with the run it was scored against. A detection rate whose
         # ground truth is only a digest is a rate a reader has to take on trust: the labels, the
@@ -303,6 +333,23 @@ def _security(record: dict) -> dict:
                     f"{everything['precision']['numerator']} of "
                     f"{everything['precision']['denominator']}."
                 ),
+                "sensitivity": {
+                    "payload_id": "benign-meeting-note",
+                    "reclassification": "benign control to ROLE_OVERRIDE attack",
+                    "warden_recall": sensitivity_warden,
+                    "keyword_match_recall": sensitivity_keyword,
+                    "margin_payloads": (
+                        sensitivity_warden["numerator"] - sensitivity_keyword["numerator"]
+                    ),
+                    "corpus_edited": False,
+                    "statement": (
+                        "The benign-meeting-note label is contestable. Reclassifying it as a "
+                        "ROLE_OVERRIDE attack gives the hired scanner 14 of 32 and "
+                        "keyword_match 13 of 32, so the claim survives by one payload rather "
+                        "than two. The corpus is left unedited because its bytes are hashed "
+                        "into the registration."
+                    ),
+                },
             },
         },
         "falsifier_result": _result(checks),

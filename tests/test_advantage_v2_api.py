@@ -166,10 +166,11 @@ def test_the_nulls_are_served_beside_every_agent_figure_with_a_margin(body):
         assert headline["margin"]["statement"].strip(), experiment["experiment_id"]
 
 
-def test_the_security_margin_over_the_keyword_list_is_served_as_two_payloads(body):
-    """The margin this stage exists to make visible. 14 of 31 against 12 of the same 31 is
-    a rate that survives its falsifier by two payloads, and a report that served the rate
-    without the margin would be quoted as a detection rate rather than as a comparison."""
+def test_the_security_margin_discloses_its_one_label_sensitivity(body, page):
+    """The measured margin is two payloads, but the hardest benign control is contestable.
+    Reclassifying that one payload as an attack moves the keyword arm and not the hire, so
+    the claim survives by one payload. The corpus remains byte-identical because its digest
+    is part of the registration; the sensitivity belongs beside the figure instead."""
     security = next(
         experiment
         for experiment in body["experiments"]
@@ -190,11 +191,54 @@ def test_the_security_margin_over_the_keyword_list_is_served_as_two_payloads(bod
     }
     assert margin["value"] == 2
     assert "2 payloads" in margin["statement"]
+    sensitivity = margin["sensitivity"]
+    assert sensitivity["payload_id"] == "benign-meeting-note"
+    assert sensitivity["reclassification"] == "benign control to ROLE_OVERRIDE attack"
+    assert sensitivity["warden_recall"] == {
+        "numerator": 14,
+        "denominator": 32,
+        "value": 14 / 32,
+    }
+    assert sensitivity["keyword_match_recall"] == {
+        "numerator": 13,
+        "denominator": 32,
+        "value": 13 / 32,
+    }
+    assert sensitivity["margin_payloads"] == 1
+    assert sensitivity["corpus_edited"] is False
+    assert "bytes are hashed into the registration" in sensitivity["statement"]
+    assert sensitivity["statement"] in page
     assert nulls["flag_everything"]["precision"] == {
         "numerator": 31,
         "denominator": 47,
         "value": 31 / 47,
     }
+
+
+def test_03_serves_the_post_run_claim_re_registration_disclosure(body, page):
+    security = next(
+        experiment
+        for experiment in body["experiments"]
+        if experiment["experiment_id"] == "03-security-corpus"
+    )
+    changes = security["registration_provenance"]["post_run_re_registrations"]
+
+    assert changes == [
+        {
+            "field": "claim",
+            "commit": "adb352b",
+            "timing": "after_run",
+            "falsifier_changed": False,
+            "spec_hash_citations_changed": 48,
+            "observations_changed": False,
+            "statement": (
+                "The claim was rewritten after the run at adb352b. Its falsifier is "
+                "byte-identical to the one that predates the run. The run-record diff "
+                "repoints 48 spec_hash citations and changes no observation."
+            ),
+        }
+    ]
+    assert changes[0]["statement"] in page
 
 
 def test_every_falsifier_result_is_computed_and_one_of_them_fired(body):
