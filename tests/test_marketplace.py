@@ -564,13 +564,16 @@ def test_no_service_claims_a_registration_document_docket_does_not_serve():
 
 
 def test_each_service_points_at_its_own_recorded_run():
+    """warden-scan cites two: the v1 task it lost on substance, and the v2 experiment that
+    asked the same question over a labelled corpus. Both are runs it stands behind and a
+    reader can open, and the later one does not replace the earlier."""
     expected = {
-        "range-doctor": "/advantage#01-liquidity",
-        "solvent-signal": "/advantage#02-trading",
-        "warden-scan": "/advantage#03-security",
+        "range-doctor": ["/advantage#01-liquidity"],
+        "solvent-signal": ["/advantage#02-trading"],
+        "warden-scan": ["/advantage#03-security", "/advantage/v2#03-security-corpus"],
     }
-    for service_id, url in expected.items():
-        assert [ref.url for ref in SERVICES[service_id].evidence] == [url]
+    for service_id, urls in expected.items():
+        assert [ref.url for ref in SERVICES[service_id].evidence] == urls
 
 
 def test_the_timings_on_a_record_are_the_timings_in_the_experiment_it_cites():

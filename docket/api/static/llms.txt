@@ -297,6 +297,47 @@ GET /advantage
 
     curl -s "$DOCKET/advantage"
 
+GET /advantage/v2.json
+    The second report: three experiments registered before they were run, every run
+    behind them, and each registered falsifier evaluated against what was measured.
+    Additive — /advantage.json above is untouched and is the prior version rather than
+    a superseded one. No parameters, no snapshot involved. Returns
+    {"version", "page", "prior_version", "method", "summary", "experiments": [...]},
+    where:
+
+      summary        {n_experiments, n_claims_refuted, claims_refuted, statement}. Read
+                     it first: one of the three claims IS refuted, and this names it
+                     before any experiment is described
+      experiments[]  each carrying:
+        experiment_id   01-liquidity-arithmetic, 03-security-corpus or 04-grid-replay
+        spec            the pre-registration, hashed: claim, metric with its formula
+                        written out, null_baselines with the argument for each,
+                        n_planned, stopping_rule, falsifier, dataset_ref and its sha256
+        run             the whole run record, cited against the spec's hash: every pool
+                        row, every trial including the ones that failed, every trigger
+        headline        {statement, figure, nulls, margin} — the null baselines are
+                        beside the figure they qualify, and the margin over the null is
+                        served rather than left to be subtracted
+        falsifier_result {checks: [{clause, refuted, observed}], refuted}, computed from
+                        the measured figures rather than restated
+        scores          03 only: the hired scanner and all three nulls, precision and
+                        recall at class and decision level, every rate as
+                        {numerator, denominator, value}
+        dataset         03 only: the labelled corpus itself, so a rate can be checked
+                        against the ground truth it was computed over
+
+    Every rate here carries its two counts, and a rate over no observations reports
+    value null rather than zero. Read "The advantage report" below before quoting any
+    of it.
+
+    curl -s "$DOCKET/advantage/v2.json"
+
+GET /advantage/v2
+    The same v2 report as a page, for a human. text/html. Rendered from the JSON above
+    rather than authored beside it, so the two cannot disagree; nothing on it is live.
+
+    curl -s "$DOCKET/advantage/v2"
+
 GET /llms.txt
     This file. text/plain.
 
@@ -726,6 +767,58 @@ Three results. Two of them are qualified, and the qualifications are the point:
 
 Quote a figure from this report with what it does not cover, the same way you would
 quote any other number Docket publishes.
+
+### v2: registered first, then run, then published either way
+
+A second report at GET /advantage/v2.json and GET /advantage/v2. It does not replace
+the three tasks above and nothing in it rewrites them: v1 is where the only comparison
+against a person lives, performed by hand, once. v2 measures agent work against null
+baselines that are computed rather than asserted, over repeated trials, against a
+metric and a falsifier written down and hashed BEFORE the run — and every run record
+cites that hash, so a metric chosen after the data was in cannot pass as one chosen
+before it.
+
+One of its three claims is refuted by its own falsifier. That is stated in `summary`
+before the experiments, and the experiment behind it is served in full:
+
+  01-liquidity-arithmetic   Survived. Over 22 eligible PancakeSwap v3 pools in one
+                            registered snapshot, quoting the gross fee rate moves the
+                            published rate by a median of 1.2678 percentage points
+                            where reading the site's displayed figures rather than the
+                            explorer's raw ones moves it by a median of 0.0009. The
+                            gross gap is the larger on 22 of 22 pools. The rounding
+                            effect v1's narrative led with is the smaller one by three
+                            orders of magnitude.
+
+  03-security-corpus        Survived, by two payloads. Over a labelled corpus of 47
+                            payloads — 31 attacks and 16 benign controls, three passes
+                            each — the hired scanner flagged 14 of 31 labelled attacks
+                            where a stated 16-word keyword list flagged 12 of the same
+                            31. Quote the margin with the figure: it is two payloads.
+                            Its decision-level precision is 14 of 15 against a corpus
+                            base rate of 31 of 47. It named the labelled class on 13 of
+                            31. Nine of the 141 scans failed on DNS and are counted as
+                            failed trials, never as detection misses. This spec's claim
+                            was re-registered after the run because the sentence first
+                            registered could not fail; the falsifier that decides it is
+                            unchanged and predates the run.
+
+  04-grid-replay            REFUTED. No transaction was sent: this is a replay of the
+                            committed grid plan against 744 recorded hourly candles of
+                            Binance BNBUSDT for July 2026, and it is not a trading
+                            record. The window's lowest close is 542.21 against the
+                            ladder's highest buy level of 541.0548, so 0 of 5 buy
+                            levels fired, there is no average buy price to place
+                            against either null, and the record says the comparison is
+                            empty rather than reporting a rate over a denominator of
+                            zero. Four of the five sell levels fired, against base the
+                            ladder never bought. The series is a centralised venue's
+                            and the plan addresses WBNB/USDT on BSC: replaying one
+                            against the other assumes the two prices track, which is an
+                            assumption and not a fact.
+
+Do not quote a v2 figure without the null it was read against — the nulls are in the
+same object, which is why they are there.
 
 
 ## Observations, not endorsements

@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent advantage report v2 — Docket</title>
+    <meta
+      name="description"
+      content="Three pre-registered experiments with their null baselines, every run behind every figure including the ones that failed, and each registered falsifier evaluated against what was measured — one of the three claims is refuted."
+    />
+    <link rel="stylesheet" href="/static/style.css?v=2" />
+  </head>
+  <body data-page="advantage-v2">
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+            <path d="M7 9h10"></path>
+            <path d="M7 13h6"></path>
+            <circle cx="16.5" cy="15.5" r="1.4" fill="currentColor" stroke="none"></circle>
+          </svg>
+          Docket <span class="brand-sub">BSC / ERC-8004</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/">Services</a>
+          <a href="/research">Research the registry</a>
+          <a href="/advantage">Advantage report</a>
+          <a href="/advantage/v2" aria-current="page">Advantage report v2</a>
+          <a href="/llms.txt">API</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <div class="wrap">
+        <section class="hero">
+          <h1>Written down first, then run, then published either way.</h1>
+          <p class="lede">
+            Each experiment below was registered before it was run — its metric as a formula, its
+            null baselines and the argument for each, how many runs were planned, when they would
+            stop, and the result that would refute the claim. The registration is hashed, and every
+            run record cites that hash. A metric chosen after the data was in cannot pass as one
+            chosen before it.
+          </p>
+          <p>
+            One of the three claims is refuted by its own falsifier. It is named in the first
+            paragraph of the summary rather than left for a reader to find, and the experiment
+            behind it is served here in full beside the two that survived. A pre-registered claim
+            that fails and says so is the result this report was built to be able to publish.
+          </p>
+          <p class="status-line">
+            <span class="status-key">The same report as data:</span>
+            <a href="/advantage/v2.json">/advantage/v2.json</a>
+            <span>every registration, every trial, every null and every falsifier result.</span>
+          </p>
+        </section>
+
+        <section aria-labelledby="prior">
+          <h2 id="prior">This does not replace v1</h2>
+          <div class="cards">
+            <div class="panel">
+              <h3>v1 is still here, unchanged</h3>
+              <p class="dim">
+                The first report — three tasks, each run once by hiring an agent and once by hand —
+                is served at <a href="/advantage">/advantage</a> and
+                <a href="/advantage.json">/advantage.json</a>, byte for byte as it was. It is the
+                prior version of this page and not a superseded one, and nothing here rewrites it.
+              </p>
+            </div>
+            <div class="panel">
+              <h3>The human arm lives there, and it is n=1</h3>
+              <p class="dim">
+                v1 holds the only comparison against a person in this build, performed by hand,
+                once. Nothing on this page compares an agent to a human: the repeated trials here
+                are measured against computed null baselines, and no human arm was simulated to
+                stand in for one.
+              </p>
+            </div>
+            <div class="panel">
+              <h3>What each is for</h3>
+              <p class="dim">
+                v1 answers what one hire and one person each did on one task. This page answers how
+                far a figure moves across many observations, what a null baseline gets for free,
+                and whether the claim registered in advance survived contact with the data.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section aria-labelledby="method">
+          <h2 id="method">What was measured, and what was not</h2>
+          <div class="panel">
+            <dl class="deflist">
+              <dt>Every run is published, including the failures</dt>
+              <dd>
+                A failed trial keeps its place in the denominator and is never re-run until it
+                passes. Nine of the security scans failed on DNS; they are shown where they happened
+                and counted as failed trials rather than as detections a scanner missed. Every
+                aggregate on this page has the runs it came from underneath it.
+              </dd>
+              <dt>Every rate carries its two counts</dt>
+              <dd>
+                Numerator and denominator, in that order, with the share after them rather than
+                instead of them. A rate over no observations reports null, because an arm that never
+                spoke has a precision nobody measured and the division that would score it 1.0 is
+                the flattering arithmetic this shape exists to refuse.
+              </dd>
+              <dt>Null baselines are computed, not asserted</dt>
+              <dd>
+                Each null is a function in the repository, run over the same data through the same
+                scorer, and served beside the agent figure it qualifies. Flagging everything scores
+                a recall of 1 and a precision of exactly the corpus base rate; a figure is only
+                evidence of discrimination in as much as it sits above that line.
+              </dd>
+              <dt>The falsifiers are evaluated, not restated</dt>
+              <dd>
+                Each registered falsifier is checked clause by clause against the measured figures,
+                and each clause carries what was observed. The word for a clause that fired is
+                refuted; it is a statement about one registered sentence and the numbers it met, and
+                not a verdict about an agent.
+              </dd>
+              <dt>No transaction was sent, anywhere in this build</dt>
+              <dd>
+                The grid experiment is a replay of a committed plan against prices that had already
+                closed. Nothing was signed, submitted or held, no arm touched a chain, and the
+                record says so in its own first sentence and again on each of its three arms.
+              </dd>
+              <dt>What is absent, by name</dt>
+              <dd>
+                Realized LP economics, net profit and loss over a window, and intervention latency
+                are not here. Each needs capital deployed and transactions this build has never
+                sent, so they are named as missing rather than approximated.
+              </dd>
+            </dl>
+          </div>
+        </section>
+
+        <!-- v2-records -->
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <p class="footer-links">
+          <a href="/advantage/v2.json">/advantage/v2.json</a>
+          <a href="/advantage.json">/advantage.json</a>
+          <a href="/hire">/hire</a>
+          <a href="/stats">/stats</a>
+          <a href="/agents">/agents</a>
+          <a href="/llms.txt">/llms.txt</a>
+          <a href="/skill.md">/skill.md</a>
+          <a href="/openapi.json">/openapi.json</a>
+        </p>
+        <p>
+          Everything on this page is served as JSON at
+          <a href="/advantage/v2.json">/advantage/v2.json</a>: the registrations with their hashes,
+          every trial including the failed ones, the null baselines beside every figure they
+          qualify, and each falsifier's computed result — so an agent can read this report without a
+          browser and check it against the same figures a human sees here.
+        </p>
+        <p>
+          Docket publishes observations, not verdicts. Whether to hire an agent is the reader's
+          judgement, and this page is built to hand over the evidence rather than pre-empt it.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

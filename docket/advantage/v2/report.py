@@ -1,0 +1,371 @@
+"""What v2 serves: the registrations, every run behind them, and the falsifiers evaluated.
+
+v1 is three tasks, one run each, and it says so in its own method string. This is the other
+report — pre-registered, repeated where repetition was possible, and published whichever way
+it came out. It does not replace v1 and nothing here overwrites it: v1 keeps its route, its
+JSON and its page byte for byte, and is linked from this one as the prior version.
+
+Three things are computed here rather than read, because each is a place a published report
+can quietly stop being checkable.
+
+**The falsifier's result.** Every spec registered the result that would refute its claim, and
+until now nothing evaluated whether any of them fired. Each is evaluated clause by clause
+against the measured figures, in one shape across all three experiments, and one of the three
+claims is refuted — the grid replay's, which never bought at a single level. That result is on
+the record it belongs to and it is also in the summary above the experiments, because a reader
+who has to go looking for a refutation is a reader who will quote the two that held.
+
+**The headline's margin.** A rate served without the distance between it and its null is a
+figure a reader cannot weigh. The hired scanner flags 14 of 31 labelled attacks where a
+sixteen-word keyword list flags 12 of the same 31: the margin is two payloads, and it is
+served as two payloads rather than left to a reader to subtract.
+
+**The security scores themselves.** They are recomputed from the committed corpus and the
+committed run every time this is served, by the same `scoring` functions the tests use, so a
+figure on the page, a figure in this JSON and a figure on a service card cannot be three
+transcriptions that drift. The three nulls are computed the same way and travel beside every
+agent figure.
+
+One thing a reader should know before quoting 03: its claim was re-registered after the run.
+The sentence originally registered could not fail — it compared class-level naming against a
+null that emits no classes at all — so it was rewritten in the words of the falsifier that
+actually decides it. That falsifier is unchanged and was registered before the run; the git
+history holds the sentence it replaced; and no observation moved. `registered_at` on that spec
+postdates its run for exactly that reason, and this paragraph is why.
+"""
+
+import json
+from pathlib import Path
+
+from . import scoring
+from .spec import load
+
+V2_DIR = Path(__file__).parent
+SPECS_DIR = V2_DIR / "specs"
+RUNS_DIR = V2_DIR / "runs"
+CORPUS_PATH = V2_DIR / "corpus" / "security" / "payloads.json"
+
+# In the order a reader meets them. 02 has no v2 experiment: v1's trading task measured a
+# relay of somebody else's dated read, and there is nothing in this build to run repeatedly
+# against it. An absent experiment is said here rather than implied by a gap in the numbering.
+EXPERIMENT_IDS = ("01-liquidity-arithmetic", "03-security-corpus", "04-grid-replay")
+
+PRIOR_VERSION = {
+    "json": "/advantage.json",
+    "page": "/advantage",
+    "note": (
+        "v1 is three tasks, each run once by hiring an agent and once by hand, and it is "
+        "unchanged and still served. It is the only place in this build where an agent arm is "
+        "compared against a human one, and that comparison is n=1 by construction. v2 does not "
+        "supersede it: repeated trials here are agent-versus-null-baseline, and no human arm "
+        "was simulated to stand in for the one v1 performed."
+    ),
+}
+
+METHOD = (
+    "Every experiment here was registered before it was run: its metric written out as a "
+    "formula, its null baselines named and argued for, the number of runs planned, the "
+    "stopping rule, and the result that would refute its claim. The registration is hashed and "
+    "every run record cites that hash, so a metric chosen after the data was in cannot pass as "
+    "one chosen before it. Every trial is published, including the ones that failed — a failed "
+    "trial keeps its place in the denominator and is never re-run until it passes — and every "
+    "rate carries the two counts it was computed from. Where a rate has no observations behind "
+    "it, its value is null rather than zero. Null baselines are computed rather than asserted, "
+    "and they are served beside the agent figure they qualify rather than in a section a "
+    "reader has to find. The falsifier of each experiment is evaluated against the measured "
+    "figures and its result is served: one of the three claims is refuted, and which one is "
+    "stated in the summary below before any experiment is described. Nothing here is a "
+    "comparison against a human: v1 holds the only human arm in this build and it is n=1."
+)
+
+
+def run(experiment_id: str) -> dict:
+    """One committed run record, read from the repository and not from anywhere else."""
+    return json.loads((RUNS_DIR / f"{experiment_id}.json").read_text(encoding="utf-8"))
+
+
+def corpus() -> dict:
+    return json.loads(CORPUS_PATH.read_text(encoding="utf-8"))
+
+
+def security_scores() -> dict:
+    """The hired scanner and its three nulls, scored over the committed corpus and run.
+
+    Recomputed on every call rather than read out of the record. It is the one figure this
+    report, the page and a service card all quote, and three transcriptions of a number are
+    three chances for one of them to be stale.
+    """
+    payloads = corpus()
+    record = run("03-security-corpus")
+    observed = scoring.scan_results(record)
+    return {
+        "warden": scoring.score(
+            payloads,
+            observed["results"],
+            failed_scans=observed["failed_scans"],
+            unstable=observed["unstable"],
+        ),
+        "flag_nothing": scoring.score(payloads, scoring.flag_nothing(payloads)),
+        "flag_everything": scoring.score(payloads, scoring.flag_everything(payloads)),
+        "keyword_match": scoring.score(payloads, scoring.keyword_match(payloads)),
+    }
+
+
+def _check(clause: str, refuted: bool, observed: str) -> dict:
+    """One falsifier clause in the shape 04's record already writes it in."""
+    return {"clause": clause, "refuted": refuted, "observed": observed}
+
+
+def _result(checks: list[dict]) -> dict:
+    return {"checks": checks, "refuted": any(check["refuted"] for check in checks)}
+
+
+def _liquidity(record: dict) -> dict:
+    """01's falsifier and headline, computed from the run's own distributions."""
+    rounding = record["rounding_gap_pp"]
+    gross = record["gross_gap_pp"]
+    dominates = record["pools_where_gross_gap_exceeds_rounding_gap"]
+    ratio = gross["median"] / rounding["median"] if rounding["median"] else None
+    checks = [
+        _check(
+            "rounding_gap_zero_on_every_pool",
+            rounding["max"] == 0,
+            f"The largest absolute rounding gap over {rounding['n']} eligible pools is "
+            f"{rounding['max']:.6g} percentage points, and the median is "
+            f"{rounding['median']:.6g}.",
+        ),
+        _check(
+            "gross_gap_not_larger_on_a_majority_of_pools",
+            not (dominates["value"] is not None and dominates["value"] > 0.5),
+            f"The absolute gross gap exceeds the absolute rounding gap on "
+            f"{dominates['numerator']} of {dominates['denominator']} eligible pools.",
+        ),
+    ]
+    return {
+        "headline": {
+            "statement": (
+                f"Over {gross['n']} eligible pools in one registered snapshot, quoting the "
+                f"gross fee rate moves the published rate by a median of {gross['median']:.6g} "
+                f"percentage points where reading displayed figures rather than raw ones moves "
+                f"it by a median of {rounding['median']:.6g}. The gross gap is the larger of "
+                f"the two on {dominates['numerator']} of {dominates['denominator']} pools. The "
+                "effect v1's narrative led with is the smaller one."
+            ),
+            "figure": {"name": "gross_gap_pp_median", "distribution": gross},
+            "nulls": [
+                {
+                    "name": "quote_ui_rounded",
+                    "figure": {"name": "rounding_gap_pp_median", "distribution": rounding},
+                },
+                {
+                    "name": "quote_gross",
+                    "figure": {"name": "gross_gap_pp_median", "distribution": gross},
+                },
+            ],
+            "margin": {
+                "value": ratio,
+                "unit": "times the median rounding gap",
+                "statement": (
+                    f"The median gross gap is {ratio:.6g} times the median rounding gap "
+                    f"({gross['median']:.6g} against {rounding['median']:.6g} percentage "
+                    f"points, over {gross['n']} pools each)."
+                    if ratio is not None
+                    else "No median rounding gap to divide by."
+                ),
+            },
+        },
+        "falsifier_result": _result(checks),
+    }
+
+
+def _security(record: dict) -> dict:
+    """03's falsifier and headline, computed from the corpus and the run rather than read."""
+    scores = security_scores()
+    warden = scores["warden"]["decision_level"]
+    keyword = scores["keyword_match"]["decision_level"]
+    everything = scores["flag_everything"]["decision_level"]
+    counts = scores["warden"]["counts"]
+    checks = [
+        _check(
+            "decision_recall_does_not_exceed_keyword_match",
+            warden["recall"]["value"] <= keyword["recall"]["value"],
+            f"The hired scanner did not leave {warden['recall']['numerator']} of "
+            f"{warden['recall']['denominator']} labelled attacks at ALLOW, against "
+            f"{keyword['recall']['numerator']} of the same "
+            f"{keyword['recall']['denominator']} for the keyword list.",
+        ),
+        _check(
+            "decision_precision_does_not_exceed_flag_everything",
+            warden["precision"]["value"] <= everything["precision"]["value"],
+            f"{warden['precision']['numerator']} of the "
+            f"{warden['precision']['denominator']} payloads it flagged are labelled attacks, "
+            f"against {everything['precision']['numerator']} of "
+            f"{everything['precision']['denominator']} for an arm that flags everything, which "
+            "is the corpus base rate.",
+        ),
+    ]
+    margin = warden["recall"]["numerator"] - keyword["recall"]["numerator"]
+    return {
+        # The labelled corpus travels with the run it was scored against. A detection rate whose
+        # ground truth is only a digest is a rate a reader has to take on trust: the labels, the
+        # reason for each and the text they were written about are all here.
+        "dataset": corpus(),
+        "scores": scores,
+        "headline": {
+            "statement": (
+                f"Over a labelled corpus of {counts['n_payloads']} payloads — "
+                f"{counts['n_attacks_scored']} attacks and {counts['n_benign_scored']} benign "
+                f"controls, three passes each — the hired scanner flagged "
+                f"{warden['recall']['numerator']} of {warden['recall']['denominator']} labelled "
+                f"attacks and named the labelled class on "
+                f"{scores['warden']['class_level']['overall_recall']['numerator']} of them. "
+                f"{counts['n_failed_scans']} of the "
+                f"{counts['n_payloads'] * 3} scans failed and are counted as failed trials "
+                "rather than as detection misses."
+            ),
+            "figure": {"name": "decision_level_recall", "rate": warden["recall"]},
+            "nulls": [
+                {
+                    "name": name,
+                    "figure": {
+                        "name": "decision_level_recall",
+                        "rate": scores[name]["decision_level"]["recall"],
+                    },
+                    "precision": scores[name]["decision_level"]["precision"],
+                }
+                for name in ("flag_nothing", "flag_everything", "keyword_match")
+            ],
+            "margin": {
+                "value": margin,
+                "unit": "payloads of the same 31",
+                "statement": (
+                    f"{margin} payloads. The hired scanner flagged "
+                    f"{warden['recall']['numerator']} of "
+                    f"{warden['recall']['denominator']} labelled attacks where the "
+                    f"{len(scoring.KEYWORDS)}-word keyword list flagged "
+                    f"{keyword['recall']['numerator']} of the same "
+                    f"{keyword['recall']['denominator']}. Its decision-level precision is "
+                    f"{warden['precision']['numerator']} of "
+                    f"{warden['precision']['denominator']} against a corpus base rate of "
+                    f"{everything['precision']['numerator']} of "
+                    f"{everything['precision']['denominator']}."
+                ),
+            },
+        },
+        "falsifier_result": _result(checks),
+    }
+
+
+def _replay(record: dict) -> dict:
+    """04's headline. Its falsifier result is the record's own — computed when it was run,
+    and re-derived from the committed series by the tests rather than by a second recipe here."""
+    fired = record["replay"]
+    hold = record["buy_and_hold"]
+    drawn = record["random_entry"]
+    return {
+        "headline": {
+            "statement": (
+                f"{record['notice']} Over {fired['n_candles']} candles of the registered window, "
+                f"{fired['n_buy_triggers']} of the ladder's {fired['n_buy_levels']} buy levels "
+                f"fired and {fired['n_sell_triggers']} of its {fired['n_sell_levels']} sell "
+                "levels did, so there is no average buy price to place against either null and "
+                "the comparison is empty. The claim registered for this experiment is refuted."
+            ),
+            "figure": {
+                "name": "average_buy_price_over_a_replayed_ladder",
+                "value": fired["average_buy_price"],
+                "buy_triggers": scoring.rate(fired["n_buy_triggers"], fired["n_buy_levels"]),
+            },
+            "nulls": [
+                {
+                    "name": "buy_and_hold",
+                    "figure": {
+                        "name": "average_buy_price",
+                        "value": hold["average_buy_price"],
+                        "base_acquired": hold["base_acquired"],
+                        "quote_committed": hold["quote_committed"],
+                    },
+                },
+                {
+                    "name": "random_entry",
+                    "figure": {
+                        "name": "average_buy_price",
+                        "distribution": drawn["average_buy_price"],
+                        "draws_planned": drawn["draws_planned"],
+                        "draws_worse_than_the_replay": drawn["draws_worse_than_the_replay"],
+                    },
+                },
+            ],
+            "margin": {
+                "value": None,
+                "unit": "atomic units of quote per whole base",
+                "statement": (
+                    "There is no margin to report. The ladder bought at no level, so it has no "
+                    "average price to be above or below either null's, and the share of seeded "
+                    "draws that did worse is a rate over a denominator of zero."
+                ),
+            },
+        },
+        "falsifier_result": record["falsifier_result"],
+    }
+
+
+COMPUTED = {
+    "01-liquidity-arithmetic": _liquidity,
+    "03-security-corpus": _security,
+    "04-grid-replay": _replay,
+}
+
+
+def experiments() -> list[dict]:
+    """Every v2 experiment: its registration, its whole run, and what the two come to.
+
+    The run travels in full — every pool row, every trial including the nine that failed,
+    every trigger — because an aggregate served without the runs behind it is a number a
+    reader cannot contest, and that is the defect this whole report exists to answer.
+    """
+    built = []
+    for experiment_id in EXPERIMENT_IDS:
+        spec = load(SPECS_DIR / f"{experiment_id}.json")
+        record = run(experiment_id)
+        built.append(
+            {
+                "experiment_id": experiment_id,
+                "spec": spec.as_record(),
+                "run": record,
+                **COMPUTED[experiment_id](record),
+            }
+        )
+    return built
+
+
+def report() -> dict:
+    """The whole v2 payload, refutations first."""
+    built = experiments()
+    refuted = [
+        experiment["experiment_id"]
+        for experiment in built
+        if experiment["falsifier_result"]["refuted"]
+    ]
+    return {
+        "version": "v2",
+        "page": "/advantage/v2",
+        "prior_version": PRIOR_VERSION,
+        "method": METHOD,
+        "summary": {
+            "n_experiments": len(built),
+            "n_claims_refuted": len(refuted),
+            "claims_refuted": refuted,
+            "statement": (
+                f"{len(refuted)} of {len(built)} pre-registered claims was refuted by its own "
+                f"falsifier: {', '.join(refuted)}. The refutation is published as it came out, "
+                "and the experiment that produced it is served here in full beside the two that "
+                "survived. Every claim's falsifier result is computed from the measured figures "
+                "rather than restated."
+                if refuted
+                else f"None of the {len(built)} pre-registered claims was refuted by its own "
+                "falsifier."
+            ),
+        },
+        "experiments": built,
+    }
