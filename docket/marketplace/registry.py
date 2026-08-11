@@ -18,7 +18,19 @@ flatter its own stock would be publishing a verdict, which is the one thing Dock
 promised not to do.
 """
 
+from ..advantage.v2.report import run as v2_run, security_scores
 from .models import CATEGORIES, Category, EvidenceRef, Metric, ServiceRecord
+
+# The v2 security figures, scored here from the committed corpus and the committed run by the
+# same functions /advantage/v2.json scores them with. A card that transcribed them would be a
+# second copy of a number, and the copy that goes stale is whichever a reader happens to be
+# looking at — so the card holds no security figure of its own, only this one, computed.
+_SECURITY = security_scores()
+_SECURITY_RUN = v2_run("03-security-corpus")
+_WARDEN = _SECURITY["warden"]["decision_level"]
+_KEYWORD = _SECURITY["keyword_match"]["decision_level"]
+_EVERYTHING = _SECURITY["flag_everything"]["decision_level"]
+_SECURITY_COUNTS = _SECURITY["warden"]["counts"]
 
 # Said wherever a category is shown. The ERC-8004 record carries nothing that states
 # what job an agent does, so a category is a label Docket puts on its own work and
@@ -315,6 +327,40 @@ SERVICES: dict[str, ServiceRecord] = {
                     "took 74.213 seconds"
                 ),
             ),
+            # The one figure on this card that is not a transcription. It is computed at
+            # import from the corpus and the run the v2 report serves, so this card and that
+            # report cannot state two different numbers — and the null it is read against is
+            # computed the same way and named in the same breath, because a detection rate
+            # without one is a rate nobody can weigh.
+            Metric(
+                name="Labelled attacks flagged",
+                unit="labelled attack payloads in the corpus",
+                numerator=_WARDEN["recall"]["numerator"],
+                denominator=_WARDEN["recall"]["denominator"],
+                window=(
+                    f"{_SECURITY_COUNTS['n_payloads']}-payload labelled corpus, three passes "
+                    "each, one recorded run"
+                ),
+                observed_at=_SECURITY_RUN["finished_at"][:10],
+                method=(
+                    "advantage v2 experiment 03-security-corpus, decision level: payloads "
+                    "labelled as attacks whose verdict was not ALLOW, computed from the "
+                    "committed corpus and the committed run rather than transcribed. The "
+                    f"stated keyword list flagged {_KEYWORD['recall']['numerator']} of the "
+                    f"same {_KEYWORD['recall']['denominator']}, so the margin over it is "
+                    f"{_WARDEN['recall']['numerator'] - _KEYWORD['recall']['numerator']} "
+                    f"payloads; an arm that flags everything flags "
+                    f"{_EVERYTHING['recall']['numerator']} of "
+                    f"{_EVERYTHING['recall']['denominator']} and is right about "
+                    f"{_EVERYTHING['precision']['numerator']} of "
+                    f"{_EVERYTHING['precision']['denominator']}, which is the corpus base "
+                    f"rate. This scan is right about {_WARDEN['precision']['numerator']} of "
+                    f"{_WARDEN['precision']['denominator']}. "
+                    f"{_SECURITY_COUNTS['n_failed_scans']} of the "
+                    f"{_SECURITY_COUNTS['n_payloads'] * 3} scans failed and are counted as "
+                    "failed trials rather than as misses"
+                ),
+            ),
         ),
         evidence=(
             EvidenceRef(
@@ -325,16 +371,27 @@ SERVICES: dict[str, ServiceRecord] = {
                     "payload and both readings in full"
                 ),
             ),
+            EvidenceRef(
+                kind="advantage_task",
+                url="/advantage/v2#03-security-corpus",
+                label=(
+                    "The v2 experiment — a labelled corpus scanned three times over, every "
+                    "trial including the failures, and three null baselines computed beside it"
+                ),
+            ),
         ),
         limitations=(
             "Telemetry, not an enforcement boundary. Nothing here intercepts the text or "
             "stops it reaching anything, and what to do about a verdict stays with the "
             "caller. The hosted path is offered as-is with no availability or completeness "
             "promise, which is Warden's own documented position rather than a caveat "
-            "Docket added. On the one payload Docket has a record for, it named one of the "
+            "Docket added. On the one payload v1 has a record for, it named one of the "
             "four hostile vectors a manual read found, and three of those four survive "
             "verbatim in the sanitized text it returned. That is one observation, not a "
-            "pattern — and the run is published in full so a reader can weigh it."
+            "pattern — and the run is published in full so a reader can weigh it. The v2 "
+            "experiment is the repeated version of that question over a labelled corpus, "
+            "and its figures are on this card with the nulls they are read against; both "
+            "runs are published in full."
         ),
     ),
 }

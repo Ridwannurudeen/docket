@@ -9,8 +9,14 @@
 # the served page and the committed experiment records byte-identical.
 * text=auto eol=lf
 
-# Recorded experiments and their hashes are canonical JSON; never touch them.
+# Recorded experiments and their hashes are canonical JSON; never touch them. The v2
+# corpus is hashed into its own pre-registration and that digest is cited by the run
+# record, so a newline rewritten on checkout would break the citation rather than only the
+# formatting — and the corpus carries a minimal pair whose whole content is one newline.
 docket/advantage/experiments/*.json -text
+docket/advantage/v2/corpus/*/*.json -text
+docket/advantage/v2/specs/*.json -text
+docket/advantage/v2/runs/*.json -text
 *.png binary
 *.jpg binary
 *.ico binary

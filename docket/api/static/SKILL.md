@@ -55,6 +55,8 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/escrow/job/{job_id}` | One job's live on-chain state and when it can be settled |
 | GET | `/advantage.json` | Three hired-vs-manual experiments, both arms in full, with deltas |
 | GET | `/advantage` | The same report as a page for a human |
+| GET | `/advantage/v2.json` | Hashed experiments with per-experiment registration provenance: every run, the nulls beside every figure, each falsifier's computed result |
+| GET | `/advantage/v2` | The same v2 report as a page for a human |
 | GET | `/llms.txt` | Full plain-text reference |
 | GET | `/skill.md` | This file |
 | GET | `/openapi.json` | Generated OpenAPI 3.1 schema |
@@ -268,6 +270,32 @@ If a user asks whether hiring an agent is worth it, quote the task closest to th
 question along with what that task's arm did not cover, and point them at
 `GET /advantage` to read both outputs themselves. Do not summarise this report as three
 wins; the record does not say that, and `notes` on each experiment says what it does say.
+
+### The v2 report: registration provenance stated per experiment, then every run published
+
+```bash
+curl -s "$DOCKET/advantage/v2.json"
+```
+
+Additive, not a replacement. `/advantage.json` is untouched and is where the only
+comparison against a person lives — performed by hand, once, n=1. v2 measures agent work
+against null baselines that are computed rather than asserted, over repeated trials,
+against a metric and a falsifier in a hashed specification that every run record cites.
+Git establishes 04's specification-before-run ordering; 01 and 03 are self-attested
+because each specification and completed run first entered git together. The provenance
+object also discloses 03's post-run claim and question re-registrations. `summary` names
+the claim that was refuted before any experiment is described.
+
+| Experiment | Result | The figure, with its null |
+| --- | --- | --- |
+| `01-liquidity-arithmetic` | Survived | Over 22 eligible pools, quoting the gross fee rate moves the published rate by a median of 1.2678 percentage points against 0.0009 for reading displayed figures rather than raw ones; the gross gap is the larger on 22 of 22 pools. |
+| `03-security-corpus` | Survived by two payloads | 14 of 31 labelled attacks flagged, against 12 of the same 31 for a stated 16-word keyword list. Precision 14 of 15 against a corpus base rate of 31 of 47. Nine of 141 scans failed and are counted as failed trials, not misses. |
+| `04-grid-replay` | **Refuted** | No transaction was sent; this is a replay, not a trading record. Over 744 recorded candles, 0 of 5 buy levels fired, so there is no average buy price to compare and the record says the comparison is empty. |
+
+Never quote a v2 figure without the null it was read against — they are in the same
+object for that reason. Never describe the replay as a trade, a return or a backtest
+result: nothing was sent, and the series is a centralised venue's while the plan
+addresses an on-chain pair.
 
 ## Workflow 6: quote the escrow rail without promising a fast settlement
 

@@ -26,6 +26,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
     FileResponse,
+    HTMLResponse,
     JSONResponse,
     PlainTextResponse,
     RedirectResponse,
@@ -34,6 +35,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..advantage.harness import compare, load
+from ..advantage.v2.page import fill as fill_v2_page
+from ..advantage.v2.report import report as advantage_v2_report
 from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
 from ..escrow import constants as escrow_constants
 from ..escrow.chain import JobNotFound, JobReader
@@ -301,6 +304,14 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         _for_publication({**asdict(exp), "deltas": compare(exp)})
         for exp in (load(path) for path in sorted(EXPERIMENTS_DIR.glob("*.json")))
     ]
+    # v2 is assembled once, here, and the page is rendered from the same payload the JSON route
+    # returns — so a figure on one and a figure on the other cannot be two transcriptions. Built
+    # at startup rather than per request for the reason the docs above are: what a reader is
+    # served must not change under them between two requests to the same process.
+    advantage_v2 = advantage_v2_report()
+    advantage_v2_page = fill_v2_page(
+        (WEB_DIR / "advantage-v2.html").read_text(encoding="utf-8"), advantage_v2
+    )
     # Unset means no recipient exists to name in a challenge, so the priced tier is
     # off and the free tier serves unmetered. Read once here rather than per
     # request: the terms a caller is quoted must not change under it mid-session.
@@ -399,6 +410,7 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             "hire": "/hire",
             "escrow": "/escrow",
             "advantage": "/advantage.json",
+            "advantage_v2": "/advantage/v2.json",
             "health": "/health",
         }
 
@@ -474,6 +486,30 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             "page": "/advantage",
             "experiments": experiments,
         }
+
+    @app.get("/advantage/v2.json")
+    def advantage_v2_json() -> dict:
+        """The second report: hashed experiments with registration provenance stated per
+        experiment, every run behind them, and each registered falsifier evaluated against
+        what was measured. Git establishes 04's specification-before-run ordering; 01 and 03
+        are self-attested because each specification and completed run first entered git
+        together.
+
+        Additive. `/advantage.json` above is untouched and stays the prior version rather
+        than a superseded one, and this document links back to it in `prior_version`. What
+        is new here is the shape rather than the subject: a hashed specification cited by its
+        run, null baselines computed and served beside every agent figure, every trial
+        including the ones that failed, and — the thing nothing served until now — the
+        result of each falsifier, computed. One of the three claims is refuted, and `summary`
+        says which before the experiments begin.
+        """
+        return advantage_v2
+
+    @app.get("/advantage/v2", include_in_schema=False)
+    def advantage_v2_page_route() -> HTMLResponse:
+        """The v2 report as a page, rendered from the payload above rather than authored
+        beside it. Reads no live data and needs no scripting, as v1's page does not."""
+        return HTMLResponse(advantage_v2_page)
 
     @app.get("/stats", response_model=StatsResponse)
     def stats() -> StatsResponse:

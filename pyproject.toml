@@ -24,6 +24,7 @@ build-backend = "setuptools.build_meta"
 packages = [
     "docket",
     "docket.advantage",
+    "docket.advantage.v2",
     "docket.api",
     "docket.agents",
     "docket.agents.grid",
@@ -38,7 +39,15 @@ packages = [
 [tool.setuptools.package-data]
 "docket.api" = ["static/*", "web/*"]
 # /advantage.json is served from these files, so an installed Docket must carry them.
-"docket.advantage" = ["experiments/*.json"]
+# The v2 files are the evidence a report cites — the labelled corpus, the pre-registration
+# that hashes it, and the run recorded against that hash — and an install that shipped the
+# scorer without them would carry the arithmetic and none of the observations.
+"docket.advantage" = [
+    "experiments/*.json",
+    "v2/corpus/*/*.json",
+    "v2/specs/*.json",
+    "v2/runs/*.json",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

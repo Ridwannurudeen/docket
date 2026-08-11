@@ -23,7 +23,14 @@ from docket.marketplace.registry import EMPTY_CATEGORY
 from docket.store import Store
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "docket" / "api" / "web"
-PAGES = ("index.html", "research.html", "agent.html", "advantage.html", "service.html")
+PAGES = (
+    "index.html",
+    "research.html",
+    "agent.html",
+    "advantage.html",
+    "advantage-v2.html",
+    "service.html",
+)
 
 
 @pytest.fixture
