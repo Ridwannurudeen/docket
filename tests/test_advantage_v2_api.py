@@ -432,7 +432,9 @@ def test_the_page_shows_every_run_including_the_ones_that_failed(page, body):
     assert page.count(">failed</span>") == len(failed)
 
 
-def test_the_page_states_the_failure_reason_in_the_committed_security_record(page, body):
+def test_the_page_states_the_failure_reason_in_the_committed_security_record(
+    client, page, body
+):
     security = next(
         experiment
         for experiment in body["experiments"]
@@ -446,13 +448,19 @@ def test_the_page_states_the_failure_reason_in_the_committed_security_record(pag
     ]
     statement = "All nine security scan failures were identical HTTP 429 rate limits"
     shell = (WEB / "advantage-v2.html").read_text(encoding="utf-8")
+    served_documents = {
+        "/advantage/v2": page,
+        "/llms.txt": client.get("/llms.txt").text,
+        "/skill.md": client.get("/skill.md").text,
+    }
 
     assert len(errors) == 9
     assert len(set(errors)) == 1
     assert "429 Too Many Requests" in errors[0]
     assert statement in shell
     assert statement in page
-    assert "security scans failed on DNS" not in shell
+    for path, document in served_documents.items():
+        assert "failed on DNS" not in document, path
 
 
 def test_the_page_carries_the_headline_figures_with_their_denominators(page):

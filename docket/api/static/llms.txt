@@ -797,8 +797,9 @@ before the experiments, and the experiment behind it is served in full:
                             31. Quote the margin with the figure: it is two payloads.
                             Its decision-level precision is 14 of 15 against a corpus
                             base rate of 31 of 47. It named the labelled class on 13 of
-                            31. Nine of the 141 scans failed on DNS and are counted as
-                            failed trials, never as detection misses. This spec's claim
+                            31. All nine of the 141 scan failures were identical HTTP 429
+                            rate limits and are counted as failed trials, never as detection
+                            misses. This spec's claim
                             was re-registered after the run because the sentence first
                             registered could not fail; the falsifier that decides it is
                             unchanged and predates the run.
