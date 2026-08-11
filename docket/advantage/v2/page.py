@@ -118,9 +118,9 @@ def _null_figure(figure: dict) -> str:
 
 
 def _registration(spec: dict) -> str:
-    """What was written down before the run, including the sentence that would refute it."""
+    """The hashed specification, including the sentence that would refute it."""
     return (
-        '<div class="panel"><h4>The pre-registration</h4>'
+        '<div class="panel"><h4>The registered specification</h4>'
         f'<dl class="deflist">'
         f"<dt>Claim</dt><dd>{_esc(spec['claim'])}</dd>"
         f"<dt>Falsifier</dt><dd>{_esc(spec['falsifier'])}</dd>"
@@ -132,6 +132,22 @@ def _registration(spec: dict) -> str:
         f'sha256 <span class="mono">{_esc(spec["dataset_sha256"])}</span></dd>'
         f"<dt>Registered</dt><dd>{_esc(spec['registered_at'])}, hashed to "
         f'<span class="mono">{_esc(spec["spec_hash"])}</span></dd>'
+        "</dl></div>"
+    )
+
+
+def _provenance(provenance: dict) -> str:
+    producer = provenance["committed_run_producer"]
+    producer_text = (
+        f"Committed producer: {producer['path']}."
+        if producer["present"]
+        else "No executable producer for the committed run is present in the repository."
+    )
+    return (
+        '<div class="panel"><h4>Registration provenance</h4><dl class="deflist">'
+        f'<dt>State</dt><dd><span class="mono">{_esc(provenance["state"])}</span></dd>'
+        f'<dt>What git establishes</dt><dd>{_esc(provenance["statement"])}</dd>'
+        f'<dt>Run producer</dt><dd>{_esc(producer_text)}</dd>'
         "</dl></div>"
     )
 
@@ -311,6 +327,7 @@ def _experiment(experiment: dict) -> str:
         f'<h2 id="{_esc(experiment_id)}-h">{_esc(experiment_id)}</h2>'
         f"<p>{_esc(spec['question'])}</p>"
         + _headline(experiment["headline"])
+        + _provenance(experiment["registration_provenance"])
         + _registration(spec)
         + "<h3>The falsifier, evaluated</h3>"
         + _falsifier(experiment["falsifier_result"])
@@ -332,7 +349,7 @@ def render(report: dict) -> str:
         '<section aria-labelledby="summary"><h2 id="summary">What the falsifiers did</h2>'
         f'<p class="lede">{_esc(summary["statement"])}</p>'
         + _table(
-            "Every pre-registered claim, and what its own falsifier came to when it was "
+            "Every registered claim, and what its own falsifier came to when it was "
             "evaluated against the measured figures.",
             ("Experiment", "Claim", "Result"),
             [

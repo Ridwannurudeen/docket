@@ -106,6 +106,36 @@ def test_the_v2_document_carries_every_registration_and_its_whole_run(body):
         assert len(experiment["spec"]["null_baselines"]) >= 2
 
 
+def test_registration_provenance_is_served_per_experiment_and_visible_on_the_page(body, page):
+    provenance = {
+        experiment["experiment_id"]: experiment["registration_provenance"]
+        for experiment in body["experiments"]
+    }
+
+    assert {experiment_id: item["state"] for experiment_id, item in provenance.items()} == {
+        "01-liquidity-arithmetic": "self_attested",
+        "03-security-corpus": "self_attested",
+        "04-grid-replay": "git_provable",
+    }
+    assert provenance["01-liquidity-arithmetic"]["spec_commit"] == "b9578b8"
+    assert provenance["01-liquidity-arithmetic"]["run_commit"] == "b9578b8"
+    assert provenance["03-security-corpus"]["spec_commit"] == "9042e72"
+    assert provenance["03-security-corpus"]["run_commit"] == "9042e72"
+    assert provenance["04-grid-replay"]["spec_commit"] == "b47c307"
+    assert provenance["04-grid-replay"]["run_commit"] == "9168194"
+    assert provenance["04-grid-replay"]["spec_precedes_run"] is True
+    assert provenance["01-liquidity-arithmetic"]["committed_run_producer"]["present"] is False
+    assert provenance["03-security-corpus"]["committed_run_producer"]["present"] is False
+    assert provenance["04-grid-replay"]["committed_run_producer"] == {
+        "present": True,
+        "path": "docket/advantage/v2/replay.py",
+    }
+    assert page.count("self_attested") >= 2
+    assert "git_provable" in page
+    assert "Every experiment here was registered before it was run" not in body["method"]
+    assert "Each experiment below was registered before it was run" not in page
+
+
 def test_every_rate_in_the_document_carries_the_counts_it_came_from(body):
     """Walked rather than spot-checked. A rate is three fields or it is a bare float wearing
     a dict, and a denominator of zero reports null rather than dividing."""

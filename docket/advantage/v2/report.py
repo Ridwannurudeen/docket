@@ -1,7 +1,7 @@
 """What v2 serves: the registrations, every run behind them, and the falsifiers evaluated.
 
 v1 is three tasks, one run each, and it says so in its own method string. This is the other
-report — pre-registered, repeated where repetition was possible, and published whichever way
+report — registered, repeated where repetition was possible, and published whichever way
 it came out. It does not replace v1 and nothing here overwrites it: v1 keeps its route, its
 JSON and its page byte for byte, and is linked from this one as the prior version.
 
@@ -50,6 +50,34 @@ CORPUS_PATH = V2_DIR / "corpus" / "security" / "payloads.json"
 # against it. An absent experiment is said here rather than implied by a gap in the numbering.
 EXPERIMENT_IDS = ("01-liquidity-arithmetic", "03-security-corpus", "04-grid-replay")
 
+# Git facts verified from the commits that introduced each spec and completed run. The state is
+# derived below rather than separately transcribed: only a distinct earlier spec commit supports
+# a git-provable ordering. 01 and 03 have no committed executable producer; their calculation and
+# scoring modules do not write the committed run records.
+REGISTRATION_HISTORY = {
+    "01-liquidity-arithmetic": {
+        "spec_commit": "b9578b8",
+        "run_commit": "b9578b8",
+        "spec_precedes_run": False,
+        "committed_run_producer": {"present": False, "path": None},
+    },
+    "03-security-corpus": {
+        "spec_commit": "9042e72",
+        "run_commit": "9042e72",
+        "spec_precedes_run": False,
+        "committed_run_producer": {"present": False, "path": None},
+    },
+    "04-grid-replay": {
+        "spec_commit": "b47c307",
+        "run_commit": "9168194",
+        "spec_precedes_run": True,
+        "committed_run_producer": {
+            "present": True,
+            "path": "docket/advantage/v2/replay.py",
+        },
+    },
+}
+
 PRIOR_VERSION = {
     "json": "/advantage.json",
     "page": "/advantage",
@@ -63,11 +91,11 @@ PRIOR_VERSION = {
 }
 
 METHOD = (
-    "Every experiment here was registered before it was run: its metric written out as a "
-    "formula, its null baselines named and argued for, the number of runs planned, the "
-    "stopping rule, and the result that would refute its claim. The registration is hashed and "
-    "every run record cites that hash, so a metric chosen after the data was in cannot pass as "
-    "one chosen before it. Every trial is published, including the ones that failed — a failed "
+    "Each experiment has a hashed specification naming its metric, null baselines, planned "
+    "runs, stopping rule and falsifier, and every run record cites that hash. Registration "
+    "provenance is stated per experiment: git establishes that 04's specification predates its "
+    "run, while 01 and 03 are self-attested because each specification and completed run entered "
+    "history together. Every trial is published, including the ones that failed — a failed "
     "trial keeps its place in the denominator and is never re-run until it passes — and every "
     "rate carries the two counts it was computed from. Where a rate has no observations behind "
     "it, its value is null rather than zero. Null baselines are computed rather than asserted, "
@@ -77,6 +105,31 @@ METHOD = (
     "stated in the summary below before any experiment is described. Nothing here is a "
     "comparison against a human: v1 holds the only human arm in this build and it is n=1."
 )
+
+
+def registration_provenance(experiment_id: str) -> dict:
+    """What repository history can establish about one registration's ordering."""
+    history = REGISTRATION_HISTORY[experiment_id]
+    git_provable = (
+        history["spec_precedes_run"] and history["spec_commit"] != history["run_commit"]
+    )
+    if git_provable:
+        statement = (
+            f"Git establishes that the specification existed at {history['spec_commit']} in an "
+            f"ancestor that did not contain the run, which entered history later at "
+            f"{history['run_commit']}."
+        )
+    else:
+        statement = (
+            f"The specification and completed run first entered git together at "
+            f"{history['spec_commit']}; their ordering rests on embedded timestamps written by "
+            "the same author in the same session, not on independent git history."
+        )
+    return {
+        "state": "git_provable" if git_provable else "self_attested",
+        "statement": statement,
+        **history,
+    }
 
 
 def run(experiment_id: str) -> dict:
@@ -331,6 +384,7 @@ def experiments() -> list[dict]:
         built.append(
             {
                 "experiment_id": experiment_id,
+                "registration_provenance": registration_provenance(experiment_id),
                 "spec": spec.as_record(),
                 "run": record,
                 **COMPUTED[experiment_id](record),
@@ -357,13 +411,13 @@ def report() -> dict:
             "n_claims_refuted": len(refuted),
             "claims_refuted": refuted,
             "statement": (
-                f"{len(refuted)} of {len(built)} pre-registered claims was refuted by its own "
+                f"{len(refuted)} of {len(built)} registered claims was refuted by its own "
                 f"falsifier: {', '.join(refuted)}. The refutation is published as it came out, "
                 "and the experiment that produced it is served here in full beside the two that "
                 "survived. Every claim's falsifier result is computed from the measured figures "
                 "rather than restated."
                 if refuted
-                else f"None of the {len(built)} pre-registered claims was refuted by its own "
+                else f"None of the {len(built)} registered claims was refuted by its own "
                 "falsifier."
             ),
         },
