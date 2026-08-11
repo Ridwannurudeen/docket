@@ -131,9 +131,11 @@ METHOD = (
     "history together. Every trial is published, including the ones that failed — a failed "
     "trial keeps its place in the denominator and is never re-run until it passes — and every "
     "rate carries the two counts it was computed from. Where a rate has no observations behind "
-    "it, its value is null rather than zero. Null baselines are computed rather than asserted, "
-    "and they are served beside the agent figure they qualify rather than in a section a "
-    "reader has to find. The falsifier of each experiment is evaluated against the measured "
+    "it, its value is null rather than zero. In 03, the hired scanner and every null are scored "
+    "over the same payload subset with a successful scan, and any missing payload marks the run "
+    "incomplete rather than shrinking the experiment. Null baselines are computed rather than "
+    "asserted, and they are served beside the agent figure they qualify rather than in a section "
+    "a reader has to find. The falsifier of each experiment is evaluated against the measured "
     "figures and its result is served: one of the three claims is refuted, and which one is "
     "stated in the summary below before any experiment is described. Nothing here is a "
     "comparison against a human: v1 holds the only human arm in this build and it is n=1."
@@ -185,6 +187,12 @@ def security_scores() -> dict:
     payloads = corpus()
     record = run("03-security-corpus")
     observed = scoring.scan_results(record)
+    scored_ids = set(observed["results"])
+    scored_payloads = payloads | {
+        "payloads": [
+            payload for payload in payloads["payloads"] if payload["payload_id"] in scored_ids
+        ]
+    }
     return {
         "warden": scoring.score(
             payloads,
@@ -192,9 +200,15 @@ def security_scores() -> dict:
             failed_scans=observed["failed_scans"],
             unstable=observed["unstable"],
         ),
-        "flag_nothing": scoring.score(payloads, scoring.flag_nothing(payloads)),
-        "flag_everything": scoring.score(payloads, scoring.flag_everything(payloads)),
-        "keyword_match": scoring.score(payloads, scoring.keyword_match(payloads)),
+        "flag_nothing": scoring.score(
+            scored_payloads, scoring.flag_nothing(scored_payloads)
+        ),
+        "flag_everything": scoring.score(
+            scored_payloads, scoring.flag_everything(scored_payloads)
+        ),
+        "keyword_match": scoring.score(
+            scored_payloads, scoring.keyword_match(scored_payloads)
+        ),
     }
 
 
@@ -297,18 +311,41 @@ def _security(record: dict) -> dict:
         if payload["payload_id"] == "benign-meeting-note":
             payload["labels"] = ["ROLE_OVERRIDE"]
     observed = scoring.scan_results(record)
-    sensitivity_warden = scoring.score(sensitivity_corpus, observed["results"])[
+    sensitivity_scored = sensitivity_corpus | {
+        "payloads": [
+            payload
+            for payload in sensitivity_corpus["payloads"]
+            if payload["payload_id"] in observed["results"]
+        ]
+    }
+    sensitivity_warden = scoring.score(sensitivity_scored, observed["results"])[
         "decision_level"
     ]["recall"]
     sensitivity_keyword = scoring.score(
-        sensitivity_corpus, scoring.keyword_match(sensitivity_corpus)
+        sensitivity_scored, scoring.keyword_match(sensitivity_scored)
     )["decision_level"]["recall"]
+    unscored = counts["n_payloads_unscored"]
+    run_status = {
+        "state": "incomplete" if unscored else "complete",
+        "n_payloads_unscored": unscored,
+        "payloads_unscored": counts["payloads_unscored"],
+        "statement": (
+            f"Incomplete run: {unscored} of {counts['n_payloads']} corpus payloads had no "
+            f"successful scan. Rates and nulls use the same {counts['n_scored']}-payload "
+            "scored subset; this is not a smaller complete experiment."
+            if unscored
+            else f"Complete run: all {counts['n_payloads']} corpus payloads had at least one "
+            "successful scan, so the hired scanner and every null are scored over the same "
+            "full corpus."
+        ),
+    }
     return {
         # The labelled corpus travels with the run it was scored against. A detection rate whose
         # ground truth is only a digest is a rate a reader has to take on trust: the labels, the
         # reason for each and the text they were written about are all here.
         "dataset": corpus(),
         "scores": scores,
+        "run_status": run_status,
         "headline": {
             "statement": (
                 f"Over a labelled corpus of {counts['n_payloads']} payloads — "

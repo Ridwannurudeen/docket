@@ -331,10 +331,18 @@ def _experiment(experiment: dict) -> str:
     run = experiment["run"]
     experiment_id = experiment["experiment_id"]
     finding = run.get("finding", "")
+    run_status = experiment.get("run_status")
+    run_status_html = (
+        '<div class="panel"><h4>Run status</h4>'
+        f'<p>{_esc(run_status["statement"])}</p></div>'
+        if run_status
+        else ""
+    )
     return (
         f'<section id="{_esc(experiment_id)}" aria-labelledby="{_esc(experiment_id)}-h">'
         f'<h2 id="{_esc(experiment_id)}-h">{_esc(experiment_id)}</h2>'
         f"<p>{_esc(spec['question'])}</p>"
+        + run_status_html
         + _headline(experiment["headline"])
         + _provenance(experiment["registration_provenance"])
         + _registration(spec)
