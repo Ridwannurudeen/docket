@@ -368,6 +368,21 @@ def test_the_replay_is_stated_as_a_replay_everywhere_a_reader_can_land(body, pag
     assert "centralised" in replay["run"]["method"]
 
 
+def test_replay_headline_leads_with_the_binance_pancakeswap_venue_mismatch(body, page):
+    replay = next(
+        experiment
+        for experiment in body["experiments"]
+        if experiment["experiment_id"] == "04-grid-replay"
+    )
+    headline = replay["headline"]["statement"]
+
+    assert "Binance BNBUSDT" in headline
+    assert "PancakeSwap WBNB/USDT" in headline
+    assert "not evidence about the venue the plan trades" in headline
+    assert "Binance BNBUSDT" in page
+    assert "PancakeSwap WBNB/USDT" in page
+
+
 def test_replay_discloses_the_post_registration_buy_and_hold_reading(body, page):
     replay = next(
         experiment

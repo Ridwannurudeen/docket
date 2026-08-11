@@ -417,7 +417,10 @@ def _replay(record: dict) -> dict:
     return {
         "headline": {
             "statement": (
-                f"{record['notice']} Over {fired['n_candles']} candles of the registered window, "
+                f"{record['notice']} The prices are Binance BNBUSDT while the plan addresses "
+                "PancakeSwap WBNB/USDT; replaying one venue against the other assumes they "
+                "track and is not evidence about the venue the plan trades. Over "
+                f"{fired['n_candles']} candles of the registered window, "
                 f"{fired['n_buy_triggers']} of the ladder's {fired['n_buy_levels']} buy levels "
                 f"fired and {fired['n_sell_triggers']} of its {fired['n_sell_levels']} sell "
                 "levels did, so there is no average buy price to place against either null and "
