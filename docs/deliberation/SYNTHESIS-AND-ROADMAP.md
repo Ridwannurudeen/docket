@@ -1,5 +1,10 @@
 # Docket — Synthesis & Roadmap (2026-08-12)
 
+> **SUPERSEDED 2026-08-14 by [`2026-08-14-SYNTHESIS-V2.md`](2026-08-14-SYNTHESIS-V2.md).**
+> This document is preserved unedited below as the record of what was decided on 2026-08-12 and
+> why. Its Path A/B framing produced Stages 0–4, which are now shipped and deployed. Read it for
+> history; read v2 for the operative plan.
+
 Three independent assessments (Claude plan/audit, Codex on max reasoning, Fable 5 independent), reconciled. Every load-bearing technical claim below was re-verified by Claude against the live code/data this session — the three integrity bugs are confirmed, not relayed.
 
 ## The one-paragraph truth
