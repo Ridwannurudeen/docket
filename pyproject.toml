@@ -29,6 +29,8 @@ packages = [
     "docket.agents",
     "docket.agents.grid",
     "docket.agents.pancake",
+    "docket.agents.venus",
+    "docket.agents.yield_router",
     "docket.escrow",
     "docket.execution",
     "docket.hire",

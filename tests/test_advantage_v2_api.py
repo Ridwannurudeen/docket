@@ -591,16 +591,29 @@ def test_the_page_reaches_no_verdict(page):
 def test_the_page_names_v1_as_the_prior_version_and_v1_does_not_know_about_v2(
     page, body
 ):
-    """One-way. v2 is additive, so it links back; v1 is unchanged, so it cannot link
-    forward, and a v1 page that had learned about v2 would be a v1 page that had been
-    edited."""
+    """Both ways, and the distinction that makes that safe.
+
+    This was one-way, on the reasoning that a v1 page which had learned about v2 would be a
+    v1 page that had been edited. That conflated two different things. v1's *evidence* is
+    immutable — its three experiments, every figure, and the JSON an evaluator's agent reads
+    are pinned by `test_v1_json_keeps_its_exact_shape` and the experiment files themselves.
+    v1's *navigation* is not evidence. Keeping the two apart mattered once the consequence
+    showed up: v2 was reachable only from itself, so the report carrying the repeated trials
+    and the null baselines could not be found by anyone who landed on v1 — which is where a
+    reader following the sponsor's own requirement lands.
+
+    A reader on v1 being told v2 exists is more honest, not less. What must never happen is
+    v1's numbers moving, and nothing here lets them.
+    """
     assert body["prior_version"]["json"] == "/advantage.json"
     assert body["prior_version"]["page"] == "/advantage"
     assert 'href="/advantage.json"' in page and 'href="/advantage"' in page
 
     v1_page = (WEB / "advantage.html").read_text(encoding="utf-8")
-    assert "/advantage/v2" not in v1_page
-    assert "v2" not in v1_page.lower().replace("?v=2", "")
+    assert 'href="/advantage/v2"' in v1_page, "v1 has to be able to send a reader to v2"
+    # The link states which report holds the human arm, so neither reads as superseding
+    # the other — v1 is the paired agent-versus-person report, v2 is agent-versus-null.
+    assert "holds no human arm" in v1_page
 
 
 def test_v1_json_keeps_its_exact_shape(client):

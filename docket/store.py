@@ -12,6 +12,12 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Why a sweep stopped. Closed, because an open vocabulary here would let a new stop condition
+# arrive unclassified and be served as if it were a clean finish. Only `exhausted` may be
+# promoted to readers; the rest describe a sweep that ended without reaching the end.
+STOP_REASONS = ("exhausted", "max_pages", "not_advancing")
+COMPLETE_STOP_REASON = "exhausted"
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,13 +93,17 @@ class Store:
             columns = {r["name"] for r in conn.execute("PRAGMA table_info(snapshots)")}
             if "population" not in columns:
                 conn.execute("ALTER TABLE snapshots ADD COLUMN population TEXT")
+            if "stop_reason" not in columns:
+                conn.execute("ALTER TABLE snapshots ADD COLUMN stop_reason TEXT")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         try:
-            with conn:  # commits on clean exit; contextlib.closing would silently drop writes
+            with (
+                conn
+            ):  # commits on clean exit; contextlib.closing would silently drop writes
                 yield conn
         finally:
             conn.close()
@@ -113,20 +123,40 @@ class Store:
             )
             return int(cur.lastrowid)
 
-    def finish_snapshot(self, snapshot_id: int, sampled: int, expected: int | None = None) -> None:
+    def finish_snapshot(
+        self,
+        snapshot_id: int,
+        sampled: int,
+        expected: int | None = None,
+        stop_reason: str = "exhausted",
+    ) -> None:
         """Close a snapshot. Pass `expected` to overwrite the figure `begin_snapshot` recorded —
         a sweep that watches the registry grow must persist the final claim, or a later reader
-        would compare `sampled` against a stale total and publish false completeness."""
+        would compare `sampled` against a stale total and publish false completeness.
+
+        `stop_reason` records WHY the sweep ended, because "it ended" and "it reached the end"
+        are not the same event and only one of them may be served. A sweep stopped by a page
+        cap or by a paginator that stopped advancing is finished and partial, and until this
+        column existed it was indistinguishable from a clean one: `finished_at` was set either
+        way, so `latest_complete_snapshot_id` would promote it the moment a sweep ran
+        unattended.
+        """
+        if stop_reason not in STOP_REASONS:
+            raise ValueError(
+                f"unknown stop_reason {stop_reason!r}; expected one of {STOP_REASONS}"
+            )
         with self._conn() as conn:
             if expected is None:
                 conn.execute(
-                    "UPDATE snapshots SET sampled = ?, finished_at = ? WHERE id = ?",
-                    (sampled, _now(), snapshot_id),
+                    "UPDATE snapshots SET sampled = ?, finished_at = ?, stop_reason = ? "
+                    "WHERE id = ?",
+                    (sampled, _now(), stop_reason, snapshot_id),
                 )
             else:
                 conn.execute(
-                    "UPDATE snapshots SET sampled = ?, expected = ?, finished_at = ? WHERE id = ?",
-                    (sampled, expected, _now(), snapshot_id),
+                    "UPDATE snapshots SET sampled = ?, expected = ?, finished_at = ?, "
+                    "stop_reason = ? WHERE id = ?",
+                    (sampled, expected, _now(), stop_reason, snapshot_id),
                 )
 
     def upsert_agents(self, rows: list[dict], snapshot_id: int) -> int:
@@ -187,12 +217,26 @@ class Store:
         being written. Serving it would publish a partial capture as the whole of what Docket
         observed: every count understated, and `complete` computed against an `expected` the
         run never reached.
+
+        `finished_at IS NOT NULL` was the whole of this test, and it caught only the crashed
+        sweep. It did not catch the *finished and partial* one: `_sweep` stops on a page cap or
+        a paginator that will not advance, and then closes the snapshot exactly as a clean run
+        does. Harmless while every sweep was launched by hand and checked; the moment one runs
+        unattended, a truncated capture becomes what the site serves. So completeness is now
+        the same predicate `coverage_report` publishes — `sampled == expected` — plus the
+        recorded reason the sweep ended.
+
+        Rows written before `stop_reason` existed carry NULL and are judged on counts alone:
+        they were run and checked by hand, and rejecting them would take the live snapshot off
+        the site to fix a bug it does not have.
         """
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT id FROM snapshots WHERE chain_id = ? AND finished_at IS NOT NULL "
-                "AND sampled IS NOT NULL ORDER BY id DESC LIMIT 1",
-                (chain_id,),
+                "AND sampled IS NOT NULL AND expected IS NOT NULL AND sampled = expected "
+                "AND sampled > 0 AND (stop_reason IS NULL OR stop_reason = ?) "
+                "ORDER BY id DESC LIMIT 1",
+                (chain_id, COMPLETE_STOP_REASON),
             ).fetchone()
         return int(row["id"]) if row else None
 
@@ -214,13 +258,16 @@ class Store:
         """
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT MAX(expected) AS m FROM snapshots WHERE chain_id = ?", (chain_id,)
+                "SELECT MAX(expected) AS m FROM snapshots WHERE chain_id = ?",
+                (chain_id,),
             ).fetchone()
         return int(row["m"]) if row and row["m"] is not None else None
 
     def snapshot(self, snapshot_id: int) -> dict:
         with self._conn() as conn:
-            row = conn.execute("SELECT * FROM snapshots WHERE id = ?", (snapshot_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM snapshots WHERE id = ?", (snapshot_id,)
+            ).fetchone()
         return dict(row) if row else {}
 
     def agent_count(self, snapshot_id: int | None = None) -> int:
@@ -229,7 +276,8 @@ class Store:
                 row = conn.execute("SELECT COUNT(*) AS n FROM agents").fetchone()
             else:
                 row = conn.execute(
-                    "SELECT COUNT(*) AS n FROM agents WHERE snapshot_id = ?", (snapshot_id,)
+                    "SELECT COUNT(*) AS n FROM agents WHERE snapshot_id = ?",
+                    (snapshot_id,),
                 ).fetchone()
         return int(row["n"])
 
@@ -268,7 +316,9 @@ class Store:
             )
         return len(payload)
 
-    def iter_endpoints(self, snapshot_id: int, kind: str | None = None) -> Iterator[dict]:
+    def iter_endpoints(
+        self, snapshot_id: int, kind: str | None = None
+    ) -> Iterator[dict]:
         sql = "SELECT * FROM endpoints WHERE snapshot_id = ?"
         args: tuple = (snapshot_id,)
         if kind is not None:
@@ -281,7 +331,8 @@ class Store:
     def endpoint_count(self, snapshot_id: int) -> int:
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) AS n FROM endpoints WHERE snapshot_id = ?", (snapshot_id,)
+                "SELECT COUNT(*) AS n FROM endpoints WHERE snapshot_id = ?",
+                (snapshot_id,),
             ).fetchone()
         return int(row["n"])
 
@@ -333,6 +384,7 @@ class Store:
     def iter_liveness(self, snapshot_id: int) -> Iterator[dict]:
         with self._conn() as conn:
             for row in conn.execute(
-                "SELECT * FROM liveness WHERE snapshot_id = ? ORDER BY id", (snapshot_id,)
+                "SELECT * FROM liveness WHERE snapshot_id = ? ORDER BY id",
+                (snapshot_id,),
             ):
                 yield dict(row)

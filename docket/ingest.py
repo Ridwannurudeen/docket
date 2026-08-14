@@ -59,11 +59,16 @@ def _sweep(
     offset = 0
     items = first_items
     highest = _highest_token_id(items)
+    # Set on the two paths that leave the loop without reaching the end of the query. Both used
+    # to close the snapshot exactly as a clean run did, which made a truncated capture
+    # promotable the moment a sweep ran unattended.
+    stop_reason = "exhausted"
     while items:
         store.upsert_agents(items, sid)
         pages += 1
         offset += MAX_LIMIT
         if max_pages is not None and pages >= max_pages:
+            stop_reason = "max_pages"
             break
         items, latest_total = client.list_agents(
             chain_id, limit=MAX_LIMIT, offset=offset, min_feedbacks=min_feedbacks
@@ -80,19 +85,21 @@ def _sweep(
                     pages + 1,
                     highest,
                 )
+                stop_reason = "not_advancing"
                 break
             highest = page_high
         if pages % 50 == 0:
             logger.info("ingest: %d pages, %d stored", pages, store.agent_count(sid))
 
     sampled = store.agent_count(sid)
-    store.finish_snapshot(sid, sampled, expected)
+    store.finish_snapshot(sid, sampled, expected, stop_reason=stop_reason)
     return {
         "snapshot_id": sid,
         "sampled": sampled,
         "expected": expected,
         "dropped": max(expected - sampled, 0),
         "pages": pages,
+        "stop_reason": stop_reason,
     }
 
 
@@ -114,7 +121,9 @@ def ingest_bsc(
     always replays from offset 0 — idempotent, thanks to the store's primary key, but it
     re-spends quota. A true incremental resume via `store.max_token_id` is a follow-up.
     """
-    return _sweep(store, client, chain_id=chain_id, max_pages=max_pages, snapshot_id=snapshot_id)
+    return _sweep(
+        store, client, chain_id=chain_id, max_pages=max_pages, snapshot_id=snapshot_id
+    )
 
 
 def ingest_targeted(

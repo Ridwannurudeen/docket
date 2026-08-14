@@ -283,3 +283,43 @@ def test_every_page_asks_for_the_same_version_of_the_same_two_files():
         text = _read(name)
         tokens.update(re.findall(r'/static/(?:style\.css|app\.js)\?v=([^"]+)', text))
     assert len(tokens) == 1, f"the site asks for several asset versions at once: {tokens}"
+
+
+# ------------------------------------------------- served claims vs served reality
+
+
+def test_the_homepage_does_not_claim_a_recorded_run_for_services_that_have_none():
+    """The shop front cannot promise evidence the shelf does not carry.
+
+    The hero used to read "Every service here is one Docket runs itself and can show a
+    recorded run behind it" while grid-operator, yield-router and health-guard each carried
+    zero metrics and zero evidence. Every test passed: nothing tied the sentence to the
+    registry it described. This is that tie.
+    """
+    from docket.marketplace.registry import all_records
+
+    without_a_run = sorted(r.service_id for r in all_records() if not r.metrics)
+    hero = _read("index.html")
+    if without_a_run:
+        assert "Every service here is one Docket runs itself and can show a recorded run" not in hero, (
+            f"the homepage claims a recorded run for every service, but {without_a_run} have none"
+        )
+        assert "and some do not yet" in hero, (
+            "services without a recorded run exist, so the homepage has to say so"
+        )
+
+
+def test_the_v1_report_points_at_v2_and_says_which_one_answers_the_sponsor(client):
+    """v2 was reachable only from itself: the served v1 page carried no "v2" string at all,
+    and the homepage linked the JSON endpoint rather than the page. The report a reader is
+    sent to must also tell them what the other one is, or the pair reads as one superseding
+    the other — which is the opposite of what these two are.
+    """
+    v1 = _read("advantage.html")
+    assert 'href="/advantage/v2"' in v1, "the v1 report does not link the v2 report"
+    assert "holds no human arm" in v1, (
+        "v1 links v2 without saying that v1 is the one with the human arm"
+    )
+    # And it has to survive being served, not merely sit in the file.
+    served = client.get("/advantage").text
+    assert "/advantage/v2" in served

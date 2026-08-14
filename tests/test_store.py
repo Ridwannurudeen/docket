@@ -1,6 +1,8 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from docket.store import Store
 
 ROW = {
@@ -51,7 +53,9 @@ def test_upsert_refreshes_transferred_owner(tmp_path: Path):
     store.upsert_agents([{**ROW, "owner_address": new_owner}], sid)
     assert store.agent_count(sid) == 1
     got = next(store.iter_agents(sid))
-    assert got["owner_address"] == new_owner  # ownership transfers; a stale owner breaks clustering
+    assert (
+        got["owner_address"] == new_owner
+    )  # ownership transfers; a stale owner breaks clustering
 
 
 def test_token_id_coercion_handles_zero_and_null(tmp_path: Path):
@@ -69,7 +73,9 @@ def test_token_id_coercion_handles_zero_and_null(tmp_path: Path):
         sid,
     )
     stored = {a["agent_id"]: a["token_id"] for a in store.iter_agents(sid)}
-    assert stored["zero"] == "0"  # integer zero is a legitimate token id, not falsy-empty
+    assert (
+        stored["zero"] == "0"
+    )  # integer zero is a legitimate token id, not falsy-empty
     assert stored["null"] == ""  # not the literal string "None"
     assert stored["text"] == "257920"
     assert stored["absent"] == ""
@@ -91,7 +97,9 @@ def test_snapshot_records_the_population_it_swept(tmp_path: Path):
     """`expected` states how many rows the query claimed. `population` states which query —
     without it, 506 of 506 reads as a whole-registry census."""
     store = Store(tmp_path / "d.sqlite3")
-    filtered = store.begin_snapshot(chain_id=56, expected=506, population="min_feedbacks>=1")
+    filtered = store.begin_snapshot(
+        chain_id=56, expected=506, population="min_feedbacks>=1"
+    )
     store.finish_snapshot(filtered, sampled=506)
     assert store.snapshot(filtered)["population"] == "min_feedbacks>=1"
     whole = store.begin_snapshot(chain_id=56, expected=9, population="all")
@@ -106,23 +114,31 @@ def test_registry_total_is_the_largest_total_any_sweep_recorded(tmp_path: Path):
     full = store.begin_snapshot(chain_id=56, expected=247065, population="all")
     store.finish_snapshot(full, sampled=2000)
     crashed = store.begin_snapshot(chain_id=56, expected=247146, population="all")
-    filtered = store.begin_snapshot(chain_id=56, expected=506, population="min_feedbacks>=1")
+    filtered = store.begin_snapshot(
+        chain_id=56, expected=506, population="min_feedbacks>=1"
+    )
     store.finish_snapshot(filtered, sampled=506)
     # The crashed sweep's `expected` still counts: it is what the API answered when asked,
     # recorded before the sweep died, and it does not depend on the sweep finishing.
     assert store.registry_total(56) == 247146
     assert store.snapshot(crashed)["sampled"] is None
-    assert store.registry_total(97) is None  # another chain's sweeps are not this chain's
+    assert (
+        store.registry_total(97) is None
+    )  # another chain's sweeps are not this chain's
 
 
-def test_registry_total_is_only_a_lower_bound_when_every_sweep_was_filtered(tmp_path: Path):
+def test_registry_total_is_only_a_lower_bound_when_every_sweep_was_filtered(
+    tmp_path: Path,
+):
     """The state Stage 5's refresh loop produces on a fresh deployment: nothing but targeted
     sweeps on record. The largest total recorded is then a FILTERED total, and the chain is
     larger than it rather than equal to it — so the figure may only ever be read as "at least
     this many", never as the size of the registry."""
     store = Store(tmp_path / "d.sqlite3")
     for expected in (506, 512):
-        sid = store.begin_snapshot(chain_id=56, expected=expected, population="min_feedbacks>=1")
+        sid = store.begin_snapshot(
+            chain_id=56, expected=expected, population="min_feedbacks>=1"
+        )
         store.finish_snapshot(sid, sampled=expected)
     assert store.registry_total(56) == 512  # a filtered total, and a true lower bound
     # It can equal the served snapshot's own `expected`, which is why no doc may promise it
@@ -167,7 +183,9 @@ def test_latest_complete_snapshot_skips_a_sweep_that_never_finished(tmp_path: Pa
     first = store.begin_snapshot(chain_id=56, expected=10)
     store.finish_snapshot(first, sampled=10)
     crashed = store.begin_snapshot(chain_id=56, expected=10)
-    assert store.latest_snapshot_id(56) == crashed  # the newest row, still the newest row
+    assert (
+        store.latest_snapshot_id(56) == crashed
+    )  # the newest row, still the newest row
     assert store.latest_complete_snapshot_id(56) == first  # never the unfinished one
 
     third = store.begin_snapshot(chain_id=56, expected=10)
@@ -175,13 +193,17 @@ def test_latest_complete_snapshot_skips_a_sweep_that_never_finished(tmp_path: Pa
     assert store.latest_complete_snapshot_id(56) == third  # a later finish wins again
 
 
-def test_latest_complete_snapshot_is_per_chain_and_none_when_nothing_finished(tmp_path: Path):
+def test_latest_complete_snapshot_is_per_chain_and_none_when_nothing_finished(
+    tmp_path: Path,
+):
     store = Store(tmp_path / "d.sqlite3")
     store.begin_snapshot(chain_id=56, expected=10)
     assert store.latest_complete_snapshot_id(56) is None  # no finished sweep to serve
     other = store.begin_snapshot(chain_id=97, expected=4)
     store.finish_snapshot(other, sampled=4)
-    assert store.latest_complete_snapshot_id(56) is None  # another chain's is not this chain's
+    assert (
+        store.latest_complete_snapshot_id(56) is None
+    )  # another chain's is not this chain's
     assert store.latest_complete_snapshot_id(97) == other
 
 
@@ -197,13 +219,17 @@ def test_endpoints_roundtrip_and_upsert_is_idempotent(tmp_path: Path):
     assert store.endpoint_count(sid) == 2  # no duplicates
     kinds = {e["kind"] for e in store.iter_endpoints(sid)}
     assert kinds == {"a2a", "mcp"}
-    assert [e["url"] for e in store.iter_endpoints(sid, kind="mcp")] == ["https://a.example/mcp"]
+    assert [e["url"] for e in store.iter_endpoints(sid, kind="mcp")] == [
+        "https://a.example/mcp"
+    ]
 
 
 def test_enriched_agent_ids_reports_what_has_been_processed(tmp_path: Path):
     store = Store(tmp_path / "d.sqlite3")
     sid = store.begin_snapshot(chain_id=56, expected=None)
-    store.upsert_endpoints([{"agent_id": "56:r:1", "kind": "a2a", "url": "https://a/x"}], sid)
+    store.upsert_endpoints(
+        [{"agent_id": "56:r:1", "kind": "a2a", "url": "https://a/x"}], sid
+    )
     store.mark_enriched(["56:r:1", "56:r:2"], sid)  # r:2 had no endpoints at all
     assert store.enriched_agent_ids(sid) == {"56:r:1", "56:r:2"}
 
@@ -240,3 +266,59 @@ def test_liveness_rows_are_append_only_observations(tmp_path: Path):
     seen = list(store.iter_liveness(sid))
     assert len(seen) == 2  # history is kept, not overwritten
     assert {s["outcome"] for s in seen} == {"responded", "timeout"}
+
+
+def test_a_finished_but_truncated_sweep_is_never_promoted(tmp_path: Path):
+    """`finished_at` caught the crashed sweep and missed the truncated one.
+
+    `_sweep` leaves its loop on a page cap or a paginator that stops advancing, and then closes
+    the snapshot exactly as a clean run does. Both are finished; only one reached the end of the
+    query. Serving the other publishes understated counts as the whole of what Docket observed —
+    the failure the crashed-sweep guard was written to prevent, arriving by the other door.
+    """
+    store = Store(tmp_path / "d.sqlite3")
+    clean = store.begin_snapshot(chain_id=56, expected=10)
+    store.finish_snapshot(clean, sampled=10, stop_reason="exhausted")
+
+    capped = store.begin_snapshot(chain_id=56, expected=10)
+    store.finish_snapshot(capped, sampled=4, expected=10, stop_reason="max_pages")
+    assert store.latest_snapshot_id(56) == capped  # newest row, as always
+    assert store.latest_complete_snapshot_id(56) == clean  # but never served
+
+    stuck = store.begin_snapshot(chain_id=56, expected=10)
+    store.finish_snapshot(stuck, sampled=7, expected=10, stop_reason="not_advancing")
+    assert store.latest_complete_snapshot_id(56) == clean
+
+
+def test_a_sweep_that_ended_cleanly_but_short_is_not_complete_either(tmp_path: Path):
+    """`exhausted` says the paginator ran out, not that the query was covered. If the API
+    claimed 10 and 6 were stored, the gap is real whatever the reason, and `coverage_report`
+    already calls that partial — this predicate must agree with it rather than serve a
+    snapshot the coverage page would label incomplete."""
+    store = Store(tmp_path / "d.sqlite3")
+    short = store.begin_snapshot(chain_id=56, expected=10)
+    store.finish_snapshot(short, sampled=6, expected=10, stop_reason="exhausted")
+    assert store.latest_complete_snapshot_id(56) is None
+
+
+def test_a_snapshot_written_before_stop_reason_existed_is_judged_on_its_counts(
+    tmp_path: Path,
+):
+    """The live database holds snapshot 3: 506 of 506, run and checked by hand, and NULL in a
+    column that did not exist when it was written. Rejecting it would take the site's only
+    served capture offline to fix a bug it does not have."""
+    store = Store(tmp_path / "d.sqlite3")
+    legacy = store.begin_snapshot(chain_id=56, expected=506)
+    store.finish_snapshot(legacy, sampled=506)
+    with store._conn() as conn:  # simulate a row written before the migration
+        conn.execute("UPDATE snapshots SET stop_reason = NULL WHERE id = ?", (legacy,))
+    assert store.latest_complete_snapshot_id(56) == legacy
+
+
+def test_an_unknown_stop_reason_is_refused_rather_than_stored(tmp_path: Path):
+    """An open vocabulary would let a new stop condition arrive unclassified and be served as
+    a clean finish — the exact shape of the bug this column closes."""
+    store = Store(tmp_path / "d.sqlite3")
+    sid = store.begin_snapshot(chain_id=56, expected=1)
+    with pytest.raises(ValueError, match="unknown stop_reason"):
+        store.finish_snapshot(sid, sampled=1, stop_reason="gave_up")
