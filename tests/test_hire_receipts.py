@@ -1,6 +1,10 @@
 import json
 
-from docket.hire.receipts import build_receipt, canonical_hash
+from docket.hire.receipts import (
+    build_receipt,
+    canonical_hash,
+    is_human_readable_result,
+)
 
 
 def test_canonical_hash_is_key_order_independent():
@@ -34,7 +38,25 @@ def test_receipt_binds_input_and_output():
     assert r["payment"]["status"] == "free_tier"
 
 
-def test_receipt_never_claims_settlement_it_did_not_perform():
-    r = build_receipt("range-doctor", {}, {}, payment={"status": "verified_unsettled"})
-    assert r["payment"]["status"] == "verified_unsettled"
-    assert "paid" not in json.dumps(r).lower()
+def test_human_readable_result_gate_rejects_empty_raw_json():
+    """A syntactically valid object is not a delivered answer; settlement requires
+    non-empty text a human can read, not merely JSON that parsed."""
+    assert is_human_readable_result({}) is False
+    assert is_human_readable_result({"counts": [1, 2]}) is False
+    assert is_human_readable_result({"decision": "  "}) is False
+    assert is_human_readable_result({"decision": "WAIT"}) is True
+
+
+def test_receipt_records_only_the_settlement_evidence_it_is_given():
+    payment = {
+        "status": "settled",
+        "payment_id": "0xpayment",
+        "nonce": "0xnonce",
+        "transaction_id": "0xtransaction",
+    }
+    receipt = build_receipt(
+        "range-doctor", {"wallet": "0xabc"}, {"decision": "WAIT"}, payment=payment
+    )
+
+    assert receipt["payment"] == payment
+    assert "finality" not in json.dumps(receipt).lower()

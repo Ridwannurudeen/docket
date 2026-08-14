@@ -304,17 +304,22 @@ function serviceCard(card) {
   const identity = card.agent_id
     ? `${card.identity} Whether Docket's snapshot holds that agent is stated on the service page.`
     : card.identity;
+  const priceLabel = card.paid_stock ? "Price" : "Price after admission";
+  const action = card.paid_stock
+    ? `Pay ${escapeHTML(card.price_display)} and hire`
+    : `Open ${escapeHTML(card.stock_status)}`;
   return `<div class="service">
       <h4><a href="${href}">${escapeHTML(card.name)}</a></h4>
       <p>${escapeHTML(summary.text)}${more}</p>
       <ul class="facts">
-        <li><span class="fact-key">Price</span> <span class="num">${escapeHTML(card.price_display)}</span></li>
+        <li><span class="fact-key">${priceLabel}</span> <span class="num">${escapeHTML(card.price_display)}</span></li>
+        <li><span class="fact-key">Paid-stock status</span> ${escapeHTML(card.stock_status)}</li>
         <li><span class="fact-key">Typical run</span> <span class="num">${escapeHTML(fmtInt(card.typical_seconds))} seconds</span></li>
         <li><span class="fact-key">What activating does</span> ${escapeHTML(card.activation_means)}</li>
       </ul>
       ${metricLines(card.metrics)}
       <p class="dim">${escapeHTML(identity)}</p>
-      <p class="btn-row"><a class="btn btn-primary" href="${href}">Open and run it</a></p>
+      <p class="btn-row"><a class="btn btn-primary" href="${href}">${action}</a></p>
     </div>`;
 }
 
@@ -421,20 +426,27 @@ function activationForm(record) {
         .join("")
     : `<p class="dim">This service takes no arguments: what arrives is whatever was last
          published, so there is nothing for you to supply.</p>`;
+  const runLabel = record.paid_stock
+    ? "Run a free preview"
+    : `Run the ${escapeHTML(record.stock_status)}`;
+  const availability = record.paid_stock
+    ? `This service has passed all four paid-stock gates. Agents can submit its exact x402
+       authorization to <span class="mono">${escapeHTML(record.hire_path)}</span>; this page
+       runs only the free preview because it holds no signing key.`
+    : `This service is <strong>not admitted to paid stock</strong>. Its status is
+       <span class="mono">${escapeHTML(record.stock_status)}</span>, so this form runs only the
+       free ${escapeHTML(record.stock_status)} and does not use a payment authorization.`;
   return `<form class="activate" data-activate novalidate>
       ${controls}
       <p class="btn-row">
-        <button type="submit" class="btn btn-primary" data-run>Run it now</button>
+        <button type="submit" class="btn btn-primary" data-run>${runLabel}</button>
         <span class="dim">
           Typical run ${escapeHTML(fmtInt(record.typical_seconds))} seconds. One attempt, and the
           result is whatever it returns.
         </span>
       </p>
       <p class="dim">
-        No account, key or wallet is needed. Docket verifies payment authorizations and does not
-        settle them, so nothing here moves any funds; the receipt states which tier served the
-        run. Where a payment recipient is configured, a caller has an allowance of 20 hires an
-        hour and the response says so when it is spent.
+        ${availability}
       </p>
     </form>`;
 }
@@ -466,7 +478,8 @@ function paintServiceRecord(record) {
     <p class="lede">${escapeHTML(record.what_you_get)}</p>
     <div class="panel">
       <dl class="deflist">
-        <dt>Price</dt><dd class="num">${escapeHTML(record.price_display)} (${escapeHTML(record.price_atomic)} atomic units of <span class="mono">${escapeHTML(record.asset)}</span>)</dd>
+        <dt>${record.paid_stock ? "Price" : "Price after admission"}</dt><dd class="num">${escapeHTML(record.price_display)} (${escapeHTML(record.price_atomic)} atomic units of <span class="mono">${escapeHTML(record.asset)}</span>)</dd>
+        <dt>Paid-stock status</dt><dd>${escapeHTML(record.stock_status)}${record.paid_stock ? " — all four admission facts passed" : " — no Pay and hire offer is available"}</dd>
         <dt>Typical run</dt><dd class="num">${escapeHTML(fmtInt(record.typical_seconds))} seconds</dd>
         <dt>What activating does</dt><dd>${escapeHTML(record.activation_means)}</dd>
         <dt>How an agent calls it</dt><dd class="mono">${escapeHTML(record.hire_method)} ${escapeHTML(record.hire_path)}</dd>
@@ -725,10 +738,13 @@ function presentRangeDoctor(result, receipt, record) {
     payment.transaction_id ||
     payment.payment_id;
   const proofNonce = receipt.nonce || payment.nonce;
-  const proofMissing =
-    payment.status === "verified_unsettled"
-      ? "The authorization was verified but exact-once settlement is not built, so no settlement record exists."
-      : "This run used the free tier and no payment occurred; exact-once settlement is not built.";
+  const settled = payment.status === "settled";
+  const proofMissing = record.paid_stock
+    ? "This preview used no payment authorization, so it has no settlement record."
+    : `This ${record.stock_status} is not admitted to paid stock, so no payment occurred.`;
+  const settlementNote = settled
+    ? "The configured facilitator reported this settlement and transaction binding. The receipt does not prove chain finality or result correctness."
+    : "No payment authorization was used for this preview. The input/output hashes bind delivery, not correctness.";
 
   return `<section aria-labelledby="range-decision-heading">
       <h3 id="range-decision-heading">1. Decision</h3>
@@ -765,14 +781,14 @@ function presentRangeDoctor(result, receipt, record) {
       <h3 id="range-value-heading">6. Measured value</h3>
       <div class="panel">
         <dl class="deflist">
-          <dt>Current catalogue offer</dt><dd class="num">${escapeHTML(record.price_display)}</dd>
+          <dt>${record.paid_stock ? "Current catalogue offer" : "Price after admission"}</dt><dd class="num">${escapeHTML(record.price_display)}</dd>
           <dt>This-run time</dt><dd class="num">${measured.this_run_seconds === null || measured.this_run_seconds === undefined ? "unavailable — the backend did not return a duration" : `${escapeHTML(Number(measured.this_run_seconds).toFixed(3))} seconds`}</dd>
           <dt>Paired manual time</dt><dd>${pairedTime}</dd>
           <dt>Quality result</dt><dd>${quality}</dd>
           <dt>V3 report</dt><dd>${reportLink}</dd>
           <dt>Payment state for this run</dt><dd class="mono">${escapeHTML(payment.status || "not recorded")}</dd>
         </dl>
-        <p class="dim">The required $0.50 settled hire is not available in this build because exact-once settlement is not built. This response therefore makes no $0.50 paid-value claim.</p>
+        <p class="dim">${record.paid_stock ? "This service has passed the catalogue admission gate; this browser form still ran its free preview." : `This service is not admitted to paid stock: its current status is ${escapeHTML(record.stock_status)}. This response makes no $0.50 paid-value claim.`}</p>
       </div>
     </section>
     <section aria-labelledby="range-proof-heading">
@@ -786,7 +802,7 @@ function presentRangeDoctor(result, receipt, record) {
           <dt>Settlement transaction / payment ID</dt><dd class="mono">${proofId ? escapeHTML(proofId) : `unavailable — ${escapeHTML(proofMissing)}`}</dd>
           <dt>Unique settlement nonce</dt><dd class="mono">${proofNonce ? escapeHTML(proofNonce) : `unavailable — ${escapeHTML(proofMissing)}`}</dd>
         </dl>
-        <p class="dim">Nothing was signed, approved or moved. A receipt binds delivery; it does not establish correctness or settlement.</p>
+        <p class="dim">${escapeHTML(settlementNote)}</p>
       </div>
     </section>
     <section aria-labelledby="range-limitation-heading">
@@ -808,9 +824,12 @@ const STATUS_WORDS = {
 function paintOutcome(record, answer) {
   const receipt = answer.receipt || {};
   const payment = receipt.payment || {};
-  const rejected = payment.authorization_rejected
-    ? `<dt>Authorization</dt><dd>not accepted: ${escapeHTML(payment.authorization_rejected)}</dd>`
-    : "";
+  const paymentProof =
+    payment.status === "settled"
+      ? `<dt>Payment ID</dt><dd class="mono">${escapeHTML(payment.payment_id || DASH)}</dd>
+         <dt>Nonce</dt><dd class="mono">${escapeHTML(payment.nonce || DASH)}</dd>
+         <dt>Settlement transaction</dt><dd class="mono">${escapeHTML(payment.transaction_id || DASH)}</dd>`
+      : `<dt>Paid-stock status</dt><dd>${escapeHTML(record.stock_status)}</dd>`;
   const receiptSection =
     record.service_id === "range-doctor"
       ? ""
@@ -823,15 +842,15 @@ function paintOutcome(record, answer) {
           <dt>Input hash</dt><dd class="mono">${escapeHTML(receipt.input_hash)}</dd>
           <dt>Output hash</dt><dd class="mono">${escapeHTML(receipt.output_hash)}</dd>
           <dt>Payment</dt><dd class="mono">${escapeHTML(payment.status)}</dd>
-          ${rejected}
+          ${paymentProof}
         </dl>
         <p class="dim">
           A receipt records delivery and nothing else. It does not assert the work is correct,
           and Docket does not sign it — it is a self-check for you. Both hashes are plain
           SHA-256 over canonical JSON and need none of Docket's code to recompute;
-          <a href="/llms.txt">/llms.txt</a> carries the exact recipe. A payment status of
-          <span class="mono">verified_unsettled</span> means a signature was checked and
-          nothing was settled, broadcast or moved.
+          <a href="/llms.txt">/llms.txt</a> carries the exact recipe. A
+          <span class="mono">settled</span> status records what the configured facilitator
+          reported; it does not prove chain finality or that the result is correct.
         </p>
       </div>
     </section>`;

@@ -9,11 +9,11 @@ Errors are `{"error": {"code", "message"}}` at every status. FastAPI's default
 `{"detail": ...}` is registered away deliberately — an agent that has been told
 one error shape should never receive two.
 
-The hire routes are the one exception to "nothing here writes": they run work.
-They still write nothing Docket has observed, and they are deliberately built so
-a caller with no account, no key and no wallet gets real work back on the first
-request — payment is additive, and a missing `DOCKET_PAY_TO` disables the priced
-tier rather than the service.
+The hire routes are the exception to "nothing here writes": they run work and
+persist payment state. Unadmitted services remain free previews/research/beta.
+An admitted service settles only after a facilitator verifies the authorization
+and Docket has durably bound a non-empty result to its input; missing owner
+settlement configuration disables paid stock rather than preview access.
 """
 
 import os
@@ -42,8 +42,19 @@ from ..escrow import constants as escrow_constants
 from ..escrow.chain import JobNotFound, JobReader
 from ..escrow.flow import hire_calls
 from ..hire.catalogue import SERVICES, get_service
-from ..hire.receipts import build_receipt
-from ..hire.x402 import build_challenge, parse_payment_header, verify_authorization
+from ..hire.receipts import (
+    build_receipt,
+    canonical_hash,
+    is_human_readable_result,
+)
+from ..hire.x402 import (
+    Facilitator,
+    FacilitatorClient,
+    build_challenge,
+    facilitator_envelope,
+    parse_payment_header,
+    verify_payment,
+)
 from ..marketplace.models import CATEGORIES, Category, ServiceRecord
 from ..marketplace.registry import (
     CATEGORY_DECLARATION,
@@ -109,13 +120,9 @@ CHAIN_ID = 56
 RETIRED_FILTER = "publisher"
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
-# How much work one caller may take per hour. The allowance counts EVERY hire, not
-# only the ones served without an authorization: hire/x402.py never remembers a
-# nonce, so one valid signature verifies for ever, and an allowance that a payer
-# stepped past would let a single replayed signature buy unlimited work. So the
-# allowance is what bounds this service, and an authorization changes the receipt
-# rather than the allowance — Docket does not settle, and a signature it cannot
-# mark as spent must not buy work a free caller could not have had.
+# How much admitted paid work one caller may preview before receiving a 402. A
+# settled authorization bypasses this in-memory allowance because its nonce has a
+# durable database state; unadmitted stock never shows a payment challenge.
 FREE_TIER_HIRES = 20
 FREE_TIER_WINDOW_S = 3600
 # Stated on every /stats response: a number about liveness is unreadable without it.
@@ -191,6 +198,9 @@ def _card(record: ServiceRecord) -> ServiceCard:
         price_display=record.price_display,
         price_atomic=record.price_atomic,
         asset=record.asset,
+        paid_stock=record.paid_stock,
+        stock_status=record.stock_status,
+        admission=record.admission,
         typical_seconds=record.typical_seconds,
         activation=record.activation,
         activation_means=record.activation_means,
@@ -241,7 +251,9 @@ async def _http_error(request: Request, exc: StarletteHTTPException) -> JSONResp
     return _error(exc.status_code, code, str(exc.detail))
 
 
-async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+async def _validation_error(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
     first = exc.errors()[0]
     where = ".".join(str(part) for part in first["loc"][1:])
     return _error(422, "invalid_query_parameter", f"{where}: {first['msg']}")
@@ -285,14 +297,22 @@ def _responding_agent_ids(store: Store, snapshot_id: int) -> set[str]:
     }
 
 
-def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = None) -> FastAPI:
-    """Serve one snapshot read-only. Resolved once here rather than per request: a listing and
-    the stats beside it must describe the same capture, even mid-sweep."""
+def create_app(
+    db_path: str | Path = DEFAULT_DB_PATH,
+    snapshot_id: int | None = None,
+    facilitator: Facilitator | None = None,
+) -> FastAPI:
+    """Serve one immutable observation snapshot plus persistent paid-hire state.
+
+    The snapshot is resolved once so a listing and its stats describe the same capture,
+    even mid-sweep. Hire writes are confined to payment lifecycle records.
+    """
     db_path = Path(db_path)
+    store = Store(db_path)
     if snapshot_id is None:
         # The newest COMPLETE sweep, never merely the newest row. An explicit snapshot_id is
         # still honoured, so an operator can inspect a partial capture on purpose.
-        snapshot_id = Store(db_path).latest_complete_snapshot_id(CHAIN_ID)
+        snapshot_id = store.latest_complete_snapshot_id(CHAIN_ID)
     # Read once, at startup: a missing document should fail the app that ships it, not the one
     # request that happened to ask for it.
     llms_body = (STATIC_DIR / "llms.txt").read_text(encoding="utf-8")
@@ -316,6 +336,13 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
     # off and the free tier serves unmetered. Read once here rather than per
     # request: the terms a caller is quoted must not change under it mid-session.
     pay_to = os.environ.get("DOCKET_PAY_TO") or None
+    if facilitator is None and os.environ.get("DOCKET_ENABLE_SETTLEMENT") == "1":
+        facilitator_url = os.environ.get("DOCKET_FACILITATOR_URL")
+        if not facilitator_url or not pay_to:
+            raise RuntimeError(
+                "DOCKET_ENABLE_SETTLEMENT=1 requires DOCKET_FACILITATOR_URL and DOCKET_PAY_TO"
+            )
+        facilitator = FacilitatorClient(facilitator_url)
     # Per app instance, so one process's allowances never outlive it. {ip: (window_start, used)}.
     hires: dict[str, tuple[float, int]] = {}
 
@@ -435,7 +462,9 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         browser would go on applying the broken mapping from its own cache.
         """
         query = request.url.query
-        return RedirectResponse(f"/research?{query}" if query else "/research", status_code=308)
+        return RedirectResponse(
+            f"/research?{query}" if query else "/research", status_code=308
+        )
 
     @app.get("/agent", include_in_schema=False)
     def agent_page() -> FileResponse:
@@ -562,14 +591,19 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         limit = min(max(limit, 1), MAX_LIMIT)
         offset = max(offset, 0)
         store = Store(db_path)
-        responders = _responding_agent_ids(store, sid) if responded is not None else set()
+        responders = (
+            _responding_agent_ids(store, sid) if responded is not None else set()
+        )
 
         matched: list[AgentSummary] = []
         for agent in store.iter_agents(sid):
             signals = signals_for(agent)
             if has_feedback is not None and signals["has_feedback"] != has_feedback:
                 continue
-            if declares_callable is not None and signals["callable"] != declares_callable:
+            if (
+                declares_callable is not None
+                and signals["callable"] != declares_callable
+            ):
                 continue
             if name_family is not None and signals["name_family"] != name_family:
                 continue
@@ -735,7 +769,8 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             input_schema=record.input_schema,
             limitations=record.limitations,
             evidence=[
-                EvidenceLink(kind=ref.kind, url=ref.url, label=ref.label) for ref in record.evidence
+                EvidenceLink(kind=ref.kind, url=ref.url, label=ref.label)
+                for ref in record.evidence
             ],
             agent_path=agent_path,
             identity_note=identity_note,
@@ -756,6 +791,9 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
                     price_display=svc.price_display,
                     price_atomic=svc.price_atomic,
                     asset=svc.asset,
+                    paid_stock=svc.paid_stock,
+                    stock_status=svc.stock_status,
+                    admission=asdict(svc.admission),
                 )
                 for svc in SERVICES.values()
             ]
@@ -912,28 +950,282 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
 
         # Read before the allowance is spent so a rejected authorization can be named in
         # the 402 — a payer whose signature is wrong needs to know which field to fix.
-        authorization = parse_payment_header(request.headers)
-        verdict = None
-        if authorization is not None and pay_to is not None:
-            verdict = verify_authorization(
-                authorization, expected_to=pay_to, expected_value=service.price_atomic
+        payment_header_present = any(
+            request.headers.get(name) for name in ("x-payment", "payment-signature")
+        )
+        payment_payload = parse_payment_header(request.headers)
+        input_hash = canonical_hash(payload)
+        resource_url = str(request.url)
+
+        if payment_header_present and service.paid_stock:
+            if pay_to is None or facilitator is None:
+                return _error(
+                    503,
+                    "settlement_unavailable",
+                    "This service passed its admission gate, but live settlement is not "
+                    "owner-enabled on this process. No work ran and no charge was attempted.",
+                )
+            challenge = build_challenge(service, pay_to, resource=resource_url)
+            if payment_payload is None:
+                return JSONResponse(
+                    status_code=402,
+                    content={
+                        **challenge,
+                        "error": {
+                            "code": "payment_invalid",
+                            "message": (
+                                "The payment header is not a base64-encoded JSON "
+                                "PaymentPayload. No work ran and no charge was attempted."
+                            ),
+                        },
+                    },
+                )
+            requirements = challenge["accepts"][0]
+            verified, reason = verify_payment(
+                payment_payload,
+                expected_requirements=requirements,
+                expected_resource=challenge["resource"],
             )
+            if verified is None:
+                return JSONResponse(
+                    status_code=402,
+                    content={
+                        **challenge,
+                        "error": {
+                            "code": "payment_invalid",
+                            "message": f"The payment was not accepted: {reason}.",
+                        },
+                    },
+                )
+
+            existing = store.payment_by_nonce(verified.nonce)
+            if existing:
+                same_binding = (
+                    existing["payment_id"] == verified.payment_id
+                    and existing["service_id"] == service.id
+                    and existing["input_hash"] == input_hash
+                    and existing["recipient"].lower() == pay_to.lower()
+                    and existing["asset"].lower() == service.asset.lower()
+                    and existing["amount"] == str(service.price_atomic)
+                    and existing["resource"] == resource_url
+                )
+                if not same_binding:
+                    return _error(
+                        409,
+                        "authorization_replay",
+                        "That authorization nonce is already bound to different work.",
+                    )
+                if existing["status"] == "settled":
+                    return {
+                        "result": existing["result"],
+                        "receipt": existing["receipt"],
+                    }
+                if existing["status"] == "settlement_unknown":
+                    return _error(
+                        409,
+                        "settlement_pending_reconciliation",
+                        "A settlement call was already attempted and its outcome is unknown. "
+                        "Docket will not retry it automatically.",
+                    )
+                if existing["status"] in {"failed_no_charge", "settlement_failed"}:
+                    return _error(
+                        409,
+                        "authorization_spent",
+                        "That authorization already reached a terminal no-replay state.",
+                    )
+                return _error(
+                    409,
+                    "payment_in_progress",
+                    "That authorization is already reserved or settling.",
+                )
+
+            envelope = facilitator_envelope(payment_payload, requirements)
+            try:
+                verification = facilitator.verify(envelope)
+            except Exception as exc:
+                return _error(
+                    502,
+                    "payment_verification_unavailable",
+                    f"The configured facilitator could not verify the payment: "
+                    f"{type(exc).__name__}: {exc}. No work ran and no charge was attempted.",
+                )
+            if (
+                verification.get("isValid") is not True
+                or str(verification.get("payer", "")).lower() != verified.payer.lower()
+            ):
+                invalid_reason = verification.get("invalidReason") or (
+                    "payer or validity mismatch"
+                )
+                return JSONResponse(
+                    status_code=402,
+                    content={
+                        **challenge,
+                        "error": {
+                            "code": "payment_not_verified",
+                            "message": (
+                                f"The facilitator rejected the payment: {invalid_reason}."
+                            ),
+                        },
+                    },
+                )
+
+            reserved, existing = store.reserve_payment(
+                nonce=verified.nonce,
+                payment_id=verified.payment_id,
+                service_id=service.id,
+                payer=verified.payer,
+                recipient=pay_to,
+                asset=service.asset,
+                amount=str(service.price_atomic),
+                resource=resource_url,
+                input_hash=input_hash,
+            )
+            if not reserved:
+                return _error(
+                    409,
+                    (
+                        "payment_in_progress"
+                        if existing.get("payment_id") == verified.payment_id
+                        else "authorization_replay"
+                    ),
+                    "Another request reserved that authorization before this one.",
+                )
+
+            try:
+                result = service.run(payload)
+            except ValueError as exc:
+                store.fail_payment(
+                    verified.payment_id, status="failed_no_charge", error=str(exc)
+                )
+                return _error(
+                    422,
+                    "invalid_field",
+                    f"{service.id} could not read that request: {exc}. No settlement ran.",
+                )
+            except Exception as exc:
+                store.fail_payment(
+                    verified.payment_id,
+                    status="failed_no_charge",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+                return _error(
+                    502,
+                    "service_failed",
+                    f"{service.id} could not complete: {type(exc).__name__}: {exc}. "
+                    "No settlement ran.",
+                )
+
+            if not is_human_readable_result(result):
+                store.fail_payment(
+                    verified.payment_id,
+                    status="failed_no_charge",
+                    error="empty or non-readable result",
+                )
+                return _error(
+                    502,
+                    "empty_result",
+                    "The service produced no non-empty human-readable result. No settlement ran.",
+                )
+
+            output_hash = canonical_hash(result)
+            store.record_payment_output(
+                verified.payment_id, output_hash=output_hash, result=result
+            )
+            if not store.begin_payment_settlement(verified.payment_id):
+                return _error(
+                    409,
+                    "payment_in_progress",
+                    "The authorization did not enter settlement from its bound output state.",
+                )
+            try:
+                settlement = facilitator.settle(envelope)
+            except Exception as exc:
+                store.fail_payment(
+                    verified.payment_id,
+                    status="settlement_unknown",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+                return _error(
+                    502,
+                    "settlement_unknown",
+                    "The one settlement call returned no usable response. Its outcome may be "
+                    "unknown, so Docket recorded it and will not retry automatically.",
+                )
+
+            if settlement.get("success") is not True:
+                settlement_error = str(
+                    settlement.get("errorReason") or "facilitator refused settlement"
+                )
+                store.fail_payment(
+                    verified.payment_id,
+                    status="settlement_failed",
+                    error=settlement_error,
+                )
+                return _error(
+                    502,
+                    "settlement_failed",
+                    f"The facilitator did not settle this authorization: {settlement_error}.",
+                )
+
+            transaction_id = str(settlement.get("transaction") or "")
+            network = str(settlement.get("network") or "")
+            settlement_payer = str(settlement.get("payer") or "")
+            if (
+                not transaction_id
+                or network != requirements["network"]
+                or settlement_payer.lower() != verified.payer.lower()
+            ):
+                store.fail_payment(
+                    verified.payment_id,
+                    status="settlement_unknown",
+                    error="successful response omitted or contradicted transaction binding",
+                )
+                return _error(
+                    502,
+                    "settlement_unknown",
+                    "The facilitator reported success without the expected payer, network and "
+                    "transaction binding. Docket will not retry automatically.",
+                )
+
+            payment = {
+                "status": "settled",
+                "asset": service.asset,
+                "amount": str(service.price_atomic),
+                "payer": verified.payer,
+                "recipient": pay_to,
+                "nonce": verified.nonce,
+                "payment_id": verified.payment_id,
+                "transaction_id": transaction_id,
+                "network": network,
+                "evidence": "configured facilitator x402 v2 settlement response",
+            }
+            receipt = build_receipt(service.id, payload, result, payment=payment)
+            store.finish_payment(
+                verified.payment_id,
+                transaction_id=transaction_id,
+                network=network,
+                receipt=receipt,
+            )
+            return {"result": result, "receipt": receipt}
 
         client_ip = request.client.host if request.client else "unknown"
-        resets_in = _spend_allowance(client_ip)
+        payment_available = (
+            service.paid_stock and pay_to is not None and facilitator is not None
+        )
+        resets_in = _spend_allowance(client_ip) if payment_available else None
         if resets_in is not None:
-            message = (
-                f"This caller has used its allowance of {FREE_TIER_HIRES} hires per hour; it "
-                f"resets in {resets_in}s. Docket verifies payment authorizations and does not "
-                "settle them, so signing the offer below does not raise the allowance."
-            )
-            if verdict is not None and not verdict[0]:
-                message += f" The authorization presented was also not accepted: {verdict[1]}."
             return JSONResponse(
                 status_code=402,
                 content={
-                    **build_challenge(service, pay_to, resource=str(request.url)),
-                    "error": {"code": "free_tier_exhausted", "message": message},
+                    **build_challenge(service, pay_to, resource=resource_url),
+                    "error": {
+                        "code": "free_tier_exhausted",
+                        "message": (
+                            f"This caller has used its allowance of {FREE_TIER_HIRES} hires "
+                            f"per hour; it resets in {resets_in}s. Present the exact x402 "
+                            "authorization above to request a settled personalized result."
+                        ),
+                    },
                 },
             )
 
@@ -950,8 +1242,11 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         # is Docket's own cost, not work done on this caller's behalf, and billing an
         # allowance for it would charge for work never performed.
         except ValueError as exc:
-            _refund_allowance(client_ip)
-            return _error(422, "invalid_field", f"{service.id} could not read that request: {exc}")
+            if payment_available:
+                _refund_allowance(client_ip)
+            return _error(
+                422, "invalid_field", f"{service.id} could not read that request: {exc}"
+            )
         # Everything else is the deliberate other side of that boundary: the request was
         # readable, the work was attempted on this caller's behalf, and upstream resources
         # were spent on it. That hire stays spent whether or not it finished.
@@ -962,18 +1257,15 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
                 f"{service.id} could not complete: {type(exc).__name__}: {exc}",
             )
 
-        if verdict is not None and verdict[0]:
-            payment = {
-                "status": "verified_unsettled",
-                "asset": service.asset,
-                "amount": str(service.price_atomic),
-                "payer": str(authorization["message"]["from"]),
-                "settlement": "not performed by Docket",
+        payment = (
+            {
+                "status": "not_for_sale",
+                "stock_status": service.stock_status,
+                "authorization_used": False,
             }
-        elif verdict is not None:
-            payment = {"status": "free_tier", "authorization_rejected": verdict[1]}
-        else:
-            payment = {"status": "free_tier"}
+            if payment_header_present and not service.paid_stock
+            else {"status": "free_tier"}
+        )
         return {
             "result": result,
             "receipt": build_receipt(service.id, payload, result, payment=payment),

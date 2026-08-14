@@ -83,7 +83,9 @@ def _values(node) -> list[str]:
 
 def test_categories_are_bnbs_four_with_the_job_each_one_gets_done(client):
     body = client.get("/categories").json()
-    assert [c["category"] for c in body["categories"]] == [e.category.value for e in CATEGORIES]
+    assert [c["category"] for c in body["categories"]] == [
+        e.category.value for e in CATEGORIES
+    ]
     for entry in body["categories"]:
         assert entry["job"].strip()
         assert entry["does"].strip()
@@ -95,7 +97,9 @@ def test_a_category_counts_only_what_is_actually_in_it(client):
         assert entry["service_count"] == expected, entry["category"]
 
 
-def test_a_stocked_category_carries_no_empty_sentence_and_every_shelf_is_stocked(client):
+def test_a_stocked_category_carries_no_empty_sentence_and_every_shelf_is_stocked(
+    client,
+):
     """All four shelves have a service in them now, so `empty` is null on all four."""
     body = client.get("/categories").json()
     assert [e["service_count"] for e in body["categories"]] == [1, 1, 1, 1]
@@ -103,7 +107,9 @@ def test_a_stocked_category_carries_no_empty_sentence_and_every_shelf_is_stocked
         assert entry["empty"] is None, entry["category"]
 
 
-def test_the_empty_shelf_sentence_is_still_what_a_bare_category_would_serve(client, monkeypatch):
+def test_the_empty_shelf_sentence_is_still_what_a_bare_category_would_serve(
+    client, monkeypatch
+):
     """Shipping four categories over empty shelves scores worse than an honest narrow
     scope, and that guard has to survive the shelves being stocked — otherwise it quietly
     stops being tested at the moment it stops firing. The registry is emptied here so the
@@ -149,7 +155,9 @@ def test_filtering_by_category_returns_that_category_and_its_total(client):
         assert card["category"] == "rebalancing"
 
 
-def test_an_empty_category_returns_an_empty_list_rather_than_someone_elses_service(client):
+def test_an_empty_category_returns_an_empty_list_rather_than_someone_elses_service(
+    client,
+):
     for category in Category:
         body = client.get(f"/services?category={category.value}").json()
         assert body["total"] == len(body["services"])
@@ -166,7 +174,9 @@ def test_an_unknown_category_is_refused_and_names_the_four(client):
         assert value in error["message"], value
 
 
-def test_a_service_outside_the_four_is_listed_rather_than_hidden_or_filed_wrongly(client):
+def test_a_service_outside_the_four_is_listed_rather_than_hidden_or_filed_wrongly(
+    client,
+):
     """warden-scan is a security service. It is not one of BNB's four jobs, and it is not
     going to be squeezed into one to fill a shelf."""
     cards = {s["service_id"]: s for s in client.get("/services").json()["services"]}
@@ -176,7 +186,11 @@ def test_a_service_outside_the_four_is_listed_rather_than_hidden_or_filed_wrongl
 
 def test_every_card_carries_what_it_costs_and_how_to_run_it(client):
     for card in client.get("/services").json()["services"]:
-        assert card["price_display"] and card["price_atomic"] > 0 and card["asset"]
+        assert card["price_display"] == "0.50 $U"
+        assert card["price_atomic"] == 5 * 10**17
+        assert card["asset"]
+        assert card["paid_stock"] is False
+        assert len(card["admission"]) == 4
         assert card["typical_seconds"] > 0
         assert card["hire_path"] == f"/hire/{card['service_id']}"
         assert card["hire_method"] == "POST"
@@ -260,7 +274,9 @@ def test_every_rate_in_a_service_response_carries_its_denominator(client):
                 assert metric["denominator"] is not None, metric["name"]
             if metric["numerator"] is not None:
                 assert metric["denominator"] is not None, metric["name"]
-                assert f"of {metric['denominator']}" in metric["display"], metric["name"]
+                assert f"of {metric['denominator']}" in metric["display"], metric[
+                    "name"
+                ]
     assert seen, "no metric was checked, so this test proved nothing"
 
 
@@ -352,7 +368,10 @@ def test_llms_txt_does_not_describe_an_identity_inventory_docket_no_longer_has(c
     body = " ".join(client.get("/llms.txt").text.lower().split())
     words = {0: "none", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
     unbound = sum(1 for record in SERVICES.values() if record.agent_id is None)
-    assert f"{words[unbound]} of the {words[len(SERVICES)]} services are in this state" in body
+    assert (
+        f"{words[unbound]} of the {words[len(SERVICES)]} services are in this state"
+        in body
+    )
 
 
 def test_skill_md_teaches_the_category_first_route(client):

@@ -140,6 +140,9 @@ class ServiceListing(pydantic.BaseModel):
     price_display: str
     price_atomic: int
     asset: str
+    paid_stock: bool
+    stock_status: str
+    admission: dict[str, bool]
 
 
 class CatalogueResponse(pydantic.BaseModel):
@@ -188,6 +191,9 @@ class ServiceCard(pydantic.BaseModel):
     price_display: str
     price_atomic: int
     asset: str
+    paid_stock: bool
+    stock_status: str
+    admission: dict[str, bool]
     typical_seconds: int
     activation: str
     activation_means: str

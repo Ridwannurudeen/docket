@@ -2,7 +2,9 @@ import base64
 import hashlib
 import json
 import time
+from dataclasses import replace
 
+import httpx
 import pytest
 from eth_account import Account
 from eth_account.messages import encode_typed_data
@@ -11,7 +13,8 @@ from fastapi.testclient import TestClient
 from docket.agents.pancake import doctor
 from docket.api import create_app
 from docket.api.routes import FREE_TIER_HIRES
-from docket.hire.catalogue import U_TOKEN, get_service
+from docket.hire.catalogue import SERVICES, U_TOKEN, PaidStockAdmission, get_service
+from docket.hire.x402 import EIP3009_TYPES, build_challenge
 
 PAY_TO = "0x" + "11" * 20
 WALLET = "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"
@@ -34,48 +37,86 @@ def stub_the_work(monkeypatch):
     monkeypatch.setattr(doctor, "report", _stub_report)
 
 
-def _client(tmp_path, monkeypatch, *, name="free", pay_to=None):
+class FixtureFacilitator:
+    def __init__(self, *, settle_error=None):
+        self.calls = []
+        self.settle_error = settle_error
+
+    def verify(self, envelope):
+        self.calls.append(("verify", envelope))
+        payer = envelope["paymentPayload"]["payload"]["authorization"]["from"]
+        return {"isValid": True, "payer": payer}
+
+    def settle(self, envelope):
+        self.calls.append(("settle", envelope))
+        if self.settle_error is not None:
+            raise self.settle_error
+        payer = envelope["paymentPayload"]["payload"]["authorization"]["from"]
+        return {
+            "success": True,
+            "payer": payer,
+            "transaction": "0xdry-run-transaction",
+            "network": "eip155:56",
+        }
+
+
+def _client(
+    tmp_path,
+    monkeypatch,
+    *,
+    name="free",
+    pay_to=None,
+    facilitator=None,
+    admit_range=False,
+):
     if pay_to is None:
         monkeypatch.delenv("DOCKET_PAY_TO", raising=False)
     else:
         monkeypatch.setenv("DOCKET_PAY_TO", pay_to)
+    if admit_range:
+        monkeypatch.setitem(
+            SERVICES,
+            "range-doctor",
+            replace(
+                get_service("range-doctor"),
+                admission=PaidStockAdmission(True, True, True, True),
+            ),
+        )
     # No snapshot is ingested: hiring must not depend on one.
-    return TestClient(create_app(tmp_path / f"{name}.sqlite3"))
+    return TestClient(create_app(tmp_path / f"{name}.sqlite3", facilitator=facilitator))
 
 
-def _authorization(acct, *, to=PAY_TO, value=10**16):
+def _authorization(
+    acct,
+    *,
+    to=PAY_TO,
+    value=5 * 10**17,
+    nonce="0x" + "03" * 32,
+    resource="http://testserver/hire/range-doctor",
+):
+    challenge = build_challenge(get_service("range-doctor"), PAY_TO, resource=resource)
     domain = {
         "name": "United Stables",
         "version": "1",
         "chainId": 56,
         "verifyingContract": U_TOKEN,
     }
-    types = {
-        "TransferWithAuthorization": [
-            {"name": "from", "type": "address"},
-            {"name": "to", "type": "address"},
-            {"name": "value", "type": "uint256"},
-            {"name": "validAfter", "type": "uint256"},
-            {"name": "validBefore", "type": "uint256"},
-            {"name": "nonce", "type": "bytes32"},
-        ]
-    }
     msg = {
         "from": acct.address,
         "to": to,
-        "value": value,
-        "validAfter": 0,
-        "validBefore": int(time.time()) + 300,
-        "nonce": b"\x03" * 32,
+        "value": str(value),
+        "validAfter": "0",
+        "validBefore": str(int(time.time()) + 300),
+        "nonce": nonce,
     }
-    sig = acct.sign_message(encode_typed_data(domain, types, msg))
-    auth = {
-        "domain": domain,
-        "types": types,
-        "message": {**msg, "nonce": "0x" + "03" * 32},
-        "signature": sig.signature.hex(),
+    sig = acct.sign_message(encode_typed_data(domain, EIP3009_TYPES, msg))
+    payment = {
+        "x402Version": 2,
+        "resource": challenge["resource"],
+        "accepted": challenge["accepts"][0],
+        "payload": {"signature": sig.signature.hex(), "authorization": msg},
     }
-    return base64.b64encode(json.dumps(auth).encode()).decode()
+    return base64.b64encode(json.dumps(payment).encode()).decode()
 
 
 def _sha256_of_canonical_json(obj) -> str:
@@ -89,7 +130,17 @@ def test_the_catalogue_tells_a_stranger_what_to_send(tmp_path, monkeypatch):
     assert "range-doctor" in listed
     svc = listed["range-doctor"]
     assert svc["what_you_get"] and svc["typical_seconds"] > 0
-    assert svc["price_display"] and svc["price_atomic"] and svc["asset"]
+    assert svc["price_display"] == "0.50 $U"
+    assert svc["price_atomic"] == 5 * 10**17
+    assert svc["asset"] == U_TOKEN
+    assert svc["paid_stock"] is False
+    assert svc["stock_status"] == "candidate"
+    assert set(svc["admission"]) == {
+        "fresh_paired_benchmark",
+        "cold_canary",
+        "decision_grade_presenter",
+        "true_settlement",
+    }
     assert svc["input_schema"]["wallet"]["required"] is True
 
 
@@ -153,7 +204,14 @@ def test_the_allowance_exists_only_where_a_payment_route_does(tmp_path, monkeypa
             == 200
         )
 
-    metered = _client(tmp_path, monkeypatch, name="metered", pay_to=PAY_TO)
+    metered = _client(
+        tmp_path,
+        monkeypatch,
+        name="metered",
+        pay_to=PAY_TO,
+        facilitator=FixtureFacilitator(),
+        admit_range=True,
+    )
     for _ in range(FREE_TIER_HIRES):
         assert (
             metered.post("/hire/range-doctor", json={"wallet": WALLET}).status_code
@@ -189,59 +247,256 @@ def test_a_request_docket_could_not_read_never_spends_the_allowance(
     assert served.json()["receipt"]["payment"]["status"] == "free_tier"
 
 
-def test_a_verified_authorization_is_served_and_never_called_settled(
+def test_a_paid_preflight_settles_once_and_replays_the_bound_receipt(
     tmp_path, monkeypatch
 ):
-    client = _client(tmp_path, monkeypatch, pay_to=PAY_TO)
-    header = _authorization(Account.create())
-    resp = client.post(
-        "/hire/range-doctor", json={"wallet": WALLET}, headers={"X-PAYMENT": header}
+    """The lifecycle crosses local verification, facilitator verification, work, durable
+    output binding and settlement. Replaying the same authorization returns the original
+    delivery and never repeats either work or settlement."""
+    work_calls = []
+
+    def counted_report(address, **kwargs):
+        work_calls.append(address)
+        return _stub_report(address, **kwargs)
+
+    monkeypatch.setattr(doctor, "report", counted_report)
+    facilitator = FixtureFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="settled",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
     )
-    assert resp.status_code == 200
-    payment = resp.json()["receipt"]["payment"]
-    assert payment["status"] == "verified_unsettled"
-    assert "settlement" in payment
+    header = _authorization(Account.create())
+    request = {"wallet": WALLET}
+
+    first = client.post(
+        "/hire/range-doctor", json=request, headers={"X-PAYMENT": header}
+    )
+    replay = client.post(
+        "/hire/range-doctor", json=request, headers={"X-PAYMENT": header}
+    )
+
+    assert first.status_code == replay.status_code == 200
+    assert replay.json() == first.json()
+    receipt = first.json()["receipt"]
+    payment = receipt["payment"]
+    assert payment["status"] == "settled"
+    assert payment["amount"] == str(5 * 10**17)
+    assert payment["asset"] == U_TOKEN
+    assert payment["nonce"] == "0x" + "03" * 32
+    assert payment["payment_id"].startswith("0x")
+    assert payment["transaction_id"] == "0xdry-run-transaction"
+    assert receipt["input_hash"] == _sha256_of_canonical_json(request)
+    assert receipt["output_hash"] == _sha256_of_canonical_json(first.json()["result"])
+    assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+    assert work_calls == [WALLET]
 
 
-def test_unbuilt_settlement_supplies_no_transaction_payment_id_or_nonce(
+def test_a_malformed_paid_attempt_is_not_silently_served_as_a_preview(
     tmp_path, monkeypatch
 ):
-    """An authorization nonce is not an exactly-once settlement nonce and is not proof."""
-    client = _client(tmp_path, monkeypatch, pay_to=PAY_TO)
-    body = client.post(
+    """A caller that supplied payment intended the paid path. Invalid payment bytes must
+    fail before work instead of being silently reclassified as an unsigned preview."""
+    work_calls = []
+
+    def counted_report(address, **kwargs):
+        work_calls.append(address)
+        return _stub_report(address, **kwargs)
+
+    monkeypatch.setattr(doctor, "report", counted_report)
+    facilitator = FixtureFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="malformed-payment",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+
+    response = client.post(
         "/hire/range-doctor",
         json={"wallet": WALLET},
-        headers={"X-PAYMENT": _authorization(Account.create())},
-    ).json()
+        headers={"X-PAYMENT": "not-base64-json"},
+    )
 
-    receipt = body["receipt"]
-    assert receipt["payment"]["status"] == "verified_unsettled"
-    for absent in ("transaction_id", "transaction_hash", "payment_id", "nonce"):
-        assert absent not in receipt
-        assert absent not in receipt["payment"]
+    assert response.status_code == 402
+    assert response.json()["error"]["code"] == "payment_invalid"
+    assert facilitator.calls == []
+    assert work_calls == []
 
 
-def test_no_hire_response_claims_a_settlement(tmp_path, monkeypatch):
-    """The one overclaim this project must not make. "unpaid" and "prepaid" would fail too,
-    which is the point: the whole family is banned, not one spelling."""
-    client = _client(tmp_path, monkeypatch, pay_to=PAY_TO)
-    svc = get_service("range-doctor")
-    responses = [
-        client.get("/hire"),
-        client.post("/hire/range-doctor", json={"wallet": WALLET}),
+def test_a_settled_replay_survives_an_app_restart(tmp_path, monkeypatch):
+    """Exactly-once is a database property, not an in-memory promise: a new app instance
+    returns the stored result and never asks the facilitator to settle again."""
+    facilitator = FixtureFacilitator()
+    header = _authorization(Account.create(), nonce="0x" + "04" * 32)
+    first_client = _client(
+        tmp_path,
+        monkeypatch,
+        name="restart",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+    first = first_client.post(
+        "/hire/range-doctor", json={"wallet": WALLET}, headers={"X-PAYMENT": header}
+    )
+    first_client.close()
+
+    second_client = _client(
+        tmp_path,
+        monkeypatch,
+        name="restart",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+    replay = second_client.post(
+        "/hire/range-doctor", json={"wallet": WALLET}, headers={"X-PAYMENT": header}
+    )
+
+    assert replay.json() == first.json()
+    assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+
+
+def test_a_nonce_cannot_be_rebound_to_another_input(tmp_path, monkeypatch):
+    """The nonce is the replay boundary. Once payment is bound to one input, presenting
+    that authorization for different work is rejected before the service runs."""
+    facilitator = FixtureFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="rebind",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+    header = _authorization(Account.create(), nonce="0x" + "05" * 32)
+    assert (
         client.post(
             "/hire/range-doctor",
             json={"wallet": WALLET},
-            headers={"X-PAYMENT": _authorization(Account.create())},
-        ),
-        client.post("/hire/range-doctor", json={"limit": 1}),
-        client.post("/hire/nope", json={"wallet": WALLET}),
-        client.post("/hire/range-doctor", content=b"not json"),
-    ]
-    for _ in range(FREE_TIER_HIRES):
-        client.post("/hire/range-doctor", json={"wallet": WALLET})
-    responses.append(client.post("/hire/range-doctor", json={"wallet": WALLET}))
+            headers={"X-PAYMENT": header},
+        ).status_code
+        == 200
+    )
 
-    for resp in responses:
-        assert "paid" not in resp.text.lower(), resp.text
-    assert "paid" not in f"{svc.name} {svc.what_you_get}".lower()
+    rebound = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET, "limit": 1},
+        headers={"X-PAYMENT": header},
+    )
+    assert rebound.status_code == 409
+    assert rebound.json()["error"]["code"] == "authorization_replay"
+    assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+
+
+def test_an_empty_result_is_never_settled(tmp_path, monkeypatch):
+    """Facilitator verification is not value delivery. Empty raw JSON fails the human-
+    readable result gate, records a no-charge terminal state and never calls `/settle`."""
+    facilitator = FixtureFacilitator()
+    monkeypatch.setitem(
+        SERVICES,
+        "range-doctor",
+        replace(
+            get_service("range-doctor"),
+            admission=PaidStockAdmission(True, True, True, True),
+            run=lambda _payload: {},
+        ),
+    )
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="empty",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+    )
+    header = _authorization(Account.create(), nonce="0x" + "06" * 32)
+
+    empty = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": header},
+    )
+    replay = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": header},
+    )
+
+    assert empty.status_code == 502
+    assert empty.json()["error"]["code"] == "empty_result"
+    assert replay.status_code == 409
+    assert replay.json()["error"]["code"] == "authorization_spent"
+    assert [name for name, _ in facilitator.calls] == ["verify"]
+
+
+def test_an_unknown_settlement_outcome_is_never_retried_automatically(
+    tmp_path, monkeypatch
+):
+    """A transport failure after `/settle` may hide a successful transfer. The durable
+    `settlement_unknown` state refuses replay rather than risking a second settlement."""
+    facilitator = FixtureFacilitator(
+        settle_error=httpx.ReadTimeout("fixture lost the settle response")
+    )
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="unknown",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+    header = _authorization(Account.create(), nonce="0x" + "07" * 32)
+
+    first = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": header},
+    )
+    replay = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": header},
+    )
+
+    assert first.status_code == 502
+    assert first.json()["error"]["code"] == "settlement_unknown"
+    assert replay.status_code == 409
+    assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+
+
+def test_unadmitted_services_never_offer_or_consume_payment(tmp_path, monkeypatch):
+    """Research, preview and beta entries stay runnable examples, but their catalogue
+    records and receipts cannot imply that passing an authorization bought them."""
+    facilitator = FixtureFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+    )
+    header = _authorization(Account.create(), nonce="0x" + "08" * 32)
+
+    body = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": header},
+    ).json()
+    catalogue = {row["id"]: row for row in client.get("/hire").json()["services"]}
+
+    assert body["receipt"]["payment"] == {
+        "status": "not_for_sale",
+        "stock_status": "candidate",
+        "authorization_used": False,
+    }
+    assert facilitator.calls == []
+    assert all(row["paid_stock"] is False for row in catalogue.values())
+    assert catalogue["grid-operator"]["stock_status"] == "preview"
+    assert catalogue["health-guard"]["stock_status"] == "preview"
+    assert catalogue["solvent-signal"]["stock_status"] == "research"
+    assert catalogue["warden-scan"]["stock_status"] == "beta"

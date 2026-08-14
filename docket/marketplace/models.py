@@ -202,7 +202,9 @@ class EvidenceRef:
 
     def __post_init__(self) -> None:
         if self.kind not in EVIDENCE_KINDS:
-            raise ValueError(f"evidence kind {self.kind!r} is not one of {sorted(EVIDENCE_KINDS)}")
+            raise ValueError(
+                f"evidence kind {self.kind!r} is not one of {sorted(EVIDENCE_KINDS)}"
+            )
         if not self.url.startswith("/"):
             raise ValueError(
                 f"evidence url {self.url!r} must be a path this origin serves: evidence a "
@@ -274,6 +276,23 @@ class ServiceRecord:
     @property
     def asset(self) -> str:
         return self.offer.asset
+
+    @property
+    def paid_stock(self) -> bool:
+        return self.offer.paid_stock
+
+    @property
+    def stock_status(self) -> str:
+        return self.offer.stock_status
+
+    @property
+    def admission(self) -> dict[str, bool]:
+        return {
+            "fresh_paired_benchmark": self.offer.admission.fresh_paired_benchmark,
+            "cold_canary": self.offer.admission.cold_canary,
+            "decision_grade_presenter": self.offer.admission.decision_grade_presenter,
+            "true_settlement": self.offer.admission.true_settlement,
+        }
 
     @property
     def typical_seconds(self) -> int:

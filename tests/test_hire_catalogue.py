@@ -100,9 +100,22 @@ def test_unknown_service_returns_none():
     assert get_service("nope") is None
 
 
-def test_every_service_states_a_price_and_an_asset():
+def test_every_personalized_offer_uses_the_flat_half_u_price():
     for svc in SERVICES.values():
-        assert svc.price_display and svc.price_atomic and svc.asset
+        assert svc.price_display == "0.50 $U"
+        assert svc.price_atomic == 5 * 10**17
+        assert svc.asset == catalogue.U_TOKEN
+
+
+def test_paid_stock_is_closed_until_all_four_admission_facts_pass():
+    """A price is not an admission. Every service must clear the fresh benchmark, cold
+    canary, presenter and true-settlement gates before any surface can sell it."""
+    assert all(service.paid_stock is False for service in SERVICES.values())
+    assert get_service("range-doctor").stock_status == "candidate"
+    assert get_service("grid-operator").stock_status == "preview"
+    assert get_service("health-guard").stock_status == "preview"
+    assert get_service("solvent-signal").stock_status == "research"
+    assert get_service("warden-scan").stock_status == "beta"
 
 
 def test_no_service_promises_an_outcome():

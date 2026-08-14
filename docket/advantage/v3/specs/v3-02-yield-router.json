@@ -73,25 +73,17 @@
   "registration_provenance": "Git history is the registration witness: the first commit containing this exact stage-one protocol hash establishes that the repaired protocol predates later input-lock and run commits. No independently attested wall-clock registration time is claimed inside this file.",
   "scoring": {
     "blinded": true,
-    "calibration": "Before input lock, a named qualified author distinct from both evaluators and from protocol/input authors freezes one base64 UTF-8 JSON calibration set for exactly eight Pancake cases with its SHA-256 and four structured all-false conflicts. Its literal allowlists, pool rows and common scenarios must include eligible and at least two distinct excluded outcomes; the lock recomputes first failed gates, both net APRs, incremental dollars, break-even and move/stay truth from the registered formulas. Each named seat must exactly match at least seven complete canonical structured answers and submit the canonical hash of the registered objective rubric anchors; the benchmark's reporting tolerances do not substitute for a complete calibration object. The input envelope carries exact model/build, session id, seven structured all-false evaluator conflict booleans, qualification_passed=true and a hash-bound artifact per seat. The lock rejects invented answer-key values and computes the pass count from submitted answers. Failure blocks input lock and no post-output replacement is allowed.",
+    "calibration": "Before input lock, the owner publishes one SHA-256-bound base64 UTF-8 JSON answer key for exactly eight Pancake cases. Its literal allowlists, pool rows and common scenarios must include eligible and at least two distinct excluded outcomes; the lock recomputes first failed gates, both net APRs, incremental dollars, break-even and move/stay truth from the registered formulas. For each model seat, the input envelope publishes the exact model/build, session id, canonical hash of the registered objective rubric anchors and all eight structured responses. Each seat must exactly match at least seven complete canonical answers. The lock rejects invented answer-key values and computes the pass count from the published responses. This proves calibration against the published key, not evaluator independence.",
     "disagreement": "Both per-criterion sheets are published. Scores are averaged per criterion; a gap of 2 or more is flagged and quoted, never resolved by a post-output adjudicator. If either named seat does not submit, the family remains unscored.",
     "evaluator_roster": [
-      {
-        "evaluator_id": "claude-audit-seat",
-        "identity": "Claude, the owner's named audit seat; the exact provider model/build and scoring-session identifier must be recorded on its signed or hash-bound score sheet.",
-        "qualification": "Eligible only after passing the frozen Range/Yield calibration gate and declaring it did not run either arm, author the frozen cases/truth, implement the evaluated output, see arm assignments, or hold a financial interest in the score."
-      },
-      {
-        "evaluator_id": "fable-5-audit-seat",
-        "identity": "Fable 5, the owner's named audit seat; the exact provider model/build and scoring-session identifier must be recorded on its signed or hash-bound score sheet.",
-        "qualification": "Eligible only after passing the frozen Range/Yield calibration gate and declaring it did not run either arm, author the frozen cases/truth, implement the evaluated output, see arm assignments, or hold a financial interest in the score."
-      }
+      {"evaluator_id": "claude-audit-seat"},
+      {"evaluator_id": "fable-5-audit-seat"}
     ],
     "evaluators": 2,
-    "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'yield-blinding'). Per case, SHA-256(seed || case_id || 'arm') parity assigns A/B; sorting SHA-256(seed || case_id || 'order') fixes case order. Tool names, timing, prices, receipts and formatting tells are removed. Evaluators see neither mappings nor each other's sheets until both hashes are submitted.",
-    "selection_rule": "Exactly the Claude and Fable 5 audit seats named here are selected before inputs. They must meet calibration/conflict rules. No substitution after any output; unavailability leaves the family unscored."
+    "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'yield-blinding'). Per case, SHA-256(seed || case_id || 'arm') parity assigns A/B; sorting SHA-256(seed || case_id || 'order') fixes case order. Tool names, timing, prices, receipts and formatting tells are removed, and mappings, truth and the other sheet are withheld from each model prompt until both sheet hashes are submitted. This is prompt-level blinding; operator independence is not claimed.",
+    "selection_rule": "One operator runs the two fixed model seats identified here for the owner. They are not independent evaluators and no independent-party scoring is claimed. The calibration answer key, both model calibration response sets and both final per-criterion score sheets are published so a reader can recompute the checks. No substitution is permitted after any case output exists; a missing sheet leaves the family unscored."
   },
-  "spec_hash": "0x6312b9cfb3da18fffec4703681b46b613db527fc66233c691617c782f6aeff3b",
+  "spec_hash": "0x9455cc8c811af8c497ff8d16b5ff62c951cc8835f8bafdab76c20bc8947baa1e",
   "spec_id": "v3-02-yield-router",
   "speed_threshold": {
     "formula": "For the five valid complete pairs, d_i=manual_seconds-agent_seconds and r_i=agent_seconds/manual_seconds; compute median(d_i) and median(r_i).",
@@ -100,7 +92,7 @@
     "minimum_median_seconds_saved": 30.0,
     "requires_complete_pairs": true
   },
-  "stage_one_protocol_hash": "0x936717e78abbcdf0ff46bab82bcf17e7da443f5275a819a6476dbf51472405a3",
+  "stage_one_protocol_hash": "0x2d567eae84c22c61cf83b86bd63692894af65b231ef16ca6c880065d7f254ace",
   "stopping_rule": "Schedule exactly five frozen primary cases once per arm. A primary attempt ends in a valid immutable answer, timeout at 1,200 seconds, technical error, empty/malformed output or snapshot mismatch. Stop only after all ten primary attempts have terminal records. No scored retry, replacement case/source or post-output rule change is allowed; incomplete pairs prevent the speed limb.",
   "timing": {
     "clock": "The harness owns a monotonic_ns clock and an append-only UTC event log for both arms.",

@@ -47,9 +47,9 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/agents` | Filterable listing with `total`, pagination, coverage |
 | GET | `/agents/{agent_id}` | One agent, its endpoints, and every observation of them |
 | GET | `/categories` | BNB's four jobs, what each gets done, and how many services stand in it |
-| GET | `/services` | The services Docket runs, as cards; `?category=` narrows to one job |
-| GET | `/services/{service_id}` | One service in full: inputs, price, metrics, evidence, limitations, identity |
-| GET | `/hire` | The catalogue: every service, its input schema, price, typical seconds |
+| GET | `/services` | Service cards with paid-stock status; `?category=` narrows to one job |
+| GET | `/services/{service_id}` | Inputs, price-after-admission, admission facts, evidence, limitations, identity |
+| GET | `/hire` | The catalogue: inputs, flat 0.50 $U term, stock status and four admission facts |
 | POST | `/hire/{service_id}` | Runs the service; returns the result and a hash-bound receipt |
 | GET | `/escrow` | Escrow terms: addresses, dispute window, the ordered call sequence |
 | GET | `/escrow/job/{job_id}` | One job's live on-chain state and when it can be settled |
@@ -78,7 +78,11 @@ Errors are always `{"error": {"code": "...", "message": "..."}}`. Branch on `cod
 `agent_not_found`, `not_found`, `method_not_allowed`, `invalid_query_parameter`,
 `no_snapshot`, and on the hire routes `service_not_found` (404), `invalid_json` (400),
 `missing_field` (422, the message names the field), `invalid_field` (422),
-`free_tier_exhausted` (402), `service_failed` (502).
+`payment_invalid`/`payment_not_verified`/`free_tier_exhausted` (402),
+`authorization_replay`/`authorization_spent`/`payment_in_progress`/
+`settlement_pending_reconciliation` (409), `service_failed`/`empty_result`/
+`payment_verification_unavailable`/`settlement_failed`/`settlement_unknown` (502),
+and `settlement_unavailable` (503).
 
 ## The rule: a number is never quoted alone
 
@@ -230,19 +234,26 @@ assert digest(response["result"]) == receipt["output_hash"]
 `ensure_ascii=False` is part of the recipe: with `ensure_ascii=True` a non-ASCII
 payload hashes to something else.
 
-`receipt["payment"]["status"]` is `free_tier` or `verified_unsettled`. Report the
-second one precisely: it means Docket checked an EIP-712 signature - right recipient,
-right amount, chain 56, unexpired, recovering to its declared payer - and **did not
-settle it**. Nothing was broadcast, no balance was read, nothing moved; the receipt
-says `"settlement": "not performed by Docket"`. Never describe such a hire as settled.
+Every catalogue entry carries `paid_stock`, `stock_status` and the four `admission`
+facts: fresh paired benchmark, cold canary, decision-grade presenter and true
+settlement. A price is a comparison term, not an admission. Current Grid and Health
+entries are previews, SOLVENT is research evidence, Warden is beta, and Range is a
+candidate; none is paid stock, so none should be presented as **Pay and hire**.
 
-Where a payment recipient is configured, the free tier is an allowance of 20 hires per
-caller per hour and it counts every hire that ran, authorization or not. A request
-Docket could not read - unknown service, non-JSON body, missing or unparseable field -
-costs nothing, so a fumbled request cannot lock out the next caller sharing your
-address. Spending the allowance returns `402` carrying an x402 v2 challenge
-(`x402Version`, `accepts`) alongside the error object. Where no recipient is configured
-there is no allowance at all.
+For an unadmitted service, sending a payment header does not consume it: the receipt
+uses `not_for_sale` with `authorization_used: false`. Free previews use `free_tier`.
+Only an admitted service may return `settled`, and only after local exact-payment
+validation, facilitator `/verify`, a non-empty human-readable result, durable
+payment/input/output binding and one facilitator `/settle` call. A settled receipt
+carries the payer, recipient, asset, exact amount, nonce, payment id, transaction id
+and network. Replaying the same authorization and input returns the stored result;
+using its nonce for different work is rejected.
+
+The concrete facilitator is owner-configured and live settlement is disabled unless
+the owner explicitly enables it. Fixture tests prove Docket's generic x402 v2 adapter
+and state machine, not that a particular facilitator accepts $U or that a reported
+transaction is final on chain. A lost `/settle` response becomes
+`settlement_unknown` and is never retried automatically.
 
 ## Workflow 5: cite the advantage report without overstating it
 

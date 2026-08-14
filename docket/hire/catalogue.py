@@ -1,9 +1,9 @@
-"""The work Docket sells, stated so a stranger's agent can hire it without asking anyone.
+"""The work Docket runs and may admit for sale, stated for a stranger's agent.
 
 Each entry answers, in the order a caller needs it: what arrives, what to send,
-how long to wait, and what it costs. A service that cannot say those four things
-in machine-readable form is not hireable by an agent that has never seen this
-site — which is the only kind of caller that matters here.
+how long to wait, and the term that applies after admission. A service that cannot
+say those four things in machine-readable form is not hireable by an agent that has
+never seen this site — which is the only kind of caller that matters here.
 
 What a service may claim is bounded the same way the rest of Docket is bounded.
 `what_you_get` describes work performed, never a result achieved: the Range
@@ -40,6 +40,8 @@ from ..agents.pancake.positions import MAX_EXAMINED
 # $U (ERC-8183, 18 decimals) on BSC mainnet. Priced in the asset whose
 # TransferWithAuthorization this build can actually verify — see hire/x402.py.
 U_TOKEN = "0xcE24439F2D9C6a2289F741120FE202248B666666"
+HIRE_PRICE_DISPLAY = "0.50 $U"
+HIRE_PRICE_ATOMIC = 5 * 10**17
 # How many of a wallet's position NFTs a hire reads by default. Ten is the
 # measured point where the read finishes in tens of seconds rather than minutes.
 RANGE_DOCTOR_LIMIT = 10
@@ -88,6 +90,31 @@ UPSTREAM_RETRY_PAUSE_S = 1.0
 
 
 @dataclass(frozen=True)
+class PaidStockAdmission:
+    """The four facts every personalized paid hire must establish before it is sold."""
+
+    fresh_paired_benchmark: bool
+    cold_canary: bool
+    decision_grade_presenter: bool
+    true_settlement: bool
+
+    @property
+    def passes(self) -> bool:
+        return all(
+            (
+                self.fresh_paired_benchmark,
+                self.cold_canary,
+                self.decision_grade_presenter,
+                self.true_settlement,
+            )
+        )
+
+
+NO_PAID_ADMISSION = PaidStockAdmission(False, False, False, False)
+RANGE_ADMISSION = PaidStockAdmission(False, False, True, False)
+
+
+@dataclass(frozen=True)
 class Service:
     """One hireable unit of work. Frozen: the catalogue a caller reads at `GET /hire`
     and the terms a receipt is issued against must be the same object, unmutated."""
@@ -100,7 +127,13 @@ class Service:
     price_display: str
     price_atomic: int
     asset: str
+    stock_status: str
+    admission: PaidStockAdmission
     run: Callable[[dict], dict]
+
+    @property
+    def paid_stock(self) -> bool:
+        return self.admission.passes
 
 
 def _call_upstream(method: str, url: str, body: dict | None = None) -> dict:
@@ -442,9 +475,11 @@ SERVICES: dict[str, Service] = {
             },
         },
         typical_seconds=30,
-        price_display="0.01 $U",
-        price_atomic=10**16,
+        price_display=HIRE_PRICE_DISPLAY,
+        price_atomic=HIRE_PRICE_ATOMIC,
         asset=U_TOKEN,
+        stock_status="candidate",
+        admission=RANGE_ADMISSION,
         run=_run_range_doctor,
     ),
     "grid-operator": Service(
@@ -541,9 +576,11 @@ SERVICES: dict[str, Service] = {
             },
         },
         typical_seconds=25,
-        price_display="0.01 $U",
-        price_atomic=10**16,
+        price_display=HIRE_PRICE_DISPLAY,
+        price_atomic=HIRE_PRICE_ATOMIC,
         asset=U_TOKEN,
+        stock_status="preview",
+        admission=NO_PAID_ADMISSION,
         run=_run_grid_operator,
     ),
     "health-guard": Service(
@@ -589,9 +626,11 @@ SERVICES: dict[str, Service] = {
             },
         },
         typical_seconds=40,
-        price_display="0.01 $U",
-        price_atomic=10**16,
+        price_display=HIRE_PRICE_DISPLAY,
+        price_atomic=HIRE_PRICE_ATOMIC,
         asset=U_TOKEN,
+        stock_status="preview",
+        admission=NO_PAID_ADMISSION,
         run=_run_health_guard,
     ),
     "yield-router": Service(
@@ -652,9 +691,11 @@ SERVICES: dict[str, Service] = {
             },
         },
         typical_seconds=12,
-        price_display="0.01 $U",
-        price_atomic=10**16,
+        price_display=HIRE_PRICE_DISPLAY,
+        price_atomic=HIRE_PRICE_ATOMIC,
         asset=U_TOKEN,
+        stock_status="preview",
+        admission=NO_PAID_ADMISSION,
         run=_run_yield_router,
     ),
     "solvent-signal": Service(
@@ -682,9 +723,11 @@ SERVICES: dict[str, Service] = {
         ),
         input_schema={},
         typical_seconds=2,
-        price_display="0.01 $U",
-        price_atomic=10**16,
+        price_display=HIRE_PRICE_DISPLAY,
+        price_atomic=HIRE_PRICE_ATOMIC,
         asset=U_TOKEN,
+        stock_status="research",
+        admission=NO_PAID_ADMISSION,
         run=_run_solvent_signal,
     ),
     "warden-scan": Service(
@@ -708,9 +751,11 @@ SERVICES: dict[str, Service] = {
             },
         },
         typical_seconds=5,
-        price_display="0.01 $U",
-        price_atomic=10**16,
+        price_display=HIRE_PRICE_DISPLAY,
+        price_atomic=HIRE_PRICE_ATOMIC,
         asset=U_TOKEN,
+        stock_status="beta",
+        admission=NO_PAID_ADMISSION,
         run=_run_warden_scan,
     ),
 }

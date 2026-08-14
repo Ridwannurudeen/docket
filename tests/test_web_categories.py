@@ -446,8 +446,8 @@ def test_an_empty_range_doctor_result_leads_with_a_decision_and_keeps_coverage()
     assert "unread positions are unknown, not absent" in flat
 
 
-def test_unbuilt_v3_and_settlement_fields_are_named_as_missing_not_filled():
-    """Old v1 timing and an authorization nonce must not masquerade as current proof."""
+def test_unrun_v3_and_unadmitted_payment_are_named_as_missing_not_filled():
+    """Old v1 timing and a free-preview receipt must not masquerade as current paid proof."""
     presenter = (
         _read("app.js")
         .split("function presentRangeDoctor", 1)[1]
@@ -455,11 +455,12 @@ def test_unbuilt_v3_and_settlement_fields_are_named_as_missing_not_filled():
     )
     flat = re.sub(r"\s+", " ", presenter)
 
-    assert "$0.50 settled hire is not available" in flat
+    assert "not admitted to paid stock" in flat
     assert "preregistered v3 paired report has not run" in flat
     assert "Settlement transaction / payment ID" in flat
     assert "Unique settlement nonce" in flat
-    assert "exact-once settlement is not built" in flat
+    assert 'payment.status === "settled"' in flat
+    assert "exact-once settlement is not built" not in flat
     assert "43.063" not in flat
     assert "528.31" not in flat
 
@@ -469,7 +470,19 @@ def test_the_presenter_never_asserts_a_rate_is_a_forecast():
     for a reader, with the same thing said about what they are not."""
     js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
     assert "An observation, not a forecast." in js
-    assert "Nothing was signed, approved or moved." in js
+    assert "does not prove chain finality" in js
+
+
+def test_pay_and_hire_is_rendered_only_for_admitted_paid_stock():
+    """A price is visible for comparison, but preview/research/beta stock cannot acquire
+    a sale CTA until the API says all four admission facts passed."""
+    js = re.sub(r"\s+", " ", _read("app.js"))
+
+    assert "card.paid_stock" in js
+    assert "record.paid_stock" in js
+    assert "Pay ${escapeHTML(card.price_display)} and hire" in js
+    assert "Price after admission" in js
+    assert "Paid-stock status" in js
 
 
 def test_a_service_with_no_presenter_still_shows_its_payload():

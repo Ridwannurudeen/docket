@@ -194,9 +194,11 @@ GET /services
     "category": null and is listed as itself rather than filed under a job it does not do.
 
     Each card carries: service_id, name, category, category_job, what_you_get,
-    price_display, price_atomic, asset, typical_seconds, activation (one_shot, monitor
-    or policy_action), activation_means, metrics, agent_id, identity, hire_method and
-    hire_path — the last two being exactly how to run it, POST /hire/{service_id}.
+    price_display, price_atomic, asset, paid_stock, stock_status, admission,
+    typical_seconds, activation (one_shot, monitor or policy_action), activation_means,
+    metrics, agent_id, identity, hire_method and hire_path — the last two being exactly
+    how to run it, POST /hire/{service_id}. paid_stock becomes true only when every
+    admission fact is true.
 
     Every entry in "metrics" carries name, unit, window, observed_at, method, value,
     numerator, denominator and display. A share cannot exist here without the population
@@ -224,7 +226,8 @@ GET /services/{service_id}
     curl -s "$DOCKET/services/range-doctor"
 
 GET /hire
-    The catalogue: everything Docket sells. No parameters, no snapshot involved.
+    The catalogue: every service Docket runs or may admit to paid stock. No parameters,
+    no snapshot involved.
     Returns {"services": [...]}, each service carrying:
 
       id                the value to put in the POST path
@@ -233,9 +236,13 @@ GET /hire
       input_schema      {field: {type, required, description, default?}} — the whole
                         contract for the request body
       typical_seconds   how long one run usually takes
-      price_display     the price as a human string, e.g. "0.01 $U"
+      price_display     the flat price after admission, "0.50 $U"
       price_atomic      the same price in the asset's smallest unit
       asset             the token contract the price is denominated in
+      paid_stock        whether all four admission facts currently pass
+      stock_status      preview, research, beta or candidate while not admitted
+      admission         fresh paired benchmark, cold canary, decision-grade presenter
+                        and true settlement, each as a boolean
 
     curl -s "$DOCKET/hire"
 
@@ -382,10 +389,27 @@ Branch on "code", which is stable. "message" is prose for a human and may change
       invalid_query_parameter  422  message names the offending parameter
       free_tier_exhausted      402  the hire allowance is spent; the body carries the
                                     x402 challenge alongside this error
+      payment_invalid          402  a supplied payment is malformed or does not exactly
+                                    match the service, resource, asset, amount or recipient
+      payment_not_verified     402  the configured facilitator rejected the authorization
+      authorization_replay     409  the nonce is already bound to different work
+      authorization_spent      409  this authorization reached a terminal no-replay state
+      payment_in_progress      409  another request reserved or is settling this payment
+      settlement_pending_reconciliation
+                              409  one settlement call had an unknown outcome; no retry runs
       service_failed           502  the service could not complete; the message names
                                     the failure, usually an upstream one
+      empty_result             502  the service returned no non-empty human-readable result;
+                                    no settlement ran
+      payment_verification_unavailable
+                              502  the configured facilitator's verify call failed; no work ran
+      settlement_failed        502  the facilitator explicitly refused settlement
+      settlement_unknown       502  a settlement response was lost or contradicted its binding;
+                                    no automatic retry runs
       no_snapshot              503  no sweep has run to completion yet. A sweep that
                                     began and did not finish is not served
+      settlement_unavailable  503  paid stock exists but owner-authorized settlement is off;
+                                    no work ran and no charge was attempted
 
 
 ## Coverage: why every number carries one
@@ -610,23 +634,17 @@ Docket does not only describe agents, it runs some. GET /hire is the catalogue,
 POST /hire/{service_id} is the work, and a caller that has read nothing but this file
 can do both with curl and no setup.
 
-### The free tier is the default, not a trial
+### Paid-stock admission comes before payment
 
-Every service is served without an account, a key, a wallet or a signature. Where a
-payment recipient is configured the free tier is an allowance of 20 hires per caller
-per hour; where none is configured there is no allowance and no limit at all, because
-a 402 naming nobody to pay is an error a caller cannot act on.
+Every service currently runs as an unsigned preview. None currently passes all four
+admission facts, so none is offered as Pay and hire: Grid, Health and Yield are preview;
+SOLVENT is research; Warden is beta; Range is a candidate. The published 0.50 $U is the
+flat term that applies after admission, not evidence that a service is on sale today.
 
-The allowance counts every hire that ran, including hires that arrive with a payment
-authorization. Docket cannot mark a signature as spent — see below — so an
-authorization that stepped past the allowance would let one signature buy unlimited
-work. Signing the offer changes the receipt, not the allowance.
-
-A request Docket could not read costs no allowance at all: an unknown service, a body
-that is not JSON, a missing field, or a field the service could not parse all return
-without charging anything, because they returned you no work. A hire that ran and then
-failed upstream (502) does count — the work was attempted on your behalf. So a client
-fumbling its request cannot lock out the next caller sharing its address.
+Admission requires a fresh paired benchmark, a passing cold canary, a decision-grade
+presenter and true settlement. An admitted service may keep an allowance of 20 unsigned
+hires per caller per hour when both a recipient and facilitator are configured. A
+request Docket could not read costs no allowance and cannot enter the payment path.
 
 ### The receipt
 
@@ -665,46 +683,51 @@ sent is describing some other request.
 
 ### What a payment status means, exactly
 
-payment.status is one of two values.
+payment.status has these delivered-result values.
 
   free_tier
       No authorization was verified for this hire. Nothing was owed and nothing was
-      transferred. If you did send an authorization and still see this, the receipt
-      carries "authorization_rejected" with the reason it was not accepted.
+      transferred.
 
-  verified_unsettled
-      Docket checked an EIP-712 signature and it holds: it names Docket's recipient,
-      covers the price, is on chain 56, has not expired, and recovers to the address
-      it declares as its payer. That is the whole of what was established. Docket did
-      NOT settle it — no transaction was broadcast, no balance was read, nothing
-      moved. The receipt states "settlement": "not performed by Docket" for exactly
-      that reason. Do not report a hire with this status as settled.
+  not_for_sale
+      The service has not passed admission. Any supplied authorization was ignored;
+      nothing was owed or transferred. Read stock_status and admission on the receipt.
 
-When the allowance is spent the response is 402 carrying an x402 v2 challenge —
-"x402Version": 2 and an "accepts" array — beside the usual error object, so an x402
-client and a Docket-aware agent each read the body they expect. One rail is
-advertised: extra.assetTransferMethod is "eip3009", a TransferWithAuthorization over
-the asset the offer names, with the EIP-712 domain name and version carried in
-"extra" so the message can be built from the challenge alone. No second rail is
-offered, because no second rail is verified here. Send the signed authorization
-base64-encoded in X-PAYMENT; PAYMENT-SIGNATURE is read as well.
+  settled
+      The configured facilitator reported a successful settlement for the exact
+      authorization bound to this input and non-empty human-readable output. The
+      receipt publishes payer, recipient, amount, asset, nonce, payment_id, network and
+      transaction_id. It records the facilitator response; it is not independent proof
+      of chain finality or result correctness.
 
-### What the payment layer does not check
+When an admitted, configured service exhausts its allowance, the response is an x402
+v2 challenge with resource and accepts. Its one offer is exact EIP-3009 on eip155:56
+using $U. The PaymentPayload repeats the accepted requirements and carries signature
+plus authorization {from,to,value,validAfter,validBefore,nonce}.
 
-Listed because a payment layer quiet about its gaps is how a service ends up claiming
-money it never received. The payer's balance is never read, so a valid signature from
-an empty wallet verifies exactly like one from a full wallet. The signed domain's
-verifyingContract is not compared against the advertised asset. The nonce is carried
-and not remembered, so one authorization verifies as many times as it is presented —
-which is why the allowance counts every hire. Only the expiry end of the validity
-window is checked, not validAfter.
+Docket first requires the exact version, resource, requirements, amount, recipient,
+asset domain, canonical TransferWithAuthorization fields and active validity window,
+then recovers the payer. It asks the configured facilitator to verify, atomically binds
+nonce and payment_id to service, resource and input hash, and only then runs the work.
+After a service returns a non-empty human-readable result, Docket adds the output hash,
+durably enters its one-way settling state and calls settle once. The same authorization
+and input replay the stored settled result. A nonce bound to other work is refused. A
+failed or uncertain settlement is never retried automatically; it requires owner
+reconciliation.
+
+Local signature checks do not read the payer's balance, token authorization state or
+chain finality. Those are responsibilities of the configured live facilitator. The
+current repository fixtures prove Docket's adapter boundary and state transitions,
+not compatibility with any particular facilitator. No concrete facilitator is enabled
+unless the owner supplies and authorizes one.
 
 
 ## Escrow: the other rail, and the week it takes
 
-POST /hire/{service_id} answers one call and settles instantly. GET /escrow describes
-the other shape: an on-chain job that holds the budget until the work is delivered and
-a dispute window closes. Pick the first to try an agent, the second to hire one.
+POST /hire/{service_id} answers one call. It settles only for an admitted service with
+owner-enabled payment configuration, a valid authorization and a non-empty readable
+result. GET /escrow describes the other shape: an on-chain job that holds the budget
+until the work is delivered and a dispute window closes.
 
 Read the window before you fund, not after. It is 7 days (604800 seconds), and the
 policy governing these jobs has no early-accept path at all — there is no call, by

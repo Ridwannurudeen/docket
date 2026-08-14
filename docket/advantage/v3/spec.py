@@ -48,7 +48,7 @@ CRITERION_FIELDS = frozenset(
         "score_0_means",
     }
 )
-EVALUATOR_FIELDS = frozenset({"evaluator_id", "identity", "qualification"})
+EVALUATOR_FIELDS = frozenset({"evaluator_id"})
 SCORING_FIELDS = frozenset(
     {"randomisation", "disagreement", "selection_rule", "calibration"}
 )
@@ -63,37 +63,6 @@ SPEED_FIELDS = frozenset(
 )
 TIMING_TEXT_FIELDS = frozenset(
     {"clock", "start_event", "stop_event", "interruptions", "operator_control"}
-)
-CALIBRATION_CONFLICT_FIELDS = frozenset(
-    {
-        "authored_protocol",
-        "authored_inputs",
-        "authored_labels",
-        "ran_arm",
-        "implemented_output",
-        "saw_assignments",
-        "financial_interest",
-    }
-)
-CALIBRATION_AUTHOR_CONFLICT_FIELDS = frozenset(
-    {"evaluator", "protocol_author", "input_author", "financial_interest"}
-)
-WARDEN_LABEL_FIELDS = (
-    "expected_verdict",
-    "labels",
-    "evidence_spans",
-    "hostile",
-    "critical",
-)
-WARDEN_ADJUDICATOR_CONFLICT_FIELDS = frozenset(
-    {"label_author", "evaluator", "ran_arm", "financial_interest"}
-)
-WARDEN_AUTHOR_CONFLICT_FIELDS = frozenset(
-    {"evaluator", "ran_arm", "financial_interest"}
-)
-WARDEN_ADJUDICATION_RULE = (
-    "After both author-sheet hashes are frozen, resolve only disputed payloads against "
-    "the frozen payload bytes and vendor vocabulary, with a field-specific rationale."
 )
 STAGE_TWO_FIELDS = frozenset({"inputs_sha256"})
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -248,8 +217,8 @@ class PairedSpec:
             )
         if len(roster) != evaluators:
             raise ValueError(
-                f"spec: evaluator_roster has {len(roster)} identities for {evaluators} "
-                "registered evaluators"
+                f"spec: evaluator_roster has {len(roster)} seat ids for {evaluators} "
+                "registered model seats"
             )
         evaluator_ids = []
         for evaluator in roster:
@@ -261,7 +230,7 @@ class PairedSpec:
                 )
             evaluator_ids.append(evaluator["evaluator_id"])
         if len(set(evaluator_ids)) != len(evaluator_ids):
-            raise ValueError("spec: evaluator identities are not distinct")
+            raise ValueError("spec: evaluator seat ids are not distinct")
         if self.scoring.get("blinded") is not True:
             raise ValueError("spec: scoring is not blinded")
         unsaid = _blank_fields(self.scoring, SCORING_FIELDS)
@@ -1404,34 +1373,9 @@ def _validate_evaluator_calibration(
         raise ValueError("spec: shared calibration set is not UTF-8 JSON") from exc
     if not isinstance(shared_body, dict):
         raise ValueError("spec: shared calibration set must be an object")
-    _required_fields(
-        shared_body, {"spec_id", "author", "cases"}, "shared calibration set"
-    )
+    _required_fields(shared_body, {"spec_id", "cases"}, "shared calibration set")
     if shared_body["spec_id"] != spec.spec_id:
         raise ValueError("spec: shared calibration set names a different family")
-    author = shared_body["author"]
-    if not isinstance(author, dict):
-        raise ValueError("spec: shared calibration author must be an object")
-    _required_fields(
-        author,
-        {"author_id", "identity", "qualification", "conflicts"},
-        "shared calibration author",
-    )
-    if not all(
-        isinstance(author[name], str) and author[name].strip()
-        for name in ("author_id", "identity", "qualification")
-    ):
-        raise ValueError("spec: shared calibration author identity is incomplete")
-    if (
-        author["author_id"]
-        in {row["evaluator_id"] for row in spec.scoring["evaluator_roster"]}
-        or not isinstance(author["conflicts"], dict)
-        or set(author["conflicts"]) != CALIBRATION_AUTHOR_CONFLICT_FIELDS
-        or any(value is not False for value in author["conflicts"].values())
-    ):
-        raise ValueError(
-            "spec: shared calibration author is conflicted or an evaluator"
-        )
     shared_cases = shared_body["cases"]
     if not isinstance(shared_cases, list) or len(shared_cases) != 8:
         raise ValueError(
@@ -1519,76 +1463,23 @@ def _validate_evaluator_calibration(
                 "evaluator_id",
                 "model_build",
                 "session_id",
-                "conflicts",
-                "qualification_passed",
-                "artifact_sha256",
-                "artifact_body_base64",
-            },
-            f"evaluator calibration {row['evaluator_id']}",
-        )
-        if (
-            not all(
-                isinstance(row[name], str) and row[name].strip()
-                for name in ("model_build", "session_id")
-            )
-            or row["qualification_passed"] is not True
-        ):
-            raise ValueError(
-                f"spec: evaluator {row['evaluator_id']!r} has no passing qualification"
-            )
-        conflicts = row["conflicts"]
-        if (
-            not isinstance(conflicts, dict)
-            or set(conflicts) != CALIBRATION_CONFLICT_FIELDS
-            or any(value is not False for value in conflicts.values())
-        ):
-            raise ValueError(
-                f"spec: evaluator {row['evaluator_id']!r} has a conflict or incomplete declaration"
-            )
-        raw = _decode_embedded_bytes(
-            row["artifact_sha256"],
-            row["artifact_body_base64"],
-            f"evaluator {row['evaluator_id']} calibration artifact",
-        )
-        try:
-            artifact = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                "spec: evaluator calibration artifact is not UTF-8 JSON"
-            ) from exc
-        if not isinstance(artifact, dict):
-            raise ValueError("spec: evaluator calibration artifact must be an object")
-        _required_fields(
-            artifact,
-            {
-                "evaluator_id",
-                "model_build",
-                "session_id",
-                "conflicts",
-                "qualification_passed",
                 "rubric_anchor_hash",
                 "calibration_results",
             },
-            f"evaluator {row['evaluator_id']} calibration artifact",
+            f"evaluator calibration {row['evaluator_id']}",
         )
-        for name in (
-            "evaluator_id",
-            "model_build",
-            "session_id",
-            "conflicts",
-            "qualification_passed",
+        if not all(
+            isinstance(row[name], str) and row[name].strip()
+            for name in ("model_build", "session_id")
         ):
-            if artifact[name] != row[name]:
-                raise ValueError(
-                    f"spec: evaluator calibration artifact disagrees on {name}"
-                )
-        if artifact["rubric_anchor_hash"] != canonical_hash(
-            spec.quality_rubric["criteria"]
-        ):
+            raise ValueError(
+                f"spec: evaluator {row['evaluator_id']!r} has no model/session record"
+            )
+        if row["rubric_anchor_hash"] != canonical_hash(spec.quality_rubric["criteria"]):
             raise ValueError(
                 "spec: evaluator did not identify the frozen rubric anchors"
             )
-        results = artifact["calibration_results"]
+        results = row["calibration_results"]
         if not isinstance(results, list) or len(results) != 8:
             raise ValueError(
                 "spec: evaluator calibration artifact must contain exactly eight results"
@@ -2013,60 +1904,6 @@ def _validate_yield_inputs(
                 raise ValueError(f"spec: Yield case truth has incorrect {name}")
 
 
-def _validate_warden_label_truth(
-    truth: dict, payload_text: str, vendor_classes: set[str], context: str
-) -> None:
-    if truth["expected_verdict"] not in {"ALLOW", "SANITIZE", "BLOCK"}:
-        raise ValueError(f"spec: {context} expected_verdict is invalid")
-    if not _valid_labels(truth["labels"]) or not set(truth["labels"]) <= vendor_classes:
-        raise ValueError(f"spec: {context} labels are outside the vendor vocabulary")
-    if not isinstance(truth["hostile"], bool) or not isinstance(
-        truth["critical"], bool
-    ):
-        raise ValueError(f"spec: {context} hostile and critical must be booleans")
-    spans = truth["evidence_spans"]
-    if not isinstance(spans, list):
-        raise ValueError(f"spec: {context} evidence_spans must be an array")
-    payload_bytes = payload_text.encode("utf-8")
-    evidence_keys = set()
-    for span in spans:
-        if not isinstance(span, dict):
-            raise ValueError(f"spec: every {context} evidence span must be an object")
-        _required_fields(span, {"label", "start", "end"}, f"{context} evidence span")
-        if span["label"] not in truth["labels"]:
-            raise ValueError(f"spec: {context} evidence names an absent label")
-        if (
-            not isinstance(span["start"], int)
-            or isinstance(span["start"], bool)
-            or not isinstance(span["end"], int)
-            or isinstance(span["end"], bool)
-            or not 0 <= span["start"] < span["end"] <= len(payload_bytes)
-        ):
-            raise ValueError(f"spec: {context} evidence byte offsets are invalid")
-        key = (span["label"], span["start"], span["end"])
-        if key in evidence_keys:
-            raise ValueError(f"spec: {context} evidence spans are duplicated")
-        try:
-            payload_bytes[span["start"] : span["end"]].decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ValueError(
-                f"spec: {context} evidence splits a UTF-8 character"
-            ) from exc
-        evidence_keys.add(key)
-    if truth["hostile"]:
-        if truth["expected_verdict"] == "ALLOW" or not truth["labels"]:
-            raise ValueError(f"spec: hostile {context} truth must be protective")
-        if {key[0] for key in evidence_keys} != set(truth["labels"]):
-            raise ValueError(f"spec: every hostile {context} label needs evidence")
-    elif (
-        truth["expected_verdict"] != "ALLOW"
-        or truth["labels"]
-        or evidence_keys
-        or truth["critical"]
-    ):
-        raise ValueError(f"spec: benign {context} truth must be unlabelled ALLOW")
-
-
 def _validate_warden_inputs(
     spec: PairedSpec, body: dict, cases: list[dict], repo_root: Path
 ) -> None:
@@ -2096,61 +1933,6 @@ def _validate_warden_inputs(
             "spec: Warden vendor classes must be distinct nonblank strings"
         )
     vendor_classes = set(vendor_class_list)
-
-    authors = body.get("label_authors")
-    if not isinstance(authors, list) or len(authors) != 2:
-        raise ValueError("spec: Warden inputs need exactly two label authors")
-    author_ids = []
-    label_sheets = []
-    for author in authors:
-        if not isinstance(author, dict):
-            raise ValueError("spec: every Warden label author must be an object")
-        _required_fields(
-            author,
-            {
-                "author_id",
-                "identity",
-                "qualification",
-                "conflicts",
-                "sheet_ref",
-                "sheet_sha256",
-            },
-            "Warden label author",
-        )
-        if not all(
-            isinstance(author[name], str) and author[name].strip()
-            for name in ("author_id", "identity", "qualification")
-        ):
-            raise ValueError(
-                "spec: Warden label-author identity fields must be nonblank"
-            )
-        if (
-            author["author_id"]
-            in {row["evaluator_id"] for row in spec.scoring["evaluator_roster"]}
-            or not isinstance(author["conflicts"], dict)
-            or set(author["conflicts"]) != WARDEN_AUTHOR_CONFLICT_FIELDS
-            or any(value is not False for value in author["conflicts"].values())
-        ):
-            raise ValueError("spec: Warden label author is conflicted or an evaluator")
-        sheet_raw = _validate_locked_source(
-            {"ref": author["sheet_ref"], "sha256": author["sheet_sha256"]},
-            repo_root,
-            "Warden label-author sheet",
-        )
-        try:
-            sheet = json.loads(sheet_raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                "spec: Warden label-author sheet is not UTF-8 JSON"
-            ) from exc
-        if not isinstance(sheet, list) or len(sheet) != len(cases):
-            raise ValueError(
-                "spec: every Warden label-author sheet must cover all 12 payloads"
-            )
-        label_sheets.append(sheet)
-        author_ids.append(author["author_id"])
-    if len(set(author_ids)) != 2:
-        raise ValueError("spec: Warden label-author identities are not distinct")
 
     hostile_count = 0
     benign_count = 0
@@ -2321,147 +2103,6 @@ def _validate_warden_inputs(
             raise ValueError(
                 "spec: every critical Warden vector needs a survival predicate"
             )
-
-    final_truth = {
-        case["payload_id"]: {name: case[name] for name in WARDEN_LABEL_FIELDS}
-        for case in cases
-    }
-    payload_texts = {case["payload_id"]: case["text"] for case in cases}
-    sheet_truths = []
-    for sheet in label_sheets:
-        sheet_truth = {}
-        for row in sheet:
-            if not isinstance(row, dict):
-                raise ValueError("spec: every Warden label sheet row must be an object")
-            _required_fields(
-                row,
-                {"payload_id", *WARDEN_LABEL_FIELDS},
-                "Warden label sheet row",
-            )
-            payload_id = row["payload_id"]
-            if not isinstance(payload_id, str) or not payload_id.strip():
-                raise ValueError("spec: Warden label sheet payload_id is invalid")
-            if payload_id in sheet_truth:
-                raise ValueError("spec: Warden label sheet repeats a payload_id")
-            truth = {name: row[name] for name in WARDEN_LABEL_FIELDS}
-            _validate_warden_label_truth(
-                truth,
-                payload_texts.get(payload_id, ""),
-                vendor_classes,
-                "Warden label sheet",
-            )
-            sheet_truth[payload_id] = truth
-        if set(sheet_truth) != set(final_truth):
-            raise ValueError(
-                "spec: Warden label sheet does not cover the frozen payload ids"
-            )
-        sheet_truths.append(sheet_truth)
-
-    adjudicator = body.get("label_adjudicator")
-    if not isinstance(adjudicator, dict):
-        raise ValueError("spec: Warden inputs need a named label_adjudicator")
-    _required_fields(
-        adjudicator,
-        {
-            "adjudicator_id",
-            "identity",
-            "qualification",
-            "conflicts",
-            "selection_rule",
-        },
-        "Warden label adjudicator",
-    )
-    if not all(
-        isinstance(adjudicator[name], str) and adjudicator[name].strip()
-        for name in ("adjudicator_id", "identity", "qualification")
-    ):
-        raise ValueError("spec: Warden label-adjudicator identity is incomplete")
-    if (
-        adjudicator["adjudicator_id"] in author_ids
-        or adjudicator["adjudicator_id"]
-        in {row["evaluator_id"] for row in spec.scoring["evaluator_roster"]}
-        or not isinstance(adjudicator["conflicts"], dict)
-        or set(adjudicator["conflicts"]) != WARDEN_ADJUDICATOR_CONFLICT_FIELDS
-        or any(value is not False for value in adjudicator["conflicts"].values())
-        or adjudicator["selection_rule"] != WARDEN_ADJUDICATION_RULE
-    ):
-        raise ValueError("spec: Warden label adjudicator is conflicted or unregistered")
-
-    adjudication = body.get("label_adjudication")
-    if not isinstance(adjudication, list):
-        raise ValueError("spec: Warden inputs need a label_adjudication array")
-    adjudicated = {}
-    for row in adjudication:
-        if not isinstance(row, dict):
-            raise ValueError("spec: every Warden adjudication must be an object")
-        _required_fields(
-            row,
-            {"payload_id", "resolution", "disputed_fields", "rationales"},
-            "Warden adjudication",
-        )
-        payload_id = row["payload_id"]
-        if (
-            not isinstance(payload_id, str)
-            or payload_id not in final_truth
-            or payload_id in adjudicated
-            or not isinstance(row["resolution"], dict)
-            or not isinstance(row["disputed_fields"], list)
-            or not row["disputed_fields"]
-            or len(row["disputed_fields"]) != len(set(row["disputed_fields"]))
-            or not set(row["disputed_fields"]) <= set(WARDEN_LABEL_FIELDS)
-            or not isinstance(row["rationales"], dict)
-            or set(row["rationales"]) != set(row["disputed_fields"])
-            or not all(
-                isinstance(reason, str) and reason.strip()
-                for reason in row["rationales"].values()
-            )
-        ):
-            raise ValueError("spec: Warden adjudication record is invalid")
-        _required_fields(
-            row["resolution"],
-            set(WARDEN_LABEL_FIELDS),
-            "Warden adjudication resolution",
-        )
-        resolution = {name: row["resolution"][name] for name in WARDEN_LABEL_FIELDS}
-        _validate_warden_label_truth(
-            resolution,
-            payload_texts[payload_id],
-            vendor_classes,
-            "Warden adjudication resolution",
-        )
-        adjudicated[payload_id] = {
-            "resolution": resolution,
-            "disputed_fields": set(row["disputed_fields"]),
-        }
-
-    disagreements = set()
-    for payload_id, truth in final_truth.items():
-        left = sheet_truths[0][payload_id]
-        right = sheet_truths[1][payload_id]
-        if left == right:
-            if truth != left:
-                raise ValueError(
-                    "spec: Warden final truth differs from agreeing label-author sheets"
-                )
-        else:
-            disagreements.add(payload_id)
-            actual_disputed_fields = {
-                name for name in WARDEN_LABEL_FIELDS if left[name] != right[name]
-            }
-            if (
-                payload_id not in adjudicated
-                or adjudicated[payload_id]["resolution"] != truth
-                or adjudicated[payload_id]["disputed_fields"] != actual_disputed_fields
-                or any(
-                    truth[name] != left[name]
-                    for name in set(WARDEN_LABEL_FIELDS) - actual_disputed_fields
-                )
-            ):
-                raise ValueError(
-                    "spec: Warden disagreement lacks a matching adjudicated resolution"
-                )
-    if set(adjudicated) != disagreements:
-        raise ValueError("spec: Warden adjudication has missing or extra payloads")
 
     if hostile_count < 4 or benign_count < 4:
         raise ValueError(

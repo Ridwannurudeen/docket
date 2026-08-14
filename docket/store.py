@@ -74,6 +74,27 @@ CREATE TABLE IF NOT EXISTS liveness (
     detail TEXT
 );
 CREATE INDEX IF NOT EXISTS liveness_snapshot ON liveness (snapshot_id, agent_id);
+CREATE TABLE IF NOT EXISTS hire_payments (
+    nonce TEXT PRIMARY KEY,
+    payment_id TEXT NOT NULL UNIQUE,
+    service_id TEXT NOT NULL,
+    payer TEXT NOT NULL,
+    recipient TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    amount TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    output_hash TEXT,
+    status TEXT NOT NULL,
+    result_json TEXT,
+    receipt_json TEXT,
+    transaction_id TEXT,
+    network TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS hire_payments_status ON hire_payments (status);
 """
 
 
@@ -107,6 +128,128 @@ class Store:
                 yield conn
         finally:
             conn.close()
+
+    def payment_by_nonce(self, nonce: str) -> dict:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM hire_payments WHERE nonce = ?", (nonce,)
+            ).fetchone()
+        if row is None:
+            return {}
+        payment = dict(row)
+        for field in ("result_json", "receipt_json"):
+            if payment[field] is not None:
+                payment[field.removesuffix("_json")] = json.loads(payment[field])
+        return payment
+
+    def reserve_payment(
+        self,
+        *,
+        nonce: str,
+        payment_id: str,
+        service_id: str,
+        payer: str,
+        recipient: str,
+        asset: str,
+        amount: str,
+        resource: str,
+        input_hash: str,
+    ) -> tuple[bool, dict]:
+        """Atomically claim a nonce; concurrent callers can never both own it."""
+        observed_at = _now()
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """INSERT INTO hire_payments
+                   (nonce, payment_id, service_id, payer, recipient, asset, amount,
+                    resource, input_hash, status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'verified', ?, ?)
+                   ON CONFLICT DO NOTHING""",
+                (
+                    nonce,
+                    payment_id,
+                    service_id,
+                    payer,
+                    recipient,
+                    asset,
+                    amount,
+                    resource,
+                    input_hash,
+                    observed_at,
+                    observed_at,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM hire_payments WHERE nonce = ?", (nonce,)
+            ).fetchone()
+        return cursor.rowcount == 1, dict(row) if row else {}
+
+    def record_payment_output(
+        self, payment_id: str, *, output_hash: str, result: dict
+    ) -> None:
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE hire_payments
+                   SET output_hash = ?, result_json = ?, status = 'output_ready',
+                       updated_at = ?
+                   WHERE payment_id = ? AND status = 'verified'""",
+                (
+                    output_hash,
+                    json.dumps(result, sort_keys=True, ensure_ascii=False),
+                    _now(),
+                    payment_id,
+                ),
+            )
+        if cursor.rowcount != 1:
+            raise ValueError("payment output was not recorded from verified state")
+
+    def begin_payment_settlement(self, payment_id: str) -> bool:
+        """Persist the one-way settlement boundary before any external call is made."""
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE hire_payments SET status = 'settling', updated_at = ?
+                   WHERE payment_id = ? AND status = 'output_ready'""",
+                (_now(), payment_id),
+            )
+        return cursor.rowcount == 1
+
+    def finish_payment(
+        self,
+        payment_id: str,
+        *,
+        transaction_id: str,
+        network: str,
+        receipt: dict,
+    ) -> None:
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE hire_payments
+                   SET transaction_id = ?, network = ?, receipt_json = ?,
+                       status = 'settled', updated_at = ?
+                   WHERE payment_id = ? AND status = 'settling'""",
+                (
+                    transaction_id,
+                    network,
+                    json.dumps(receipt, sort_keys=True, ensure_ascii=False),
+                    _now(),
+                    payment_id,
+                ),
+            )
+        if cursor.rowcount != 1:
+            raise ValueError("payment was not finalized from settling state")
+
+    def fail_payment(self, payment_id: str, *, status: str, error: str) -> None:
+        if status not in {
+            "failed_no_charge",
+            "settlement_failed",
+            "settlement_unknown",
+        }:
+            raise ValueError(f"unsupported terminal payment status {status!r}")
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE hire_payments SET status = ?, error = ?, updated_at = ?
+                   WHERE payment_id = ? AND status != 'settled'""",
+                (status, error, _now(), payment_id),
+            )
 
     def begin_snapshot(
         self, chain_id: int, expected: int | None, population: str | None = None

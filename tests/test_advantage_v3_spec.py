@@ -79,16 +79,8 @@ def _valid(**overrides) -> dict:
         "scoring": {
             "evaluators": 2,
             "evaluator_roster": [
-                {
-                    "evaluator_id": "one",
-                    "identity": "named evaluator one",
-                    "qualification": "must pass the frozen calibration gate",
-                },
-                {
-                    "evaluator_id": "two",
-                    "identity": "named evaluator two",
-                    "qualification": "must pass the frozen calibration gate",
-                },
+                {"evaluator_id": "one"},
+                {"evaluator_id": "two"},
             ],
             "blinded": True,
             "randomisation": "assignments come from the frozen seed",
@@ -220,32 +212,12 @@ def _input_record(spec: PairedSpec) -> dict:
     shared_body = json.dumps(
         {
             "spec_id": spec.spec_id,
-            "author": {
-                "author_id": "test-calibration-author",
-                "identity": "test calibration author",
-                "qualification": "family-specific calibration author",
-                "conflicts": {
-                    "evaluator": False,
-                    "protocol_author": False,
-                    "input_author": False,
-                    "financial_interest": False,
-                },
-            },
             "cases": shared_cases,
         },
         sort_keys=True,
     ).encode()
     calibration = []
     for number, evaluator in enumerate(spec.scoring["evaluator_roster"], start=1):
-        conflicts = {
-            "authored_protocol": False,
-            "authored_inputs": False,
-            "authored_labels": False,
-            "ran_arm": False,
-            "implemented_output": False,
-            "saw_assignments": False,
-            "financial_interest": False,
-        }
         if spec.spec_id == "v3-03-warden-security":
             results = [
                 {
@@ -263,30 +235,13 @@ def _input_record(spec: PairedSpec) -> dict:
                 }
                 for shared_case in shared_cases
             ]
-        artifact = {
-            "evaluator_id": evaluator["evaluator_id"],
-            "model_build": f"test-model-{number}",
-            "session_id": f"test-session-{number}",
-            "conflicts": conflicts,
-            "qualification_passed": True,
-            "rubric_anchor_hash": canonical_hash(spec.quality_rubric["criteria"]),
-            "calibration_results": results,
-        }
-        raw = json.dumps(artifact, sort_keys=True).encode()
         calibration.append(
             {
-                **{
-                    name: artifact[name]
-                    for name in (
-                        "evaluator_id",
-                        "model_build",
-                        "session_id",
-                        "conflicts",
-                        "qualification_passed",
-                    )
-                },
-                "artifact_sha256": hashlib.sha256(raw).hexdigest(),
-                "artifact_body_base64": b64encode(raw).decode(),
+                "evaluator_id": evaluator["evaluator_id"],
+                "model_build": f"test-model-{number}",
+                "session_id": f"test-session-{number}",
+                "rubric_anchor_hash": canonical_hash(spec.quality_rubric["criteria"]),
+                "calibration_results": results,
             }
         )
     return {
@@ -354,20 +309,22 @@ def test_every_rubric_criterion_requires_its_own_middle_anchors():
         )
 
 
-def test_scoring_requires_two_named_qualified_blinded_evaluators():
+def test_scoring_requires_two_distinct_blinded_model_seats():
+    """Seat ids bind the two published score sheets; they do not prove two people or
+    independent operators, so the protocol must not request identity attestations."""
     scoring = _valid()["scoring"]
     with pytest.raises(ValueError, match="fewer than 2"):
         PairedSpec(**_valid(scoring=scoring | {"evaluators": 1}))
-    with pytest.raises(ValueError, match="roster has 1 identities"):
+    with pytest.raises(ValueError, match="roster has 1 seat ids"):
         PairedSpec(
             **_valid(
                 scoring=scoring | {"evaluator_roster": scoring["evaluator_roster"][:1]}
             )
         )
-    anonymous = [dict(row) for row in scoring["evaluator_roster"]]
-    anonymous[0]["identity"] = ""
-    with pytest.raises(ValueError, match="identity"):
-        PairedSpec(**_valid(scoring=scoring | {"evaluator_roster": anonymous}))
+    duplicated = [dict(row) for row in scoring["evaluator_roster"]]
+    duplicated[0]["evaluator_id"] = duplicated[1]["evaluator_id"]
+    with pytest.raises(ValueError, match="seat ids are not distinct"):
+        PairedSpec(**_valid(scoring=scoring | {"evaluator_roster": duplicated}))
     with pytest.raises(ValueError, match="not blinded"):
         PairedSpec(**_valid(scoring=scoring | {"blinded": False}))
 
@@ -486,17 +443,13 @@ def test_an_unknown_family_cannot_fall_through_generic_input_validation(tmp_path
         lock_inputs(spec, repo_root=tmp_path)
 
 
-def test_evaluator_qualification_is_computed_against_one_shared_answer_key(tmp_path):
-    """An evaluator cannot qualify by embedding easier expected values in its own
-    artifact; both seats must answer the one independently hash-bound calibration set."""
+def test_model_calibration_is_computed_against_one_shared_answer_key(tmp_path):
+    """A model seat cannot embed easier expected values in its responses; both owner-run
+    seats must answer the one published, hash-bound calibration set."""
     spec = PairedSpec(**_valid())
     record = _input_record(spec)
     seat = record["evaluator_calibration"][0]
-    artifact = json.loads(b64decode(seat["artifact_body_base64"]))
-    artifact["calibration_results"][0]["expected"] = {"answer": "rewritten"}
-    raw = json.dumps(artifact, sort_keys=True).encode()
-    seat["artifact_sha256"] = hashlib.sha256(raw).hexdigest()
-    seat["artifact_body_base64"] = b64encode(raw).decode()
+    seat["calibration_results"][0]["expected"] = {"answer": "rewritten"}
     _write_inputs(tmp_path, spec, json.dumps(record).encode())
 
     with pytest.raises(ValueError, match="contradicts the shared answer key"):
@@ -975,118 +928,14 @@ def test_each_family_schema_accepts_only_a_complete_synthetic_input_artifact(tmp
                 ),
             }
         )
-    sheet_rows = [
-        {
-            "payload_id": case["payload_id"],
-            **{
-                name: case[name]
-                for name in (
-                    "expected_verdict",
-                    "labels",
-                    "evidence_spans",
-                    "hostile",
-                    "critical",
-                )
-            },
-        }
-        for case in warden_cases
-    ]
-    sheet_body = json.dumps(sheet_rows, sort_keys=True).encode()
-    sheet_one = _source_ref(tmp_path, "evidence/labels-one.json", sheet_body)
-    sheet_two = _source_ref(tmp_path, "evidence/labels-two.json", sheet_body + b"\n")
     warden_record = _input_record(warden_spec) | {
         "vendor_snapshot": vendor,
-        "label_authors": [
-            {
-                "author_id": "one",
-                "identity": "label author one",
-                "qualification": "registered security calibration",
-                "conflicts": {
-                    "evaluator": False,
-                    "ran_arm": False,
-                    "financial_interest": False,
-                },
-                "sheet_ref": sheet_one["ref"],
-                "sheet_sha256": sheet_one["sha256"],
-            },
-            {
-                "author_id": "two",
-                "identity": "label author two",
-                "qualification": "registered security calibration",
-                "conflicts": {
-                    "evaluator": False,
-                    "ran_arm": False,
-                    "financial_interest": False,
-                },
-                "sheet_ref": sheet_two["ref"],
-                "sheet_sha256": sheet_two["sha256"],
-            },
-        ],
-        "label_adjudicator": {
-            "adjudicator_id": "three",
-            "identity": "label adjudicator three",
-            "qualification": "registered security-review calibration",
-            "conflicts": {
-                "label_author": False,
-                "evaluator": False,
-                "ran_arm": False,
-                "financial_interest": False,
-            },
-            "selection_rule": (
-                "After both author-sheet hashes are frozen, resolve only disputed "
-                "payloads against the frozen payload bytes and vendor vocabulary, "
-                "with a field-specific rationale."
-            ),
-        },
-        "label_adjudication": [],
         "cases": warden_cases,
     }
     warden_input = tmp_path / warden_spec.inputs_ref
     warden_input.parent.mkdir(parents=True, exist_ok=True)
     warden_input.write_text(json.dumps(warden_record), encoding="utf-8")
     assert_runnable(lock_inputs(warden_spec, repo_root=tmp_path), repo_root=tmp_path)
-    disagreeing_rows = json.loads(json.dumps(sheet_rows))
-    disagreeing_rows[0]["expected_verdict"] = "SANITIZE"
-    disagreeing_body = json.dumps(disagreeing_rows, sort_keys=True).encode()
-    (tmp_path / sheet_two["ref"]).write_bytes(disagreeing_body)
-    disagreement_record = json.loads(json.dumps(warden_record))
-    disagreement_record["label_authors"][1]["sheet_sha256"] = hashlib.sha256(
-        disagreeing_body
-    ).hexdigest()
-    disagreement_record["label_adjudication"] = [
-        {
-            "payload_id": warden_cases[0]["payload_id"],
-            "resolution": {
-                name: warden_cases[0][name]
-                for name in (
-                    "expected_verdict",
-                    "labels",
-                    "evidence_spans",
-                    "hostile",
-                    "critical",
-                )
-            },
-            "disputed_fields": ["expected_verdict"],
-            "rationales": {
-                "expected_verdict": "The frozen critical vector requires BLOCK."
-            },
-        }
-    ]
-    warden_input.write_text(json.dumps(disagreement_record), encoding="utf-8")
-    assert_runnable(lock_inputs(warden_spec, repo_root=tmp_path), repo_root=tmp_path)
-    consensus_rewrite = json.loads(json.dumps(disagreement_record))
-    consensus_rewrite["cases"][0]["critical"] = False
-    consensus_rewrite["label_adjudication"][0]["resolution"]["critical"] = False
-    warden_input.write_text(json.dumps(consensus_rewrite), encoding="utf-8")
-    with pytest.raises(ValueError, match="matching adjudicated resolution"):
-        lock_inputs(warden_spec, repo_root=tmp_path)
-    (tmp_path / sheet_two["ref"]).write_bytes(sheet_body + b"\n")
-
-    conflict_record = json.loads(json.dumps(warden_record))
-    conflict_record["label_authors"][0]["conflicts"]["evaluator"] = True
-    warden_input.write_text(json.dumps(conflict_record), encoding="utf-8")
-    with pytest.raises(ValueError, match="label author is conflicted"):
-        lock_inputs(warden_spec, repo_root=tmp_path)
 
     overlap_record = json.loads(json.dumps(warden_record))
     shared_calibration = json.loads(
@@ -1108,16 +957,10 @@ def test_each_family_schema_accepts_only_a_complete_synthetic_input_artifact(tmp
     with pytest.raises(ValueError, match="does not match its source evidence"):
         lock_inputs(warden_spec, repo_root=tmp_path)
 
-    invalid_sheet_rows = json.loads(json.dumps(sheet_rows))
-    invalid_sheet_rows[0]["expected_verdict"] = "REWRITE"
-    invalid_sheet_body = json.dumps(invalid_sheet_rows, sort_keys=True).encode()
-    (tmp_path / sheet_one["ref"]).write_bytes(invalid_sheet_body)
-    invalid_sheet_record = json.loads(json.dumps(warden_record))
-    invalid_sheet_record["label_authors"][0]["sheet_sha256"] = hashlib.sha256(
-        invalid_sheet_body
-    ).hexdigest()
-    warden_input.write_text(json.dumps(invalid_sheet_record), encoding="utf-8")
-    with pytest.raises(ValueError, match="label sheet expected_verdict is invalid"):
+    invalid_truth_record = json.loads(json.dumps(warden_record))
+    invalid_truth_record["cases"][0]["expected_verdict"] = "REWRITE"
+    warden_input.write_text(json.dumps(invalid_truth_record), encoding="utf-8")
+    with pytest.raises(ValueError, match="expected_verdict is invalid"):
         lock_inputs(warden_spec, repo_root=tmp_path)
 
 
@@ -1303,7 +1146,9 @@ def test_registration_provenance_claims_only_what_git_can_witness():
         assert "wall-clock" in provenance
 
 
-def test_every_family_registers_objective_anchors_named_evaluators_and_timing():
+def test_every_family_registers_objective_anchors_disclosed_model_seats_and_timing():
+    """The seats are two models run by one operator, not independent evaluators; the
+    published keys and sheets make their scoring checkable without that stronger claim."""
     for spec in map(load, REGISTERED):
         assert spec.speed_threshold["minimum_median_seconds_saved"] == 30.0
         assert spec.speed_threshold["maximum_median_agent_to_manual_ratio"] == 0.5
@@ -1312,6 +1157,11 @@ def test_every_family_registers_objective_anchors_named_evaluators_and_timing():
             "claude-audit-seat",
             "fable-5-audit-seat",
         ]
+        assert all(
+            set(row) == {"evaluator_id"} for row in spec.scoring["evaluator_roster"]
+        )
+        assert "one operator" in spec.scoring["selection_rule"].lower()
+        assert "not independent" in spec.scoring["selection_rule"].lower()
         assert "never pauses" in spec.timing["interruptions"]
         assert "cannot start, stop" in spec.timing["operator_control"]
         for criterion in spec.quality_rubric["criteria"]:
