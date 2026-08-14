@@ -529,16 +529,123 @@ function readForm(record, form) {
   return body;
 }
 
+/* A buyer paid for an answer, not for a payload. Dumping the response into a <pre> made
+   every service look identical and left the reader to do the interpreting they had just
+   paid to have done — and it hid the one thing that matters most when a scan finds
+   nothing, which is why it found nothing. A presenter states the finding first and keeps
+   the raw JSON one click away, never instead of it: the evidence is still the point, it
+   just stops being the only thing offered. Services with no presenter yet fall back to the
+   payload, so an unpresented service reads as unpolished rather than broken. */
+const PRESENTERS = { "range-doctor": presentRangeDoctor };
+
+function presentResult(record, result) {
+  const presenter = PRESENTERS[record.id];
+  const raw = `<details class="raw">
+      <summary>The full response, exactly as the service returned it</summary>
+      <pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>
+    </details>`;
+  if (!presenter)
+    return `<pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>`;
+  return presenter(result) + raw;
+}
+
+function pct(value) {
+  return value === null || value === undefined
+    ? null
+    : `${(value * 100).toFixed(2)}%`;
+}
+
+function presentRangeDoctor(result) {
+  const positions = result.positions || [];
+  /* The coverage sentence leads whatever else is here. When the list is empty it is the
+     entire answer, and an empty list with nothing above it is the failure this presenter
+     exists to prevent: a reader who sees no positions and no sentence concludes theirs are
+     fine. */
+  const coverage = result.coverage
+    ? `<p class="lede">${escapeHTML(result.coverage)}</p>`
+    : "";
+
+  if (!positions.length) {
+    return `<section aria-labelledby="result-heading">
+        <h3 id="result-heading">What came back</h3>
+        ${coverage}
+        <p class="dim">Nothing was diagnosed because there was no open position to diagnose.
+          That is an answer about this wallet, not a failure of the read — and it is not a
+          statement that the wallet is healthy, only that it holds nothing in a pool at the
+          moment it was read.${
+            result.scan_complete === false
+              ? " The read was also bounded, so the positions it did not reach are unknown rather than absent — raise the limit to look further."
+              : ""
+          }</p>
+      </section>`;
+  }
+
+  const cards = positions
+    .map((entry) => {
+      const p = entry.position || {};
+      const d = entry.diagnosis || {};
+      const pool = entry.pool || {};
+      const apr = pct(d.pool_net_apr);
+      const where = pct(d.range_position_pct);
+      const findings = (d.findings || [])
+        .map((f) => `<li>${escapeHTML(f)}</li>`)
+        .join("");
+      const actions = (d.actions || [])
+        .map(
+          (a) =>
+            `<li>${escapeHTML(a.text)}${
+              a.link
+                ? ` <a href="${escapeHTML(a.link)}" rel="noopener">open it on PancakeSwap</a>`
+                : ""
+            }</li>`,
+        )
+        .join("");
+      return `<article class="panel">
+          <h4>Position ${escapeHTML(String(p.token_id))} — ${escapeHTML(STATUS_WORDS[d.status] || d.status)}</h4>
+          <dl class="deflist">
+            <dt>Range</dt><dd class="mono">ticks ${escapeHTML(String(p.tick_lower))} to ${escapeHTML(String(p.tick_upper))}${
+              pool.tick === null || pool.tick === undefined
+                ? ""
+                : `, pool now at ${escapeHTML(String(pool.tick))}`
+            }${where ? ` (${escapeHTML(where)} through it)` : ""}</dd>
+            <dt>Pool's net fee rate</dt><dd>${
+              apr
+                ? `${escapeHTML(apr)} — one day's fees after the protocol's cut, annualised. An observation, not a forecast.`
+                : "not quoted for this position, for the reason given below"
+            }</dd>
+            <dt>Held</dt><dd>${p.staked ? "staked in a farm" : "directly in the wallet"}</dd>
+            <dt>Read at block</dt><dd class="mono">${escapeHTML(String(d.as_of_block))}</dd>
+          </dl>
+          ${findings ? `<p class="status-key">What this means</p><ul>${findings}</ul>` : ""}
+          ${actions ? `<p class="status-key">What you could do, and what it costs</p><ul>${actions}</ul>` : ""}
+        </article>`;
+    })
+    .join("");
+
+  return `<section aria-labelledby="result-heading">
+      <h3 id="result-heading">What came back</h3>
+      ${coverage}
+      ${cards}
+      <p class="dim">Every figure above was computed from numbers this response carries, so
+        you can check it against the chain yourself. Nothing was signed, approved or moved.</p>
+    </section>`;
+}
+
+const STATUS_WORDS = {
+  in_range: "earning fees",
+  out_of_range_above: "above its range, earning nothing",
+  out_of_range_below: "below its range, earning nothing",
+  closed: "closed, holding nothing",
+  unknown_pool: "its pool could not be read",
+};
+
 function paintOutcome(record, answer) {
   const receipt = answer.receipt || {};
   const payment = receipt.payment || {};
   const rejected = payment.authorization_rejected
     ? `<dt>Authorization</dt><dd>not accepted: ${escapeHTML(payment.authorization_rejected)}</dd>`
     : "";
-  region("outcome").innerHTML = `<section aria-labelledby="result-heading">
-      <h3 id="result-heading">What came back</h3>
-      <pre>${escapeHTML(JSON.stringify(answer.result, null, 2))}</pre>
-    </section>
+  region("outcome").innerHTML = `${presentResult(record, answer.result)}
     <section aria-labelledby="receipt-heading">
       <h3 id="receipt-heading">The receipt</h3>
       <div class="panel">

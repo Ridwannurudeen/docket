@@ -98,7 +98,11 @@ def test_the_home_leads_with_the_jobs_and_keeps_the_evidence_beneath_them(client
     not goes: every region the coverage discipline lives in is still on the page."""
     index = _read("index.html")
     jobs = index.index('data-region="jobs"')
-    for region in ('data-region="stats"', 'data-region="slice"', 'data-region="families"'):
+    for region in (
+        'data-region="stats"',
+        'data-region="slice"',
+        'data-region="families"',
+    ):
         assert region in index, region
         assert jobs < index.index(region), f"{region} sits above the jobs"
 
@@ -123,15 +127,24 @@ def test_a_category_with_nothing_in_it_renders_the_api_s_own_empty_sentence(clie
     """
     app_js = _read("app.js")
     assert "category.empty" in app_js or "entry.empty" in app_js
-    assert EMPTY_CATEGORY not in _read("index.html"), "the page authors its own empty state"
-    assert all(c["empty"] is None for c in client.get("/categories").json()["categories"])
+    assert EMPTY_CATEGORY not in _read("index.html"), (
+        "the page authors its own empty state"
+    )
+    assert all(
+        c["empty"] is None for c in client.get("/categories").json()["categories"]
+    )
 
 
 def test_no_page_promises_stock_it_does_not_have(client):
     """ "Coming soon" over a bare shelf is the failure this stage was told to avoid."""
     for path in WEB_DIR.glob("*"):
         text = path.read_text(encoding="utf-8").lower()
-        for promise in ("coming soon", "launching soon", "available soon", "in beta soon"):
+        for promise in (
+            "coming soon",
+            "launching soon",
+            "available soon",
+            "in beta soon",
+        ):
             assert promise not in text, f"{path.name} promises: {promise}"
 
 
@@ -243,7 +256,12 @@ def test_the_research_page_says_docket_assigns_these_agents_no_category(client):
 def test_every_page_carries_the_same_navigation(client):
     for name in PAGES:
         text = _read(name)
-        for href in ('href="/"', 'href="/research"', 'href="/advantage"', 'href="/llms.txt"'):
+        for href in (
+            'href="/"',
+            'href="/research"',
+            'href="/advantage"',
+            'href="/llms.txt"',
+        ):
             assert href in text, f"{name} is missing {href}"
 
 
@@ -259,7 +277,9 @@ def test_every_page_keeps_the_no_verdict_footer(client):
         assert "observations, not verdicts" in _read(name).lower(), name
 
 
-def test_the_stylesheet_and_module_are_versioned_so_a_returning_reader_gets_them(client):
+def test_the_stylesheet_and_module_are_versioned_so_a_returning_reader_gets_them(
+    client,
+):
     """Measured, not guessed: a browser that had already loaded this site served the old
     /static/style.css against the new markup, because nothing about the URL had changed —
     the job grid lost its layout and the run form its controls. The version query is what
@@ -282,7 +302,9 @@ def test_every_page_asks_for_the_same_version_of_the_same_two_files():
     for name in PAGES:
         text = _read(name)
         tokens.update(re.findall(r'/static/(?:style\.css|app\.js)\?v=([^"]+)', text))
-    assert len(tokens) == 1, f"the site asks for several asset versions at once: {tokens}"
+    assert len(tokens) == 1, (
+        f"the site asks for several asset versions at once: {tokens}"
+    )
 
 
 # ------------------------------------------------- served claims vs served reality
@@ -301,7 +323,10 @@ def test_the_homepage_does_not_claim_a_recorded_run_for_services_that_have_none(
     without_a_run = sorted(r.service_id for r in all_records() if not r.metrics)
     hero = _read("index.html")
     if without_a_run:
-        assert "Every service here is one Docket runs itself and can show a recorded run" not in hero, (
+        assert (
+            "Every service here is one Docket runs itself and can show a recorded run"
+            not in hero
+        ), (
             f"the homepage claims a recorded run for every service, but {without_a_run} have none"
         )
         assert "and some do not yet" in hero, (
@@ -323,3 +348,60 @@ def test_the_v1_report_points_at_v2_and_says_which_one_answers_the_sponsor(clien
     # And it has to survive being served, not merely sit in the file.
     served = client.get("/advantage").text
     assert "/advantage/v2" in served
+
+
+# ------------------------------------------------------- the paid answer, as a person reads it
+
+
+def test_the_result_is_presented_before_it_is_dumped():
+    """A buyer paid for an answer, not a payload.
+
+    `paintOutcome` used to put `JSON.stringify(result)` straight into a <pre>, which made
+    every service look identical and left the reader doing the interpreting they had just
+    paid to have done. The raw response stays — it is the evidence — but behind a <details>
+    rather than in front of the finding.
+    """
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    assert "const PRESENTERS = {" in js
+    assert '"range-doctor": presentRangeDoctor' in js
+    assert "function presentResult(" in js
+    # The payload is still reachable, and still labelled as the thing the service returned.
+    assert '<details class="raw">' in js
+    assert "exactly as the service returned it" in js
+
+
+def test_an_empty_range_doctor_result_leads_with_why_it_is_empty():
+    """The single most damaging thing this product can show a judge.
+
+    The live evidence wallet returns no positions — 21 held, all 21 closed — and a reader
+    who sees an empty list with nothing above it concludes their positions are fine. The
+    presenter has to put the coverage sentence first and say what an empty answer is not.
+    """
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    empty_branch = js.split("if (!positions.length) {", 1)[1].split("const cards", 1)[0]
+    # Collapsed: the formatter chooses where these sentences wrap, and the claim under test
+    # is about what they say, not about where the line breaks fall.
+    flat = re.sub(r"\s+", " ", empty_branch)
+    assert "coverage" in flat
+    assert "not a failure of the read" in flat
+    assert "not a statement that the wallet is healthy" in flat
+    # A bounded scan must not let its unread positions read as absent ones.
+    assert "scan_complete === false" in flat
+    assert "unknown rather than absent" in flat
+
+
+def test_the_presenter_never_asserts_a_rate_is_a_forecast():
+    """The no-verdict discipline survives the presentation pass: the same figures, ordered
+    for a reader, with the same thing said about what they are not."""
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    assert "An observation, not a forecast." in js
+    assert "Nothing was signed, approved or moved." in js
+
+
+def test_a_service_with_no_presenter_still_shows_its_payload():
+    """Five of six services have no presenter yet. They must degrade to the old behaviour,
+    not to an empty region."""
+    js = re.sub(r"\s+", " ", (WEB_DIR / "app.js").read_text(encoding="utf-8"))
+    assert (
+        "if (!presenter) return `<pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>`;"
+    ) in js
