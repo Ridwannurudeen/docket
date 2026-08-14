@@ -329,11 +329,15 @@ Added: **do not manufacture a 20-day "trading record" to fill a rubric field.**
 
 Everything above is execution. One thing is not:
 
-**Nobody has read the Terms of Participation to confirm that a single entry can take all three
-tracks.** BNB states "one entry per team" and says partner tracks are "judged independently…
-check that track's page separately." The plan assumes one submission enters all three. If that
-assumption is wrong, the strategy changes shape entirely — and registration is already four days
-overdue.
+~~**Nobody has read the Terms of Participation to confirm that a single entry can take all three
+tracks.**~~ ✅ **CLOSED the same day.** The owner has read the Terms, confirms **one entry covers
+all three tracks**, and **has registered**. This was the assumption the whole strategy rested on
+— BNB states "one entry per team" and says partner tracks are "judged independently… check that
+track's page separately" — and it holds. A consequence worth stating: the BNB shortlist lane
+costs no separate entry, so it is free upside rather than a competing submission.
+
+Recorded as the owner's confirmation. It is the one item here that could not be verified from
+the repo or the public page, because a completed registration is not observable from either.
 
 That is the first thing to do, before any code.
 

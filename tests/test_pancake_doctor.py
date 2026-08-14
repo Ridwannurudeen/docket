@@ -108,14 +108,20 @@ def test_diagnosis_never_uses_the_language_of_endorsement():
         (POSITION, {**POOL, "tick": 65000}, STATS),
         (POSITION, {**POOL, "tick": 66052}, STATS),
         ({**POSITION, "liquidity": 0}, POOL, STATS),
-        (POSITION, POOL, {"row": ROW, "plausible": False, "reason": "tvl $500 is below"}),
+        (
+            POSITION,
+            POOL,
+            {"row": ROW, "plausible": False, "reason": "tvl $500 is below"},
+        ),
         (POSITION, POOL, None),
         (POSITION, None, None),
     ]
     for position, pool, stats in cases:
         d = diagnose(position, pool, stats)
         text = json.dumps({"findings": d["findings"], "actions": d["actions"]})
-        banned = re.findall(r"\b(safe|safety|safest|recommended|guaranteed|best)\b", text, re.I)
+        banned = re.findall(
+            r"\b(safe|safety|safest|recommended|guaranteed|best)\b", text, re.I
+        )
         assert banned == [], f"endorsement language leaked from {d['status']}: {banned}"
 
 
@@ -185,7 +191,9 @@ def test_report_passes_the_bounds_through_to_the_reader():
         }
     )
     with _pool_client() as client:
-        out = report("0xwallet", reader=reader, pools=client, limit=2, include_closed=True)
+        out = report(
+            "0xwallet", reader=reader, pools=client, limit=2, include_closed=True
+        )
 
     assert reader.calls == [("0xwallet", 2, True)]
     # `include_closed` reaches the diagnosis: the closed position is reported, not dropped.
@@ -230,6 +238,7 @@ def test_a_truncated_empty_result_refuses_to_call_the_unread_positions_closed():
             "positions_examined": 30,
             "closed_skipped": 30,
             "scan_complete": False,
+            "stopped_by": "limit",
         }
     )
     with _pool_client() as client:
@@ -239,6 +248,36 @@ def test_a_truncated_empty_result_refuses_to_call_the_unread_positions_closed():
     assert "of the 40 position NFTs this wallet holds, 30 were read" in coverage
     assert "whether the rest are open is unknown" in coverage
     assert "raise `limit`" in coverage
+
+
+def test_the_remedy_matches_the_bound_that_actually_stopped_the_read():
+    """Two bounds stop a scan and only one of them is the caller's to move.
+
+    Telling somebody to raise `limit` when the work ceiling truncated the read is an
+    instruction that cannot work, and a caller who follows it and sees no change learns the
+    wrong thing about their own wallet.
+    """
+    base = {
+        "positions": [],
+        "positions_held": 90,
+        "positions_examined": 30,
+        "closed_skipped": 30,
+        "scan_complete": False,
+    }
+    with _pool_client() as client:
+        by_ceiling = report(
+            "0xwallet",
+            reader=_StubReader(base | {"stopped_by": "max_examined"}),
+            pools=client,
+        )["coverage"]
+        by_limit = report(
+            "0xwallet", reader=_StubReader(base | {"stopped_by": "limit"}), pools=client
+        )["coverage"]
+
+    assert "raising `limit` will not reach further" in by_ceiling
+    assert "examines at most 30 position NFTs" in by_ceiling
+    assert "raise `limit` to return more" in by_limit
+    assert "will not reach further" not in by_limit
 
 
 def test_a_wallet_with_no_positions_at_all_is_its_own_sentence():
@@ -273,4 +312,6 @@ def test_every_report_carries_a_coverage_sentence_even_when_it_found_something()
         out = report("0xwallet", reader=reader, pools=client)
 
     assert "all 3 of this wallet's position NFTs were read" in out["coverage"]
-    assert "1 hold liquidity and are diagnosed below, and 2 are closed" in out["coverage"]
+    assert (
+        "1 hold liquidity and are diagnosed below, and 2 are closed" in out["coverage"]
+    )

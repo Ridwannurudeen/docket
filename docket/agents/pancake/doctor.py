@@ -31,7 +31,7 @@ banning the vocabulary of endorsement outright.
 from datetime import datetime, timezone
 
 from .pools import PoolClient, is_plausible, net_fee_apr
-from .positions import PositionReader
+from .positions import MAX_EXAMINED, PositionReader
 from .tickmath import in_range, range_position_pct
 
 POSITION_URL = "https://pancakeswap.finance/liquidity/{token_id}?chain=bsc"
@@ -308,9 +308,20 @@ def _coverage_sentence(read: dict) -> str:
         tail = f"{closed} of them are closed"
 
     if not complete:
+        # The remedy depends on which bound stopped the read. `limit` is the caller's to
+        # raise; MAX_EXAMINED is not, and telling them to raise `limit` in that case is a
+        # instruction that cannot work.
+        remedy = (
+            "raise `limit` to return more"
+            if read.get("stopped_by") == "limit"
+            else (
+                f"this read examines at most {MAX_EXAMINED} position NFTs and stopped at that "
+                "ceiling, so raising `limit` will not reach further into this wallet"
+            )
+        )
         tail += (
-            ". The read was bounded and did not reach the end of this wallet — raise `limit` "
-            "to return more, and the positions not reached are unknown rather than absent"
+            f". The read was bounded and did not reach the end of this wallet — {remedy}, and "
+            "the positions not reached are unknown rather than absent"
         )
     return f"{scope}: {tail}."
 

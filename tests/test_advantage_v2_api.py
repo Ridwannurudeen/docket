@@ -4,10 +4,16 @@ v1's report is guarded against drift and against quiet sanitisation, and both gu
 still there and still green. This file guards the four things v2 adds, each of which is a
 property that would lapse silently the day nothing checked it.
 
-**v1 is not touched.** The point of a second report is that the first one keeps saying what
-it said. `/advantage.json` keeps its exact shape, its page carries no v2 content, and the
-link between them runs one way: v2 names v1 as the prior version, and v1 does not know v2
-exists.
+**v1's evidence is not touched.** The point of a second report is that the first one keeps
+saying what it said. `/advantage.json` keeps its exact shape and not one figure on v1 has
+moved.
+
+The link between them now runs **both ways**, which it did not at first. v1's page was left
+deliberately ignorant of v2 on the reasoning that a page which had learned about v2 was a
+page that had been edited — and the consequence was that v2 could be reached only from
+itself, so the report carrying the repeated trials was unreachable from the one a reader
+actually lands on. Navigation is not evidence. v1 now carries a link forward and a sentence
+saying which of the two holds the human arm; its data is guarded exactly as before.
 
 **Nothing is served as an aggregate alone.** Every trial is in the document and on the page —
 including the nine scans that failed, which are shown where they happened rather than

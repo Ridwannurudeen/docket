@@ -569,14 +569,17 @@ function presentRangeDoctor(result) {
     return `<section aria-labelledby="result-heading">
         <h3 id="result-heading">What came back</h3>
         ${coverage}
-        <p class="dim">Nothing was diagnosed because there was no open position to diagnose.
-          That is an answer about this wallet, not a failure of the read — and it is not a
-          statement that the wallet is healthy, only that it holds nothing in a pool at the
-          moment it was read.${
-            result.scan_complete === false
-              ? " The read was also bounded, so the positions it did not reach are unknown rather than absent — raise the limit to look further."
-              : ""
-          }</p>
+        <p class="dim">${
+          result.scan_complete === false
+            ? `Nothing was diagnosed among the positions this read reached. It did not reach the
+               end of the wallet, so this is <strong>not</strong> a finding that you have no open
+               position — the ones it did not read are unknown, not absent. The sentence above
+               says what would let it look further.`
+            : `Nothing was diagnosed because there was no open position to diagnose. That is an
+               answer about this wallet, not a failure of the read — and it is not a statement
+               that the wallet is healthy, only that it holds nothing in a pool at the moment it
+               was read.`
+        }</p>
       </section>`;
   }
 

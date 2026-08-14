@@ -383,11 +383,15 @@ def test_an_empty_range_doctor_result_leads_with_why_it_is_empty():
     # is about what they say, not about where the line breaks fall.
     flat = re.sub(r"\s+", " ", empty_branch)
     assert "coverage" in flat
+    # A COMPLETE scan that found nothing may say so — and must still refuse to be read as
+    # a clean bill of health.
     assert "not a failure of the read" in flat
     assert "not a statement that the wallet is healthy" in flat
-    # A bounded scan must not let its unread positions read as absent ones.
+    # A BOUNDED scan may not say so at all: unread positions are unknown, not absent, and
+    # the page must not turn "we stopped early" into "you have none".
     assert "scan_complete === false" in flat
-    assert "unknown rather than absent" in flat
+    assert "not</strong> a finding that you have no open" in flat
+    assert "unknown, not absent" in flat
 
 
 def test_the_presenter_never_asserts_a_rate_is_a_forecast():

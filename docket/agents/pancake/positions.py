@@ -256,13 +256,19 @@ class PositionReader:
         # Kept as one pass rather than two: enumerating everything first would spend a call
         # per position before learning that the first few answered the question.
         scan_complete = True
+        # Which bound stopped it, because the two have different remedies and telling a
+        # caller to raise `limit` when the work ceiling truncated the read is advice that
+        # cannot work.
+        stopped_by = None
         for holder, staked, count in holdings:
             for index in range(count):
                 if limit is not None and len(positions) >= limit:
                     scan_complete = False
+                    stopped_by = "limit"
                     break
                 if max_examined is not None and examined >= max_examined:
                     scan_complete = False
+                    stopped_by = "max_examined"
                     break
                 token_id = self._call(
                     lambda w3, h=holder, i=index: (
@@ -308,6 +314,10 @@ class PositionReader:
             # stopped it, and the positions not reached are neither open nor closed here —
             # they are unknown, which is a different thing and has to read as one.
             "scan_complete": scan_complete,
+            # None when the scan finished, otherwise "limit" or "max_examined". A caller
+            # told to raise `limit` when the work ceiling was what stopped the read has
+            # been given a remedy that does nothing.
+            "stopped_by": stopped_by,
         }
 
     def pool_state(self, token0: str, token1: str, fee: int) -> dict:
