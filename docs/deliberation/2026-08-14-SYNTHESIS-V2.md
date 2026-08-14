@@ -180,6 +180,24 @@ stands: BNB is not a write-off, and the shared work lifts the shortlist substant
 
 ## §5 — The roadmap
 
+> ⛔ **SUPERSEDED, LATER THE SAME DAY, BY `CODEX-WIN-SPEC-2026-08-14.md` §3.**
+> This tier list was written before the owner's priority ruling (TermiX first place and
+> PancakeSwap are PRIMARY and must actually land; BNB $30k is secondary). Under that ruling
+> Codex re-sequenced and cut hard, and **its dated build order governs where the two differ.**
+> Read this section for the reasoning; read the win spec for what to do.
+>
+> Specifically, three things below are **no longer the plan**:
+> - **Tier 2, the refresh loop** — cut to one verified sweep and an app restart inside the
+>   capped BNB lane. Freshness serves the secondary track; service, payment and LP canaries
+>   are kept because those protect the primary ones.
+> - **U2, SOLVENT funding by Aug 20** — cut entirely. The halted read is retired to research
+>   evidence and Warden is the TermiX high-stakes lane.
+> - **The Aug-24 BNB revisit** — removed. BNB is locked to shortlist scope; reopen only on a
+>   material capacity change, never on a date.
+>
+> Also moved: **the Grid decision is Aug 16, not Aug 23**, and the BNB lane is capped at two
+> days, Aug 29–30.
+
 Calendar-anchored. 26 days. Aug 31 paid-hire gate · Sep 1–5 report · Sep 6 freeze · Sep 9 submit.
 
 ### Tier 0 — user-only, blocks everything, must move THIS WEEK
