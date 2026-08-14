@@ -25,8 +25,15 @@ hireable services of which five have no on-chain identity. Against the three spo
 **TermiX first place is the most winnable and is being lost on presentation, not substance;
 PancakeSwap is winnable and under-evidenced; BNB first place is not reachable by Sep 9 and
 should not be chased at the cost of the other two.** The single most damaging fact found today
-is that the flagship service, hired with the exact wallet from its own published evidence run,
-returns an empty result.
+is that the flagship service, hired with the wallet from its own published evidence run, returns
+an **empty position list** — 21 positions held, the default `limit` examines only 10, all 10 are
+closed, and nothing is returned or explained.
+
+> **This document was audited by Codex on 2026-08-14 after being written.** See
+> `CODEX-AUDIT-OF-SYNTHESIS-2026-08-14.md`. Its rulings are folded in below and marked
+> **[Codex audit]**. It also caught a factual error by Claude — the wallet cited in an earlier
+> draft was the first 40 hex characters of a 64-hex `input_hash`, not an address. Corrected and
+> re-verified against the live service.
 
 ---
 
@@ -109,7 +116,7 @@ band." See §4 for the resolved decision.
 | Finding | Verified? |
 |---|---|
 | **`/advantage/v2` has no human path.** The served v1 page links `/advantage` and `/advantage.json` only — zero `v2` strings. The homepage's sole reference is `advantage/v2.json`, the machine endpoint. **TermiX's 30% criterion is scored against a page a judge cannot find.** | ✅ Confirmed |
-| **The flagship's evidence run is irreproducible.** Cold `POST /hire/range-doctor` with the exact wallet from v1 task-01 (`0x916b…f064`) returns HTTP 200 in 3.3s with `positions_held: 0`, `positions_examined: 0`, `positions: []` — 1129 bytes. The recorded run reported "14 of 14 position NFTs." | ✅ Confirmed — **worse than reported** |
+| **The flagship's evidence run is irreproducible.** Cold `POST /hire/range-doctor` with the v1 task-01 wallet `0x451871A1753903FB8fdd64a6B838E95aB8D5B80f` returns HTTP 200 in 9.1s with `positions_held: 21`, `positions_examined: 10` (the default `limit`), `closed_skipped: 10`, and **`positions: []`** — an empty result with no guidance to raise `limit`. The Aug-8 recorded run saw 14 held / 14 examined / 13 closed and returned one position. | ✅ Confirmed exactly as Fable reported |
 | `yield-router`'s input schema is `['pool','position_size_usd','switching_cost_usd','horizon_days']` — **no `wallet`**, so it cannot draft on the hire path. | ✅ Confirmed |
 | 792 tests pass (36.7s); live == repo; 8 cold hires across all six services all returned HTTP 200 in 1.6–23s with receipts. | ✅ Matches Claude's own run (792, 40.7s) |
 | **Nobody has read the Terms of Participation to confirm one entry can take all three tracks.** Registration is overdue. | ⚠ **Unverified — user-only, and foundational** |
@@ -128,30 +135,46 @@ against a live borrower from its vantage. Both stated rather than buried.
 - **Fable:** **measurement-derived** — each service priced against its own recorded manual-arm cost, stated on the card: range-doctor 2 $U, grid/yield/health 1 $U, warden-scan 0.5 $U, solvent 0.1 $U.
 - **Claude (original):** two-tier, free preview + $20–100 band. **Withdrawn** — both assessors showed the band is wrong for seconds-long calls.
 
-**Resolution — adopt Fable's measurement-derived pricing, inside Codex's constraints.**
+**RESOLVED — flat `0.50 $U`. [Codex audit] rejected the measurement-derived ladder, and it was
+right.** Claude's draft adopted Fable's ladder; the audit dismantled it on facts:
 
-They are compatible: Fable's range (0.1–2 $U) brackets Codex's 0.50, and Codex's real
-requirements are *above the observed market floor*, *far below p25*, and *actually settled* —
-all of which measurement-derived pricing satisfies. Fable's version is strictly more defensible
-because **the price carries its own derivation**, which is the only pricing argument consistent
-with Docket's entire thesis. A flat rate would be the one number on the site that isn't
-computed from something.
+- It is **not actually measurement-derived**. Grid, Yield and Health have **no recorded manual
+  arms and no service metrics at all** (`registry.py:73`, `:107`, `:148`) — there is nothing to
+  derive their price from.
+- The two services that *do* have recorded manual arms report a direct cash cost of **$0**
+  (`01-liquidity.json:123-127`, `03-security.json:54-58`). A $0 manual arm cannot yield a price.
+- Docket's own harness **explicitly refuses** to convert elapsed time into money without an
+  hourly-rate assumption (`harness.py:9-13`). The ladder does that implicitly and inconsistently.
+- SOLVENT at 0.1 $U sits **below** the verified $0.50 market floor, contradicting the very
+  constraint the ladder was claimed to satisfy.
+
+The flat rate's advantage, which Claude missed: it is **externally derived** — from TermiX's
+observed minimum — uniform, auditable, and impossible to mistake for fabricated precision. A
+ladder with invented derivations would be the one place Docket asserted a number it could not show.
+
+**Decision: `0.50 $U` for every completed personalized hire through Sep 23. One separate,
+prefilled free sample. Remove the halted SOLVENT from paid stock unless U2 produces a genuinely
+resumed service** — a stale historical read is research evidence, not paid inventory.
 
 **Also adopted:** retire the design spec's "$21–100 judge's band" **in writing**. TermiX's $70
 median buys multi-day professional work; a $70 30-second call fails "Value of the services" in
 the opposite direction.
-
-*Flagged for Codex's review, since this departs from the director's spec.*
 
 ### 4.2 How much BNB to chase
 
 - **Codex:** concede first place; do not build provider onboarding.
 - **Fable:** shortlist plausible; the human journey now exists; staleness and the identity gap are what remain.
 
-**Resolution:** they do not actually conflict. Both say first place is out of reach; Fable is
-simply less pessimistic about the shortlist. Adopt Codex's scoping (**no provider platform in
-the primary plan**) with Fable's correction that BNB is not a write-off — the shared work lifts
-it substantially. Revisit ~Aug 24.
+**RESOLVED — lock BNB to shortlist scope NOW; no Aug-24 revisit. [Codex audit] rejected the
+deferral**, and the argument holds: the shared work improves the shortlist but **does not make
+provider onboarding any smaller**. A credible supply path needs provider manifests, ownership
+verification, schema/evidence validation, deploy-free publication, and an independent provider
+actually hired — none of which arrives via settlement, freshness or identity work. If BNB first
+place is not credible with 26 days, it does not become credible because the calendar reaches
+Aug 24.
+
+**Reopen only on a material capacity change — never on a date.** Fable's correction still
+stands: BNB is not a write-off, and the shared work lifts the shortlist substantially.
 
 ---
 
@@ -175,8 +198,20 @@ Calendar-anchored. 26 days. Aug 31 paid-hire gate · Sep 1–5 report · Sep 6 f
 
 1. `pyproject.toml` — package `docket.agents.venus` + `docket.agents.yield_router`; add CI that builds a wheel, installs it **outside** the checkout, and smoke-tests all four category hires.
 2. `index.html:53` — remove the false "every service can show a recorded run" claim.
-3. **Link `/advantage/v2` from the v1 page and the homepage nav.** Highest-value single edit on the board: it makes TermiX's 30% artifact reachable.
+3. **Make v2 reachable — [Codex audit] specifies how.** Keep **one** top-level `/advantage`
+   destination in the nav; add an **above-fold, labelled link from the v1 page to v2** that states
+   the relationship: *v1 is the paired agent-vs-human report TermiX's gate asks for; v2 is the
+   methodological armor around it.* Do **not** create competing top-level report destinations and
+   do **not** call v2 "the" TermiX artifact. Verified today: only `advantage-v2.html` carries a v2
+   nav link, and `tests/test_web_categories.py:243` asserts "the same navigation" while checking
+   only four hrefs — widen it so the relationship is enforced, not just present.
 4. `store.py` / `ingest.py::_sweep` — a closed `stop_reason`; never promote a bounded or non-advancing sweep; promotion predicate requires true completeness.
+5. **[Codex audit] UI correctness, dropped from Claude's draft:** Grid's `filled` array is rendered
+   and submitted as text, and large integers pass through precision-losing `Number.parseInt`
+   (`app.js:392-403`, `:517-529`; `catalogue.py:186`, `:424-428`). Restore the real array control
+   and BigInt-safe handling.
+6. **[Codex audit] Start the v3 report specification NOW, in parallel** — not conceptually at
+   Tier 6. The whole point of an Aug-14 kickoff is that **git proves the spec predates every run**.
 
 ### Tier 2 — the refresh loop, done safely (Aug 14–18)
 
@@ -197,6 +232,10 @@ from "Pay and hire" in the UI.
 output by Aug 20, TermiX first place becomes unlikely.** Re-verify the current Binance/x402
 facilitator before writing code. Keep $U (the EIP-3009 asset the verifier understands).
 
+**[Codex audit] The exit gate must also require a NON-EMPTY, human-readable result.** Settling
+payment for empty raw JSON does not prove value to TermiX — and given the Range Doctor finding,
+that is not a hypothetical failure mode.
+
 ### Tier 4 — make the demo survive a cold judge (Aug 18–23)
 
 **This is the fix for the single most damaging finding.** A Docket-owned demo wallet with a live
@@ -206,7 +245,17 @@ not have, and the flagship returns empty on its own evidence wallet.
 
 Plus: result presenters per service — finding, observed block/time, economic consequence, next
 step, primary limitation, expandable raw JSON. Today `app.js:540` dumps raw JSON into `<pre>`.
-Add `wallet` to `yield-router`'s input schema so it can draft.
+
+**[Codex audit] corrections to Claude's draft:**
+- **Yield is underspecified.** Adding `wallet` alone is not enough — drafting also needs catalogue
+  wiring for the reader, token pair, amount and cap (`catalogue.py:285-299`;
+  `agents/yield_router/router.py:405-468`).
+- **Range Doctor's empty result is a `limit` defect, not just a data one.** 21 held, 10 examined,
+  10 closed, nothing returned and nothing explained. Fix the default, and say what was skipped.
+- **Registering identities does not join the two marketplaces.** A service page can link to an
+  indexed identity, but an agent detail page exposes no service and no hire action
+  (`routes.py:641-671`; `app.js:1162-1224`). **Add the reverse agent → service/hire link** or the
+  seam stays open.
 
 ### Tier 5 — evidence parity and identity (Aug 18–27)
 
@@ -227,7 +276,21 @@ rule in git before either arm runs.** v1 and v2 preserved as linked appendices, 
 README, LICENSE, AI_USAGE.md, architecture, runbook, threat model, claims-to-evidence table.
 Secret/history review before the flip. Clean clone → wheel install → tests → four smokes.
 
+### Tier 8 — conditional Grid proof lane (Aug 21–25) — **[Codex audit] restored**
+
+U6 asks for a decision but Claude's draft scheduled no implementation if the answer is yes. If
+approved by Aug 23: re-verify the current Altana SDK, add only the minimal session-key submitter
+`GridOperator` requires (its armed class refuses construction without one, `operator.py:23-27`),
+rehearse on testnet, then one tiny mainnet proof — registered session → agreed simulation → one
+confirmed swap → cap decrement → revoke → post-revoke refusal. **If not approved, no volume claim
+appears anywhere in the submission.**
+
 ### Then: Aug 27–31 cold rehearsal · Sep 1–5 report · Sep 6 freeze · Sep 8–9 submit on approval.
+
+**[Codex audit] Operations do not stop at submission.** Persistent service-availability history
+plus uptime and freshness monitoring must run **through Sep 23**, not merely to Sep 9 — the
+submission must stay functional and publicly accessible for the whole judging window, which is a
+stated eligibility condition.
 
 ---
 
