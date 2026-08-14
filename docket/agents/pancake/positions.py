@@ -47,6 +47,12 @@ ATTEMPTS_PER_RPC = 2
 RPC_TIMEOUT_S = 20
 RETRY_PAUSE_S = 0.5
 
+# The ceiling on positions read in one call, which is what actually bounds cost: two
+# sequential RPC calls each, measured at roughly 0.4s per call against a public dataseed.
+# Thirty covers the whole of most wallets in about twenty-five seconds and stops a wallet
+# holding hundreds from turning one hire into a five-minute read.
+MAX_EXAMINED = 30
+
 NPM = Web3.to_checksum_address("0x46A15B0b27311cedF172AB29E4f4766fbE7F4364")
 FACTORY = Web3.to_checksum_address("0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865")
 MASTER_CHEF_V3 = Web3.to_checksum_address("0x556B9306565093C855AEA9AE92A594704c2Cd59e")
@@ -162,13 +168,17 @@ class PositionReader:
                     session = self._sessions.get(url)
                     if session is None:
                         session = Web3(
-                            Web3.HTTPProvider(url, request_kwargs={"timeout": RPC_TIMEOUT_S})
+                            Web3.HTTPProvider(
+                                url, request_kwargs={"timeout": RPC_TIMEOUT_S}
+                            )
                         )
                         self._sessions[url] = session
                     return do(session)
                 except Exception as exc:
                     self._sessions.pop(url, None)
-                    failures.append(f"{url} (attempt {attempt + 1}): {type(exc).__name__}: {exc}")
+                    failures.append(
+                        f"{url} (attempt {attempt + 1}): {type(exc).__name__}: {exc}"
+                    )
                     if attempt < ATTEMPTS_PER_RPC - 1:
                         time.sleep(RETRY_PAUSE_S)
         raise RuntimeError("every BSC endpoint failed:\n  " + "\n  ".join(failures))
@@ -179,6 +189,7 @@ class PositionReader:
         *,
         limit: int | None = None,
         include_closed: bool = False,
+        max_examined: int | None = MAX_EXAMINED,
     ) -> dict:
         """The wallet's v3 positions, held directly or staked, with counts of what was left out.
 
@@ -187,23 +198,33 @@ class PositionReader:
         about a second, so a wallet holding 155 of them takes five minutes. The
         two arguments below are the levers for that, and they do different jobs.
 
-        `limit` caps how many token ids are enumerated, across the NPM holdings
-        and then the staked ones in that order. It is the only argument that
-        makes the read cheaper: a limit of 10 is 20 enumeration calls whatever
-        the wallet holds, on top of the three fixed reads. A wallet whose direct
-        holdings exceed the limit has none of its staked positions reached, which
-        is why the total is reported separately.
+        `limit` caps how many positions are RETURNED, not how many are looked at.
+        It used to cap the enumeration, and that made the bound land on the wrong
+        thing: closed positions spent the budget before any open one was reached,
+        so a wallet holding ten closed positions and one open one answered with an
+        empty list. `max_examined` is what keeps the read cheap now — the caller
+        bounds the work explicitly instead of getting a work bound disguised as a
+        result bound.
+
+        Cost is two sequential calls per position examined, plus three fixed
+        reads. A wallet whose direct holdings exhaust `max_examined` has none of
+        its staked positions reached, which is why the total is reported
+        separately and why `scan_complete` says whether the enumeration got to
+        the end of the wallet.
 
         `include_closed` does not save a single call — liquidity is only known
         once `positions` has already been read — it decides what is worth
         returning. A position with zero liquidity holds nothing in the pool and
         cannot be advised on, and wallets accumulate them by the hundred.
 
-        Both leave a count behind rather than a silence. `positions_held` is the
-        wallet's true total from the two `balanceOf` reads, `positions_examined`
-        is how many of those were actually read, and `closed_skipped` is how many
-        of the examined ones were dropped for holding nothing. A caller can
-        always say what it did not look at.
+        Every bound leaves a count behind rather than a silence. `positions_held`
+        is the wallet's true total from the two `balanceOf` reads, taken before
+        any bound applies; `positions_examined` is how many were actually read;
+        `closed_skipped` is how many of those held nothing; and `scan_complete`
+        says whether the read reached the end of the wallet. A caller can always
+        say what it did not look at, and — the case this is for — an empty list
+        can always say which of the two empties it is: a wallet whose positions
+        are all closed, or a wallet whose open ones were never reached.
 
         `block_number` is read once, before enumeration, and is the block the
         read began at: a wallet with hundreds of positions takes long enough that
@@ -213,19 +234,35 @@ class PositionReader:
         owner = Web3.to_checksum_address(address)
         block = self._call(lambda w3: w3.eth.block_number)
 
-        held: list[tuple[int, bool]] = []
+        # Both balances first: the wallet's true total is read before any bound applies, so a
+        # truncated scan still reports what it did not reach.
+        holdings: list[tuple[str, bool, int]] = []
         held_total = 0
         for holder, staked in ((NPM, False), (MASTER_CHEF_V3, True)):
             count = self._call(
                 lambda w3, h=holder: (
-                    w3.eth.contract(address=h, abi=HOLDER_ABI).functions.balanceOf(owner).call()
+                    w3.eth.contract(address=h, abi=HOLDER_ABI)
+                    .functions.balanceOf(owner)
+                    .call()
                 )
             )
-            # Counted even when the limit stops the enumeration short, so the
-            # total is the wallet's, not this read's.
             held_total += count
+            holdings.append((holder, staked, count))
+
+        positions: list[dict] = []
+        closed_skipped = 0
+        examined = 0
+        # Enumeration and reading are interleaved so the loop can stop on a result count.
+        # Kept as one pass rather than two: enumerating everything first would spend a call
+        # per position before learning that the first few answered the question.
+        scan_complete = True
+        for holder, staked, count in holdings:
             for index in range(count):
-                if limit is not None and len(held) >= limit:
+                if limit is not None and len(positions) >= limit:
+                    scan_complete = False
+                    break
+                if max_examined is not None and examined >= max_examined:
+                    scan_complete = False
                     break
                 token_id = self._call(
                     lambda w3, h=holder, i=index: (
@@ -234,39 +271,43 @@ class PositionReader:
                         .call()
                     )
                 )
-                held.append((token_id, staked))
-
-        positions = []
-        closed_skipped = 0
-        for token_id, staked in held:
-            raw = self._call(
-                lambda w3, t=token_id: (
-                    w3.eth.contract(address=NPM, abi=NPM_ABI).functions.positions(t).call()
+                raw = self._call(
+                    lambda w3, t=token_id: (
+                        w3.eth.contract(address=NPM, abi=NPM_ABI)
+                        .functions.positions(t)
+                        .call()
+                    )
                 )
-            )
-            if raw[7] == 0 and not include_closed:
-                closed_skipped += 1
-                continue
-            positions.append(
-                {
-                    "token_id": token_id,
-                    "staked": staked,
-                    "token0": raw[2],
-                    "token1": raw[3],
-                    "fee": raw[4],
-                    "tick_lower": raw[5],
-                    "tick_upper": raw[6],
-                    "liquidity": raw[7],
-                    "tokens_owed0": raw[10],
-                    "tokens_owed1": raw[11],
-                    "block_number": block,
-                }
-            )
+                examined += 1
+                if raw[7] == 0 and not include_closed:
+                    closed_skipped += 1
+                    continue
+                positions.append(
+                    {
+                        "token_id": token_id,
+                        "staked": staked,
+                        "token0": raw[2],
+                        "token1": raw[3],
+                        "fee": raw[4],
+                        "tick_lower": raw[5],
+                        "tick_upper": raw[6],
+                        "liquidity": raw[7],
+                        "tokens_owed0": raw[10],
+                        "tokens_owed1": raw[11],
+                        "block_number": block,
+                    }
+                )
+            if not scan_complete:
+                break  # a bound stopped the NPM holdings, so the farm is not reached either
         return {
             "positions": positions,
             "positions_held": held_total,
-            "positions_examined": len(held),
+            "positions_examined": examined,
             "closed_skipped": closed_skipped,
+            # Whether the enumeration reached the end of the wallet. False means a bound
+            # stopped it, and the positions not reached are neither open nor closed here —
+            # they are unknown, which is a different thing and has to read as one.
+            "scan_complete": scan_complete,
         }
 
     def pool_state(self, token0: str, token1: str, fee: int) -> dict:
@@ -280,7 +321,9 @@ class PositionReader:
             lambda w3: (
                 w3.eth.contract(address=FACTORY, abi=FACTORY_ABI)
                 .functions.getPool(
-                    Web3.to_checksum_address(token0), Web3.to_checksum_address(token1), int(fee)
+                    Web3.to_checksum_address(token0),
+                    Web3.to_checksum_address(token1),
+                    int(fee),
                 )
                 .call()
             )
@@ -297,10 +340,14 @@ class PositionReader:
         pool = Web3.to_checksum_address(address)
         block = self._call(lambda w3: w3.eth.block_number)
         slot0 = self._call(
-            lambda w3: w3.eth.contract(address=pool, abi=POOL_ABI).functions.slot0().call()
+            lambda w3: (
+                w3.eth.contract(address=pool, abi=POOL_ABI).functions.slot0().call()
+            )
         )
         liquidity = self._call(
-            lambda w3: w3.eth.contract(address=pool, abi=POOL_ABI).functions.liquidity().call()
+            lambda w3: (
+                w3.eth.contract(address=pool, abi=POOL_ABI).functions.liquidity().call()
+            )
         )
         return {
             "address": pool,

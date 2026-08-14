@@ -52,7 +52,9 @@ class _Functions:
         self._address, self._log = address, log
 
     def balanceOf(self, owner):
-        return _Call(self._log, ("balanceOf", self._address), len(HOLDINGS[self._address]))
+        return _Call(
+            self._log, ("balanceOf", self._address), len(HOLDINGS[self._address])
+        )
 
     def tokenOfOwnerByIndex(self, owner, index):
         return _Call(
@@ -105,24 +107,56 @@ def test_include_closed_returns_every_position_and_skips_none():
     reader, _ = _reader()
     read = reader.wallet_positions(WALLET, include_closed=True)
 
-    assert [p["token_id"] for p in read["positions"]] == [7098969, 7087132, 6000001, 5000002]
+    assert [p["token_id"] for p in read["positions"]] == [
+        7098969,
+        7087132,
+        6000001,
+        5000002,
+    ]
     assert read["closed_skipped"] == 0
     assert read["positions_examined"] == 4
 
 
-def test_limit_stops_the_enumeration_rather_than_truncating_the_result():
+def test_limit_bounds_what_comes_back_rather_than_what_is_looked_at():
+    """The bound used to land on the enumeration, and that is what produced empty results.
+
+    A wallet's closed positions spent the budget before an open one was reached, so a caller
+    asking for two positions could be handed none while the wallet held plenty. The live
+    evidence wallet made it concrete: `limit=10` examined ten, all ten were closed, and the
+    answer was `[]`. `limit` now caps the positions returned; `max_examined` caps the work.
+    """
     reader, log = _reader()
     read = reader.wallet_positions(WALLET, limit=2)
 
-    enumerated = [e for e in log if e[0] == "tokenOfOwnerByIndex"]
+    # Both open positions are found, even though a closed one sits between them.
+    assert [p["token_id"] for p in read["positions"]] == [7098969, 5000002]
+    assert read["closed_skipped"] == 2
+    assert read["positions_examined"] == 4
     fetched = [e for e in log if e[0] == "positions"]
-    # Two ids, two position reads: the work stopped, it was not done and discarded.
-    assert len(enumerated) == 2 and len(fetched) == 2
-    # The limit was reached inside the NPM holdings, so the farm was never enumerated.
-    assert all(e[1] == NPM for e in enumerated)
+    assert (
+        len(fetched) == 4
+    )  # the closed ones cost a read; they no longer cost a result
+
+
+def test_max_examined_is_what_bounds_the_work_and_says_so():
+    """The cost bound still exists — it is just named for what it does now."""
+    reader, log = _reader()
+    read = reader.wallet_positions(WALLET, max_examined=2)
+
     assert read["positions_examined"] == 2
-    assert [p["token_id"] for p in read["positions"]] == [7098969]
-    assert read["closed_skipped"] == 1
+    assert read["scan_complete"] is False  # two of four looked at
+    enumerated = [e for e in log if e[0] == "tokenOfOwnerByIndex"]
+    assert len(enumerated) == 2
+    # The ceiling was hit inside the NPM holdings, so the farm was never enumerated.
+    assert all(e[1] == NPM for e in enumerated)
+
+
+def test_a_scan_that_reaches_the_end_of_the_wallet_says_it_did():
+    """`scan_complete` is what separates "these are all closed" from "the open ones were
+    never reached" — two empties that look identical without it."""
+    reader, _ = _reader()
+    assert reader.wallet_positions(WALLET)["scan_complete"] is True
+    assert reader.wallet_positions(WALLET, limit=1)["scan_complete"] is False
 
 
 def test_the_wallet_total_is_read_even_when_the_limit_cuts_the_enumeration_short():

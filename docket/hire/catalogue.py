@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 import httpx
 
 from ..agents.pancake import doctor
+from ..agents.pancake.positions import MAX_EXAMINED
 
 # $U (ERC-8183, 18 decimals) on BSC mainnet. Priced in the asset whose
 # TransferWithAuthorization this build can actually verify — see hire/x402.py.
@@ -115,7 +116,9 @@ def _call_upstream(method: str, url: str, body: dict | None = None) -> dict:
             resp = httpx.request(method, url, json=body, timeout=UPSTREAM_TIMEOUT_S)
             if resp.status_code == 429 or resp.status_code >= 500:
                 last = httpx.HTTPStatusError(
-                    f"{resp.status_code} from {url}", request=resp.request, response=resp
+                    f"{resp.status_code} from {url}",
+                    request=resp.request,
+                    response=resp,
                 )
             else:
                 resp.raise_for_status()
@@ -167,7 +170,9 @@ def _run_grid_operator(payload: dict) -> dict:
     base = payload.get("base") or GRID_BASE
     quote = payload.get("quote") or GRID_QUOTE
     base_decimals = int(payload.get("base_decimals") or GRID_BASE_DECIMALS)
-    observed = observe_price(reader, base=base, quote=quote, base_decimals=base_decimals)
+    observed = observe_price(
+        reader, base=base, quote=quote, base_decimals=base_decimals
+    )
 
     reference = payload.get("reference")
     reference = observed.price if reference is None else int(reference)
@@ -184,7 +189,9 @@ def _run_grid_operator(payload: dict) -> dict:
         reference=reference,
     )
     filled = tuple(int(index) for index in payload.get("filled") or ())
-    return GridPreview(plan, reader=reader, wallet=payload["wallet"]).preview(filled=filled)
+    return GridPreview(plan, reader=reader, wallet=payload["wallet"]).preview(
+        filled=filled
+    )
 
 
 def _run_health_guard(payload: dict) -> dict:
@@ -202,15 +209,23 @@ def _run_health_guard(payload: dict) -> dict:
     policy = GuardPolicy(
         markets=(
             MarketPolicy(
-                vtoken=VENUS_VUSDT, underlying=VENUS_USDT, max_repay=GUARD_CAP, max_supply=0
+                vtoken=VENUS_VUSDT,
+                underlying=VENUS_USDT,
+                max_repay=GUARD_CAP,
+                max_supply=0,
             ),
             MarketPolicy(
-                vtoken=VENUS_VUSDC, underlying=VENUS_USDC, max_repay=0, max_supply=GUARD_CAP
+                vtoken=VENUS_VUSDC,
+                underlying=VENUS_USDC,
+                max_repay=0,
+                max_supply=GUARD_CAP,
             ),
         ),
         trigger_shortfall_usd=GUARD_TRIGGER_USD if trigger is None else int(trigger),
     )
-    return HealthGuardPreview(reader=VenusReader(), policy=policy).preview(payload["wallet"])
+    return HealthGuardPreview(reader=VenusReader(), policy=policy).preview(
+        payload["wallet"]
+    )
 
 
 def _run_yield_router(payload: dict) -> dict:
@@ -323,8 +338,12 @@ SERVICES: dict[str, Service] = {
                 "required": False,
                 "default": RANGE_DOCTOR_LIMIT,
                 "description": (
-                    "how many of the wallet's position NFTs to read, newest first; the response "
-                    "reports positions_held and positions_examined so a bounded read is visible"
+                    "how many open positions to return. It bounds the answer, not the reading: "
+                    "closed positions no longer consume it, so a wallet whose older positions "
+                    "are all closed still gets its open ones back. Up to "
+                    f"{MAX_EXAMINED} position NFTs are read in one call whatever this is set to; "
+                    "the response carries positions_held, positions_examined, closed_skipped "
+                    "and scan_complete, so a bounded read always says what it did not reach"
                 ),
             },
         },

@@ -236,7 +236,11 @@ def report(
         # it is four RPC calls spent to change nothing.
         if position["liquidity"] == 0:
             entries.append(
-                {"position": position, "pool": None, "diagnosis": diagnose(position, None, None)}
+                {
+                    "position": position,
+                    "pool": None,
+                    "diagnosis": diagnose(position, None, None),
+                }
             )
             continue
         key = (position["token0"], position["token1"], position["fee"])
@@ -259,12 +263,61 @@ def report(
         "positions_held": read["positions_held"],
         "positions_examined": read["positions_examined"],
         "closed_skipped": read["closed_skipped"],
+        "scan_complete": read["scan_complete"],
+        "coverage": _coverage_sentence(read),
         "positions": entries,
         "pools": {"checked": len(rows), "rejected": rejected},
     }
 
 
-def _pool_findings(pool_stats: dict | None, apr: float | None, status: str) -> list[str]:
+def _coverage_sentence(read: dict) -> str:
+    """What the scan covered, in one sentence, always present.
+
+    An empty `positions` list is the single most misleading thing this agent can return: it
+    looks identical whether the wallet holds nothing, holds only closed positions, or holds
+    open ones the read never reached. A caller who gets `[]` and no sentence has been told
+    nothing and may reasonably conclude their positions are fine.
+    """
+    held = read["positions_held"]
+    examined = read["positions_examined"]
+    closed = read["closed_skipped"]
+    complete = read["scan_complete"]
+    returned = len(read["positions"])
+
+    if held == 0:
+        return "This wallet holds no PancakeSwap v3 position NFTs, directly or staked."
+
+    scope = (
+        f"of the {held} position NFTs this wallet holds, {examined} were read"
+        if examined < held
+        else f"all {held} of this wallet's position NFTs were read"
+    )
+    if returned:
+        tail = f"{returned} hold liquidity and are diagnosed below, and {closed} are closed"
+    elif closed == examined and complete:
+        tail = (
+            f"every one of the {closed} is closed — they hold no liquidity, so there is no "
+            "position to diagnose and nothing here is earning or losing fees"
+        )
+    elif closed == examined:
+        tail = (
+            f"all {closed} read so far are closed, and the read stopped before the end of the "
+            "wallet, so whether the rest are open is unknown"
+        )
+    else:
+        tail = f"{closed} of them are closed"
+
+    if not complete:
+        tail += (
+            ". The read was bounded and did not reach the end of this wallet — raise `limit` "
+            "to return more, and the positions not reached are unknown rather than absent"
+        )
+    return f"{scope}: {tail}."
+
+
+def _pool_findings(
+    pool_stats: dict | None, apr: float | None, status: str
+) -> list[str]:
     if pool_stats is None:
         return [
             "this pool is not among the explorer's top pools by TVL, so no 24h fee figures were "

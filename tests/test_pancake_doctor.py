@@ -128,7 +128,9 @@ class _StubReader:
 
     def wallet_positions(self, address, *, limit=None, include_closed=False):
         self.calls.append((address, limit, include_closed))
-        return self._read
+        # `scan_complete` defaults true here so a fixture that does not care about
+        # truncation reads as a finished scan rather than an unknown one.
+        return {"scan_complete": True, **self._read}
 
     def pool_state(self, token0, token1, fee):
         return POOL
@@ -189,3 +191,86 @@ def test_report_passes_the_bounds_through_to_the_reader():
     # `include_closed` reaches the diagnosis: the closed position is reported, not dropped.
     assert out["positions"][0]["diagnosis"]["status"] == "closed"
     assert out["positions"][0]["pool"] is None
+
+
+def test_an_empty_result_says_which_empty_it_is():
+    """`[]` is the most misleading thing this agent can return.
+
+    A wallet holding nothing, a wallet holding only closed positions, and a wallet whose open
+    positions were never reached all produce the same empty list. The live evidence wallet is
+    the second of those — 21 held, 21 read, all 21 closed — and a reader given `[]` with no
+    sentence could reasonably conclude their positions were fine.
+    """
+    reader = _StubReader(
+        {
+            "positions": [],
+            "positions_held": 21,
+            "positions_examined": 21,
+            "closed_skipped": 21,
+            "scan_complete": True,
+        }
+    )
+    with _pool_client() as client:
+        out = report("0xwallet", reader=reader, pools=client)
+
+    assert out["positions"] == []
+    assert out["scan_complete"] is True
+    coverage = out["coverage"]
+    assert "all 21" in coverage
+    assert "every one of the 21 is closed" in coverage
+    assert "no position to diagnose" in coverage
+
+
+def test_a_truncated_empty_result_refuses_to_call_the_unread_positions_closed():
+    """Bounded and empty is not the same claim as complete and empty."""
+    reader = _StubReader(
+        {
+            "positions": [],
+            "positions_held": 40,
+            "positions_examined": 30,
+            "closed_skipped": 30,
+            "scan_complete": False,
+        }
+    )
+    with _pool_client() as client:
+        out = report("0xwallet", reader=reader, pools=client)
+
+    coverage = out["coverage"]
+    assert "of the 40 position NFTs this wallet holds, 30 were read" in coverage
+    assert "whether the rest are open is unknown" in coverage
+    assert "raise `limit`" in coverage
+
+
+def test_a_wallet_with_no_positions_at_all_is_its_own_sentence():
+    reader = _StubReader(
+        {
+            "positions": [],
+            "positions_held": 0,
+            "positions_examined": 0,
+            "closed_skipped": 0,
+            "scan_complete": True,
+        }
+    )
+    with _pool_client() as client:
+        out = report("0xwallet", reader=reader, pools=client)
+
+    assert out["coverage"] == (
+        "This wallet holds no PancakeSwap v3 position NFTs, directly or staked."
+    )
+
+
+def test_every_report_carries_a_coverage_sentence_even_when_it_found_something():
+    reader = _StubReader(
+        {
+            "positions": [POSITION],
+            "positions_held": 3,
+            "positions_examined": 3,
+            "closed_skipped": 2,
+            "scan_complete": True,
+        }
+    )
+    with _pool_client() as client:
+        out = report("0xwallet", reader=reader, pools=client)
+
+    assert "all 3 of this wallet's position NFTs were read" in out["coverage"]
+    assert "1 hold liquidity and are diagnosed below, and 2 are closed" in out["coverage"]
