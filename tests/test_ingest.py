@@ -1,5 +1,10 @@
+import ast
+import inspect
+import textwrap
+
 import httpx
 
+import docket.ingest as ingest_module
 from docket.ingest import ingest_bsc, ingest_targeted
 from docket.scan8004 import Scan8004Client
 from docket.store import Store
@@ -43,6 +48,46 @@ def test_ingests_every_page_and_records_coverage(tmp_path):
     assert result["expected"] == 250
     assert result["dropped"] == 0
     assert store.agent_count(result["snapshot_id"]) == 250
+    assert result["stop_reason"] == "exhausted"
+    assert store.snapshot(result["snapshot_id"])["stop_reason"] == "exhausted"
+
+
+def test_exhaustion_is_assigned_only_after_the_pagination_loop_does_not_break():
+    """`exhausted` used to be the pre-loop default, so a new unclassified `break` would
+    silently inherit the only promotable reason. The loop's no-break branch must assign it,
+    and any break that forgot its classification must be rejected before finalization.
+    """
+    source = textwrap.dedent(inspect.getsource(ingest_module._sweep))
+    function = ast.parse(source).body[0]
+    stop_default = next(
+        node
+        for node in function.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.target.id == "stop_reason"
+    )
+    assert ast.literal_eval(stop_default.value) is None
+
+    loop = next(node for node in function.body if isinstance(node, ast.While))
+    assert any(
+        isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "stop_reason"
+            for target in node.targets
+        )
+        and ast.literal_eval(node.value) == "exhausted"
+        for node in loop.orelse
+    )
+
+    guard = function.body[function.body.index(loop) + 1]
+    assert isinstance(guard, ast.If)
+    assert isinstance(guard.test, ast.Compare)
+    assert isinstance(guard.test.left, ast.Name)
+    assert guard.test.left.id == "stop_reason"
+    assert len(guard.test.ops) == 1 and isinstance(guard.test.ops[0], ast.Is)
+    assert len(guard.test.comparators) == 1
+    assert ast.literal_eval(guard.test.comparators[0]) is None
+    assert any(isinstance(node, ast.Raise) for node in guard.body)
 
 
 def test_growth_during_sweep_is_reported_as_dropped_not_hidden(tmp_path):
@@ -86,6 +131,8 @@ def test_unbounded_sweep_terminates_when_the_paginator_never_advances(tmp_path):
     assert result["pages"] == 1
     assert result["sampled"] == 10
     assert result["dropped"] == 20
+    assert result["stop_reason"] == "not_advancing"
+    assert store.latest_complete_snapshot_id() is None
 
 
 def test_max_pages_bounds_the_sweep(tmp_path):
@@ -96,6 +143,8 @@ def test_max_pages_bounds_the_sweep(tmp_path):
     assert result["sampled"] == 200
     assert result["expected"] == 1000
     assert result["dropped"] == 800  # a bounded sweep states its own incompleteness
+    assert result["stop_reason"] == "max_pages"
+    assert store.latest_complete_snapshot_id() is None
 
 
 def test_duplicate_rows_across_pages_do_not_inflate_the_count(tmp_path):

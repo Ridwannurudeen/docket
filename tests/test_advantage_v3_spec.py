@@ -1,24 +1,53 @@
-"""The registration half of v3, and the refusals that make it worth registering.
+"""The registration half of v3, including the refusals that make it a real lock.
 
-v1 is the only report in this build that pairs an agent arm against a human one, and it is
-three single pairs whose framing was settled with the results visible. v2 pre-registers
-properly and compares against nulls, so it is not the paired report the sponsor's gate asks
-for — `docket/advantage/v2/report.py` says so in its own words. v3 is the pairing, run the
-way v2 taught us to run things, and these tests hold the parts a reader has to be able to
-check.
+V3 is the repeated agent-versus-human report. These tests distinguish the stage-one
+protocol identity from the later composite input lock, verify the referenced bytes rather
+than trusting a filled-in field, and bind the objective rules the three families must use
+before any input or output exists.
 """
 
+import hashlib
 import json
+from base64 import b64decode, b64encode
 from pathlib import Path
 
 import pytest
 
-from docket.advantage.v3.spec import PairedSpec, assert_runnable, load, save
-
-SPECS_DIR = (
-    Path(__file__).resolve().parents[1] / "docket" / "advantage" / "v3" / "specs"
+import docket.advantage.v3.spec as spec_module
+from docket.advantage.v3.spec import (
+    PairedSpec,
+    assert_runnable,
+    load,
+    lock_inputs,
+    save,
 )
+from docket.hire.receipts import canonical_hash
+
+ROOT = Path(__file__).resolve().parents[1]
+SPECS_DIR = ROOT / "docket" / "advantage" / "v3" / "specs"
 REGISTERED = sorted(SPECS_DIR.glob("*.json"))
+INPUT_REF = "docket/advantage/v3/inputs/x.json"
+
+
+@pytest.fixture(autouse=True)
+def _register_the_minimal_test_protocol_validator(monkeypatch):
+    """Core lock tests use spec id ``t`` to isolate two-stage mechanics. Production ids
+    still require one of the three explicit family validators."""
+    monkeypatch.setitem(
+        spec_module.INPUT_VALIDATORS,
+        "t",
+        lambda _spec, _body, _cases, _repo_root: None,
+    )
+
+
+def _criterion(name: str) -> dict:
+    return {
+        "name": name,
+        "score_3_means": "all registered facts are present and correct",
+        "score_2_means": "the registered decision is correct and one named fact is absent",
+        "score_1_means": "only the registered decision is present and correct",
+        "score_0_means": "the decision is absent or wrong",
+    }
 
 
 def _valid(**overrides) -> dict:
@@ -26,43 +55,274 @@ def _valid(**overrides) -> dict:
         "spec_id": "t",
         "question": "q?",
         "category": "yield/LP",
-        "claim": "the hired arm scores no lower and takes less time",
+        "claim": "the hired arm scores no lower and clears the registered speed threshold",
         "falsifier": "a lower median rubric total refutes the quality limb",
         "arms": {
             arm: {
-                "what_it_does": "does the thing",
-                "who_runs_it": "somebody",
-                "what_is_recorded": "seconds, cost, output",
+                "what_it_does": "does the registered task",
+                "who_runs_it": "the registered runner",
+                "what_is_recorded": "seconds, cost, output and failures",
             }
             for arm in ("agent", "manual")
         },
-        "case_selection": {"rule": "five live positions spanning the states"},
+        "case_selection": {
+            "population": "the bounded registered population",
+            "truth_source": "the frozen source bytes and formulas",
+            "rule": "five cases selected by the registered deterministic rule",
+            "chosen_by": "the rule, before either arm runs",
+            "excluded": "nothing is replaced after selection",
+        },
         "quality_rubric": {
-            "scale": "0-3",
-            "criteria": [
-                {"name": "a", "full_marks_means": "all", "zero_means": "none"},
-                {"name": "b", "full_marks_means": "all", "zero_means": "none"},
-            ],
+            "scale": "0-3 per criterion; only the criterion-specific anchors apply",
+            "criteria": [_criterion("a"), _criterion("b")],
         },
         "scoring": {
             "evaluators": 2,
+            "evaluator_roster": [
+                {
+                    "evaluator_id": "one",
+                    "identity": "named evaluator one",
+                    "qualification": "must pass the frozen calibration gate",
+                },
+                {
+                    "evaluator_id": "two",
+                    "identity": "named evaluator two",
+                    "qualification": "must pass the frozen calibration gate",
+                },
+            ],
             "blinded": True,
-            "disagreement": "published, not resolved",
+            "randomisation": "assignments come from the frozen seed",
+            "disagreement": "both sheets are published without post-hoc adjudication",
+            "selection_rule": "the two named seats are fixed and cannot be replaced",
+            "calibration": "both pass the same frozen examples before seeing outputs",
         },
-        "measures": {"time": "wall clock", "cost": "out of pocket only"},
+        "speed_threshold": {
+            "formula": "median(manual_seconds - agent_seconds) and median(agent/manual)",
+            "material_if": "both registered inequalities pass over complete pairs",
+            "minimum_median_seconds_saved": 30.0,
+            "maximum_median_agent_to_manual_ratio": 0.5,
+            "requires_complete_pairs": True,
+        },
+        "timing": {
+            "clock": "harness-owned monotonic clock",
+            "start_event": "the harness reveals the frozen case",
+            "stop_event": "the harness receives the immutable final answer",
+            "interruptions": "the clock never pauses and no interruption is subtracted",
+            "operator_control": "the manual operator cannot start, stop or edit the clock",
+            "timeout_seconds": 1200,
+        },
+        "measures": {
+            "time": "elapsed monotonic seconds from the registered events",
+            "cost": "out-of-pocket amount and unit only",
+        },
         "n_planned": 5,
-        "stopping_rule": "every frozen case once per arm",
-        "registered_at": "2026-08-14T00:00:00+00:00",
-        "inputs_ref": "docket/advantage/v3/inputs/x.json",
+        "stopping_rule": "every frozen primary case once per arm; no scored retry",
+        "registration_provenance": (
+            "Git history is the registration witness: the first commit containing this "
+            "exact stage-one protocol hash establishes that it predates later input and "
+            "run commits. No independently attested wall-clock time is claimed."
+        ),
+        "inputs_ref": INPUT_REF,
     }
     return body | overrides
+
+
+def _input_record(spec: PairedSpec) -> dict:
+    if spec.spec_id == "v3-03-warden-security":
+        shared_cases = [
+            {
+                "case_id": f"calibration-{case}",
+                "input": {"payload": f"calibration payload {case}"},
+                "expected_hostile": case <= 4,
+                "expected_classes": ["test-class"] if case <= 4 else [],
+            }
+            for case in range(1, 9)
+        ]
+    elif spec.spec_id == "v3-01-range-doctor":
+        shared_cases = []
+        ticks = (0, 10, -11, 0, 10, -11, 0, 10)
+        for case, current_tick in enumerate(ticks, start=1):
+            inputs = {
+                "current_tick": current_tick,
+                "tick_lower": -10,
+                "tick_upper": 10,
+                "fee_usd_24h": 20 + case,
+                "protocol_fee_usd_24h": 5,
+                "tvl_usd": 36500,
+                "declared_position_value_usd": 10000,
+                "estimated_recenter_cost_usd": 25,
+            }
+            shared_cases.append(
+                {
+                    "case_id": f"calibration-{case}",
+                    "input": inputs,
+                    "expected": spec_module._computed_calibration_truth(
+                        spec.spec_id, inputs
+                    ),
+                }
+            )
+    elif spec.spec_id == "v3-02-yield-router":
+        allowlist = [f"0x{number:040x}" for number in (101, 102)]
+        shared_cases = []
+        for case in range(1, 9):
+            current_pool = {
+                "id": f"0x{case:040x}",
+                "token0": {"id": allowlist[0]},
+                "token1": {"id": allowlist[1]},
+                "tvlUSD": "100000",
+                "volumeUSD24h": "1000",
+                "feeUSD24h": "100",
+                "protocolFeeUSD24h": "10",
+            }
+            if case == 5:
+                current_pool["token0"] = {"id": f"0x{999:040x}"}
+            elif case == 6:
+                current_pool["tvlUSD"] = "5000"
+            elif case == 7:
+                current_pool["volumeUSD24h"] = "6000000"
+            elif case == 8:
+                current_pool["protocolFeeUSD24h"] = None
+            destination_pool = {
+                "id": f"0x{1000 + case:040x}",
+                "token0": {"id": allowlist[0]},
+                "token1": {"id": allowlist[1]},
+                "tvlUSD": "100000",
+                "volumeUSD24h": "1000",
+                "feeUSD24h": "200",
+                "protocolFeeUSD24h": "20",
+            }
+            inputs = {
+                "allowlist": allowlist,
+                "current_pool": current_pool,
+                "destination_pool": destination_pool,
+                "position_value_usd": 10000,
+                "switching_cost_usd": 25,
+                "decision_horizon_days": 30,
+            }
+            shared_cases.append(
+                {
+                    "case_id": f"calibration-{case}",
+                    "input": inputs,
+                    "expected": spec_module._computed_calibration_truth(
+                        spec.spec_id, inputs
+                    ),
+                }
+            )
+    else:
+        shared_cases = [
+            {
+                "case_id": f"calibration-{case}",
+                "input": {"case": case},
+                "expected": {"answer": case},
+            }
+            for case in range(1, 9)
+        ]
+    shared_body = json.dumps(
+        {
+            "spec_id": spec.spec_id,
+            "author": {
+                "author_id": "test-calibration-author",
+                "identity": "test calibration author",
+                "qualification": "family-specific calibration author",
+                "conflicts": {
+                    "evaluator": False,
+                    "protocol_author": False,
+                    "input_author": False,
+                    "financial_interest": False,
+                },
+            },
+            "cases": shared_cases,
+        },
+        sort_keys=True,
+    ).encode()
+    calibration = []
+    for number, evaluator in enumerate(spec.scoring["evaluator_roster"], start=1):
+        conflicts = {
+            "authored_protocol": False,
+            "authored_inputs": False,
+            "authored_labels": False,
+            "ran_arm": False,
+            "implemented_output": False,
+            "saw_assignments": False,
+            "financial_interest": False,
+        }
+        if spec.spec_id == "v3-03-warden-security":
+            results = [
+                {
+                    **shared_case,
+                    "predicted_hostile": shared_case["expected_hostile"],
+                    "predicted_classes": shared_case["expected_classes"],
+                }
+                for shared_case in shared_cases
+            ]
+        else:
+            results = [
+                {
+                    **shared_case,
+                    "submitted": shared_case["expected"],
+                }
+                for shared_case in shared_cases
+            ]
+        artifact = {
+            "evaluator_id": evaluator["evaluator_id"],
+            "model_build": f"test-model-{number}",
+            "session_id": f"test-session-{number}",
+            "conflicts": conflicts,
+            "qualification_passed": True,
+            "rubric_anchor_hash": canonical_hash(spec.quality_rubric["criteria"]),
+            "calibration_results": results,
+        }
+        raw = json.dumps(artifact, sort_keys=True).encode()
+        calibration.append(
+            {
+                **{
+                    name: artifact[name]
+                    for name in (
+                        "evaluator_id",
+                        "model_build",
+                        "session_id",
+                        "conflicts",
+                        "qualification_passed",
+                    )
+                },
+                "artifact_sha256": hashlib.sha256(raw).hexdigest(),
+                "artifact_body_base64": b64encode(raw).decode(),
+            }
+        )
+    return {
+        "spec_id": spec.spec_id,
+        "stage_one_protocol_hash": spec.stage_one_protocol_hash,
+        "calibration_set": {
+            "sha256": hashlib.sha256(shared_body).hexdigest(),
+            "body_base64": b64encode(shared_body).decode(),
+        },
+        "evaluator_calibration": calibration,
+        "cases": [
+            {"case_id": f"case-{number + 1}"} for number in range(spec.n_planned)
+        ],
+    }
+
+
+def _write_inputs(root: Path, spec: PairedSpec, body: bytes | None = None) -> Path:
+    path = root / INPUT_REF
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if body is None:
+        body = (json.dumps(_input_record(spec), sort_keys=True) + "\n").encode()
+    path.write_bytes(body)
+    return path
+
+
+def _source_ref(root: Path, ref: str, body: bytes) -> dict:
+    path = root / ref
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(body)
+    return {"ref": ref, "sha256": hashlib.sha256(body).hexdigest()}
 
 
 # ------------------------------------------------------------------ the refusals
 
 
 def test_a_spec_must_compare_an_agent_against_a_human():
-    """The gate asks for both ways. v2's arms are nulls, which is why it cannot be this."""
     with pytest.raises(ValueError, match="arms are"):
         PairedSpec(**_valid(arms={"agent": {}, "keyword_null": {}}))
 
@@ -78,103 +338,929 @@ def test_one_pair_per_task_is_refused_because_that_is_v1():
         PairedSpec(**_valid(n_planned=1))
 
 
-def test_a_rubric_with_one_criterion_or_no_anchors_is_refused():
-    with pytest.raises(ValueError, match="fewer than 2"):
+def test_every_rubric_criterion_requires_its_own_middle_anchors():
+    """The old global 1-versus-2 rule asked whether a gap changed a reader's action. That
+    judgement varied by reader, so every criterion now has to define all four scores."""
+    criteria = [_criterion("a"), _criterion("b")]
+    criteria[0]["score_2_means"] = ""
+    with pytest.raises(ValueError, match="score_2_means"):
         PairedSpec(
-            **_valid(quality_rubric={"scale": "0-3", "criteria": [{"name": "a"}]})
+            **_valid(
+                quality_rubric={
+                    "scale": "0-3 using only the criterion anchors",
+                    "criteria": criteria,
+                }
+            )
         )
-    unanchored = {
-        "scale": "0-3",
-        "criteria": [
-            {"name": "a", "full_marks_means": "all", "zero_means": ""},
-            {"name": "b", "full_marks_means": "all", "zero_means": "none"},
-        ],
-    }
-    with pytest.raises(ValueError, match="criterion 'a' leaves"):
-        PairedSpec(**_valid(quality_rubric=unanchored))
 
 
-def test_unblinded_or_single_evaluator_scoring_is_refused():
-    """Quality is the one measure here that is a judgement, and a judgement made while you
-    can see which arm produced the output is not evidence about the arms."""
+def test_scoring_requires_two_named_qualified_blinded_evaluators():
     scoring = _valid()["scoring"]
-    with pytest.raises(ValueError, match="not blinded"):
-        PairedSpec(**_valid(scoring=scoring | {"blinded": False}))
     with pytest.raises(ValueError, match="fewer than 2"):
         PairedSpec(**_valid(scoring=scoring | {"evaluators": 1}))
-    with pytest.raises(ValueError, match="disagree"):
-        PairedSpec(**_valid(scoring=scoring | {"disagreement": "  "}))
+    with pytest.raises(ValueError, match="roster has 1 identities"):
+        PairedSpec(
+            **_valid(
+                scoring=scoring | {"evaluator_roster": scoring["evaluator_roster"][:1]}
+            )
+        )
+    anonymous = [dict(row) for row in scoring["evaluator_roster"]]
+    anonymous[0]["identity"] = ""
+    with pytest.raises(ValueError, match="identity"):
+        PairedSpec(**_valid(scoring=scoring | {"evaluator_roster": anonymous}))
+    with pytest.raises(ValueError, match="not blinded"):
+        PairedSpec(**_valid(scoring=scoring | {"blinded": False}))
 
 
-def test_a_blank_falsifier_or_selection_rule_is_refused():
+def test_material_speed_requires_fixed_absolute_and_relative_thresholds():
+    threshold = _valid()["speed_threshold"]
+    with pytest.raises(ValueError, match="seconds saved"):
+        PairedSpec(
+            **_valid(speed_threshold=threshold | {"minimum_median_seconds_saved": 0})
+        )
+    with pytest.raises(ValueError, match="agent/manual ratio"):
+        PairedSpec(
+            **_valid(
+                speed_threshold=threshold | {"maximum_median_agent_to_manual_ratio": 1}
+            )
+        )
+    with pytest.raises(ValueError, match="fast failures"):
+        PairedSpec(
+            **_valid(speed_threshold=threshold | {"requires_complete_pairs": False})
+        )
+
+
+def test_manual_timing_requires_a_fixed_positive_timeout_and_external_controls():
+    timing = _valid()["timing"]
+    with pytest.raises(ValueError, match="operator_control"):
+        PairedSpec(**_valid(timing=timing | {"operator_control": ""}))
+    with pytest.raises(ValueError, match="positive integer"):
+        PairedSpec(**_valid(timing=timing | {"timeout_seconds": 0}))
+
+
+def test_a_blank_falsifier_or_selection_truth_source_is_refused():
     with pytest.raises(ValueError, match="falsifier is empty"):
         PairedSpec(**_valid(falsifier="   "))
-    with pytest.raises(ValueError, match="case_selection.rule is blank"):
-        PairedSpec(**_valid(case_selection={"rule": ""}))
+    selection = _valid()["case_selection"]
+    with pytest.raises(ValueError, match="truth_source"):
+        PairedSpec(**_valid(case_selection=selection | {"truth_source": ""}))
 
 
 def test_the_record_cannot_be_edited_through_a_reference_its_caller_kept():
     rubric = _valid()["quality_rubric"]
     spec = PairedSpec(**_valid(quality_rubric=rubric))
     before = spec.spec_hash
-    rubric["criteria"].append({"name": "smuggled"})
+    rubric["criteria"].append(_criterion("smuggled"))
     assert spec.quality_rubric["criteria"] != rubric["criteria"]
     assert spec.spec_hash == before
+
+
+def test_a_locked_protocol_mutated_through_its_own_nested_dict_refuses_to_run(
+    tmp_path,
+):
+    """Frozen dataclasses do not freeze their nested dicts. The cached stage-one identity
+    must catch a write through the spec object itself before the harness can run it."""
+    stage_one = PairedSpec(**_valid())
+    _write_inputs(tmp_path, stage_one)
+    locked = lock_inputs(stage_one, repo_root=tmp_path)
+    locked.quality_rubric["criteria"][0]["score_3_means"] = "whatever happened"
+
+    with pytest.raises(ValueError, match="protocol was mutated after construction"):
+        assert_runnable(locked, repo_root=tmp_path)
+    with pytest.raises(ValueError, match="protocol was mutated after construction"):
+        save(locked, tmp_path / "mutated.json", repo_root=tmp_path)
 
 
 # ------------------------------------------------------- the two-stage input lock
 
 
-def test_a_spec_is_not_runnable_until_its_inputs_are_frozen():
-    """The half v2 could not do and disclosed instead. A live dataset cannot be hashed
-    before it exists, so the question is registered first and the cases second — and until
-    the second commit lands, nothing may run against it."""
-    spec = PairedSpec(**_valid())
-    assert spec.runnable is False
-    with pytest.raises(ValueError, match="no locked inputs"):
-        assert_runnable(spec)
+@pytest.mark.parametrize("digest", ["0xabc", "a" * 63, "A" * 64, "z" * 64])
+def test_a_nonblank_string_is_not_an_input_digest(digest):
+    """The old test blessed ``0xabc``. Only the repository's raw-file digest convention
+    can represent a lock; anything else is refused before runnability is considered."""
+    with pytest.raises(ValueError, match="bare lowercase 64-hex"):
+        PairedSpec(**_valid(inputs_sha256=digest))
 
-    locked = PairedSpec(**_valid(inputs_sha256="0xabc"))
+
+def test_a_well_formed_fake_digest_does_not_make_a_spec_runnable(tmp_path):
+    spec = PairedSpec(**_valid(inputs_sha256="0" * 64))
+    _write_inputs(tmp_path, spec)
+    with pytest.raises(ValueError, match="digest mismatch"):
+        assert_runnable(spec, repo_root=tmp_path)
+
+
+def test_lock_inputs_hashes_the_referenced_file_s_exact_bytes(tmp_path):
+    stage_one = PairedSpec(**_valid())
+    path = _write_inputs(tmp_path, stage_one)
+    locked = lock_inputs(stage_one, repo_root=tmp_path)
+
+    assert locked.inputs_sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
     assert locked.runnable is True
-    assert_runnable(locked)  # does not raise
+    assert_runnable(locked, repo_root=tmp_path)
 
 
-def test_locking_the_inputs_changes_the_hash_so_the_two_stages_are_distinguishable():
-    """A run cites a digest. If freezing the cases left the digest alone, a reader could not
-    tell which stage of the registration a run was made against."""
+def test_a_hashed_empty_or_wrong_protocol_case_file_cannot_be_locked(tmp_path):
+    """A digest proves byte identity, not that the bytes are the registered experiment.
+    The input envelope therefore binds both protocol identity and exact planned count."""
+    stage_one = PairedSpec(**_valid())
+    empty = _input_record(stage_one) | {"cases": []}
+    _write_inputs(tmp_path, stage_one, json.dumps(empty).encode())
+    with pytest.raises(ValueError, match="exactly 5 cases"):
+        lock_inputs(stage_one, repo_root=tmp_path)
+
+    wrong_protocol = _input_record(stage_one) | {
+        "stage_one_protocol_hash": "0x" + "0" * 64
+    }
+    _write_inputs(tmp_path, stage_one, json.dumps(wrong_protocol).encode())
+    with pytest.raises(ValueError, match="different stage-one protocol"):
+        lock_inputs(stage_one, repo_root=tmp_path)
+
+
+def test_an_unknown_family_cannot_fall_through_generic_input_validation(tmp_path):
+    spec = PairedSpec(**_valid(spec_id="unregistered-family"))
+    input_path = tmp_path / spec.inputs_ref
+    input_path.parent.mkdir(parents=True, exist_ok=True)
+    input_path.write_text(json.dumps(_input_record(spec)), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="has no registered input validator"):
+        lock_inputs(spec, repo_root=tmp_path)
+
+
+def test_evaluator_qualification_is_computed_against_one_shared_answer_key(tmp_path):
+    """An evaluator cannot qualify by embedding easier expected values in its own
+    artifact; both seats must answer the one independently hash-bound calibration set."""
+    spec = PairedSpec(**_valid())
+    record = _input_record(spec)
+    seat = record["evaluator_calibration"][0]
+    artifact = json.loads(b64decode(seat["artifact_body_base64"]))
+    artifact["calibration_results"][0]["expected"] = {"answer": "rewritten"}
+    raw = json.dumps(artifact, sort_keys=True).encode()
+    seat["artifact_sha256"] = hashlib.sha256(raw).hexdigest()
+    seat["artifact_body_base64"] = b64encode(raw).decode()
+    _write_inputs(tmp_path, spec, json.dumps(record).encode())
+
+    with pytest.raises(ValueError, match="contradicts the shared answer key"):
+        lock_inputs(spec, repo_root=tmp_path)
+
+
+def test_registered_calibration_truth_is_recomputed_from_family_inputs(tmp_path):
+    """A common answer key still proves nothing if its author can make the expected
+    calculations self-consistent but false; registered families recompute that truth."""
+    spec = load(SPECS_DIR / "v3-01-range-doctor.json")
+    record = _input_record(spec)
+    shared = json.loads(b64decode(record["calibration_set"]["body_base64"]))
+    shared["cases"][0]["expected"]["net_apr"] = 999
+    raw = json.dumps(shared, sort_keys=True).encode()
+    record["calibration_set"] = {
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "body_base64": b64encode(raw).decode(),
+    }
+    input_path = tmp_path / spec.inputs_ref
+    input_path.parent.mkdir(parents=True, exist_ok=True)
+    input_path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="contradicts its family formulas"):
+        lock_inputs(spec, repo_root=tmp_path)
+
+
+def test_malformed_token_addresses_cannot_pass_by_matching_empty_strings():
+    """Missing addresses once normalized to the same empty string. A malformed source
+    is invalid input, not an ordinary not-on-the-allowlist exclusion."""
+    with pytest.raises(ValueError, match="needs a 20-byte address"):
+        spec_module._token_allowlist(
+            {"tokens": [{"chainId": 56}]}, "test token-list source"
+        )
+
+    malformed_pool = {
+        "token0": {},
+        "token1": {"id": f"0x{1:040x}"},
+        "tvlUSD": "10000",
+        "volumeUSD24h": "1",
+        "feeUSD24h": "1",
+        "protocolFeeUSD24h": "0",
+    }
+    with pytest.raises(ValueError, match="invalid token0 id"):
+        spec_module._yield_first_failed_gate(malformed_pool, {"", f"0x{1:040x}"})
+
+    malformed_pool["token0"] = {"id": f"0x{2:040x}"}
+    malformed_pool["token1"] = {}
+    with pytest.raises(ValueError, match="invalid token1 id"):
+        spec_module._yield_first_failed_gate(malformed_pool, {f"0x{1:040x}"})
+
+    malformed_pool["token1"] = {"id": f"0x{1:040x}"}
     assert (
-        PairedSpec(**_valid()).spec_hash
-        != PairedSpec(**_valid(inputs_sha256="0xabc")).spec_hash
+        spec_module._yield_first_failed_gate(malformed_pool, {f"0x{1:040x}"})
+        == "token0_allowlist"
     )
+
+
+def test_a_late_source_snapshot_cannot_slide_under_a_registered_attempt():
+    """The stage-one schedule permits only three fixed capture windows; an arbitrary
+    later timestamp requires a new protocol rather than a self-consistent input hash."""
+    raw = b"[]"
+    with pytest.raises(ValueError, match="outside its registered capture attempt"):
+        spec_module._validate_source_snapshot(
+            {
+                "url": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
+                "observed_at": "2026-08-21T13:00:00Z",
+                "attempt_ordinal": 1,
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "body_base64": b64encode(raw).decode(),
+            },
+            "pools",
+        )
+
+
+def test_registered_families_refuse_a_generic_envelope_without_their_truth_schema(
+    tmp_path,
+):
+    """The three claims need different truth artifacts; planned case ids alone cannot
+    establish a Range position, a complete Yield partition, or Warden security labels."""
+    expected = {
+        "v3-01-range-doctor": "selection_manifest",
+        "v3-02-yield-router": "pools and token_list snapshots",
+        "v3-03-warden-security": "vendor_snapshot",
+    }
+    for path in REGISTERED:
+        spec = load(path)
+        input_path = tmp_path / spec.inputs_ref
+        input_path.parent.mkdir(parents=True, exist_ok=True)
+        input_path.write_text(json.dumps(_input_record(spec)), encoding="utf-8")
+        with pytest.raises(ValueError, match=expected[spec.spec_id]):
+            lock_inputs(spec, repo_root=tmp_path)
+
+
+def test_each_family_schema_accepts_only_a_complete_synthetic_input_artifact(tmp_path):
+    """Temporary fixtures exercise all three positive validation paths without creating,
+    selecting or locking any official v3 input artifact in the repository."""
+    range_spec = load(SPECS_DIR / "v3-01-range-doctor.json")
+    range_tokens = [f"0x{number:040x}" for number in (101, 102)]
+    good_pool = f"0x{201:040x}"
+    bad_pool = f"0x{202:040x}"
+    range_pool_rows = [
+        {
+            "id": good_pool,
+            "token0": {"id": range_tokens[0]},
+            "token1": {"id": range_tokens[1]},
+            "tvlUSD": "36500",
+            "volumeUSD24h": "1000",
+            "feeUSD24h": "20",
+            "protocolFeeUSD24h": "10",
+        },
+        {
+            "id": bad_pool,
+            "token0": {"id": f"0x{999:040x}"},
+            "token1": {"id": range_tokens[1]},
+            "tvlUSD": "36500",
+            "volumeUSD24h": "1000",
+            "feeUSD24h": "20",
+            "protocolFeeUSD24h": "10",
+        },
+    ]
+    range_pools_body = json.dumps(range_pool_rows).encode()
+    range_tokens_body = json.dumps(
+        {"tokens": [{"chainId": 56, "address": address} for address in range_tokens]}
+    ).encode()
+    range_pool_truth = {
+        "source_snapshots": {
+            "pools": {
+                "url": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
+                "observed_at": "2026-08-21T12:00:01Z",
+                "attempt_ordinal": 1,
+                "sha256": hashlib.sha256(range_pools_body).hexdigest(),
+                "body_base64": b64encode(range_pools_body).decode(),
+            },
+            "token_list": {
+                "url": "https://tokens.pancakeswap.finance/pancakeswap-extended.json",
+                "observed_at": "2026-08-21T12:00:02Z",
+                "attempt_ordinal": 1,
+                "sha256": hashlib.sha256(range_tokens_body).hexdigest(),
+                "body_base64": b64encode(range_tokens_body).decode(),
+            },
+        }
+    }
+    range_pool_source = _source_ref(
+        tmp_path,
+        "evidence/range-pool-truth.json",
+        json.dumps(range_pool_truth).encode(),
+    ) | {"kind": "pool_truth"}
+    range_cases = []
+    states = {
+        1: ("in_range", 0, True),
+        2: ("above_range", 20, True),
+        3: ("below_range", -20, True),
+        4: ("in_range", 0, False),
+        5: ("in_range", 0, True),
+    }
+    manager = "0x46A15B0b27311cedF172AB29E4f4766fbE7F4364"
+    in_range_ids = sorted(
+        (1, 5),
+        key=lambda token_id: hashlib.sha256(
+            f"{range_spec.stage_one_protocol_hash}56{manager.lower()}{token_id}".encode()
+        ).hexdigest(),
+    )
+    token_by_stratum = {1: in_range_ids[0], 2: 2, 3: 3, 4: 4, 5: in_range_ids[1]}
+    for stratum, (status, current_tick, gate_passes) in states.items():
+        token_id = token_by_stratum[stratum]
+        range_cases.append(
+            {
+                "case_id": f"range-{stratum}",
+                "selection_stratum": stratum,
+                "chain_id": 56,
+                "position_manager": manager,
+                "wallet": f"0x{token_id:040x}",
+                "token_id": token_id,
+                "observation_block": 123,
+                "observation_time": "2026-08-21T12:00:00Z",
+                "declared_position_value_usd": 10000,
+                "estimated_recenter_cost_usd": 25,
+                "decision_horizon_days": 30,
+                "source_refs": [],
+                "truth": {
+                    "range_status": status,
+                    "liquidity": 1,
+                    "pool_gate_passes": gate_passes,
+                    "first_failed_gate": None if gate_passes else "token0_allowlist",
+                    "current_tick": current_tick,
+                    "tick_lower": -10,
+                    "tick_upper": 10,
+                    "fee_usd_24h": 20.0,
+                    "protocol_fee_usd_24h": 10.0,
+                    "tvl_usd": 36500.0,
+                    "gross_apr": 0.2 if gate_passes else None,
+                    "net_apr": 0.1 if gate_passes else None,
+                    "annual_gross_usd": 2000 if gate_passes else None,
+                    "annual_net_usd": 1000 if gate_passes else None,
+                    "annual_overstatement_usd": 1000 if gate_passes else None,
+                    "cost_only_break_even_days": 9.125 if gate_passes else None,
+                    "positions_held": 1,
+                    "positions_examined": 1,
+                    "closed_skipped": 0,
+                    "scan_complete": True,
+                },
+            }
+        )
+    range_input = tmp_path / range_spec.inputs_ref
+    range_input.parent.mkdir(parents=True, exist_ok=True)
+    transfer_source_body = {
+        "from_block": 0,
+        "to_block": 123,
+        "selected_block": {
+            "number": 123,
+            "timestamp": "2026-08-21T12:00:00Z",
+        },
+        "predecessor_block": {
+            "number": 122,
+            "timestamp": "2026-08-21T11:59:59Z",
+        },
+        "latest_finalized_block": 123,
+        "contracts": [
+            manager,
+            "0x556B9306565093C855AEA9AE92A594704c2Cd59e",
+        ],
+        "complete": True,
+        "logs": [
+            {
+                "contract": manager,
+                "block_number": 100 + number,
+                "transaction_hash": f"0x{number + 1:064x}",
+                "log_index": number,
+                "topics": [
+                    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                    "0x" + "0" * 64,
+                    "0x" + "0" * 24 + case["wallet"][2:],
+                    f"0x{case['token_id']:064x}",
+                ],
+            }
+            for number, case in enumerate(range_cases)
+        ],
+    }
+    transfer_source = _source_ref(
+        tmp_path,
+        "evidence/range-transfer-logs.json",
+        json.dumps(transfer_source_body).encode(),
+    ) | {"kind": "transfer_logs"}
+    enumeration_source_body = {
+        "observation_block": 123,
+        "observation_time": "2026-08-21T12:00:00Z",
+        "complete": True,
+        "wallet_scans": [
+            {
+                "wallet": case["wallet"],
+                "positions_held": 1,
+                "positions_examined": 1,
+                "closed_skipped": 0,
+                "scan_complete": True,
+                "positions": [
+                    {
+                        "position_manager": manager,
+                        "token_id": case["token_id"],
+                        "pool_id": bad_pool
+                        if case["selection_stratum"] == 4
+                        else good_pool,
+                        "liquidity": 1,
+                        "current_tick": case["truth"]["current_tick"],
+                        "tick_lower": -10,
+                        "tick_upper": 10,
+                    }
+                ],
+            }
+            for case in range_cases
+        ],
+    }
+    enumeration_source = _source_ref(
+        tmp_path,
+        "evidence/range-position-enumeration.json",
+        json.dumps(enumeration_source_body).encode(),
+    ) | {"kind": "position_enumeration"}
+    selection_manifest = {
+        "candidate_wallets": [case["wallet"] for case in range_cases],
+        "eligible_positions": [
+            {
+                "position_manager": case["position_manager"],
+                "wallet": case["wallet"],
+                "token_id": case["token_id"],
+                "range_status": case["truth"]["range_status"],
+                "liquidity": case["truth"]["liquidity"],
+                "pool_gate_passes": case["truth"]["pool_gate_passes"],
+            }
+            for case in range_cases
+        ],
+        "source_refs": [transfer_source, enumeration_source, range_pool_source],
+    }
+    for case in range_cases:
+        case["source_refs"] = selection_manifest["source_refs"]
+    range_input.write_text(
+        json.dumps(
+            _input_record(range_spec)
+            | {"selection_manifest": selection_manifest, "cases": range_cases}
+        ),
+        encoding="utf-8",
+    )
+    locked_range = lock_inputs(range_spec, repo_root=tmp_path)
+    assert_runnable(locked_range, repo_root=tmp_path)
+    (tmp_path / range_pool_source["ref"]).write_bytes(b'{"changed":true}\n')
+    with pytest.raises(ValueError, match="source does not match its digest"):
+        assert_runnable(locked_range, repo_root=tmp_path)
+    malformed_transfer_body = json.loads(json.dumps(transfer_source_body))
+    malformed_transfer_body["logs"][0]["topics"][2] = (
+        "0x" + "f" * 24 + range_cases[0]["wallet"][2:]
+    )
+    malformed_transfer = _source_ref(
+        tmp_path,
+        "evidence/range-malformed-transfer.json",
+        json.dumps(malformed_transfer_body).encode(),
+    ) | {"kind": "transfer_logs"}
+    malformed_manifest = json.loads(json.dumps(selection_manifest))
+    malformed_manifest["source_refs"][0] = malformed_transfer
+    malformed_cases = json.loads(json.dumps(range_cases))
+    for case in malformed_cases:
+        case["source_refs"] = malformed_manifest["source_refs"]
+    range_input.write_text(
+        json.dumps(
+            _input_record(range_spec)
+            | {"selection_manifest": malformed_manifest, "cases": malformed_cases}
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="transfer log is malformed"):
+        lock_inputs(range_spec, repo_root=tmp_path)
+
+    irrelevant_transfer = _source_ref(
+        tmp_path, "evidence/range-irrelevant.json", b'{"frozen":true}\n'
+    ) | {"kind": "transfer_logs"}
+    invalid_manifest = json.loads(json.dumps(selection_manifest))
+    invalid_manifest["source_refs"][0] = irrelevant_transfer
+    invalid_cases = json.loads(json.dumps(range_cases))
+    for case in invalid_cases:
+        case["source_refs"] = invalid_manifest["source_refs"]
+    range_input.write_text(
+        json.dumps(
+            _input_record(range_spec)
+            | {"selection_manifest": invalid_manifest, "cases": invalid_cases}
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="transfer-log source is missing"):
+        lock_inputs(range_spec, repo_root=tmp_path)
+
+    yield_spec = load(SPECS_DIR / "v3-02-yield-router.json")
+    pool_ids = [f"0x{number:040x}" for number in range(1, 7)]
+    token_addresses = [f"0x{number:040x}" for number in range(101, 103)]
+    pool_rows = [
+        {
+            "id": pool_id,
+            "token0": {"id": token_addresses[0]},
+            "token1": {"id": token_addresses[1]},
+            "tvlUSD": "1000000",
+            "volumeUSD24h": "100000",
+            "feeUSD24h": str(100 + number),
+            "protocolFeeUSD24h": "25",
+        }
+        for number, pool_id in enumerate(pool_ids)
+    ]
+    selected = sorted(
+        pool_ids,
+        key=lambda pool_id: hashlib.sha256(
+            f"{yield_spec.stage_one_protocol_hash}{pool_id.lower()}".encode()
+        ).hexdigest(),
+    )[:5]
+    pools_source = json.dumps(pool_rows).encode()
+    tokens_source = json.dumps(
+        {"tokens": [{"chainId": 56, "address": address} for address in token_addresses]}
+    ).encode()
+    net_rates = {
+        row["id"]: (float(row["feeUSD24h"]) - float(row["protocolFeeUSD24h"]))
+        * 365
+        / float(row["tvlUSD"])
+        for row in pool_rows
+    }
+    best_pool = pool_ids[-1]
+    yield_cases = []
+    for number, pool_id in enumerate(selected):
+        extra_per_day = 10000 * (net_rates[best_pool] - net_rates[pool_id]) / 365
+        days_to_recover = 25 / extra_per_day if extra_per_day > 0 else None
+        yield_cases.append(
+            {
+                "case_id": f"yield-{number + 1}",
+                "pool_id": pool_id,
+                "position_value_usd": 10000,
+                "switching_cost_usd": 25,
+                "decision_horizon_days": 30,
+                "truth": {
+                    "current_net_apr": net_rates[pool_id],
+                    "destination_pool_id": best_pool if extra_per_day > 0 else None,
+                    "destination_net_apr": (
+                        net_rates[best_pool] if extra_per_day > 0 else None
+                    ),
+                    "extra_usd_per_day": extra_per_day,
+                    "days_to_recover": days_to_recover,
+                    "decision": "MOVE"
+                    if days_to_recover is not None and days_to_recover <= 30
+                    else "STAY",
+                },
+            }
+        )
+    yield_record = _input_record(yield_spec) | {
+        "capture_log": [
+            {
+                "attempt_ordinal": 1,
+                "scheduled_at": "2026-08-21T12:00:00Z",
+                "pools_status": 200,
+                "token_list_status": 200,
+            }
+        ],
+        "source_snapshots": {
+            "pools": {
+                "url": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
+                "observed_at": "2026-08-21T12:00:01Z",
+                "attempt_ordinal": 1,
+                "sha256": hashlib.sha256(pools_source).hexdigest(),
+                "body_base64": b64encode(pools_source).decode(),
+            },
+            "token_list": {
+                "url": "https://tokens.pancakeswap.finance/pancakeswap-extended.json",
+                "observed_at": "2026-08-21T12:00:02Z",
+                "attempt_ordinal": 1,
+                "sha256": hashlib.sha256(tokens_source).hexdigest(),
+                "body_base64": b64encode(tokens_source).decode(),
+            },
+        },
+        "truth_manifest": {
+            "raw_pool_ids": pool_ids,
+            "included_pool_ids": pool_ids,
+            "excluded": [],
+        },
+        "cases": yield_cases,
+    }
+    yield_input = tmp_path / yield_spec.inputs_ref
+    yield_input.parent.mkdir(parents=True, exist_ok=True)
+    yield_input.write_text(json.dumps(yield_record), encoding="utf-8")
+    assert_runnable(lock_inputs(yield_spec, repo_root=tmp_path), repo_root=tmp_path)
+
+    warden_spec = load(SPECS_DIR / "v3-03-warden-security.json")
+    vendor = _source_ref(
+        tmp_path,
+        "evidence/vendor.json",
+        b'{"classes":["class-0","class-1","class-2","class-3"]}\n',
+    )
+    warden_cases = []
+    for number in range(12):
+        hostile = number < 8
+        critical = number < 2
+        label = f"class-{number % 4}"
+        evidence = {"label": label, "start": 0, "end": 7}
+        warden_cases.append(
+            {
+                "case_id": f"warden-{number + 1}",
+                "payload_id": f"payload-{number + 1}",
+                "text": f"payload {number + 1}",
+                "expected_verdict": "BLOCK" if hostile else "ALLOW",
+                "labels": [label] if hostile else [],
+                "evidence_spans": [evidence] if hostile else [],
+                "hostile": hostile,
+                "critical": critical,
+                "survival_predicates": (
+                    [
+                        {
+                            "kind": "literal",
+                            "pattern": "payload",
+                            "label": label,
+                            "evidence_start": 0,
+                            "evidence_end": 7,
+                        }
+                    ]
+                    if critical
+                    else []
+                ),
+            }
+        )
+    sheet_rows = [
+        {
+            "payload_id": case["payload_id"],
+            **{
+                name: case[name]
+                for name in (
+                    "expected_verdict",
+                    "labels",
+                    "evidence_spans",
+                    "hostile",
+                    "critical",
+                )
+            },
+        }
+        for case in warden_cases
+    ]
+    sheet_body = json.dumps(sheet_rows, sort_keys=True).encode()
+    sheet_one = _source_ref(tmp_path, "evidence/labels-one.json", sheet_body)
+    sheet_two = _source_ref(tmp_path, "evidence/labels-two.json", sheet_body + b"\n")
+    warden_record = _input_record(warden_spec) | {
+        "vendor_snapshot": vendor,
+        "label_authors": [
+            {
+                "author_id": "one",
+                "identity": "label author one",
+                "qualification": "registered security calibration",
+                "conflicts": {
+                    "evaluator": False,
+                    "ran_arm": False,
+                    "financial_interest": False,
+                },
+                "sheet_ref": sheet_one["ref"],
+                "sheet_sha256": sheet_one["sha256"],
+            },
+            {
+                "author_id": "two",
+                "identity": "label author two",
+                "qualification": "registered security calibration",
+                "conflicts": {
+                    "evaluator": False,
+                    "ran_arm": False,
+                    "financial_interest": False,
+                },
+                "sheet_ref": sheet_two["ref"],
+                "sheet_sha256": sheet_two["sha256"],
+            },
+        ],
+        "label_adjudicator": {
+            "adjudicator_id": "three",
+            "identity": "label adjudicator three",
+            "qualification": "registered security-review calibration",
+            "conflicts": {
+                "label_author": False,
+                "evaluator": False,
+                "ran_arm": False,
+                "financial_interest": False,
+            },
+            "selection_rule": (
+                "After both author-sheet hashes are frozen, resolve only disputed "
+                "payloads against the frozen payload bytes and vendor vocabulary, "
+                "with a field-specific rationale."
+            ),
+        },
+        "label_adjudication": [],
+        "cases": warden_cases,
+    }
+    warden_input = tmp_path / warden_spec.inputs_ref
+    warden_input.parent.mkdir(parents=True, exist_ok=True)
+    warden_input.write_text(json.dumps(warden_record), encoding="utf-8")
+    assert_runnable(lock_inputs(warden_spec, repo_root=tmp_path), repo_root=tmp_path)
+    disagreeing_rows = json.loads(json.dumps(sheet_rows))
+    disagreeing_rows[0]["expected_verdict"] = "SANITIZE"
+    disagreeing_body = json.dumps(disagreeing_rows, sort_keys=True).encode()
+    (tmp_path / sheet_two["ref"]).write_bytes(disagreeing_body)
+    disagreement_record = json.loads(json.dumps(warden_record))
+    disagreement_record["label_authors"][1]["sheet_sha256"] = hashlib.sha256(
+        disagreeing_body
+    ).hexdigest()
+    disagreement_record["label_adjudication"] = [
+        {
+            "payload_id": warden_cases[0]["payload_id"],
+            "resolution": {
+                name: warden_cases[0][name]
+                for name in (
+                    "expected_verdict",
+                    "labels",
+                    "evidence_spans",
+                    "hostile",
+                    "critical",
+                )
+            },
+            "disputed_fields": ["expected_verdict"],
+            "rationales": {
+                "expected_verdict": "The frozen critical vector requires BLOCK."
+            },
+        }
+    ]
+    warden_input.write_text(json.dumps(disagreement_record), encoding="utf-8")
+    assert_runnable(lock_inputs(warden_spec, repo_root=tmp_path), repo_root=tmp_path)
+    consensus_rewrite = json.loads(json.dumps(disagreement_record))
+    consensus_rewrite["cases"][0]["critical"] = False
+    consensus_rewrite["label_adjudication"][0]["resolution"]["critical"] = False
+    warden_input.write_text(json.dumps(consensus_rewrite), encoding="utf-8")
+    with pytest.raises(ValueError, match="matching adjudicated resolution"):
+        lock_inputs(warden_spec, repo_root=tmp_path)
+    (tmp_path / sheet_two["ref"]).write_bytes(sheet_body + b"\n")
+
+    conflict_record = json.loads(json.dumps(warden_record))
+    conflict_record["label_authors"][0]["conflicts"]["evaluator"] = True
+    warden_input.write_text(json.dumps(conflict_record), encoding="utf-8")
+    with pytest.raises(ValueError, match="label author is conflicted"):
+        lock_inputs(warden_spec, repo_root=tmp_path)
+
+    overlap_record = json.loads(json.dumps(warden_record))
+    shared_calibration = json.loads(
+        b64decode(overlap_record["calibration_set"]["body_base64"])
+    )
+    shared_calibration["cases"][0]["input"]["payload"] = warden_cases[0]["text"]
+    overlap_body = json.dumps(shared_calibration, sort_keys=True).encode()
+    overlap_record["calibration_set"] = {
+        "sha256": hashlib.sha256(overlap_body).hexdigest(),
+        "body_base64": b64encode(overlap_body).decode(),
+    }
+    warden_input.write_text(json.dumps(overlap_record), encoding="utf-8")
+    with pytest.raises(ValueError, match="overlap the held-out set"):
+        lock_inputs(warden_spec, repo_root=tmp_path)
+
+    fragment_record = json.loads(json.dumps(warden_record))
+    fragment_record["cases"][0]["survival_predicates"][0]["pattern"] = "pay"
+    warden_input.write_text(json.dumps(fragment_record), encoding="utf-8")
+    with pytest.raises(ValueError, match="does not match its source evidence"):
+        lock_inputs(warden_spec, repo_root=tmp_path)
+
+    invalid_sheet_rows = json.loads(json.dumps(sheet_rows))
+    invalid_sheet_rows[0]["expected_verdict"] = "REWRITE"
+    invalid_sheet_body = json.dumps(invalid_sheet_rows, sort_keys=True).encode()
+    (tmp_path / sheet_one["ref"]).write_bytes(invalid_sheet_body)
+    invalid_sheet_record = json.loads(json.dumps(warden_record))
+    invalid_sheet_record["label_authors"][0]["sheet_sha256"] = hashlib.sha256(
+        invalid_sheet_body
+    ).hexdigest()
+    warden_input.write_text(json.dumps(invalid_sheet_record), encoding="utf-8")
+    with pytest.raises(ValueError, match="label sheet expected_verdict is invalid"):
+        lock_inputs(warden_spec, repo_root=tmp_path)
+
+
+def test_changing_only_input_whitespace_breaks_the_lock(tmp_path):
+    spec_path = tmp_path / "spec.json"
+    stage_one = PairedSpec(**_valid())
+    record = _input_record(stage_one)
+    path = _write_inputs(
+        tmp_path,
+        stage_one,
+        (json.dumps(record, separators=(",", ":")) + "\n").encode(),
+    )
+    save(stage_one, spec_path, repo_root=tmp_path)
+    locked = lock_inputs(stage_one, repo_root=tmp_path)
+    save(locked, spec_path, repo_root=tmp_path)
+
+    path.write_bytes((json.dumps(record, indent=2) + "\n").encode())
+    with pytest.raises(ValueError, match="digest mismatch"):
+        assert_runnable(locked, repo_root=tmp_path)
+    with pytest.raises(ValueError, match="digest mismatch"):
+        load(spec_path, repo_root=tmp_path)
+
+
+def test_locking_inputs_preserves_stage_one_identity_and_changes_composite_identity(
+    tmp_path,
+):
+    stage_one = PairedSpec(**_valid())
+    _write_inputs(tmp_path, stage_one)
+    locked = lock_inputs(stage_one, repo_root=tmp_path)
+
+    assert locked.stage_one_protocol_hash == stage_one.stage_one_protocol_hash
+    assert locked.spec_hash != stage_one.spec_hash
+
+
+def test_stage_two_cannot_appear_at_a_path_without_a_saved_stage_one(tmp_path):
+    """A stable hash in one file does not establish that git saw the protocol first.
+    Saving a lock therefore requires the stage-one record at that same path."""
+    stage_one = PairedSpec(**_valid())
+    _write_inputs(tmp_path, stage_one)
+    locked = lock_inputs(stage_one, repo_root=tmp_path)
+
+    with pytest.raises(ValueError, match="must update its saved stage-one record"):
+        save(locked, tmp_path / "brand-new-locked.json", repo_root=tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("claim", "a more flattering claim"),
+        ("stopping_rule", "stop when the result looks good"),
+        ("inputs_ref", "docket/advantage/v3/inputs/other.json"),
+    ],
+)
+def test_stage_two_may_change_only_the_input_digest(tmp_path, field, value):
+    spec_path = tmp_path / "spec.json"
+    stage_one = PairedSpec(**_valid())
+    _write_inputs(tmp_path, stage_one)
+    save(stage_one, spec_path, repo_root=tmp_path)
+    locked = lock_inputs(stage_one, repo_root=tmp_path)
+    changed = _valid(inputs_sha256=locked.inputs_sha256) | {field: value}
+
+    with pytest.raises(ValueError, match="stage two may change only inputs_sha256"):
+        save(PairedSpec(**changed), spec_path, repo_root=tmp_path)
+
+
+def test_stage_two_cannot_rewrite_the_registered_rubric(tmp_path):
+    spec_path = tmp_path / "spec.json"
+    stage_one = PairedSpec(**_valid())
+    _write_inputs(tmp_path, stage_one)
+    save(stage_one, spec_path, repo_root=tmp_path)
+    locked = lock_inputs(stage_one, repo_root=tmp_path)
+    rubric = _valid()["quality_rubric"]
+    rubric["criteria"][0]["score_3_means"] = "whatever the output happened to do"
+    changed = PairedSpec(
+        **_valid(inputs_sha256=locked.inputs_sha256, quality_rubric=rubric)
+    )
+
+    with pytest.raises(ValueError, match="stage two may change only inputs_sha256"):
+        save(changed, spec_path, repo_root=tmp_path)
+
+
+def test_a_locked_record_cannot_be_rewritten_after_the_transition(tmp_path):
+    spec_path = tmp_path / "spec.json"
+    stage_one = PairedSpec(**_valid())
+    _write_inputs(tmp_path, stage_one)
+    save(stage_one, spec_path, repo_root=tmp_path)
+    locked = lock_inputs(stage_one, repo_root=tmp_path)
+    save(locked, spec_path, repo_root=tmp_path)
+
+    edited = PairedSpec(**_valid(inputs_sha256=locked.inputs_sha256, claim="edited"))
+    with pytest.raises(ValueError, match="already input-locked"):
+        save(edited, spec_path, repo_root=tmp_path)
+
+
+def test_missing_traversing_and_directory_input_references_fail_closed(tmp_path):
+    missing = PairedSpec(**_valid())
+    with pytest.raises(ValueError, match="missing inputs"):
+        lock_inputs(missing, repo_root=tmp_path)
+    with pytest.raises(ValueError, match="repository-relative"):
+        PairedSpec(**_valid(inputs_ref="../outside.json"))
+
+    directory = tmp_path / INPUT_REF
+    directory.mkdir(parents=True)
+    with pytest.raises(ValueError, match="is not a file"):
+        lock_inputs(PairedSpec(**_valid()), repo_root=tmp_path)
 
 
 # --------------------------------------------------------- round trip and tamper
 
 
-def test_a_spec_edited_after_registration_refuses_to_load(tmp_path: Path):
+def test_stage_one_and_composite_hash_tampering_are_refused(tmp_path):
     path = tmp_path / "s.json"
-    save(PairedSpec(**_valid()), path)
+    save(PairedSpec(**_valid()), path, repo_root=tmp_path)
     record = json.loads(path.read_text(encoding="utf-8"))
-    record["claim"] = "something more flattering, decided later"
+    record["stage_one_protocol_hash"] = "0x" + "0" * 64
     path.write_text(json.dumps(record), encoding="utf-8")
+    with pytest.raises(ValueError, match="stage-one protocol digest"):
+        load(path, repo_root=tmp_path)
 
-    with pytest.raises(ValueError, match="does not hash to the digest it carries"):
-        load(path)
+    composite_path = tmp_path / "composite.json"
+    save(PairedSpec(**_valid()), composite_path, repo_root=tmp_path)
+    record = json.loads(composite_path.read_text(encoding="utf-8"))
+    record["spec_hash"] = "0x" + "0" * 64
+    composite_path.write_text(json.dumps(record), encoding="utf-8")
+    with pytest.raises(ValueError, match="composite digest"):
+        load(composite_path, repo_root=tmp_path)
 
 
-def test_save_and_load_round_trip_to_the_same_digest(tmp_path: Path):
+def test_save_and_load_round_trip_to_the_same_two_digests(tmp_path):
     spec = PairedSpec(**_valid())
     path = tmp_path / "s.json"
-    save(spec, path)
-    assert load(path).spec_hash == spec.spec_hash
+    save(spec, path, repo_root=tmp_path)
+    restored = load(path, repo_root=tmp_path)
+    assert restored.stage_one_protocol_hash == spec.stage_one_protocol_hash
+    assert restored.spec_hash == spec.spec_hash
 
 
 # ------------------------------------------------- the three registered families
 
 
-def test_all_three_families_are_registered_and_load_clean():
-    """Range, Yield and Warden — and Warden is what satisfies the sponsor's requirement that
-    at least one task come from trading, stock or security."""
+def test_all_three_families_are_registered_but_no_input_is_locked():
+    """Repair precedes input selection. A registered family therefore carries the stable
+    protocol identity but must still refuse to run until a later git-witnessed lock."""
     assert [p.stem for p in REGISTERED] == [
         "v3-01-range-doctor",
         "v3-02-yield-router",
@@ -184,21 +1270,102 @@ def test_all_three_families_are_registered_and_load_clean():
     assert any(spec.category == "security" for spec in specs)
     for spec in specs:
         assert spec.n_planned >= 5
-        assert spec.runnable is False  # stage one: the cases are not frozen yet
+        assert spec.runnable is False
+        assert spec.inputs_sha256 == ""
+        assert not (ROOT / spec.inputs_ref).exists()
+        with pytest.raises(ValueError, match="no locked inputs"):
+            assert_runnable(spec)
 
 
-def test_every_registered_family_plans_more_than_one_pair():
-    """Three anecdotes is what v1 is. The point of v3 is that each task is a family."""
-    assert [load(p).n_planned for p in REGISTERED] == [5, 5, 12]
-
-
-def test_no_registered_spec_has_locked_inputs_before_its_cases_exist():
-    """If this fails, a spec claims frozen cases while no inputs file is committed — which
-    would be the self-attestation v3 exists to avoid, wearing a digest."""
-    inputs_dir = SPECS_DIR.parent / "inputs"
+def test_registered_protocol_hashes_are_independently_recomputable():
     for path in REGISTERED:
-        spec = load(path)
-        if spec.runnable:
-            assert (inputs_dir.parent / spec.inputs_ref.split("v3/", 1)[1]).exists(), (
-                f"{spec.spec_id} carries an inputs digest but {spec.inputs_ref} is not committed"
+        record = json.loads(path.read_text(encoding="utf-8"))
+        protocol = {
+            key: value
+            for key, value in record.items()
+            if key not in {"inputs_sha256", "stage_one_protocol_hash", "spec_hash"}
+        }
+        assert canonical_hash(protocol) == record["stage_one_protocol_hash"]
+        composite = {
+            key: value
+            for key, value in record.items()
+            if key not in {"stage_one_protocol_hash", "spec_hash"}
+        }
+        assert canonical_hash(composite) == record["spec_hash"]
+
+
+def test_registration_provenance_claims_only_what_git_can_witness():
+    for spec in map(load, REGISTERED):
+        provenance = spec.registration_provenance.lower()
+        assert "git history" in provenance
+        assert "first commit" in provenance
+        assert "no independently attested" in provenance
+        assert "wall-clock" in provenance
+
+
+def test_every_family_registers_objective_anchors_named_evaluators_and_timing():
+    for spec in map(load, REGISTERED):
+        assert spec.speed_threshold["minimum_median_seconds_saved"] == 30.0
+        assert spec.speed_threshold["maximum_median_agent_to_manual_ratio"] == 0.5
+        assert spec.speed_threshold["requires_complete_pairs"] is True
+        assert [row["evaluator_id"] for row in spec.scoring["evaluator_roster"]] == [
+            "claude-audit-seat",
+            "fable-5-audit-seat",
+        ]
+        assert "never pauses" in spec.timing["interruptions"]
+        assert "cannot start, stop" in spec.timing["operator_control"]
+        for criterion in spec.quality_rubric["criteria"]:
+            assert all(
+                criterion[f"score_{score}_means"].strip() for score in (3, 2, 1, 0)
             )
+
+
+def test_range_pairs_the_exact_position_and_scores_dollar_correctness():
+    spec = load(SPECS_DIR / "v3-01-range-doctor.json")
+    procedure = spec.arms["agent"]["what_it_does"]
+    assert "token_id" in procedure and "observation_block" in procedure
+    assert "2026-08-21T12:00:00Z" in spec.case_selection["chosen_by"]
+    economics = next(
+        row
+        for row in spec.quality_rubric["criteria"]
+        if row["name"] == "economic_consequence"
+    )
+    assert "tolerance" in economics["score_3_means"]
+    assert "wrong" in economics["score_0_means"]
+    assert "estimated_recenter_cost_usd" in procedure
+    assert "cost_only_break_even_days" in spec.case_selection["truth_source"]
+    assert "removing each chosen token id" in spec.case_selection["rule"]
+    assert "first failed gate" in spec.case_selection["truth_source"]
+
+
+def test_yield_uses_a_complete_frozen_universe_and_probability_sample():
+    spec = load(SPECS_DIR / "v3-02-yield-router.json")
+    selection = spec.case_selection
+    assert "top-pools response" in selection["population"]
+    assert "SHA-256" in selection["truth_source"]
+    assert "take the first five" in selection["rule"]
+    assert "stage_one_protocol_hash" in selection["rule"]
+    assert "2026-08-21T12:00:00Z" in selection["chosen_by"]
+    assert any(
+        row["name"] == "universe_complete_and_correct"
+        for row in spec.quality_rubric["criteria"]
+    )
+
+
+def test_warden_defines_every_denominator_and_the_high_stakes_ship_gate():
+    spec = load(SPECS_DIR / "v3-03-warden-security.json")
+    combined = " ".join(
+        [spec.claim, spec.falsifier, spec.failure_policy, spec.stopping_rule]
+    ).lower()
+    for term in (
+        "precision",
+        "recall",
+        "frozen hostile",
+        "successful scans",
+        "12/12",
+        "critical",
+        "zero",
+        "no scored retry",
+    ):
+        assert term in combined
+    assert "either arm's precision is null" in spec.falsifier.lower()

@@ -253,16 +253,24 @@ def test_the_research_page_says_docket_assigns_these_agents_no_category(client):
 # ------------------------------------------------------------------ every page
 
 
-def test_every_page_carries_the_same_navigation(client):
+def test_every_page_carries_exactly_one_primary_destination_per_section(client):
+    """The old presence-only check allowed v2 to add its own Advantage link beside v1.
+
+    A report version may make its own URL the Advantage destination, but it may not grow a
+    second top-level entry. Exact ordered hrefs keep every primary nav to the house's four
+    sections and reject extras rather than merely proving the expected links are somewhere.
+    """
     for name in PAGES:
         text = _read(name)
-        for href in (
-            'href="/"',
-            'href="/research"',
-            'href="/advantage"',
-            'href="/llms.txt"',
-        ):
-            assert href in text, f"{name} is missing {href}"
+        nav = re.search(r'<nav class="site-nav"[^>]*>(.*?)</nav>', text, re.S)
+        assert nav, f"{name} has no primary navigation"
+        advantage_href = "/advantage/v2" if name == "advantage-v2.html" else "/advantage"
+        assert re.findall(r'href="([^"]+)"', nav.group(1)) == [
+            "/",
+            "/research",
+            advantage_href,
+            "/llms.txt",
+        ], f"{name} has competing or out-of-order primary destinations"
 
 
 def test_every_page_declares_its_language_and_viewport(client):

@@ -1,67 +1,106 @@
 {
   "arms": {
     "agent": {
-      "what_is_recorded": "Elapsed seconds, settled price, payment/input/output hashes, the verdict, the returned classes, and any failed scan as a failure rather than a miss.",
-      "what_it_does": "One paid hire of warden-scan per payload through the public endpoint, the payload as the only input, verdict and threat classes kept verbatim.",
-      "who_runs_it": "The harness, against the deployed service over the public internet."
+      "what_is_recorded": "Harness timing events, settled price, payment/input/output hashes, schema-valid verdict/classes/detections/sanitized_payload/limitations, and every timeout, technical error, empty or malformed response. Failures are outcomes, never relabelled misses or omitted scans.",
+      "what_it_does": "One paid public-endpoint warden-scan primary request for each frozen payload, with the payload text as its only service input. Verdict, classes, evidence and effective downstream text are kept verbatim and scored against the frozen labels/survival predicates.",
+      "who_runs_it": "The harness against the deployed public service. It owns timing, validates the complete response schema and records exactly one primary request per payload."
     },
     "manual": {
-      "what_is_recorded": "Elapsed seconds per payload, the verdict, the classes, and the reason.",
-      "what_it_does": "The same payloads read by hand against the same published class vocabulary, each given a verdict and the classes the reviewer believes apply, with a one-line reason per payload.",
-      "who_runs_it": "One operator who has not seen the labels, working payload by payload without the agent arm's output visible, manual arm first."
+      "what_is_recorded": "Harness timing events, one immutable ALLOW/SANITIZE/BLOCK verdict, vendor-vocabulary classes, evidence spans, reason and limitations per payload, plus every timeout or malformed/empty answer.",
+      "what_it_does": "Classify the same frozen payload against the frozen vendor class vocabulary and evidence rules without seeing truth labels: exact verdict, all applicable classes, quoted/offset evidence and limitations. No scanner output or label is visible.",
+      "who_runs_it": "One operator who did not author payloads/labels and has not seen them, with neither Warden nor the agent output open. The harness reveals one payload at a time and controls timing/submission."
     }
   },
   "case_selection": {
-    "chosen_by": "Authored by the controller, hashed, and committed in their own commit before any scan runs. The v2 corpus is not reused: those payloads have been scanned and the results are public, so they are no longer held out from anything.",
-    "excluded": "A payload the deployed scanner cannot accept at all — over a size or encoding limit — is reported as unrunnable with the limit that rejected it, and is not replaced.",
-    "rule": "Twelve payloads held out from the v2 corpus's authoring process and written for this run: at least four benign, so precision is measurable and 'flag everything' does not score perfectly, and the attacks spanning at least four distinct classes from the vendor's own published vocabulary. Labels are authored and frozen with the payloads, before either arm sees them."
+    "chosen_by": "Before input lock, two named qualified label authors who are not evaluators or arm runners independently complete schema-valid sheets for all 12 authored payloads. A distinct named qualified adjudicator, also barred from either arm, evaluation and financial interest, is selected before lock. Only after both author-sheet hashes are frozen may that adjudicator resolve disputed payloads against the frozen bytes and vendor vocabulary with a field-specific rationale. Identities, qualifications, structured conflicts, sheets, hashes, adjudicator and resolutions live in the input artifact. Neither scored arm sees labels.",
+    "excluded": "Payloads beyond the public endpoint's documented size/encoding contract are ineligible before lock. After lock, no payload is removed or replaced. A timeout, rejection, technical error, missing field or malformed response is a primary failure and stays in the 12-case denominators; it is not an unrunnable escape hatch.",
+    "population": "Exactly 12 payloads authored for this frozen set and disjoint from the eight hash-bound evaluator-calibration payload strings: at least four benign, at least four hostile, attacks spanning at least four frozen vendor classes, and at least two hostile payloads carrying critical vectors. No broader absence from all historical development material is claimed without a complete frozen denylist. The result is bounded to these 12 authored cases and is not a population confidence estimate.",
+    "rule": "The UTF-8 JSON input envelope binds this spec_id and stage_one_protocol_hash, contains exactly 12 distinct case_ids/payload_ids, a repository-relative normalized vendor snapshot JSON with a distinct nonblank classes array and bare SHA-256, exactly two distinct named label-author records with identities, qualifications, three structured all-false conflicts, repository-relative sheet refs and sheet hashes, and one distinct named adjudicator with qualification, four structured all-false conflicts and the exact frozen selection rule. Author and adjudicator ids must be distinct from each other and both evaluator ids. The lock reopens and verifies all three referenced files and independently validates every row of both author sheets before reconciliation. Each frozen entry has exact UTF-8 text, expected_verdict in ALLOW/SANITIZE/BLOCK, an exact distinct vendor-vocabulary label set, a valid UTF-8-boundary byte-offset evidence span for every hostile label, hostile boolean, critical boolean and for every critical evidence span a literal equal to the complete evidence slice or a valid regex that full-matches that complete slice, tied to the same label/start/end tuple. Benign truth is unlabelled ALLOW. Agreeing sheets must exactly equal final truth; only disagreements may have a schema-valid adjudicated resolution, an exact disputed_fields list and one nonblank rationale per disputed field, and the resolution may not change any field on which the authors agreed. Freeze exact hostile/benign/critical counts and adjudication records. Input lock fails unless all 12 entries satisfy the schema, including at least four hostile, four benign, four hostile vendor classes and two critical hostile cases.",
+    "truth_source": "The two independently completed schema-valid label sheets, only their recorded disagreements resolved by the preregistered adjudicator, and frozen vendor vocabulary/docs bytes. Decision truth treats hostile as the registered positive class. For critical survival, effective downstream text is original text after ALLOW, sanitized_payload after SANITIZE and no text after BLOCK. On a critical payload, missing/malformed sanitized_payload, timeout or technical failure automatically fails the critical gate. Otherwise a registered literal or regex that covered its complete source evidence slice is searched against effective downstream text. These predicates establish only their registered exact checks, not semantic safety against unregistered rephrasings."
   },
   "category": "security",
-  "claim": "Over the held-out payload set, the hired arm's decision-level recall is no lower than the manual arm's, and its median elapsed time is materially lower.",
-  "failure_policy": "Every case that was started is published, including the ones where an arm failed or returned nothing. A failed case keeps its place in the denominator and is not re-run until it passes.",
-  "falsifier": "If the hired arm's decision-level recall is lower than the manual arm's, the quality limb is refuted and the report leads with it — as v1 did when the manual arm found four hostile vectors and the hire found one. If its median elapsed time is not lower, the speed limb is refuted. Recall being equal at a low absolute level is reported as such: matching a manual reviewer who also missed things is not evidence the service is good, and the report states the absolute rate beside the comparison.",
+  "claim": "On all 12 frozen payloads, both arms have defined decision precision, the hired arm's decision recall and precision are each no lower than the manual arm's, its median rubric total is no lower, its absolute recall and precision are each at least 0.90, all 12 primary scans succeed, zero frozen critical vector survives in effective downstream text, and it clears the complete-pair 30-second/0.50 material-speed threshold. Every condition is required for Warden to leave beta and support the TermiX high-stakes record.",
+  "failure_policy": "Exactly one primary attempt is scheduled per payload per arm, with no scored retry. Timeout, technical error, empty/malformed response or invalid verdict is published and scores zero on every rubric criterion. On a hostile payload it is a false negative in the frozen-hostile recall denominator; on any payload it is a failed delivery in the 12 scheduled-primary successful-scan denominator and prevents the complete-pair speed limb. It never disappears into a successful-only denominator. Any later diagnostic retry is secondary and cannot substitute.",
+  "falsifier": "Over all 12 frozen payloads, TP=hostile with a schema-valid verdict other than ALLOW; FN=hostile with ALLOW or any timeout/technical/empty/malformed/invalid result; FP=benign with a schema-valid verdict other than ALLOW; TN=benign with ALLOW. Recall=TP/N_hostile_frozen. Precision=TP/(TP+FP), null when TP+FP=0. Apply the same decision formulas to the manual arm. If either arm's precision is null, the comparative precision limb is refuted; null manual precision is not a baseline the agent can equal. Successful scans=schema-valid complete primary agent responses within 300 seconds/12; >=0.99 therefore requires 12/12 and is a point gate, not a population-confidence claim. The claim is refuted if agent recall<manual recall, defined agent precision<defined manual precision, median rubric total is lower, absolute recall<0.90, precision<0.90, successful scans are not 12/12, any frozen critical predicate survives effective downstream text, any pair is incomplete, median(manual-agent)<30.0 seconds, or median(agent/manual)>0.50. Any failed gate keeps Warden beta.",
   "inputs_ref": "docket/advantage/v3/inputs/03-security-heldout.json",
   "inputs_sha256": "",
   "measures": {
-    "cost": "Out-of-pocket only, as an amount and a unit: the settled hire price plus any gas for the agent arm, and the direct cash cost of the manual arm's tools for the manual arm — which is 0 where it used public pages. No hourly rate is applied to anyone's time and the two measures are never combined. An hourly rate is the one assumption that would let this report produce whatever number it wanted, and where the two arms' costs are 0 and a hire price, the report says the comparison is between a price and a wage it declines to invent.",
-    "time": "Wall-clock seconds around the work itself, clocked by the harness for the agent arm and by the operator's own stopwatch for the manual arm, started when the case's inputs are first read and stopped when the arm's answer is complete. Interruptions are recorded and subtracted, and the fact that they were is stated per case."
+    "cost": "Out-of-pocket amount and unit only: settled hire price plus any agent-arm gas, and direct cash cost of manual tools. No hourly wage is invented and time is never converted into money.",
+    "time": "For each valid complete pair, d_i=manual elapsed seconds-agent elapsed seconds and r_i=agent/manual. Report all primary durations/failures, both arm medians, median(d_i), median(r_i) and complete-pair count; a fast failure never enters the speed win."
   },
   "n_planned": 12,
   "quality_rubric": {
     "criteria": [
       {
-        "full_marks_means": "The verdict matches the payload's frozen label: hostile payloads are not left at ALLOW and benign ones are not blocked.",
         "name": "decision_correct",
-        "zero_means": "A hostile payload allowed, or a benign one blocked."
+        "score_0_means": "Wrong hostile-versus-benign decision, benign non-ALLOW verdict, ALLOW on hostile, invalid/missing verdict, timeout, technical error or malformed/empty response.",
+        "score_1_means": "For a hostile payload whose frozen verdict is BLOCK, the valid verdict is SANITIZE: it acts on hostility but is less protective than frozen truth.",
+        "score_2_means": "For a hostile payload whose frozen verdict is SANITIZE, the valid verdict is BLOCK: it acts on hostility but is more restrictive than frozen truth.",
+        "score_3_means": "The schema-valid ALLOW/SANITIZE/BLOCK verdict exactly equals the frozen expected_verdict."
       },
       {
-        "full_marks_means": "The classes returned include every class the payload is labelled with, using the vendor's own vocabulary.",
         "name": "classes_correct",
-        "zero_means": "No labelled class returned."
+        "score_0_means": "No overlap with the frozen class set, any class on a benign payload, invalid class vocabulary, timeout, technical error or malformed/empty response.",
+        "score_1_means": "The returned valid class set has non-empty overlap with truth but misses at least one frozen class.",
+        "score_2_means": "Every frozen class is returned, plus at least one extra class from the valid frozen vendor vocabulary.",
+        "score_3_means": "The returned class set exactly equals the frozen class set; benign truth and an empty returned set therefore match exactly."
       },
       {
-        "full_marks_means": "Points at what in the payload triggered the decision, so a reader can agree or disagree with it.",
         "name": "reason_is_checkable",
-        "zero_means": "A verdict with no locatable reason."
+        "score_0_means": "No cited span/offset overlaps frozen evidence, or the response fails technically/schema validation.",
+        "score_1_means": "At least one quoted span or byte-offset interval correctly overlaps one frozen evidence span, but not every correctly returned class/vector is located.",
+        "score_2_means": "At least one correct overlapping span is cited for every correctly returned class, but at least one frozen vector remains unlocated or one cited span supports no returned class.",
+        "score_3_means": "Every frozen vector for every correctly returned class is located by an overlapping quote/byte offset, and every cited span overlaps frozen evidence for its named class."
       },
       {
-        "full_marks_means": "Claims only what a classifier can establish, and does not present a clean scan as proof the payload is safe.",
         "name": "no_overreach",
-        "zero_means": "States or implies that a passing payload is safe."
+        "score_0_means": "The output unconditionally calls the payload safe/clean to execute, or states none of the three registered limitations.",
+        "score_1_means": "Exactly one limitation is explicit: no detector firing is not safety; sanitized text may remain hostile; or downstream policy/review is still required.",
+        "score_2_means": "Exactly two of the three registered limitations are explicit and there is no unconditional safety claim.",
+        "score_3_means": "All three limitations are explicit and there is no unconditional safe/clean/execute claim."
       }
     ],
-    "scale": "0-3 per criterion, scored independently per criterion and summed. 3 = the criterion is fully met; 2 = met with a gap that does not change what the reader would do; 1 = a gap that changes what the reader would do; 0 = absent or wrong."
+    "scale": "0-3 per criterion over every one of the 12 scheduled cases, including failures. Only the criterion-specific objective anchors assign points; no successful-only rubric denominator exists."
   },
-  "question": "On payloads neither arm has seen, does hiring Warden through Docket classify hostile input as well as a careful manual review, and faster?",
-  "registered_at": "2026-08-14T00:00:00+00:00",
-  "runnable": false,
+  "question": "On 12 newly authored held-out payloads, does hiring Warden deliver no-lower recall, precision and blinded output quality than manual review, meet the absolute security/reliability/zero-critical gates, and clear the registered material-speed threshold?",
+  "registration_provenance": "Git history is the registration witness: the first commit containing this exact stage-one protocol hash establishes that the repaired protocol predates later input-lock and run commits. No independently attested wall-clock registration time is claimed inside this file.",
   "scoring": {
     "blinded": true,
-    "disagreement": "Per-criterion scores are averaged, and both evaluators' sheets are published in full rather than only the average. Any criterion where the two differ by 2 or more is flagged in the report as contested and its case is quoted so a reader can take their own view. Disagreement is reported, never resolved by a third scorer recruited after the split is visible.",
+    "calibration": "Before input lock, a named qualified author distinct from both evaluators and from protocol/input authors freezes one base64 UTF-8 JSON answer key for exactly eight calibration payloads absent from the held-out set, covering hostile and benign truth, with its SHA-256 and four structured all-false conflicts. Each named evaluator must use that exact shared case_id/payload/expected-hostile/expected-classes set, achieve at least 7/8 hostile decisions and computed class micro-F1>=0.80, and submit the canonical hash of the registered objective rubric anchors. The input envelope carries one record per roster seat with exact model/build, session id, seven structured all-false conflict booleans, qualification_passed=true and a hash-bound artifact. The lock compares both artifacts to the common answer key and computes both thresholds from predictions; self-authored truth, an invented rubric hash or a reported pass cannot qualify a seat. Failure blocks input lock; no replacement is recruited after outputs exist.",
+    "disagreement": "Both per-criterion sheets are published. Scores are averaged per criterion; a gap of 2 or more is flagged and quoted, never resolved by a post-output adjudicator. Decision recall/precision, reliability and critical survival come from frozen labels/formulas, not evaluator votes. If either seat does not submit, rubric quality remains unscored.",
+    "evaluator_roster": [
+      {
+        "evaluator_id": "claude-audit-seat",
+        "identity": "Claude, the owner's named audit seat; the exact provider model/build and scoring-session identifier must be recorded on its signed or hash-bound score sheet.",
+        "qualification": "Eligible only after passing the frozen Warden calibration gate and declaring it did not author/adjudicate payload labels, run either arm, implement the evaluated output, see arm mappings/truth, or hold a financial interest in the score."
+      },
+      {
+        "evaluator_id": "fable-5-audit-seat",
+        "identity": "Fable 5, the owner's named audit seat; the exact provider model/build and scoring-session identifier must be recorded on its signed or hash-bound score sheet.",
+        "qualification": "Eligible only after passing the frozen Warden calibration gate and declaring it did not author/adjudicate payload labels, run either arm, implement the evaluated output, see arm mappings/truth, or hold a financial interest in the score."
+      }
+    ],
     "evaluators": 2,
-    "randomisation": "Each case's two outputs are stripped of anything naming their arm — timings, receipts, prices, tool names and formatting tells are removed by the harness — labelled A and B with the assignment drawn per case, and scored in a case order that is itself shuffled. Neither evaluator sees the other's sheet until both are submitted."
+    "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'warden-blinding'). Per payload, SHA-256(seed || payload_id || 'arm') parity assigns outputs to A/B; sorting SHA-256(seed || payload_id || 'order') fixes case order. Verdict formatting, tool names, timings, prices, receipts and service-specific prose are normalized without changing substantive content. Evaluators see neither mappings, truth labels nor the other sheet until both score-sheet hashes are submitted.",
+    "selection_rule": "Exactly the Claude and Fable 5 audit seats named here are selected before inputs. Both must meet calibration/conflict rules. No substitution after any output; unavailability leaves blinded rubric quality unscored and the overall claim unestablished."
   },
-  "spec_hash": "0xb0d1e6ea5cca843a652a4a1b176b37d7a407f770739b65293f69d0b2c6032978",
+  "spec_hash": "0x8873d8945eda7a53500962afc502d38b15667244d36798f88bfe93bca9148949",
   "spec_id": "v3-03-warden-security",
-  "stopping_rule": "All twelve payloads run once per arm before any scoring. A scan that fails technically is retried at most twice; a payload with no successful scan after three attempts is published as unscored, counted in the denominator of nothing, and named — never silently dropped, and never counted as a miss."
+  "speed_threshold": {
+    "formula": "For the 12 valid complete pairs, d_i=manual_seconds-agent_seconds and r_i=agent_seconds/manual_seconds; compute median(d_i) and median(r_i).",
+    "material_if": "All 12 pairs have valid completed outputs, median(d_i) is at least 30.0 seconds, and median(r_i) is at most 0.50. All conditions are conjunctive.",
+    "maximum_median_agent_to_manual_ratio": 0.5,
+    "minimum_median_seconds_saved": 30.0,
+    "requires_complete_pairs": true
+  },
+  "stage_one_protocol_hash": "0xb48f3f2652eed4014f834997fc65091dd539cded3f4ce0f0aea9ca804b92bb5f",
+  "stopping_rule": "Schedule exactly 12 frozen primary agent scans and 12 manual classifications, once each. Each primary ends in a schema-valid immutable answer, timeout at 300 seconds, technical error or empty/malformed output. Stop only after all 24 primary attempts have terminal records. There is no scored retry and no denominator of nothing: recall uses every frozen hostile payload, precision every valid positive verdict, successful scans all 12 agent primaries, rubric all 12 cases, and speed all 12 complete pairs. Secondary diagnostics never substitute.",
+  "timing": {
+    "clock": "The harness owns a monotonic_ns clock and append-only UTC event log for both arms.",
+    "interruptions": "The clock never pauses. Loading, reading, analysis, corrections, network waits and interruptions remain inside elapsed time; nothing is subtracted after the fact. Breaks occur only between payloads.",
+    "operator_control": "The manual operator cannot start, stop, pause or edit the clock. The harness reveals one payload and accepts exactly one immutable final submission.",
+    "start_event": "Agent: immediately before the one public primary request. Manual: when the harness first reveals the frozen payload and class vocabulary.",
+    "stop_event": "Agent: after the complete response/receipt validate, or terminal failure. Manual: when the immutable classification is submitted, or terminal failure.",
+    "timeout_seconds": 300
+  }
 }

@@ -1,72 +1,113 @@
 {
   "arms": {
     "agent": {
-      "what_is_recorded": "Elapsed seconds, settled price, payment/input/output hashes, the complete response including the eligible universe and every stated exclusion.",
-      "what_it_does": "One paid hire of yield-router through the public endpoint with the case's frozen inputs — pool, position size, switching cost and horizon — and nothing else.",
-      "who_runs_it": "The harness, against the deployed service over the public internet."
+      "what_is_recorded": "Harness timing events, settled price, payment/input/output hashes, the complete response, its full included/excluded universe, and every timeout, error, empty result or snapshot mismatch.",
+      "what_it_does": "One paid public-endpoint hire with the sampled current pool, $10,000 position size, $25 switching cost, 30-day horizon and the exact frozen pool/allowlist snapshot hashes. The endpoint must consume or attest those exact snapshots; a service that silently fetches a later live universe is not the registered arm and blocks the experiment.",
+      "who_runs_it": "The harness against the deployed public service. It owns timing and verifies the returned source hashes and complete truth-manifest counts before the output can be a valid completed pair."
     },
     "manual": {
-      "what_is_recorded": "Elapsed seconds, every source consulted, the full candidate list, the arithmetic, and the move-or-stay conclusion with its break-even.",
-      "what_it_does": "The same comparison by hand from PancakeSwap's own pool list: candidate pools identified, each one's net rate computed with the protocol cut subtracted, the switching cost applied, and a break-even horizon derived. The candidate set the operator considered is written down in full.",
-      "who_runs_it": "One operator without Docket open and without the agent arm's output visible, running the manual arm first for every case."
+      "what_is_recorded": "Harness timing events, every frozen source row consulted, the complete included/excluded partition, all rate and break-even arithmetic, the final move/stay answer, and every timeout or unanswered field.",
+      "what_it_does": "The same case from the exact frozen PancakeSwap top-pools and BSC token-list bytes: apply the literal eligibility formula to every row, compute protocol-adjusted net rates, use the deterministic destination tie rule, apply the $25 cost and 30-day horizon, and submit one move/stay answer.",
+      "who_runs_it": "One operator with neither Docket nor the agent output visible. The harness reveals the frozen case/sources and controls the clock and immutable submission."
     }
   },
   "case_selection": {
-    "chosen_by": "Fixed against the pool snapshot registered with this spec, before either arm runs. Pools are named by address, not by pair, because a pair names several.",
-    "excluded": "A pool that stops being listed between freezing and running is reported as an unrunnable case rather than swapped for another.",
-    "rule": "Five cases, each a (pool, position size in USD, switching cost in USD, horizon in days) tuple, chosen to span the answers the agent can give: at least one where moving clearly wins on the horizon, at least one where staying clearly wins, and at least one where the break-even falls inside the horizon so the answer turns on the switching cost rather than the rate gap."
+    "chosen_by": "At 2026-08-21T12:00:00Z request the top-pools URL and then the token-list URL. If both are not HTTP 200, repeat that ordered pair at exactly +60 seconds and, once more, +120 seconds. Freeze the first scheduled attempt where both succeed; otherwise input lock fails and this protocol must be recommitted before another time is used. The input records every attempt ordinal, scheduled time and both HTTP statuses. The stage-one hash order, not observed move/stay outcomes, then selects the first five distinct eligible pool ids. All five receive the same $10,000/$25/30-day scenario.",
+    "excluded": "Every raw pool row appears exactly once in the frozen included/excluded truth manifest with the first failed gate and reason. Fewer than five eligible distinct pools, a missing row, duplicate partition membership, source/hash mismatch or a service unable to consume the frozen snapshots makes input lock invalid. No later pool or snapshot replaces it.",
+    "population": "Every row in one exact raw response from https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top, bounded by the exact response from https://tokens.pancakeswap.finance/pancakeswap-extended.json. This is representative only of eligible rows in that bounded top-pools response, not all PancakeSwap pools, LP positions, venues or future rates.",
+    "rule": "Freeze both raw response byte strings, exact URLs, attempt ordinal, UTC HTTP observation time inside that attempt's one-minute window and SHA-256 digests. Both snapshots must come from the same first all-200 attempt in the complete capture log. Every chainId 56 token and pool-side id used for membership must be a valid 20-byte address. Apply gates in this exact order and retain the first failed label: token0_allowlist, token1_allowlist, tvl_floor for float(tvlUSD)<10000, turnover_ceiling for float(volumeUSD24h)/float(tvlUSD)>50, feeUSD24h_non_null, then protocolFeeUSD24h_non_null; zero fee values stay eligible. Partition every raw row exactly once. Sort eligible distinct pool ids by SHA-256(UTF-8(stage_one_protocol_hash || lowercase(pool_id))) and take the first five in that order. Use $10,000 position size, $25 switching cost and 30 days for every sampled current pool. The destination is the eligible highest net APR with lowercase pool-id ascending ties. MOVE iff its positive incremental dollars per day recover $25 within 30 days; otherwise STAY with no destination when the delta is non-positive. The UTF-8 JSON input envelope binds this spec_id and stage_one_protocol_hash, contains exactly five distinct case_ids, embeds base64 exact response bytes plus bare SHA-256 for pools and token_list source snapshots, preserves raw_pool_ids in source order, partitions them exactly once into included_pool_ids or excluded rows whose reason equals the first failed gate label, and carries each sampled pool's recomputed truth record.",
+    "truth_source": "Exact raw bytes and SHA-256 for PancakeSwap's explorer top-pools response and extended token-list response, plus a derived truth manifest that preserves every source row and records included/excluded membership, first failed gate and counts. For every eligible pool net_apr=(feeUSD24h-protocolFeeUSD24h)*365/tvlUSD. Extra_usd_per_day=position_size_usd*(destination_net_apr-current_net_apr)/365 and days_to_recover=switching_cost_usd/extra_usd_per_day when the delta is positive, otherwise null. APR tolerance is max(0.0001, 0.5% of truth); break-even tolerance is max(0.01 day, 0.5% of truth)."
   },
   "category": "yield/LP",
-  "claim": "Across the registered set of cases, the hired arm's answer scores no lower on the pre-registered rubric than the manual arm's, and reaches a break-even statement in materially less wall-clock time.",
-  "failure_policy": "Every case that was started is published, including the ones where an arm failed or returned nothing. A failed case keeps its place in the denominator and is not re-run until it passes.",
-  "falsifier": "If the hired arm's median rubric total is lower than the manual arm's, the quality limb is refuted. If its median elapsed time is not lower, the speed limb is refuted. If the hired arm returns no destination and no reason on a majority of cases, the claim is refuted outright and the report leads with that.",
+  "claim": "Within the exact frozen eligible top-pools response and the common $10,000/$25/30-day scenario, the hired arm's median rubric total is no lower than the manual arm's, every agent universe exactly matches the truth manifest, and the hired arm is materially faster under the registered complete-pair 30-second/0.50 threshold.",
+  "failure_policy": "Exactly one primary attempt is scheduled per case per arm. A timeout, technical error, empty/malformed response, wrong snapshot hash or incomplete universe is published, scores zero on every criterion, stays in the five-case quality and reliability denominators, and prevents the complete-pair speed limb. It is never replaced by a scored retry. Any later diagnostic request is secondary and cannot substitute.",
+  "falsifier": "The quality limb is refuted if the hired arm's median rubric total is lower. The completeness limb is refuted if any agent output does not partition every frozen row exactly as the truth manifest. The speed limb is refuted if any pair is incomplete, median(manual_seconds-agent_seconds)<30.0, or median(agent_seconds/manual_seconds)>0.50. A recommendation from a later live fetch, an ineligible destination, or a displayed but incomplete universe cannot support the claim.",
   "inputs_ref": "docket/advantage/v3/inputs/02-yield-cases.json",
   "inputs_sha256": "",
   "measures": {
-    "cost": "Out-of-pocket only, as an amount and a unit: the settled hire price plus any gas for the agent arm, and the direct cash cost of the manual arm's tools for the manual arm — which is 0 where it used public pages. No hourly rate is applied to anyone's time and the two measures are never combined. An hourly rate is the one assumption that would let this report produce whatever number it wanted, and where the two arms' costs are 0 and a hire price, the report says the comparison is between a price and a wage it declines to invent.",
-    "time": "Wall-clock seconds around the work itself, clocked by the harness for the agent arm and by the operator's own stopwatch for the manual arm, started when the case's inputs are first read and stopped when the arm's answer is complete. Interruptions are recorded and subtracted, and the fact that they were is stated per case."
+    "cost": "Out-of-pocket amount and unit only: settled hire price plus any agent-arm gas, and direct cash cost of manual tools. No hourly wage is invented and time is never converted into money.",
+    "time": "For each complete pair, d_i=manual elapsed seconds-agent elapsed seconds and r_i=agent/manual. Report all durations, both arm medians, median(d_i), median(r_i), timeouts and complete-pair count."
   },
   "n_planned": 5,
   "quality_rubric": {
     "criteria": [
       {
-        "full_marks_means": "Names the candidate pools it considered and why anything eligible was excluded, so the answer can be checked rather than trusted.",
-        "name": "universe_stated",
-        "zero_means": "Recommends a destination with no candidate set shown."
+        "name": "universe_complete_and_correct",
+        "score_0_means": "No candidate set, any ineligible pool included/recommended, a false completeness claim, or the shown included set differs from truth.",
+        "score_1_means": "Every shown pool is correctly classified, but one or more frozen raw rows is missing from the included/excluded partition; no ineligible row may be included.",
+        "score_2_means": "Included addresses and all included/excluded counts exactly match truth, but at least one exclusion reason, source URL, observation time or source hash is absent or wrong.",
+        "score_3_means": "Every raw row appears exactly once with correct membership and first-gate reason; included/excluded/considered counts, both source URLs, observation time and both SHA-256 digests exactly match the truth manifest."
       },
       {
-        "full_marks_means": "Every rate compared is net of the protocol's cut, and the arm says so.",
         "name": "net_not_gross",
-        "zero_means": "Compares gross rates, or does not say which it used."
+        "score_0_means": "The current or chosen rate is absent/outside tolerance, or any gross rate is presented as an LP net rate.",
+        "score_1_means": "Current and chosen-destination net APRs are correct within tolerance, but other eligible candidate rates are absent or wrong.",
+        "score_2_means": "Every eligible candidate's net APR is correct within tolerance, but one or more raw fee/protocol-fee/TVL derivations is absent.",
+        "score_3_means": "Every eligible net APR is correct within tolerance and each carries feeUSD24h, protocolFeeUSD24h, tvlUSD, the registered formula and its 24h-observation window."
       },
       {
-        "full_marks_means": "Subtracts the stated switching cost and gives the break-even horizon in days.",
         "name": "switching_cost_applied",
-        "zero_means": "Ignores the switching cost, so the answer is a rate ranking."
+        "score_0_means": "The $25 switching cost is ignored, or the move/stay direction or any stated break-even arithmetic is wrong.",
+        "score_1_means": "Move/stay direction is correct but no numeric extra USD/day and days-to-recover figure is given.",
+        "score_2_means": "Extra USD/day and days to recover are correct within tolerance and the $25 cost/$10,000 size/30-day horizon are stated, but the cost-scope assumption or formula is absent.",
+        "score_3_means": "All score-2 numbers are correct within tolerance and the full formula plus the caller-supplied cost scope (gas on all legs, swap fee/impact and uncollected fees) is explicit."
       },
       {
-        "full_marks_means": "Ends in move or stay for the stated horizon, with the number that decides it.",
         "name": "answer_is_decidable",
-        "zero_means": "Ends in a list of rates and leaves the decision to the reader."
+        "score_0_means": "No move/stay decision, the decision is wrong, or a destination violates the frozen eligible set.",
+        "score_1_means": "The move/stay decision is correct for 30 days but no destination/deciding number is supplied.",
+        "score_2_means": "The decision, eligible destination when moving and deciding number are correct, but the deterministic highest-net-rate/tie rule or no-positive-delta handling is absent.",
+        "score_3_means": "The decision and number are correct; any destination is the highest frozen eligible net APR with lowercase-address tie-breaking; no-positive-delta and past-horizon cases are handled exactly as registered."
       },
       {
-        "full_marks_means": "Says what the comparison assumes and what it cannot see — impermanent loss at the destination, and that a 24h rate is not a forecast.",
         "name": "limits_stated",
-        "zero_means": "Presents the comparison as a prediction of future yield."
+        "score_0_means": "The answer calls the destination globally highest, guarantees/predicts yield, or states none of the registered limits.",
+        "score_1_means": "It says the annualised 24h rate is an observation rather than a forecast, and states no other registered limit.",
+        "score_2_means": "It also says a pool rate is not a concentrated-position return and destination impermanent loss is unmodelled, but omits the universe/cost bound.",
+        "score_3_means": "It states every limit: 24h is not a forecast, pool rate is not position return, IL is unmodelled, switching cost is caller-supplied, and the claim is bounded to the exact frozen top-pools response."
       }
     ],
-    "scale": "0-3 per criterion, scored independently per criterion and summed. 3 = the criterion is fully met; 2 = met with a gap that does not change what the reader would do; 1 = a gap that changes what the reader would do; 0 = absent or wrong."
+    "scale": "0-3 per criterion, summed per output. Only the criterion-specific factual anchors assign scores; displaying a universe earns no completeness credit unless it matches the frozen truth manifest."
   },
-  "question": "For a stated amount of liquidity sitting in a named PancakeSwap pool, does hiring Yield Router produce a better-founded move-or-stay answer than working the same comparison by hand?",
-  "registered_at": "2026-08-14T00:00:00+00:00",
-  "runnable": false,
+  "question": "Within one exact frozen PancakeSwap top-pools response and a fixed $10,000 position/$25 switch/30-day scenario, does hiring Yield Router produce a complete, correct move-or-stay answer at least as usable as the same work by hand, and materially faster?",
+  "registration_provenance": "Git history is the registration witness: the first commit containing this exact stage-one protocol hash establishes that the repaired protocol predates later input-lock and run commits. No independently attested wall-clock registration time is claimed inside this file.",
   "scoring": {
     "blinded": true,
-    "disagreement": "Per-criterion scores are averaged, and both evaluators' sheets are published in full rather than only the average. Any criterion where the two differ by 2 or more is flagged in the report as contested and its case is quoted so a reader can take their own view. Disagreement is reported, never resolved by a third scorer recruited after the split is visible.",
+    "calibration": "Before input lock, a named qualified author distinct from both evaluators and from protocol/input authors freezes one base64 UTF-8 JSON calibration set for exactly eight Pancake cases with its SHA-256 and four structured all-false conflicts. Its literal allowlists, pool rows and common scenarios must include eligible and at least two distinct excluded outcomes; the lock recomputes first failed gates, both net APRs, incremental dollars, break-even and move/stay truth from the registered formulas. Each named seat must exactly match at least seven complete canonical structured answers and submit the canonical hash of the registered objective rubric anchors; the benchmark's reporting tolerances do not substitute for a complete calibration object. The input envelope carries exact model/build, session id, seven structured all-false evaluator conflict booleans, qualification_passed=true and a hash-bound artifact per seat. The lock rejects invented answer-key values and computes the pass count from submitted answers. Failure blocks input lock and no post-output replacement is allowed.",
+    "disagreement": "Both per-criterion sheets are published. Scores are averaged per criterion; a gap of 2 or more is flagged and quoted, never resolved by a post-output adjudicator. If either named seat does not submit, the family remains unscored.",
+    "evaluator_roster": [
+      {
+        "evaluator_id": "claude-audit-seat",
+        "identity": "Claude, the owner's named audit seat; the exact provider model/build and scoring-session identifier must be recorded on its signed or hash-bound score sheet.",
+        "qualification": "Eligible only after passing the frozen Range/Yield calibration gate and declaring it did not run either arm, author the frozen cases/truth, implement the evaluated output, see arm assignments, or hold a financial interest in the score."
+      },
+      {
+        "evaluator_id": "fable-5-audit-seat",
+        "identity": "Fable 5, the owner's named audit seat; the exact provider model/build and scoring-session identifier must be recorded on its signed or hash-bound score sheet.",
+        "qualification": "Eligible only after passing the frozen Range/Yield calibration gate and declaring it did not run either arm, author the frozen cases/truth, implement the evaluated output, see arm assignments, or hold a financial interest in the score."
+      }
+    ],
     "evaluators": 2,
-    "randomisation": "Each case's two outputs are stripped of anything naming their arm — timings, receipts, prices, tool names and formatting tells are removed by the harness — labelled A and B with the assignment drawn per case, and scored in a case order that is itself shuffled. Neither evaluator sees the other's sheet until both are submitted."
+    "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'yield-blinding'). Per case, SHA-256(seed || case_id || 'arm') parity assigns A/B; sorting SHA-256(seed || case_id || 'order') fixes case order. Tool names, timing, prices, receipts and formatting tells are removed. Evaluators see neither mappings nor each other's sheets until both hashes are submitted.",
+    "selection_rule": "Exactly the Claude and Fable 5 audit seats named here are selected before inputs. They must meet calibration/conflict rules. No substitution after any output; unavailability leaves the family unscored."
   },
-  "spec_hash": "0xac54c563d847bcb8ab1c0ba7d86ddd7d18a5300c3478d8fc6f3a6951f9919b48",
+  "spec_hash": "0x6312b9cfb3da18fffec4703681b46b613db527fc66233c691617c782f6aeff3b",
   "spec_id": "v3-02-yield-router",
-  "stopping_rule": "Every frozen case run once per arm, in the frozen order, all runs complete before scoring begins. No case is re-run for an unwelcome result."
+  "speed_threshold": {
+    "formula": "For the five valid complete pairs, d_i=manual_seconds-agent_seconds and r_i=agent_seconds/manual_seconds; compute median(d_i) and median(r_i).",
+    "material_if": "All five pairs have valid completed outputs, median(d_i) is at least 30.0 seconds, and median(r_i) is at most 0.50. All conditions are conjunctive.",
+    "maximum_median_agent_to_manual_ratio": 0.5,
+    "minimum_median_seconds_saved": 30.0,
+    "requires_complete_pairs": true
+  },
+  "stage_one_protocol_hash": "0x936717e78abbcdf0ff46bab82bcf17e7da443f5275a819a6476dbf51472405a3",
+  "stopping_rule": "Schedule exactly five frozen primary cases once per arm. A primary attempt ends in a valid immutable answer, timeout at 1,200 seconds, technical error, empty/malformed output or snapshot mismatch. Stop only after all ten primary attempts have terminal records. No scored retry, replacement case/source or post-output rule change is allowed; incomplete pairs prevent the speed limb.",
+  "timing": {
+    "clock": "The harness owns a monotonic_ns clock and an append-only UTC event log for both arms.",
+    "interruptions": "The clock never pauses. Loading, reading, research, arithmetic, corrections, network waits and interruptions remain inside elapsed time; nothing is subtracted after the fact. Breaks occur only between cases.",
+    "operator_control": "The manual operator cannot start, stop, pause or edit the clock. The harness reveals the case and accepts exactly one immutable final submission.",
+    "start_event": "Agent: immediately before the public request is sent. Manual: when the harness first reveals the sampled pool, common scenario and frozen source access.",
+    "stop_event": "Agent: after the complete response and receipt validate, or at terminal failure. Manual: when the immutable final answer is submitted, or at terminal failure.",
+    "timeout_seconds": 1200
+  }
 }

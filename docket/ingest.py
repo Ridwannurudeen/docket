@@ -59,10 +59,9 @@ def _sweep(
     offset = 0
     items = first_items
     highest = _highest_token_id(items)
-    # Set on the two paths that leave the loop without reaching the end of the query. Both used
-    # to close the snapshot exactly as a clean run did, which made a truncated capture
-    # promotable the moment a sweep ran unattended.
-    stop_reason = "exhausted"
+    # A clean finish is assigned only by the loop's no-break path. Starting with the promotable
+    # reason would let a future `break` that forgot its classification fail open.
+    stop_reason: str | None = None
     while items:
         store.upsert_agents(items, sid)
         pages += 1
@@ -90,6 +89,11 @@ def _sweep(
             highest = page_high
         if pages % 50 == 0:
             logger.info("ingest: %d pages, %d stored", pages, store.agent_count(sid))
+    else:
+        stop_reason = "exhausted"
+
+    if stop_reason is None:
+        raise RuntimeError("ingest sweep stopped without a classified reason")
 
     sampled = store.agent_count(sid)
     store.finish_snapshot(sid, sampled, expected, stop_reason=stop_reason)
