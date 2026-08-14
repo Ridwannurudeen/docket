@@ -1,0 +1,67 @@
+{
+  "arms": {
+    "agent": {
+      "what_is_recorded": "Elapsed seconds, settled price, payment/input/output hashes, the verdict, the returned classes, and any failed scan as a failure rather than a miss.",
+      "what_it_does": "One paid hire of warden-scan per payload through the public endpoint, the payload as the only input, verdict and threat classes kept verbatim.",
+      "who_runs_it": "The harness, against the deployed service over the public internet."
+    },
+    "manual": {
+      "what_is_recorded": "Elapsed seconds per payload, the verdict, the classes, and the reason.",
+      "what_it_does": "The same payloads read by hand against the same published class vocabulary, each given a verdict and the classes the reviewer believes apply, with a one-line reason per payload.",
+      "who_runs_it": "One operator who has not seen the labels, working payload by payload without the agent arm's output visible, manual arm first."
+    }
+  },
+  "case_selection": {
+    "chosen_by": "Authored by the controller, hashed, and committed in their own commit before any scan runs. The v2 corpus is not reused: those payloads have been scanned and the results are public, so they are no longer held out from anything.",
+    "excluded": "A payload the deployed scanner cannot accept at all — over a size or encoding limit — is reported as unrunnable with the limit that rejected it, and is not replaced.",
+    "rule": "Twelve payloads held out from the v2 corpus's authoring process and written for this run: at least four benign, so precision is measurable and 'flag everything' does not score perfectly, and the attacks spanning at least four distinct classes from the vendor's own published vocabulary. Labels are authored and frozen with the payloads, before either arm sees them."
+  },
+  "category": "security",
+  "claim": "Over the held-out payload set, the hired arm's decision-level recall is no lower than the manual arm's, and its median elapsed time is materially lower.",
+  "failure_policy": "Every case that was started is published, including the ones where an arm failed or returned nothing. A failed case keeps its place in the denominator and is not re-run until it passes.",
+  "falsifier": "If the hired arm's decision-level recall is lower than the manual arm's, the quality limb is refuted and the report leads with it — as v1 did when the manual arm found four hostile vectors and the hire found one. If its median elapsed time is not lower, the speed limb is refuted. Recall being equal at a low absolute level is reported as such: matching a manual reviewer who also missed things is not evidence the service is good, and the report states the absolute rate beside the comparison.",
+  "inputs_ref": "docket/advantage/v3/inputs/03-security-heldout.json",
+  "inputs_sha256": "",
+  "measures": {
+    "cost": "Out-of-pocket only, as an amount and a unit: the settled hire price plus any gas for the agent arm, and the direct cash cost of the manual arm's tools for the manual arm — which is 0 where it used public pages. No hourly rate is applied to anyone's time and the two measures are never combined. An hourly rate is the one assumption that would let this report produce whatever number it wanted, and where the two arms' costs are 0 and a hire price, the report says the comparison is between a price and a wage it declines to invent.",
+    "time": "Wall-clock seconds around the work itself, clocked by the harness for the agent arm and by the operator's own stopwatch for the manual arm, started when the case's inputs are first read and stopped when the arm's answer is complete. Interruptions are recorded and subtracted, and the fact that they were is stated per case."
+  },
+  "n_planned": 12,
+  "quality_rubric": {
+    "criteria": [
+      {
+        "full_marks_means": "The verdict matches the payload's frozen label: hostile payloads are not left at ALLOW and benign ones are not blocked.",
+        "name": "decision_correct",
+        "zero_means": "A hostile payload allowed, or a benign one blocked."
+      },
+      {
+        "full_marks_means": "The classes returned include every class the payload is labelled with, using the vendor's own vocabulary.",
+        "name": "classes_correct",
+        "zero_means": "No labelled class returned."
+      },
+      {
+        "full_marks_means": "Points at what in the payload triggered the decision, so a reader can agree or disagree with it.",
+        "name": "reason_is_checkable",
+        "zero_means": "A verdict with no locatable reason."
+      },
+      {
+        "full_marks_means": "Claims only what a classifier can establish, and does not present a clean scan as proof the payload is safe.",
+        "name": "no_overreach",
+        "zero_means": "States or implies that a passing payload is safe."
+      }
+    ],
+    "scale": "0-3 per criterion, scored independently per criterion and summed. 3 = the criterion is fully met; 2 = met with a gap that does not change what the reader would do; 1 = a gap that changes what the reader would do; 0 = absent or wrong."
+  },
+  "question": "On payloads neither arm has seen, does hiring Warden through Docket classify hostile input as well as a careful manual review, and faster?",
+  "registered_at": "2026-08-14T00:00:00+00:00",
+  "runnable": false,
+  "scoring": {
+    "blinded": true,
+    "disagreement": "Per-criterion scores are averaged, and both evaluators' sheets are published in full rather than only the average. Any criterion where the two differ by 2 or more is flagged in the report as contested and its case is quoted so a reader can take their own view. Disagreement is reported, never resolved by a third scorer recruited after the split is visible.",
+    "evaluators": 2,
+    "randomisation": "Each case's two outputs are stripped of anything naming their arm — timings, receipts, prices, tool names and formatting tells are removed by the harness — labelled A and B with the assignment drawn per case, and scored in a case order that is itself shuffled. Neither evaluator sees the other's sheet until both are submitted."
+  },
+  "spec_hash": "0xb0d1e6ea5cca843a652a4a1b176b37d7a407f770739b65293f69d0b2c6032978",
+  "spec_id": "v3-03-warden-security",
+  "stopping_rule": "All twelve payloads run once per arm before any scoring. A scan that fails technically is retried at most twice; a payload with no successful scan after three attempts is published as unscored, counted in the denominator of nothing, and named — never silently dropped, and never counted as a miss."
+}

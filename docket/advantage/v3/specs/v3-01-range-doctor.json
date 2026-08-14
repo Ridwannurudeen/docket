@@ -1,0 +1,72 @@
+{
+  "arms": {
+    "agent": {
+      "what_is_recorded": "Elapsed seconds, settled price and asset, payment/input/output hashes, the complete response, and any error or empty result exactly as returned.",
+      "what_it_does": "One paid hire of range-doctor through the public endpoint, with the case's wallet as the only input, exactly as a stranger would run it. The returned payload, the coverage sentence and the receipt are kept verbatim.",
+      "who_runs_it": "The harness, against the deployed service over the public internet — not an in-process call, because the thing under test is the hire a buyer makes."
+    },
+    "manual": {
+      "what_is_recorded": "Elapsed seconds, every source URL consulted, the arithmetic in full, the written answer, and any question the operator could not settle.",
+      "what_it_does": "The same question answered by hand from public sources only: the position NFT read on a block explorer, the pool's figures from PancakeSwap's own interface, range status worked out from the current tick against the position's bounds, and the net fee rate computed with the protocol's cut subtracted. The tools used are named per case.",
+      "who_runs_it": "One operator working without Docket open, without the agent arm's output visible, and running the manual arm first for every case so its answer cannot be anchored by the hire's."
+    }
+  },
+  "case_selection": {
+    "chosen_by": "Selected on the recorded selection date from positions live at that block, before either arm runs, and frozen with their token ids and the block they were read at.",
+    "excluded": "A position closed by its owner between freezing and running is reported as a case that could not be run, with the block it closed at. It is never replaced with a fresh one, because replacing it would let the set be reselected after the fact — the exact failure the live evidence wallet exposed, where the recorded run's address held 21 positions and all 21 had since been closed.",
+    "rule": "Five positions, each holding non-zero liquidity at selection time, drawn to span the states the agent claims to distinguish: at least one in range, at least one out of range above, at least one out of range below, and at least one whose pool fails the plausibility gate so the no-rate path is exercised. At least one must be a Docket-controlled position that stays open through Sep 23 so a judge can re-run the case during judging and get the same shape of answer."
+  },
+  "category": "yield/LP",
+  "claim": "Across the registered set of live positions, the hired arm's diagnosis scores no lower on the pre-registered rubric than the manual arm's, and takes materially less wall-clock time to produce.",
+  "failure_policy": "Every case that was started is published, including the ones where an arm failed or returned nothing. A failed case keeps its place in the denominator and is not re-run until it passes.",
+  "falsifier": "Two results refute the claim, one per limb, and both are published as findings rather than as disappointments. If the hired arm's median rubric total is lower than the manual arm's, the quality limb is refuted. If the hired arm's median elapsed time is not lower than the manual arm's, the speed limb is refuted. A case where the hired arm returns no position at all scores zero on every criterion and stays in the denominator; it is not excluded as unrepresentative.",
+  "inputs_ref": "docket/advantage/v3/inputs/01-range-positions.json",
+  "inputs_sha256": "",
+  "measures": {
+    "cost": "Out-of-pocket only, as an amount and a unit: the settled hire price plus any gas for the agent arm, and the direct cash cost of the manual arm's tools for the manual arm — which is 0 where it used public pages. No hourly rate is applied to anyone's time and the two measures are never combined. An hourly rate is the one assumption that would let this report produce whatever number it wanted, and where the two arms' costs are 0 and a hire price, the report says the comparison is between a price and a wage it declines to invent.",
+    "time": "Wall-clock seconds around the work itself, clocked by the harness for the agent arm and by the operator's own stopwatch for the manual arm, started when the case's inputs are first read and stopped when the arm's answer is complete. Interruptions are recorded and subtracted, and the fact that they were is stated per case."
+  },
+  "n_planned": 5,
+  "quality_rubric": {
+    "criteria": [
+      {
+        "full_marks_means": "States whether the position is in range, and where the current tick sits relative to its bounds, and both agree with the chain at the stated block.",
+        "name": "range_status_correct",
+        "zero_means": "No range status given, or one that contradicts the chain."
+      },
+      {
+        "full_marks_means": "Quotes a fee rate net of the protocol's cut, shows the figures it was computed from, and says what the rate is not — an annualised day, not a forecast.",
+        "name": "net_rate_and_its_derivation",
+        "zero_means": "Quotes a gross rate as if it were the LP's, or a rate with no figures behind it."
+      },
+      {
+        "full_marks_means": "Says what the position's state costs or earns in money at its own declared value, not only as a percentage.",
+        "name": "economic_consequence",
+        "zero_means": "No monetary consequence stated anywhere."
+      },
+      {
+        "full_marks_means": "Gives a next step, names the belief it rests on, and states what acting costs in gas and realised impermanent loss.",
+        "name": "actionability",
+        "zero_means": "No next step, or one with no cost and no stated assumption."
+      },
+      {
+        "full_marks_means": "States what it did not look at and what it cannot establish, including positions held but not examined.",
+        "name": "coverage_and_limits",
+        "zero_means": "Silent about scope — in particular an empty or partial answer that does not say it is one."
+      }
+    ],
+    "scale": "0-3 per criterion, scored independently per criterion and summed. 3 = the criterion is fully met; 2 = met with a gap that does not change what the reader would do; 1 = a gap that changes what the reader would do; 0 = absent or wrong."
+  },
+  "question": "For a live PancakeSwap v3 liquidity position, does hiring Range Doctor through Docket produce a diagnosis at least as usable as doing the same reading by hand, and how much time does it take off the job?",
+  "registered_at": "2026-08-14T00:00:00+00:00",
+  "runnable": false,
+  "scoring": {
+    "blinded": true,
+    "disagreement": "Per-criterion scores are averaged, and both evaluators' sheets are published in full rather than only the average. Any criterion where the two differ by 2 or more is flagged in the report as contested and its case is quoted so a reader can take their own view. Disagreement is reported, never resolved by a third scorer recruited after the split is visible.",
+    "evaluators": 2,
+    "randomisation": "Each case's two outputs are stripped of anything naming their arm — timings, receipts, prices, tool names and formatting tells are removed by the harness — labelled A and B with the assignment drawn per case, and scored in a case order that is itself shuffled. Neither evaluator sees the other's sheet until both are submitted."
+  },
+  "spec_hash": "0x9e4327183b6681260a05766e8857c1688aa4518e96011290075cf674a6c45332",
+  "spec_id": "v3-01-range-doctor",
+  "stopping_rule": "Every frozen case is run exactly once per arm, in the frozen order, and the set is finished before any scoring begins. No case is re-run because its result was unwelcome; a case whose agent arm errors is recorded as an error and scored on what came back. Running stops when all five cases have both arms recorded or have been reported as unrunnable."
+}

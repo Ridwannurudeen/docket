@@ -1,0 +1,72 @@
+{
+  "arms": {
+    "agent": {
+      "what_is_recorded": "Elapsed seconds, settled price, payment/input/output hashes, the complete response including the eligible universe and every stated exclusion.",
+      "what_it_does": "One paid hire of yield-router through the public endpoint with the case's frozen inputs — pool, position size, switching cost and horizon — and nothing else.",
+      "who_runs_it": "The harness, against the deployed service over the public internet."
+    },
+    "manual": {
+      "what_is_recorded": "Elapsed seconds, every source consulted, the full candidate list, the arithmetic, and the move-or-stay conclusion with its break-even.",
+      "what_it_does": "The same comparison by hand from PancakeSwap's own pool list: candidate pools identified, each one's net rate computed with the protocol cut subtracted, the switching cost applied, and a break-even horizon derived. The candidate set the operator considered is written down in full.",
+      "who_runs_it": "One operator without Docket open and without the agent arm's output visible, running the manual arm first for every case."
+    }
+  },
+  "case_selection": {
+    "chosen_by": "Fixed against the pool snapshot registered with this spec, before either arm runs. Pools are named by address, not by pair, because a pair names several.",
+    "excluded": "A pool that stops being listed between freezing and running is reported as an unrunnable case rather than swapped for another.",
+    "rule": "Five cases, each a (pool, position size in USD, switching cost in USD, horizon in days) tuple, chosen to span the answers the agent can give: at least one where moving clearly wins on the horizon, at least one where staying clearly wins, and at least one where the break-even falls inside the horizon so the answer turns on the switching cost rather than the rate gap."
+  },
+  "category": "yield/LP",
+  "claim": "Across the registered set of cases, the hired arm's answer scores no lower on the pre-registered rubric than the manual arm's, and reaches a break-even statement in materially less wall-clock time.",
+  "failure_policy": "Every case that was started is published, including the ones where an arm failed or returned nothing. A failed case keeps its place in the denominator and is not re-run until it passes.",
+  "falsifier": "If the hired arm's median rubric total is lower than the manual arm's, the quality limb is refuted. If its median elapsed time is not lower, the speed limb is refuted. If the hired arm returns no destination and no reason on a majority of cases, the claim is refuted outright and the report leads with that.",
+  "inputs_ref": "docket/advantage/v3/inputs/02-yield-cases.json",
+  "inputs_sha256": "",
+  "measures": {
+    "cost": "Out-of-pocket only, as an amount and a unit: the settled hire price plus any gas for the agent arm, and the direct cash cost of the manual arm's tools for the manual arm — which is 0 where it used public pages. No hourly rate is applied to anyone's time and the two measures are never combined. An hourly rate is the one assumption that would let this report produce whatever number it wanted, and where the two arms' costs are 0 and a hire price, the report says the comparison is between a price and a wage it declines to invent.",
+    "time": "Wall-clock seconds around the work itself, clocked by the harness for the agent arm and by the operator's own stopwatch for the manual arm, started when the case's inputs are first read and stopped when the arm's answer is complete. Interruptions are recorded and subtracted, and the fact that they were is stated per case."
+  },
+  "n_planned": 5,
+  "quality_rubric": {
+    "criteria": [
+      {
+        "full_marks_means": "Names the candidate pools it considered and why anything eligible was excluded, so the answer can be checked rather than trusted.",
+        "name": "universe_stated",
+        "zero_means": "Recommends a destination with no candidate set shown."
+      },
+      {
+        "full_marks_means": "Every rate compared is net of the protocol's cut, and the arm says so.",
+        "name": "net_not_gross",
+        "zero_means": "Compares gross rates, or does not say which it used."
+      },
+      {
+        "full_marks_means": "Subtracts the stated switching cost and gives the break-even horizon in days.",
+        "name": "switching_cost_applied",
+        "zero_means": "Ignores the switching cost, so the answer is a rate ranking."
+      },
+      {
+        "full_marks_means": "Ends in move or stay for the stated horizon, with the number that decides it.",
+        "name": "answer_is_decidable",
+        "zero_means": "Ends in a list of rates and leaves the decision to the reader."
+      },
+      {
+        "full_marks_means": "Says what the comparison assumes and what it cannot see — impermanent loss at the destination, and that a 24h rate is not a forecast.",
+        "name": "limits_stated",
+        "zero_means": "Presents the comparison as a prediction of future yield."
+      }
+    ],
+    "scale": "0-3 per criterion, scored independently per criterion and summed. 3 = the criterion is fully met; 2 = met with a gap that does not change what the reader would do; 1 = a gap that changes what the reader would do; 0 = absent or wrong."
+  },
+  "question": "For a stated amount of liquidity sitting in a named PancakeSwap pool, does hiring Yield Router produce a better-founded move-or-stay answer than working the same comparison by hand?",
+  "registered_at": "2026-08-14T00:00:00+00:00",
+  "runnable": false,
+  "scoring": {
+    "blinded": true,
+    "disagreement": "Per-criterion scores are averaged, and both evaluators' sheets are published in full rather than only the average. Any criterion where the two differ by 2 or more is flagged in the report as contested and its case is quoted so a reader can take their own view. Disagreement is reported, never resolved by a third scorer recruited after the split is visible.",
+    "evaluators": 2,
+    "randomisation": "Each case's two outputs are stripped of anything naming their arm — timings, receipts, prices, tool names and formatting tells are removed by the harness — labelled A and B with the assignment drawn per case, and scored in a case order that is itself shuffled. Neither evaluator sees the other's sheet until both are submitted."
+  },
+  "spec_hash": "0xac54c563d847bcb8ab1c0ba7d86ddd7d18a5300c3478d8fc6f3a6951f9919b48",
+  "spec_id": "v3-02-yield-router",
+  "stopping_rule": "Every frozen case run once per arm, in the frozen order, all runs complete before scoring begins. No case is re-run for an unwelcome result."
+}
