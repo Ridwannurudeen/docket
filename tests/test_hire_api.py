@@ -21,7 +21,9 @@ def _stub_report(address, **kwargs):
     """Stands in for `doctor.report`, including how it rejects an address it cannot read:
     web3 raises ValueError on a non-hex string, and the allowance depends on that shape."""
     if not address.startswith("0x"):
-        raise ValueError(f"when sending a str, it must be a hex string. Got: {address!r}")
+        raise ValueError(
+            f"when sending a str, it must be a hex string. Got: {address!r}"
+        )
     return {"address": address, "positions": [], "positions_held": 0}
 
 
@@ -42,7 +44,12 @@ def _client(tmp_path, monkeypatch, *, name="free", pay_to=None):
 
 
 def _authorization(acct, *, to=PAY_TO, value=10**16):
-    domain = {"name": "United Stables", "version": "1", "chainId": 56, "verifyingContract": U_TOKEN}
+    domain = {
+        "name": "United Stables",
+        "version": "1",
+        "chainId": 56,
+        "verifyingContract": U_TOKEN,
+    }
     types = {
         "TransferWithAuthorization": [
             {"name": "from", "type": "address"},
@@ -89,7 +96,9 @@ def test_the_catalogue_tells_a_stranger_what_to_send(tmp_path, monkeypatch):
 def test_a_hire_returns_a_receipt_the_caller_can_recompute(tmp_path, monkeypatch):
     """The receipt is only worth something if its holder can check it without Docket."""
     payload = {"wallet": WALLET, "limit": 3}
-    body = _client(tmp_path, monkeypatch).post("/hire/range-doctor", json=payload).json()
+    body = (
+        _client(tmp_path, monkeypatch).post("/hire/range-doctor", json=payload).json()
+    )
 
     receipt = body["receipt"]
     assert receipt["service"] == "range-doctor"
@@ -97,6 +106,25 @@ def test_a_hire_returns_a_receipt_the_caller_can_recompute(tmp_path, monkeypatch
     assert receipt["output_hash"] == _sha256_of_canonical_json(body["result"])
     assert receipt["payment"]["status"] == "free_tier"
     assert body["result"]["address"] == WALLET
+    assert body["result"]["measured_value"]["this_run_seconds"] >= 0
+    assert body["result"]["measured_value"]["paired_manual_seconds"] is None
+    assert (
+        "has not run"
+        in body["result"]["measured_value"]["benchmark_unavailable_reason"]
+    )
+
+
+def test_declared_range_economics_require_one_exact_position(tmp_path, monkeypatch):
+    """One wallet-level value must never be copied onto however many NFTs are returned."""
+    resp = _client(tmp_path, monkeypatch).post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET, "declared_position_value_usd": 10_000},
+    )
+
+    assert resp.status_code == 422
+    error = resp.json()["error"]
+    assert error["code"] == "invalid_field"
+    assert "token_id" in error["message"]
 
 
 def test_a_missing_required_field_is_named(tmp_path, monkeypatch):
@@ -120,11 +148,17 @@ def test_the_allowance_exists_only_where_a_payment_route_does(tmp_path, monkeypa
     unmetered: a missing configuration must never be what stops a cold caller."""
     unmetered = _client(tmp_path, monkeypatch, name="unmetered")
     for _ in range(FREE_TIER_HIRES + 5):
-        assert unmetered.post("/hire/range-doctor", json={"wallet": WALLET}).status_code == 200
+        assert (
+            unmetered.post("/hire/range-doctor", json={"wallet": WALLET}).status_code
+            == 200
+        )
 
     metered = _client(tmp_path, monkeypatch, name="metered", pay_to=PAY_TO)
     for _ in range(FREE_TIER_HIRES):
-        assert metered.post("/hire/range-doctor", json={"wallet": WALLET}).status_code == 200
+        assert (
+            metered.post("/hire/range-doctor", json={"wallet": WALLET}).status_code
+            == 200
+        )
 
     resp = metered.post("/hire/range-doctor", json={"wallet": WALLET})
     assert resp.status_code == 402
@@ -134,7 +168,9 @@ def test_the_allowance_exists_only_where_a_payment_route_does(tmp_path, monkeypa
     assert body["error"]["code"] == "free_tier_exhausted"
 
 
-def test_a_request_docket_could_not_read_never_spends_the_allowance(tmp_path, monkeypatch):
+def test_a_request_docket_could_not_read_never_spends_the_allowance(
+    tmp_path, monkeypatch
+):
     """The shared-egress case. One client fumbling its wallet field must not lock out the next
     caller behind the same address, and an allowance charged for work that never ran is the same
     class of overclaim as a settlement that never happened."""
@@ -153,14 +189,36 @@ def test_a_request_docket_could_not_read_never_spends_the_allowance(tmp_path, mo
     assert served.json()["receipt"]["payment"]["status"] == "free_tier"
 
 
-def test_a_verified_authorization_is_served_and_never_called_settled(tmp_path, monkeypatch):
+def test_a_verified_authorization_is_served_and_never_called_settled(
+    tmp_path, monkeypatch
+):
     client = _client(tmp_path, monkeypatch, pay_to=PAY_TO)
     header = _authorization(Account.create())
-    resp = client.post("/hire/range-doctor", json={"wallet": WALLET}, headers={"X-PAYMENT": header})
+    resp = client.post(
+        "/hire/range-doctor", json={"wallet": WALLET}, headers={"X-PAYMENT": header}
+    )
     assert resp.status_code == 200
     payment = resp.json()["receipt"]["payment"]
     assert payment["status"] == "verified_unsettled"
     assert "settlement" in payment
+
+
+def test_unbuilt_settlement_supplies_no_transaction_payment_id_or_nonce(
+    tmp_path, monkeypatch
+):
+    """An authorization nonce is not an exactly-once settlement nonce and is not proof."""
+    client = _client(tmp_path, monkeypatch, pay_to=PAY_TO)
+    body = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": _authorization(Account.create())},
+    ).json()
+
+    receipt = body["receipt"]
+    assert receipt["payment"]["status"] == "verified_unsettled"
+    for absent in ("transaction_id", "transaction_hash", "payment_id", "nonce"):
+        assert absent not in receipt
+        assert absent not in receipt["payment"]
 
 
 def test_no_hire_response_claims_a_settlement(tmp_path, monkeypatch):

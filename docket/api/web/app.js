@@ -399,8 +399,10 @@ function inputControl(name, field) {
   if (TEXTAREA_FIELDS.has(name)) {
     return `<textarea id="${id}" name="${escapeHTML(name)}" rows="6"${required}></textarea>`;
   }
-  const type = field.type === "integer" ? "number" : "text";
-  return `<input id="${id}" name="${escapeHTML(name)}" type="${type}" value="${value}"${required} />`;
+  const numeric = field.type === "integer" || field.type === "number";
+  const type = numeric ? "number" : "text";
+  const step = field.type === "number" ? ' step="any"' : "";
+  return `<input id="${id}" name="${escapeHTML(name)}" type="${type}" value="${value}"${step}${required} />`;
 }
 
 function activationForm(record) {
@@ -524,7 +526,22 @@ function readForm(record, form) {
        `limit` explicitly so that an explicit 0 stays 0, and a blank sent as one would
        turn "use the default" into "read nothing". */
     if (!raw && !field.required) continue;
-    body[name] = field.type === "integer" ? Number.parseInt(raw, 10) : raw;
+    if (field.type === "integer" || field.type === "number") {
+      const number = Number(raw);
+      const valid =
+        Number.isFinite(number) &&
+        (field.type !== "integer" || Number.isInteger(number));
+      if (!valid) {
+        const err = new Error(
+          `${name} must be ${field.type === "integer" ? "an integer" : "a finite number"}.`,
+        );
+        err.code = "invalid_field";
+        throw err;
+      }
+      body[name] = number;
+    } else {
+      body[name] = raw;
+    }
   }
   return body;
 }
@@ -538,15 +555,16 @@ function readForm(record, form) {
    payload, so an unpresented service reads as unpolished rather than broken. */
 const PRESENTERS = { "range-doctor": presentRangeDoctor };
 
-function presentResult(record, result) {
-  const presenter = PRESENTERS[record.id];
+function presentResult(record, answer) {
+  const result = answer.result;
+  const presenter = PRESENTERS[record.service_id];
   const raw = `<details class="raw">
       <summary>The full response, exactly as the service returned it</summary>
-      <pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>
+      <pre>${escapeHTML(JSON.stringify(answer, null, 2))}</pre>
     </details>`;
   if (!presenter)
     return `<pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>`;
-  return presenter(result) + raw;
+  return presenter(result, answer.receipt || {}, record) + raw;
 }
 
 function pct(value) {
@@ -555,82 +573,227 @@ function pct(value) {
     : `${(value * 100).toFixed(2)}%`;
 }
 
-function presentRangeDoctor(result) {
+function usd(value) {
+  if (value === null || value === undefined) return null;
+  return `$${Number(value).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function presentRangeDoctor(result, receipt, record) {
   const positions = result.positions || [];
-  /* The coverage sentence leads whatever else is here. When the list is empty it is the
-     entire answer, and an empty list with nothing above it is the failure this presenter
-     exists to prevent: a reader who sees no positions and no sentence concludes theirs are
-     fine. */
-  const coverage = result.coverage
-    ? `<p class="lede">${escapeHTML(result.coverage)}</p>`
-    : "";
-
-  if (!positions.length) {
-    return `<section aria-labelledby="result-heading">
-        <h3 id="result-heading">What came back</h3>
-        ${coverage}
-        <p class="dim">${
-          result.scan_complete === false
-            ? `Nothing was diagnosed among the positions this read reached. It did not reach the
-               end of the wallet, so this is <strong>not</strong> a finding that you have no open
-               position — the ones it did not read are unknown, not absent. The sentence above
-               says what would let it look further.`
-            : `Nothing was diagnosed because there was no open position to diagnose. That is an
-               answer about this wallet, not a failure of the read — and it is not a statement
-               that the wallet is healthy, only that it holds nothing in a pool at the moment it
-               was read.`
-        }</p>
-      </section>`;
-  }
-
-  const cards = positions
-    .map((entry) => {
-      const p = entry.position || {};
-      const d = entry.diagnosis || {};
-      const pool = entry.pool || {};
-      const apr = pct(d.pool_net_apr);
-      const where = pct(d.range_position_pct);
-      const findings = (d.findings || [])
-        .map((f) => `<li>${escapeHTML(f)}</li>`)
-        .join("");
-      const actions = (d.actions || [])
+  const payment = receipt.payment || {};
+  const incomplete =
+    result.scan_complete === false
+      ? `<p class="notice notice-warn">This scan is incomplete: unread positions are unknown, not absent.</p>`
+      : "";
+  const decisions = positions.length
+    ? `<ul>${positions
         .map(
-          (a) =>
-            `<li>${escapeHTML(a.text)}${
-              a.link
-                ? ` <a href="${escapeHTML(a.link)}" rel="noopener">open it on PancakeSwap</a>`
-                : ""
-            }</li>`,
+          (entry) =>
+            `<li><strong>${escapeHTML((entry.diagnosis || {}).decision || "No decision was returned for this position.")}</strong></li>`,
         )
-        .join("");
-      return `<article class="panel">
-          <h4>Position ${escapeHTML(String(p.token_id))} — ${escapeHTML(STATUS_WORDS[d.status] || d.status)}</h4>
-          <dl class="deflist">
-            <dt>Range</dt><dd class="mono">ticks ${escapeHTML(String(p.tick_lower))} to ${escapeHTML(String(p.tick_upper))}${
-              pool.tick === null || pool.tick === undefined
-                ? ""
-                : `, pool now at ${escapeHTML(String(pool.tick))}`
-            }${where ? ` (${escapeHTML(where)} through it)` : ""}</dd>
-            <dt>Pool's net fee rate</dt><dd>${
-              apr
-                ? `${escapeHTML(apr)} — one day's fees after the protocol's cut, annualised. An observation, not a forecast.`
-                : "not quoted for this position, for the reason given below"
-            }</dd>
-            <dt>Held</dt><dd>${p.staked ? "staked in a farm" : "directly in the wallet"}</dd>
-            <dt>Read at block</dt><dd class="mono">${escapeHTML(String(d.as_of_block))}</dd>
-          </dl>
-          ${findings ? `<p class="status-key">What this means</p><ul>${findings}</ul>` : ""}
-          ${actions ? `<p class="status-key">What you could do, and what it costs</p><ul>${actions}</ul>` : ""}
-        </article>`;
-    })
-    .join("");
+        .join("")}</ul>`
+    : `<p class="lede">${escapeHTML(result.decision || "No position decision was returned.")}</p>${incomplete}`;
 
-  return `<section aria-labelledby="result-heading">
-      <h3 id="result-heading">What came back</h3>
-      ${coverage}
-      ${cards}
-      <p class="dim">Every figure above was computed from numbers this response carries, so
-        you can check it against the chain yourself. Nothing was signed, approved or moved.</p>
+  const facts = positions.length
+    ? positions
+        .map((entry) => {
+          const d = entry.diagnosis || {};
+          const f = d.verifiable_facts || {};
+          return `<article class="panel">
+              <h4>Position ${escapeHTML(f.position_id ?? DASH)} — ${escapeHTML(STATUS_WORDS[d.status] || d.status || "status unavailable")}</h4>
+              <dl class="deflist">
+                <dt>Pair</dt><dd>${escapeHTML(f.pair || DASH)}</dd>
+                <dt>Position ID</dt><dd class="mono">${escapeHTML(f.position_id ?? DASH)}</dd>
+                <dt>Token 0</dt><dd class="mono">${escapeHTML(f.token0 || DASH)}</dd>
+                <dt>Token 1</dt><dd class="mono">${escapeHTML(f.token1 || DASH)}</dd>
+                <dt>Current tick</dt><dd class="mono">${escapeHTML(f.current_tick ?? DASH)}</dd>
+                <dt>Range bounds</dt><dd class="mono">[${escapeHTML(f.lower_tick ?? DASH)}, ${escapeHTML(f.upper_tick ?? DASH)})</dd>
+                <dt>BSC block</dt><dd class="mono">${escapeHTML(f.bsc_block ?? DASH)}</dd>
+                <dt>Observation time</dt><dd>${escapeHTML(f.observation_time || DASH)}</dd>
+              </dl>
+            </article>`;
+        })
+        .join("")
+    : `<div class="panel">
+        <p>No position-specific facts are available because no active position was diagnosed.</p>
+        <dl class="deflist">
+          <dt>Wallet read at BSC block</dt><dd class="mono">${escapeHTML((result.observation || {}).bsc_block ?? DASH)}</dd>
+          <dt>Observation time</dt><dd>${escapeHTML((result.observation || {}).observation_time || DASH)}</dd>
+        </dl>
+      </div>`;
+
+  const economics = positions.length
+    ? positions
+        .map((entry) => {
+          const d = entry.diagnosis || {};
+          const e = d.economic_consequence || {};
+          const rates =
+            e.gross_apr === null || e.gross_apr === undefined
+              ? `<p>Rate figures are unavailable: ${escapeHTML(e.unavailable_reason || "the required pool evidence is missing")}</p>`
+              : `<dl class="deflist">
+                  <dt>Gross APR</dt><dd class="num">${escapeHTML(pct(e.gross_apr))}</dd>
+                  <dt>Protocol-adjusted net APR</dt><dd class="num">${escapeHTML(pct(e.net_apr))}</dd>
+                  <dt>Gross overstatement</dt><dd><span class="num">${escapeHTML(e.overstatement_relative === null ? "not defined because net APR is zero" : pct(e.overstatement_relative))}</span> relative; <span class="num">${escapeHTML(e.overstatement_percentage_points === null ? DASH : `${Number(e.overstatement_percentage_points).toFixed(2)} percentage points`)}</span></dd>
+                  <dt>Current position fee APR</dt><dd class="num">${escapeHTML(pct(e.position_fee_apr))}</dd>
+                  <dt>Raw 24h inputs</dt><dd>${escapeHTML(usd(e.fee_usd_24h) || DASH)} fees − ${escapeHTML(usd(e.protocol_fee_usd_24h) || DASH)} protocol cut, over ${escapeHTML(usd(e.tvl_usd) || DASH)} TVL</dd>
+                </dl>`;
+          const dollars =
+            e.annual_overstatement_usd === null ||
+            e.annual_overstatement_usd === undefined
+              ? `<p class="dim">Dollar effect is unavailable: ${escapeHTML(e.unavailable_reason || "declared position value is missing")}</p>`
+              : `<dl class="deflist">
+                  <dt>Declared position value</dt><dd class="num">${escapeHTML(usd(e.declared_position_value_usd))} — caller-declared, not derived</dd>
+                  <dt>Annualised gross dollars</dt><dd class="num">${escapeHTML(usd(e.annual_gross_usd))}</dd>
+                  <dt>Annualised net dollars</dt><dd class="num">${escapeHTML(usd(e.annual_net_usd))}</dd>
+                  <dt>Annual overstatement</dt><dd class="num">${escapeHTML(usd(e.annual_overstatement_usd))}</dd>
+                  <dt>Current position annualised fees</dt><dd class="num">${escapeHTML(usd(e.position_annual_fee_usd))}</dd>
+                </dl>`;
+          return `<article class="panel">
+              <h4>Position ${escapeHTML((d.verifiable_facts || {}).position_id ?? DASH)}</h4>
+              ${rates}
+              ${dollars}
+              <p class="dim">An observation, not a forecast. ${escapeHTML(e.limitation || "The response supplied no further rate limitation.")}</p>
+            </article>`;
+        })
+        .join("")
+    : `<div class="panel"><p>No position-level economic consequence is available because no position was diagnosed.</p></div>`;
+
+  const actions = positions.length
+    ? positions
+        .map((entry) => {
+          const d = entry.diagnosis || {};
+          const conditional = d.conditional_actions || {};
+          const alternatives = (conditional.actions || [])
+            .map(
+              (action) =>
+                `<li><strong>${escapeHTML(action.kind || "conditional")}</strong>: ${escapeHTML(action.text)}${
+                  action.link
+                    ? ` <a href="${escapeHTML(action.link)}" rel="noopener">open it on PancakeSwap</a>`
+                    : ""
+                }</li>`,
+            )
+            .join("");
+          const switching =
+            conditional.estimated_recenter_cost_usd === null ||
+            conditional.estimated_recenter_cost_usd === undefined
+              ? `<p class="dim">Numeric switching cost and break-even are unavailable: ${escapeHTML(conditional.unavailable_reason || "the required declared inputs are missing")}</p>`
+              : `<dl class="deflist">
+                  <dt>Estimated recenter cost</dt><dd class="num">${escapeHTML(usd(conditional.estimated_recenter_cost_usd))} — caller-declared</dd>
+                  <dt>Cost-only break-even</dt><dd class="num">${
+                    conditional.cost_only_break_even_days === null ||
+                    conditional.cost_only_break_even_days === undefined
+                      ? `unavailable — ${escapeHTML(conditional.unavailable_reason || "the required rate or value is missing")}`
+                      : `${escapeHTML(Number(conditional.cost_only_break_even_days).toFixed(2))} days`
+                  }</dd>
+                </dl>`;
+          return `<article class="panel">
+              <h4>Position ${escapeHTML((d.verifiable_facts || {}).position_id ?? DASH)}</h4>
+              ${alternatives ? `<ul>${alternatives}</ul>` : `<p>No wait-versus-recenter alternatives apply to this position.</p>`}
+              ${switching}
+              <p class="dim">${escapeHTML(conditional.limitation || "Costs and future rates remain uncertain.")}</p>
+            </article>`;
+        })
+        .join("")
+    : `<div class="panel"><p>No position-specific action is available because no position was diagnosed.</p></div>`;
+
+  const measured = result.measured_value || {};
+  const benchmarkReason =
+    measured.benchmark_unavailable_reason ||
+    "The preregistered v3 paired report has not run, so paired manual time, quality, and its report link are unavailable.";
+  const pairedTime =
+    measured.paired_manual_seconds === null ||
+    measured.paired_manual_seconds === undefined
+      ? `unavailable — ${escapeHTML(benchmarkReason)}`
+      : `${escapeHTML(Number(measured.paired_manual_seconds).toFixed(3))} seconds`;
+  const quality =
+    measured.quality_result === null || measured.quality_result === undefined
+      ? `unavailable — ${escapeHTML(benchmarkReason)}`
+      : escapeHTML(
+          typeof measured.quality_result === "string"
+            ? measured.quality_result
+            : JSON.stringify(measured.quality_result),
+        );
+  const reportLink = measured.report_url
+    ? `<a href="${escapeHTML(measured.report_url)}">Open the v3 paired report</a>`
+    : `unavailable — ${escapeHTML(benchmarkReason)}`;
+  const proofId =
+    receipt.transaction_id ||
+    receipt.payment_id ||
+    payment.transaction_id ||
+    payment.payment_id;
+  const proofNonce = receipt.nonce || payment.nonce;
+  const proofMissing =
+    payment.status === "verified_unsettled"
+      ? "The authorization was verified but exact-once settlement is not built, so no settlement record exists."
+      : "This run used the free tier and no payment occurred; exact-once settlement is not built.";
+
+  return `<section aria-labelledby="range-decision-heading">
+      <h3 id="range-decision-heading">1. Decision</h3>
+      ${decisions}
+    </section>
+    <section aria-labelledby="range-facts-heading">
+      <h3 id="range-facts-heading">2. Verifiable facts</h3>
+      ${facts}
+    </section>
+    <section aria-labelledby="range-economics-heading">
+      <h3 id="range-economics-heading">3. Economic consequence</h3>
+      ${economics}
+    </section>
+    <section aria-labelledby="range-actions-heading">
+      <h3 id="range-actions-heading">4. Conditional actions</h3>
+      ${actions}
+    </section>
+    <section aria-labelledby="range-coverage-heading">
+      <h3 id="range-coverage-heading">5. Coverage</h3>
+      <div class="panel">
+        <p class="lede">${escapeHTML(result.coverage || "Coverage sentence unavailable.")}</p>
+        <dl class="deflist">
+          <dt>Positions held</dt><dd class="num">${escapeHTML(fmtInt(result.positions_held))}</dd>
+          <dt>Positions examined</dt><dd class="num">${escapeHTML(fmtInt(result.positions_examined))}</dd>
+          <dt>Closed skipped</dt><dd class="num">${escapeHTML(fmtInt(result.closed_skipped))}</dd>
+          <dt>Other open positions not selected</dt><dd class="num">${escapeHTML(fmtInt(result.open_skipped || 0))}</dd>
+          <dt>Scan complete</dt><dd>${result.scan_complete === true ? "yes" : "no"}</dd>
+          <dt>Stopped by</dt><dd>${escapeHTML(result.stopped_by || "nothing; the scan reached its end")}</dd>
+        </dl>
+        ${incomplete}
+      </div>
+    </section>
+    <section aria-labelledby="range-value-heading">
+      <h3 id="range-value-heading">6. Measured value</h3>
+      <div class="panel">
+        <dl class="deflist">
+          <dt>Current catalogue offer</dt><dd class="num">${escapeHTML(record.price_display)}</dd>
+          <dt>This-run time</dt><dd class="num">${measured.this_run_seconds === null || measured.this_run_seconds === undefined ? "unavailable — the backend did not return a duration" : `${escapeHTML(Number(measured.this_run_seconds).toFixed(3))} seconds`}</dd>
+          <dt>Paired manual time</dt><dd>${pairedTime}</dd>
+          <dt>Quality result</dt><dd>${quality}</dd>
+          <dt>V3 report</dt><dd>${reportLink}</dd>
+          <dt>Payment state for this run</dt><dd class="mono">${escapeHTML(payment.status || "not recorded")}</dd>
+        </dl>
+        <p class="dim">The required $0.50 settled hire is not available in this build because exact-once settlement is not built. This response therefore makes no $0.50 paid-value claim.</p>
+      </div>
+    </section>
+    <section aria-labelledby="range-proof-heading">
+      <h3 id="range-proof-heading">7. Proof</h3>
+      <div class="panel">
+        <dl class="deflist">
+          <dt>Input hash</dt><dd class="mono">${escapeHTML(receipt.input_hash || DASH)}</dd>
+          <dt>Output hash</dt><dd class="mono">${escapeHTML(receipt.output_hash || DASH)}</dd>
+          <dt>Delivery time</dt><dd>${escapeHTML(receipt.delivered_at || DASH)}</dd>
+          <dt>Payment status</dt><dd class="mono">${escapeHTML(payment.status || "not recorded")}</dd>
+          <dt>Settlement transaction / payment ID</dt><dd class="mono">${proofId ? escapeHTML(proofId) : `unavailable — ${escapeHTML(proofMissing)}`}</dd>
+          <dt>Unique settlement nonce</dt><dd class="mono">${proofNonce ? escapeHTML(proofNonce) : `unavailable — ${escapeHTML(proofMissing)}`}</dd>
+        </dl>
+        <p class="dim">Nothing was signed, approved or moved. A receipt binds delivery; it does not establish correctness or settlement.</p>
+      </div>
+    </section>
+    <section aria-labelledby="range-limitation-heading">
+      <h3 id="range-limitation-heading">8. Primary limitation</h3>
+      <div class="notice notice-warn">
+        <p><strong>${escapeHTML(result.primary_limitation || "The result did not supply a primary limitation.")}</strong></p>
+      </div>
     </section>`;
 }
 
@@ -648,8 +811,10 @@ function paintOutcome(record, answer) {
   const rejected = payment.authorization_rejected
     ? `<dt>Authorization</dt><dd>not accepted: ${escapeHTML(payment.authorization_rejected)}</dd>`
     : "";
-  region("outcome").innerHTML = `${presentResult(record, answer.result)}
-    <section aria-labelledby="receipt-heading">
+  const receiptSection =
+    record.service_id === "range-doctor"
+      ? ""
+      : `<section aria-labelledby="receipt-heading">
       <h3 id="receipt-heading">The receipt</h3>
       <div class="panel">
         <dl class="deflist">
@@ -670,6 +835,8 @@ function paintOutcome(record, answer) {
         </p>
       </div>
     </section>`;
+  region("outcome").innerHTML =
+    `${presentResult(record, answer)}${receiptSection}`;
 }
 
 function wireActivation(record) {

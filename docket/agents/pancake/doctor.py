@@ -41,9 +41,25 @@ RANGE_STATUSES = ("in_range", "out_of_range_below", "out_of_range_above")
 # How near an edge a live position has to sit before the edge is worth naming.
 # Any tighter and the tool is inventing urgency out of ordinary price movement.
 EDGE_MARGIN = 0.15
+RATE_LIMITATION = (
+    "The rates annualise one pool-wide 24-hour observation. They are not a forecast, "
+    "realized position profit, or a claim that the same rate will continue."
+)
+BREAK_EVEN_LIMITATION = (
+    "Cost-only break-even assumes a recentered position earns the observed net pool rate. "
+    "It excludes realized impermanent loss, future rate changes, and any cost not included "
+    "in the caller-declared estimate."
+)
 
 
-def diagnose(position: dict, pool: dict | None, pool_stats: dict | None) -> dict:
+def diagnose(
+    position: dict,
+    pool: dict | None,
+    pool_stats: dict | None,
+    *,
+    declared_position_value_usd: float | None = None,
+    estimated_recenter_cost_usd: float | None = None,
+) -> dict:
     """One position's status, and the findings and conditional actions that follow from it.
 
     Pure: everything it needs arrives in the three arguments, so every branch is
@@ -73,12 +89,11 @@ def diagnose(position: dict, pool: dict | None, pool_stats: dict | None) -> dict
 
     pct = None if tick is None else range_position_pct(lower, upper, tick)
     row = (pool_stats or {}).get("row")
-    apr = None
-    if status in RANGE_STATUSES and row and pool_stats.get("plausible"):
-        apr = net_fee_apr(row)
+    economics = _economic_consequence(status, pool_stats, declared_position_value_usd)
+    apr = economics["net_apr"]
 
-    symbol0 = _symbol(row, "token0", "token0")
-    symbol1 = _symbol(row, "token1", "token1")
+    symbol0 = _symbol(row, "token0", position["token0"])
+    symbol1 = _symbol(row, "token1", position["token1"])
     findings: list[str] = []
     actions: list[dict] = []
     link = POSITION_URL.format(token_id=position["token_id"])
@@ -124,7 +139,7 @@ def diagnose(position: dict, pool: dict | None, pool_stats: dict | None) -> dict
         )
 
     if status in RANGE_STATUSES:
-        findings.extend(_pool_findings(pool_stats, apr, status))
+        findings.extend(_pool_findings(pool_stats, economics, status))
 
     findings.append(
         f"positions() reports tokensOwed0={position['tokens_owed0']} and "
@@ -140,39 +155,40 @@ def diagnose(position: dict, pool: dict | None, pool_stats: dict | None) -> dict
 
     if status in ("out_of_range_below", "out_of_range_above"):
         actions = _out_of_range_actions(tick, lower, upper, link)
-    elif status == "in_range" and pct >= 1 - EDGE_MARGIN:
-        actions = [
-            {
-                "text": (
-                    f"if you expect the price to keep rising past tick {upper}, this position "
-                    f"stops earning there and it is {upper - tick} ticks away; a wider or "
-                    "recentred range would keep it earning, and opening one costs gas and "
-                    "realises the impermanent loss the position carries unrealised today"
-                ),
-                "link": link,
-            }
-        ]
-    elif status == "in_range" and pct <= EDGE_MARGIN:
-        actions = [
-            {
-                "text": (
-                    f"if you expect the price to keep falling past tick {lower}, this position "
-                    f"stops earning there and it is {tick - lower} ticks away; a wider or "
-                    "recentred range would keep it earning, and opening one costs gas and "
-                    "realises the impermanent loss the position carries unrealised today"
-                ),
-                "link": link,
-            }
-        ]
+    elif status == "in_range":
+        actions = _in_range_actions(tick, lower, upper, pct, link)
+
+    observation_block = (pool or {}).get("block_number") or position.get("block_number")
+    observation_time = (pool or {}).get("observation_time") or position.get(
+        "observation_time"
+    )
+    conditional_actions = _conditional_actions(
+        status, actions, economics, estimated_recenter_cost_usd
+    )
 
     return {
         "status": status,
         "in_range": status == "in_range",
         "range_position_pct": pct,
         "pool_net_apr": apr,
+        "decision": _position_decision(position["token_id"], status),
+        "verifiable_facts": {
+            "pair": f"{symbol0}/{symbol1}",
+            "position_id": position["token_id"],
+            "token0": position["token0"],
+            "token1": position["token1"],
+            "current_tick": tick,
+            "lower_tick": lower,
+            "upper_tick": upper,
+            "bsc_block": observation_block,
+            "observation_time": observation_time,
+        },
+        "economic_consequence": economics,
+        "conditional_actions": conditional_actions,
         "findings": findings,
         "actions": actions,
-        "as_of_block": (pool or {}).get("block_number") or position.get("block_number"),
+        "as_of_block": observation_block,
+        "observed_at": observation_time,
         "computed_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -184,6 +200,9 @@ def report(
     pools: PoolClient | None = None,
     limit: int | None = None,
     include_closed: bool = False,
+    token_id: int | None = None,
+    declared_position_value_usd: float | None = None,
+    estimated_recenter_cost_usd: float | None = None,
 ) -> dict:
     """Diagnose the v3 positions a wallet controls, held directly or staked.
 
@@ -192,12 +211,21 @@ def report(
     it refused and why.
 
     The same rule governs the positions that are not diagnosed. `limit` bounds
-    how many are read at all and `include_closed` decides whether the ones
-    holding nothing are worth returning, and both hand back a count: the output
+    how many open positions are returned, `token_id` selects one exact NFT, and
+    `include_closed` decides whether unselected closed positions are worth
+    returning. Every choice hands back a count: the output
     carries `positions_held`, `positions_examined` and `closed_skipped` so a
     truncated report says "37 of these were closed" rather than showing a short
     list and letting it pass for the whole wallet.
     """
+    if (
+        declared_position_value_usd is not None
+        or estimated_recenter_cost_usd is not None
+    ) and token_id is None:
+        raise ValueError(
+            "token_id is required when declaring a position value or recenter cost"
+        )
+
     reader = reader or PositionReader()
     borrowed = pools is not None
     client = pools or PoolClient()
@@ -229,7 +257,12 @@ def report(
 
     pool_cache: dict[tuple, dict] = {}
     entries = []
-    read = reader.wallet_positions(address, limit=limit, include_closed=include_closed)
+    read = reader.wallet_positions(
+        address,
+        limit=limit,
+        include_closed=include_closed,
+        token_id=token_id,
+    )
     for position in read["positions"]:
         # Only reached under `include_closed`. A zero-liquidity position is
         # `closed` whatever its pool is doing, so reading a pool only to ignore
@@ -239,7 +272,13 @@ def report(
                 {
                     "position": position,
                     "pool": None,
-                    "diagnosis": diagnose(position, None, None),
+                    "diagnosis": diagnose(
+                        position,
+                        None,
+                        None,
+                        declared_position_value_usd=declared_position_value_usd,
+                        estimated_recenter_cost_usd=estimated_recenter_cost_usd,
+                    ),
                 }
             )
             continue
@@ -252,7 +291,11 @@ def report(
                 "position": position,
                 "pool": pool,
                 "diagnosis": diagnose(
-                    position, pool, by_pool.get(str(pool.get("address") or "").lower())
+                    position,
+                    pool,
+                    by_pool.get(str(pool.get("address") or "").lower()),
+                    declared_position_value_usd=declared_position_value_usd,
+                    estimated_recenter_cost_usd=estimated_recenter_cost_usd,
                 ),
             }
         )
@@ -260,14 +303,240 @@ def report(
     return {
         "address": address,
         "computed_at": datetime.now(timezone.utc).isoformat(),
+        "decision": _report_decision(read, entries),
+        "observation": {
+            "bsc_block": read["observation_block"],
+            "observation_time": read["observation_time"],
+        },
+        "target_token_id": read.get("target_token_id"),
+        "target_found": read.get("target_found"),
         "positions_held": read["positions_held"],
         "positions_examined": read["positions_examined"],
         "closed_skipped": read["closed_skipped"],
+        "open_skipped": read.get("open_skipped", 0),
         "scan_complete": read["scan_complete"],
+        "stopped_by": read.get("stopped_by"),
         "coverage": _coverage_sentence(read),
+        "primary_limitation": _primary_limitation(read, entries),
         "positions": entries,
         "pools": {"checked": len(rows), "rejected": rejected},
     }
+
+
+def _position_decision(token_id: int, status: str) -> str:
+    if status == "in_range":
+        return (
+            f"Position {token_id} is inside its range and can currently earn pool fees."
+        )
+    if status == "out_of_range_below":
+        return (
+            f"Position {token_id} is below its range and currently earns no pool fees."
+        )
+    if status == "out_of_range_above":
+        return (
+            f"Position {token_id} is above its range and currently earns no pool fees."
+        )
+    if status == "closed":
+        return (
+            f"Position {token_id} is closed and holds no pool liquidity, so it currently "
+            "earns no pool fees."
+        )
+    return (
+        f"Position {token_id}'s pool state could not be read, so whether it currently "
+        "earns pool fees is unknown."
+    )
+
+
+def _economic_consequence(
+    status: str,
+    pool_stats: dict | None,
+    declared_position_value_usd: float | None,
+) -> dict:
+    consequence = {
+        "gross_apr": None,
+        "net_apr": None,
+        "overstatement_relative": None,
+        "overstatement_percentage_points": None,
+        "declared_position_value_usd": declared_position_value_usd,
+        "declared_position_value_source": (
+            "caller" if declared_position_value_usd is not None else None
+        ),
+        "annual_gross_usd": None,
+        "annual_net_usd": None,
+        "annual_overstatement_usd": None,
+        "position_fee_apr": None,
+        "position_annual_fee_usd": None,
+        "fee_usd_24h": None,
+        "protocol_fee_usd_24h": None,
+        "tvl_usd": None,
+        "observation_window": "24 hours, annualised by multiplying by 365",
+        "limitation": RATE_LIMITATION,
+        "unavailable_reason": None,
+    }
+    if status not in RANGE_STATUSES:
+        consequence["unavailable_reason"] = (
+            "the position is closed, so no live pool rate or dollar consequence is quoted"
+            if status == "closed"
+            else "the current pool state could not be read, so no rate or dollar consequence is quoted"
+        )
+        return consequence
+    if pool_stats is None:
+        consequence["unavailable_reason"] = (
+            "this pool is not in the explorer's top-pool snapshot, so no 24-hour fee row "
+            "is available"
+        )
+        return consequence
+    if not pool_stats.get("plausible"):
+        consequence["unavailable_reason"] = (
+            "the pool row failed the plausibility gate: "
+            f"{pool_stats.get('reason') or 'no reason was supplied'}"
+        )
+        return consequence
+
+    row = pool_stats.get("row") or {}
+    if row.get("feeUSD24h") is None:
+        consequence["unavailable_reason"] = (
+            "feeUSD24h is absent from the pool row, so no fee rate is treated as measured"
+        )
+        return consequence
+    if row.get("protocolFeeUSD24h") is None:
+        consequence["unavailable_reason"] = (
+            "protocolFeeUSD24h is absent from the pool row, so the protocol cut cannot be "
+            "subtracted and no net rate is quoted"
+        )
+        return consequence
+
+    tvl = float(row.get("tvlUSD") or 0)
+    if tvl <= 0:
+        consequence["unavailable_reason"] = (
+            "tvlUSD is not positive, so no fee rate can be computed"
+        )
+        return consequence
+    fee = float(row["feeUSD24h"])
+    protocol_fee = float(row["protocolFeeUSD24h"])
+    gross = fee * 365 / tvl
+    net = net_fee_apr(row)
+    gap = gross - net
+    consequence.update(
+        {
+            "gross_apr": gross,
+            "net_apr": net,
+            "overstatement_relative": None if net == 0 else gap / net,
+            "overstatement_percentage_points": gap * 100,
+            "position_fee_apr": net if status == "in_range" else 0.0,
+            "fee_usd_24h": fee,
+            "protocol_fee_usd_24h": protocol_fee,
+            "tvl_usd": tvl,
+        }
+    )
+    if declared_position_value_usd is None:
+        consequence["unavailable_reason"] = (
+            "declared_position_value_usd was not supplied for this exact token_id; Docket "
+            "has no trusted first-party source for this NFT's USD value"
+        )
+        return consequence
+
+    consequence.update(
+        {
+            "annual_gross_usd": declared_position_value_usd * gross,
+            "annual_net_usd": declared_position_value_usd * net,
+            "annual_overstatement_usd": declared_position_value_usd * gap,
+            "position_annual_fee_usd": (
+                declared_position_value_usd * net if status == "in_range" else 0.0
+            ),
+        }
+    )
+    return consequence
+
+
+def _conditional_actions(
+    status: str,
+    actions: list[dict],
+    economics: dict,
+    estimated_recenter_cost_usd: float | None,
+) -> dict:
+    result = {
+        "actions": actions,
+        "estimated_recenter_cost_usd": estimated_recenter_cost_usd,
+        "estimated_recenter_cost_source": (
+            "caller" if estimated_recenter_cost_usd is not None else None
+        ),
+        "cost_only_break_even_days": None,
+        "limitation": BREAK_EVEN_LIMITATION,
+        "unavailable_reason": None,
+    }
+    if not actions:
+        result["unavailable_reason"] = (
+            "no wait-versus-recenter comparison is available for a closed position"
+            if status == "closed"
+            else "no position-specific action is available because the current pool state is unknown"
+        )
+        return result
+
+    missing = []
+    if estimated_recenter_cost_usd is None:
+        missing.append("estimated_recenter_cost_usd was not supplied by the caller")
+    value = economics["declared_position_value_usd"]
+    if value is None:
+        missing.append("declared_position_value_usd was not supplied by the caller")
+    net = economics["net_apr"]
+    if net is None:
+        missing.append("a quotable net APR is unavailable")
+    elif net <= 0:
+        missing.append("the observed net APR is not positive")
+    if missing:
+        result["unavailable_reason"] = "; ".join(missing)
+        return result
+
+    result["cost_only_break_even_days"] = estimated_recenter_cost_usd / (
+        value * net / 365
+    )
+    return result
+
+
+def _report_decision(read: dict, entries: list[dict]) -> str:
+    if entries:
+        return " ".join(entry["diagnosis"]["decision"] for entry in entries)
+    if read["positions_held"] == 0:
+        return "This wallet holds no PancakeSwap v3 position NFT to diagnose."
+    if not read["scan_complete"]:
+        return (
+            "No position decision is possible from this bounded read: no open position "
+            "was diagnosed among the positions examined, and unread positions remain unknown."
+        )
+    if read.get("target_token_id") is not None:
+        return (
+            f"Position {read['target_token_id']} was not found among this wallet's "
+            "PancakeSwap v3 position NFTs."
+        )
+    if read["closed_skipped"] == read["positions_examined"]:
+        return (
+            f"All {read['closed_skipped']} PancakeSwap v3 positions in this wallet are "
+            "closed; none currently earns pool fees."
+        )
+    return "No active PancakeSwap v3 position was available to diagnose."
+
+
+def _primary_limitation(read: dict, entries: list[dict]) -> str:
+    if not read["scan_complete"]:
+        return (
+            "This scan stopped before the end of the wallet, so unread positions are unknown "
+            "and no wallet-wide absence claim is possible."
+        )
+    if not entries:
+        return (
+            "No active position was available, so this run establishes no position-level "
+            "economic consequence or decision impact."
+        )
+    if all(entry["diagnosis"]["status"] == "closed" for entry in entries):
+        return (
+            "The selected position is closed, so this run establishes no live fee rate, "
+            "dollar consequence, or recenter break-even."
+        )
+    return (
+        "The fee figures annualise one pool-wide 24-hour observation rather than realized "
+        "position profit or a forecast, and current collectable fees are not simulated."
+    )
 
 
 def _coverage_sentence(read: dict) -> str:
@@ -292,7 +561,31 @@ def _coverage_sentence(read: dict) -> str:
         if examined < held
         else f"all {held} of this wallet's position NFTs were read"
     )
-    if returned:
+    target = read.get("target_token_id")
+    if target is not None and returned:
+        state = (
+            "is closed and holds no liquidity"
+            if read["positions"][0]["liquidity"] == 0
+            else "holds liquidity and is diagnosed below"
+        )
+        tail = f"the requested position {target} {state}"
+        skipped = []
+        if closed:
+            skipped.append(f"{closed} other closed positions were skipped")
+        if read.get("open_skipped"):
+            skipped.append(
+                f"{read['open_skipped']} other open positions were not selected"
+            )
+        if skipped:
+            tail += "; " + ", and ".join(skipped)
+    elif target is not None and complete:
+        tail = f"the requested position {target} was not found in this wallet"
+    elif target is not None:
+        tail = (
+            f"the requested position {target} was not found among the positions read so far, "
+            "and whether it is among the unread positions is unknown"
+        )
+    elif returned:
         tail = f"{returned} hold liquidity and are diagnosed below, and {closed} are closed"
     elif closed == examined and complete:
         tail = (
@@ -326,9 +619,7 @@ def _coverage_sentence(read: dict) -> str:
     return f"{scope}: {tail}."
 
 
-def _pool_findings(
-    pool_stats: dict | None, apr: float | None, status: str
-) -> list[str]:
+def _pool_findings(pool_stats: dict | None, economics: dict, status: str) -> list[str]:
     if pool_stats is None:
         return [
             "this pool is not among the explorer's top pools by TVL, so no 24h fee figures were "
@@ -339,11 +630,14 @@ def _pool_findings(
             "the pool's reported figures did not pass the plausibility gate — "
             f"{pool_stats.get('reason')} — so no fee rate is quoted from them"
         ]
+    if economics["net_apr"] is None:
+        return [f"no fee rate is quoted: {economics['unavailable_reason']}"]
 
     row = pool_stats["row"]
     tvl = float(row.get("tvlUSD") or 0)
     gross = float(row.get("feeUSD24h") or 0)
     protocol = float(row.get("protocolFeeUSD24h") or 0)
+    apr = economics["net_apr"]
     findings = [
         f"the pool charged ${gross:,.0f} of fees over 24h against ${tvl:,.0f} of TVL and "
         f"${protocol:,.0f} of that went to the protocol, leaving {apr:.1%} — that is one day's "
@@ -362,6 +656,7 @@ def _pool_findings(
 def _out_of_range_actions(tick: int, lower: int, upper: int, link: str) -> list[dict]:
     return [
         {
+            "kind": "recenter",
             "text": (
                 f"if you expect the price to stay near tick {tick}, a range recentred there "
                 "would earn fees again — opening one costs gas and turns this position's "
@@ -370,10 +665,41 @@ def _out_of_range_actions(tick: int, lower: int, upper: int, link: str) -> list[
             "link": link,
         },
         {
+            "kind": "wait",
             "text": (
                 f"if you expect the price to return into [{lower}, {upper}), leaving the "
                 "position untouched costs nothing and it starts earning again when the price "
                 "comes back"
+            ),
+            "link": link,
+        },
+    ]
+
+
+def _in_range_actions(
+    tick: int, lower: int, upper: int, pct: float, link: str
+) -> list[dict]:
+    if pct >= 1 - EDGE_MARGIN:
+        edge = f"the upper edge at tick {upper} is {upper - tick} ticks away"
+    elif pct <= EDGE_MARGIN:
+        edge = f"the lower edge at tick {lower} is {tick - lower} ticks away"
+    else:
+        edge = f"the current tick {tick} remains inside [{lower}, {upper})"
+    return [
+        {
+            "kind": "wait",
+            "text": (
+                f"if you expect the price to remain inside [{lower}, {upper}), leaving the "
+                f"position untouched costs no switching gas and keeps it earning; {edge}"
+            ),
+            "link": link,
+        },
+        {
+            "kind": "recenter",
+            "text": (
+                f"if you expect the price to leave [{lower}, {upper}), a wider or recentred "
+                "range may keep earning after the move, but opening one costs gas and "
+                "realises the impermanent loss this position carries unrealised today"
             ),
             "link": link,
         },

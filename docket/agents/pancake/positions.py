@@ -34,6 +34,7 @@ transport error. The order below is the measured one, best first.
 """
 
 import time
+from datetime import datetime, timezone
 
 from web3 import Web3
 
@@ -190,6 +191,7 @@ class PositionReader:
         limit: int | None = None,
         include_closed: bool = False,
         max_examined: int | None = MAX_EXAMINED,
+        token_id: int | None = None,
     ) -> dict:
         """The wallet's v3 positions, held directly or staked, with counts of what was left out.
 
@@ -212,6 +214,11 @@ class PositionReader:
         separately and why `scan_complete` says whether the enumeration got to
         the end of the wallet.
 
+        `token_id` narrows the answer to one exact NFT while the reader continues
+        enumerating the wallet for honest coverage. The selected NFT is returned even
+        when it is closed; otherwise an exact request for a closed position would collapse
+        into the same empty list as a position that was never found.
+
         `include_closed` does not save a single call — liquidity is only known
         once `positions` has already been read — it decides what is worth
         returning. A position with zero liquidity holds nothing in the pool and
@@ -226,13 +233,17 @@ class PositionReader:
         can always say which of the two empties it is: a wallet whose positions
         are all closed, or a wallet whose open ones were never reached.
 
-        `block_number` is read once, before enumeration, and is the block the
-        read began at: a wallet with hundreds of positions takes long enough that
-        the later ones are read a block or two after. It is a provenance stamp,
-        not a claim that the whole list is one atomic snapshot.
+        `observation_block` and `observation_time` are read together before
+        enumeration and mark when the read began: a wallet with hundreds of positions
+        takes long enough that later positions may be read a block or two after. They are
+        provenance stamps, not a claim that the whole list is one atomic snapshot.
         """
         owner = Web3.to_checksum_address(address)
-        block = self._call(lambda w3: w3.eth.block_number)
+        observed = self._call(lambda w3: w3.eth.get_block("latest"))
+        block = int(observed["number"])
+        observed_at = datetime.fromtimestamp(
+            int(observed["timestamp"]), timezone.utc
+        ).isoformat()
 
         # Both balances first: the wallet's true total is read before any bound applies, so a
         # truncated scan still reports what it did not reach.
@@ -251,6 +262,7 @@ class PositionReader:
 
         positions: list[dict] = []
         closed_skipped = 0
+        open_skipped = 0
         examined = 0
         # Enumeration and reading are interleaved so the loop can stop on a result count.
         # Kept as one pass rather than two: enumerating everything first would spend a call
@@ -262,7 +274,7 @@ class PositionReader:
         stopped_by = None
         for holder, staked, count in holdings:
             for index in range(count):
-                if limit is not None and len(positions) >= limit:
+                if token_id is None and limit is not None and len(positions) >= limit:
                     scan_complete = False
                     stopped_by = "limit"
                     break
@@ -270,7 +282,7 @@ class PositionReader:
                     scan_complete = False
                     stopped_by = "max_examined"
                     break
-                token_id = self._call(
+                position_id = self._call(
                     lambda w3, h=holder, i=index: (
                         w3.eth.contract(address=h, abi=HOLDER_ABI)
                         .functions.tokenOfOwnerByIndex(owner, i)
@@ -278,19 +290,26 @@ class PositionReader:
                     )
                 )
                 raw = self._call(
-                    lambda w3, t=token_id: (
+                    lambda w3, t=position_id: (
                         w3.eth.contract(address=NPM, abi=NPM_ABI)
                         .functions.positions(t)
                         .call()
                     )
                 )
                 examined += 1
-                if raw[7] == 0 and not include_closed:
+                selected = token_id is None or token_id == position_id
+                if not selected:
+                    if raw[7] == 0:
+                        closed_skipped += 1
+                    else:
+                        open_skipped += 1
+                    continue
+                if raw[7] == 0 and not include_closed and token_id is None:
                     closed_skipped += 1
                     continue
                 positions.append(
                     {
-                        "token_id": token_id,
+                        "token_id": position_id,
                         "staked": staked,
                         "token0": raw[2],
                         "token1": raw[3],
@@ -301,6 +320,7 @@ class PositionReader:
                         "tokens_owed0": raw[10],
                         "tokens_owed1": raw[11],
                         "block_number": block,
+                        "observation_time": observed_at,
                     }
                 )
             if not scan_complete:
@@ -310,6 +330,11 @@ class PositionReader:
             "positions_held": held_total,
             "positions_examined": examined,
             "closed_skipped": closed_skipped,
+            "open_skipped": open_skipped,
+            "target_token_id": token_id,
+            "target_found": token_id is None or bool(positions),
+            "observation_block": block,
+            "observation_time": observed_at,
             # Whether the enumeration reached the end of the wallet. False means a bound
             # stopped it, and the positions not reached are neither open nor closed here —
             # they are unknown, which is a different thing and has to read as one.
@@ -345,10 +370,15 @@ class PositionReader:
                 "sqrt_price_x96": None,
                 "liquidity": None,
                 "block_number": None,
+                "observation_time": None,
             }
 
         pool = Web3.to_checksum_address(address)
-        block = self._call(lambda w3: w3.eth.block_number)
+        observed = self._call(lambda w3: w3.eth.get_block("latest"))
+        block = int(observed["number"])
+        observed_at = datetime.fromtimestamp(
+            int(observed["timestamp"]), timezone.utc
+        ).isoformat()
         slot0 = self._call(
             lambda w3: (
                 w3.eth.contract(address=pool, abi=POOL_ABI).functions.slot0().call()
@@ -365,4 +395,5 @@ class PositionReader:
             "sqrt_price_x96": slot0[0],
             "liquidity": liquidity,
             "block_number": block,
+            "observation_time": observed_at,
         }

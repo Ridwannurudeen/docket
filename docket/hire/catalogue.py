@@ -27,6 +27,7 @@ failure, which is worth more than a half-result that looks like an answer.
 """
 
 import time
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -141,13 +142,77 @@ def _run_warden_scan(payload: dict) -> dict:
     return _call_upstream("POST", WARDEN_SCAN_URL, {"payload": payload["payload"]})
 
 
+def _declared_number(payload: dict, field: str, *, allow_zero: bool) -> float | None:
+    value = payload.get(field)
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be a finite number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be a finite number") from exc
+    if not math.isfinite(number) or number < 0 or (number == 0 and not allow_zero):
+        boundary = "zero or greater" if allow_zero else "greater than zero"
+        raise ValueError(f"{field} must be finite and {boundary}")
+    return number
+
+
 def _run_range_doctor(payload: dict) -> dict:
-    """`limit` is read explicitly rather than with `or`, so an explicit 0 stays 0
-    instead of silently becoming the default."""
-    limit = payload.get("limit")
-    return doctor.report(
-        payload["wallet"], limit=RANGE_DOCTOR_LIMIT if limit is None else int(limit)
+    """Validate declared economics before any upstream read, then time this exact run."""
+    raw_token_id = payload.get("token_id")
+    if isinstance(raw_token_id, bool):
+        raise ValueError("token_id must be a positive integer")
+    try:
+        token_id = None if raw_token_id is None else int(raw_token_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("token_id must be a positive integer") from exc
+    if token_id is not None and (
+        token_id <= 0 or (isinstance(raw_token_id, float) and raw_token_id != token_id)
+    ):
+        raise ValueError("token_id must be a positive integer")
+
+    position_value = _declared_number(
+        payload, "declared_position_value_usd", allow_zero=False
     )
+    recenter_cost = _declared_number(
+        payload, "estimated_recenter_cost_usd", allow_zero=True
+    )
+    if (position_value is not None or recenter_cost is not None) and token_id is None:
+        raise ValueError(
+            "token_id is required when declaring a position value or recenter cost"
+        )
+    if token_id is not None and payload.get("limit") is not None:
+        raise ValueError("limit cannot be combined with an exact token_id")
+
+    limit = payload.get("limit")
+    started = time.perf_counter()
+    result = doctor.report(
+        payload["wallet"],
+        limit=(
+            None
+            if token_id is not None
+            else RANGE_DOCTOR_LIMIT
+            if limit is None
+            else int(limit)
+        ),
+        token_id=token_id,
+        declared_position_value_usd=position_value,
+        estimated_recenter_cost_usd=recenter_cost,
+    )
+    elapsed = max(0.0, time.perf_counter() - started)
+    return result | {
+        "measured_value": {
+            "this_run_seconds": elapsed,
+            "paired_manual_seconds": None,
+            "quality_result": None,
+            "report_url": None,
+            "benchmark_unavailable_reason": (
+                "The preregistered v3 paired report has not run, so no paired manual time, "
+                "quality result, or v3 report link exists yet."
+            ),
+        }
+    }
 
 
 def _run_grid_operator(payload: dict) -> dict:
@@ -321,11 +386,13 @@ SERVICES: dict[str, Service] = {
         what_you_get=(
             "A read-only diagnosis of the PancakeSwap v3 liquidity positions a BSC wallet holds "
             "or has staked: for each one, whether the current tick sits inside its range and "
-            "where in that range it sits, the pool's own 24h net fee rate when the pool's "
-            "reported figures clear a plausibility gate, and conditional next steps that each "
-            "name the belief they rest on and what acting costs in gas and realised impermanent "
-            "loss. Every finding carries the numbers it was computed from, so you can check it "
-            "against the chain yourself. Nothing is signed, approved, or moved."
+            "where in that range it sits, the pool's gross and protocol-adjusted net 24h fee "
+            "rates when its reported figures clear a plausibility gate, and conditional wait "
+            "and recenter paths. Name one token id and declare its USD value and estimated "
+            "recenter cost to add fixed-notional dollar effects and cost-only break-even; those "
+            "two inputs are labelled as the caller's rather than derived from an unverified "
+            "price feed. Every finding carries the numbers it was computed from, so you can "
+            "check it against the chain yourself. Nothing is signed, approved, or moved."
         ),
         input_schema={
             "wallet": {
@@ -344,6 +411,33 @@ SERVICES: dict[str, Service] = {
                     f"{MAX_EXAMINED} position NFTs are read in one call whatever this is set to; "
                     "the response carries positions_held, positions_examined, closed_skipped "
                     "and scan_complete, so a bounded read always says what it did not reach"
+                ),
+            },
+            "token_id": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "one exact PancakeSwap v3 position NFT to diagnose. The wallet is still "
+                    "enumerated for coverage, the selected NFT is returned even when closed, "
+                    "and this cannot be combined with limit"
+                ),
+            },
+            "declared_position_value_usd": {
+                "type": "number",
+                "required": False,
+                "description": (
+                    "the positive caller-declared USD value of the exact token_id, used for "
+                    "fixed-notional dollar effects. Requires token_id; it is not derived from "
+                    "a token price feed"
+                ),
+            },
+            "estimated_recenter_cost_usd": {
+                "type": "number",
+                "required": False,
+                "description": (
+                    "the caller-declared non-negative USD cost of recentering the exact "
+                    "token_id, including every gas, swap fee and price-impact component the "
+                    "caller wants counted. Requires token_id and is not derived by Docket"
                 ),
             },
         },

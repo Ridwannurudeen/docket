@@ -184,6 +184,8 @@ def test_the_service_page_builds_its_form_from_the_declared_input_schema(client)
     # The one declared string field that carries newlines is warden-scan's payload, and
     # a single-line input cannot hold one.
     assert "textarea" in app_js.lower()
+    assert 'field.type === "number"' in app_js
+    assert "Number(raw)" in app_js
 
 
 def test_the_service_page_shows_the_receipt_it_was_handed(client):
@@ -264,7 +266,9 @@ def test_every_page_carries_exactly_one_primary_destination_per_section(client):
         text = _read(name)
         nav = re.search(r'<nav class="site-nav"[^>]*>(.*?)</nav>', text, re.S)
         assert nav, f"{name} has no primary navigation"
-        advantage_href = "/advantage/v2" if name == "advantage-v2.html" else "/advantage"
+        advantage_href = (
+            "/advantage/v2" if name == "advantage-v2.html" else "/advantage"
+        )
         assert re.findall(r'href="([^"]+)"', nav.group(1)) == [
             "/",
             "/research",
@@ -372,34 +376,92 @@ def test_the_result_is_presented_before_it_is_dumped():
     js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
     assert "const PRESENTERS = {" in js
     assert '"range-doctor": presentRangeDoctor' in js
-    assert "function presentResult(" in js
-    # The payload is still reachable, and still labelled as the thing the service returned.
+    assert "function presentResult(record, answer)" in js
+    assert "answer.receipt" in js
+    # The whole answer stays reachable, including the receipt that supplies proof.
     assert '<details class="raw">' in js
     assert "exactly as the service returned it" in js
+    assert "JSON.stringify(answer, null, 2)" in js
 
 
-def test_an_empty_range_doctor_result_leads_with_why_it_is_empty():
+def test_the_range_presenter_dispatches_on_the_id_the_service_api_returns():
+    """ServiceDetail exposes service_id; record.id made every real hire use raw JSON."""
+    js = _read("app.js")
+
+    assert "PRESENTERS[record.service_id]" in js
+    assert 'record.service_id === "range-doctor"' in js
+
+
+def test_range_doctor_renders_all_eight_sections_in_the_required_order():
+    """A per-position card interleaves facts and actions; TermiX requires global ordering."""
+    js = _read("app.js")
+    presenter = js.split("function presentRangeDoctor", 1)[1].split(
+        "const STATUS_WORDS", 1
+    )[0]
+    headings = (
+        "1. Decision",
+        "2. Verifiable facts",
+        "3. Economic consequence",
+        "4. Conditional actions",
+        "5. Coverage",
+        "6. Measured value",
+        "7. Proof",
+        "8. Primary limitation",
+    )
+
+    offsets = [presenter.index(heading) for heading in headings]
+    assert offsets == sorted(offsets)
+    assert "receipt.input_hash" in presenter
+    assert "receipt.output_hash" in presenter
+    assert "receipt.delivered_at" in presenter
+    assert "notice notice-warn" in presenter
+
+
+def test_an_empty_range_doctor_result_leads_with_a_decision_and_keeps_coverage():
     """The single most damaging thing this product can show a judge.
 
     The live evidence wallet returns no positions — 21 held, all 21 closed — and a reader
     who sees an empty list with nothing above it concludes their positions are fine. The
-    presenter has to put the coverage sentence first and say what an empty answer is not.
+    presenter has to decide first, then keep the coverage sentence and say what an empty
+    answer is not.
     """
-    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
-    empty_branch = js.split("if (!positions.length) {", 1)[1].split("const cards", 1)[0]
+    js = _read("app.js")
+    empty_branch = js.split("function presentRangeDoctor", 1)[1].split(
+        "const STATUS_WORDS", 1
+    )[0]
     # Collapsed: the formatter chooses where these sentences wrap, and the claim under test
     # is about what they say, not about where the line breaks fall.
     flat = re.sub(r"\s+", " ", empty_branch)
-    assert "coverage" in flat
+    assert flat.index("1. Decision") < flat.index("5. Coverage")
+    assert "result.decision" in flat
+    assert "result.coverage" in flat
     # A COMPLETE scan that found nothing may say so — and must still refuse to be read as
     # a clean bill of health.
-    assert "not a failure of the read" in flat
-    assert "not a statement that the wallet is healthy" in flat
+    assert "No position-specific facts are available" in flat
+    assert "No position-level economic consequence is available" in flat
+    assert "No position-specific action is available" in flat
     # A BOUNDED scan may not say so at all: unread positions are unknown, not absent, and
     # the page must not turn "we stopped early" into "you have none".
     assert "scan_complete === false" in flat
-    assert "not</strong> a finding that you have no open" in flat
-    assert "unknown, not absent" in flat
+    assert "unread positions are unknown, not absent" in flat
+
+
+def test_unbuilt_v3_and_settlement_fields_are_named_as_missing_not_filled():
+    """Old v1 timing and an authorization nonce must not masquerade as current proof."""
+    presenter = (
+        _read("app.js")
+        .split("function presentRangeDoctor", 1)[1]
+        .split("const STATUS_WORDS", 1)[0]
+    )
+    flat = re.sub(r"\s+", " ", presenter)
+
+    assert "$0.50 settled hire is not available" in flat
+    assert "preregistered v3 paired report has not run" in flat
+    assert "Settlement transaction / payment ID" in flat
+    assert "Unique settlement nonce" in flat
+    assert "exact-once settlement is not built" in flat
+    assert "43.063" not in flat
+    assert "528.31" not in flat
 
 
 def test_the_presenter_never_asserts_a_rate_is_a_forecast():

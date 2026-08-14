@@ -14,6 +14,8 @@ from docket.agents.pancake.positions import MASTER_CHEF_V3, NPM, PositionReader
 
 WALLET = "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"
 BLOCK = 114746894
+BLOCK_TIMESTAMP = 1786665600
+OBSERVED_AT = "2026-08-14T00:00:00+00:00"
 # token id -> liquidity. Two open, two closed, interleaved so a limit cannot
 # accidentally land on a clean split.
 HOLDINGS = {NPM: (7098969, 7087132, 6000001), MASTER_CHEF_V3: (5000002,)}
@@ -79,6 +81,10 @@ class _Eth:
 
     def contract(self, address, abi):
         return _Contract(address, self._log)
+
+    def get_block(self, which):
+        self._log.append(("get_block", which))
+        return {"number": BLOCK, "timestamp": BLOCK_TIMESTAMP}
 
 
 class _FakeW3:
@@ -176,3 +182,42 @@ def test_a_limit_beyond_the_holdings_reads_everything_once():
 
     assert read["positions_examined"] == 4
     assert len([e for e in log if e[0] == "tokenOfOwnerByIndex"]) == 4
+
+
+def test_the_wallet_observation_survives_an_empty_result():
+    """An all-closed wallet has no returned row to carry the block provenance.
+
+    The observation therefore belongs to the wallet read itself. Otherwise the live
+    21-closed-position case cannot supply the block and time its empty decision was made at.
+    """
+    reader, _ = _reader()
+    read = reader.wallet_positions(WALLET, limit=0)
+
+    assert read["positions"] == []
+    assert read["observation_block"] == BLOCK
+    assert read["observation_time"] == OBSERVED_AT
+
+
+def test_an_exact_token_id_returns_only_that_position_without_losing_wallet_coverage():
+    """Declared dollars and switching cost must bind to one NFT, never every open NFT."""
+    reader, _ = _reader()
+    read = reader.wallet_positions(WALLET, token_id=5000002)
+
+    assert [position["token_id"] for position in read["positions"]] == [5000002]
+    assert read["positions"][0]["staked"] is True
+    assert read["positions_held"] == 4
+    assert read["positions_examined"] == 4
+    assert read["closed_skipped"] == 2
+    assert read["open_skipped"] == 1
+    assert read["scan_complete"] is True
+
+
+def test_an_exact_closed_token_is_returned_as_the_requested_decision():
+    """A selected closed NFT is a closed decision, not another unexplained empty list."""
+    reader, _ = _reader()
+    read = reader.wallet_positions(WALLET, token_id=7087132)
+
+    assert [position["token_id"] for position in read["positions"]] == [7087132]
+    assert read["positions"][0]["liquidity"] == 0
+    assert read["closed_skipped"] == 1
+    assert read["open_skipped"] == 2
