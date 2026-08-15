@@ -12,15 +12,38 @@ externally anchored.
 | Python | `>=3.11`; CI uses 3.12 |
 | Application factory | `docket.api:create_app` |
 | Builder base commit | `731dcb3d3fe1267546c96fd73118a3b34d58b7b3` |
-| Release source commit | Missing: the builder was instructed not to commit |
-| Release wheel digest | Missing until the audited artifact is designated |
-| Public repository visibility action | Not performed in this build; owner-only |
-| Deployment action | Not performed in this build |
-| Deployed source/wheel identity | Missing |
-| Live settlement transaction | Missing |
+| Release source commit | `bcccafea9b461889ae2fbed7086c827ce1fe7386` — **local only, see below** |
+| Release wheel digest | `ddc128bacf689840ee0845e58bcb05d5bef92b760a92161e89ae1ee14784b91b` |
+| Public repository visibility action | Not performed; owner-only |
+| Deployment action | **Performed 2026-08-15T05:17:06Z** to `docket.gudman.xyz` |
+| Deployed source/wheel identity | The wheel above, imported from site-packages — see "Deployed identity" |
+| Live settlement transaction | Missing. Settlement is built, disabled, and has never run. |
 
-The base commit identifies the tree before this public-package change. It does not identify
-the uncommitted documentation/CI work and must not be used as a release or deployment hash.
+The base commit identifies the tree before the public-package change. It does not identify
+the release and must not be used as a deployment hash.
+
+## Deployed identity (recorded 2026-08-15)
+
+| Field | Value |
+|---|---|
+| Deployed at | `2026-08-15T05:17:06Z` |
+| Runtime venv | `/opt/docket-venvs/bcccafea9b46` (permanent path; `/opt/docket/.venv` is a symlink to it) |
+| Runtime `docket.__file__` | `/opt/docket-venvs/bcccafea9b46/lib/python3.12/site-packages/docket/__init__.py` |
+| Python | 3.12.3 · `pip check` clean |
+| Previous release backup | `/opt/docket.bak-20260815T051706Z` (retained) |
+| Database backup | `/root/docket-db-backups/agents-20260815T051706Z.sqlite3`, 45,240,320 bytes, `PRAGMA integrity_check` = ok, 3 snapshots, taken with the app stopped and **before** the additive `stop_reason` migration ran |
+| Canary units | `docket-canary.service` + `.timer` installed and enabled; first record `not_yet_exercised` |
+
+**Why the wheel digest may now be called the deployed artifact.** Before this release the host
+ran an *editable* install — `__editable__.docket-0.1.0.pth` resolved `docket` to
+`/opt/docket/docket`, the source tree, so no wheel was the runtime artifact and claiming one
+would have been false. This release installs the wheel into a fresh venv at a path that does
+not move, and the runtime import path above was read from the live interpreter after cutover.
+
+**The release commit is local only.** No remote branch contains `bcccafea9b46`; the repository
+is private and the deploy authorization did not include a push. Until the commit is reachable
+from a remote this manifest records an identity that only this machine can produce, which is
+the same limitation the v3 registration carries and is stated for the same reason.
 
 ## Source roots
 
