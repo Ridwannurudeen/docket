@@ -10,7 +10,14 @@ The injected-Web3 seam is the one `PositionReader` already documents: a supplied
 network.
 """
 
-from docket.agents.pancake.positions import MASTER_CHEF_V3, NPM, PositionReader
+import pytest
+
+from docket.agents.pancake.positions import (
+    MASTER_CHEF_V3,
+    NPM,
+    PositionReader,
+    PrunedStateError,
+)
 
 WALLET = "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"
 BLOCK = 114746894
@@ -44,8 +51,10 @@ class _Call:
     def __init__(self, log, entry, result):
         self._log, self._entry, self._result = log, entry, result
 
-    def call(self):
-        self._log.append(self._entry)
+    def call(self, block_identifier=None):
+        # Recorded, not ignored: a test asserts every state read was pinned to one
+        # block, which is the whole point of accepting the argument.
+        self._log.append(self._entry + (block_identifier,))
         return self._result
 
 
@@ -106,7 +115,7 @@ def test_closed_positions_are_skipped_but_stay_countable():
     assert read["positions_examined"] == 4
     # The two zero-liquidity ones are absent from the list and present in the count.
     assert read["closed_skipped"] == 2
-    assert log.count(("positions", 7087132)) == 1
+    assert [e for e in log if e[:2] == ("positions", 7087132)] != []
 
 
 def test_include_closed_returns_every_position_and_skips_none():
@@ -221,3 +230,58 @@ def test_an_exact_closed_token_is_returned_as_the_requested_decision():
     assert read["positions"][0]["liquidity"] == 0
     assert read["closed_skipped"] == 1
     assert read["open_skipped"] == 2
+
+
+def test_every_state_read_is_pinned_to_one_block(monkeypatch):
+    """A paired experiment needs both arms answering about the same chain state.
+
+    "latest" moves between the manual arm and the agent arm, and it moves during a slow scan
+    too — so a wallet read early and a pool read late would produce a diagnosis whose range
+    and price came from different moments, with nothing in the output showing it. Every state
+    read therefore carries the same block, including when the caller asked for latest.
+    """
+    reader, log = _reader()
+    reader.wallet_positions(WALLET)
+
+    pinned = [entry[-1] for entry in log if entry[0] in ("balanceOf", "tokenOfOwnerByIndex", "positions")]
+    assert pinned, "no state reads were logged"
+    assert set(pinned) == {BLOCK}, f"reads were not all pinned to one block: {set(pinned)}"
+
+
+def test_a_requested_historical_block_is_the_one_read(monkeypatch):
+    reader, log = _reader()
+    reader.wallet_positions(WALLET, observation_block=114_000_000)
+    # The fake header read returns its own BLOCK; what matters is that the caller's block is
+    # what was asked for, which the get_block entry records.
+    assert ("get_block", 114_000_000) in [e[:2] for e in log]
+
+
+def test_a_pruned_node_is_an_infrastructure_fault_not_an_empty_wallet():
+    """The trap this repository already paid for once.
+
+    `missing trie node` is not a revert and not an answer — it is a node saying it no longer
+    holds that block. Reported as a missing observation it sends the caller to an archive
+    endpoint; reported as "no positions" it becomes a false claim about somebody's money.
+    It also short-circuits failover, because every public dataseed prunes and trying them all
+    just arrives at the wrong reason more slowly.
+    """
+    reader = PositionReader(rpc_urls=("https://one.invalid", "https://two.invalid"))
+
+    def pruned(_w3):
+        raise ValueError("missing trie node 0xabc (path ) state 0xdef")
+
+    with pytest.raises(PrunedStateError, match="archive node is required"):
+        reader._call(pruned)
+
+
+def test_an_ordinary_endpoint_failure_still_fails_over_and_is_not_called_pruned():
+    """The distinction only helps if it is narrow: a timeout must not be reported as a
+    pruned node, or the remedy offered is an archive endpoint nobody needs."""
+    reader = PositionReader(rpc_urls=("https://one.invalid",))
+
+    def flaky(_w3):
+        raise ValueError("connection reset by peer")
+
+    with pytest.raises(RuntimeError, match="every BSC endpoint failed") as caught:
+        reader._call(flaky)
+    assert not isinstance(caught.value, PrunedStateError)

@@ -201,6 +201,7 @@ def report(
     limit: int | None = None,
     include_closed: bool = False,
     token_id: int | None = None,
+    observation_block: int | None = None,
     declared_position_value_usd: float | None = None,
     estimated_recenter_cost_usd: float | None = None,
 ) -> dict:
@@ -262,7 +263,12 @@ def report(
         limit=limit,
         include_closed=include_closed,
         token_id=token_id,
+        observation_block=observation_block,
     )
+    # Whatever block the wallet was actually read at is the one every pool is read at too,
+    # including when the caller asked for "latest" — otherwise a slow scan diagnoses early
+    # positions against a later price, and nothing in the output shows it happened.
+    read_at_block = read.get("observation_block")
     for position in read["positions"]:
         # Only reached under `include_closed`. A zero-liquidity position is
         # `closed` whatever its pool is doing, so reading a pool only to ignore
@@ -284,7 +290,7 @@ def report(
             continue
         key = (position["token0"], position["token1"], position["fee"])
         if key not in pool_cache:
-            pool_cache[key] = reader.pool_state(*key)
+            pool_cache[key] = reader.pool_state(*key, observation_block=read_at_block)
         pool = pool_cache[key]
         entries.append(
             {

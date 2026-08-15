@@ -191,7 +191,9 @@ def _declared_number(payload: dict, field: str, *, allow_zero: bool) -> float | 
     return number
 
 
-def _declared_integer(payload: dict, field: str, default: int | None = None) -> int | None:
+def _declared_integer(
+    payload: dict, field: str, default: int | None = None
+) -> int | None:
     value = payload.get(field)
     if value is None:
         return default
@@ -227,6 +229,24 @@ def _run_range_doctor(payload: dict) -> dict:
     if token_id is not None and payload.get("limit") is not None:
         raise ValueError("limit cannot be combined with an exact token_id")
 
+    # A paired experiment needs both arms answering about the same chain state, and "latest"
+    # moves between them. Without this the buyer can ask *what is true now* but not *what was
+    # true at the moment we both looked*, and only the second is reproducible.
+    raw_block = payload.get("observation_block")
+    if isinstance(raw_block, bool):
+        raise ValueError("observation_block must be a positive integer block number")
+    try:
+        observation_block = None if raw_block is None else int(raw_block)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "observation_block must be a positive integer block number"
+        ) from exc
+    if observation_block is not None and (
+        observation_block <= 0
+        or (isinstance(raw_block, float) and raw_block != observation_block)
+    ):
+        raise ValueError("observation_block must be a positive integer block number")
+
     limit = payload.get("limit")
     started = time.perf_counter()
     result = doctor.report(
@@ -239,6 +259,7 @@ def _run_range_doctor(payload: dict) -> dict:
             else int(limit)
         ),
         token_id=token_id,
+        observation_block=observation_block,
         declared_position_value_usd=position_value,
         estimated_recenter_cost_usd=recenter_cost,
     )
@@ -276,18 +297,14 @@ def _run_grid_operator(payload: dict) -> dict:
     reader = BscQuoteReader()
     base = payload.get("base") or GRID_BASE
     quote = payload.get("quote") or GRID_QUOTE
-    base_decimals = _declared_integer(
-        payload, "base_decimals", GRID_BASE_DECIMALS
-    )
+    base_decimals = _declared_integer(payload, "base_decimals", GRID_BASE_DECIMALS)
     observed = observe_price(
         reader, base=base, quote=quote, base_decimals=base_decimals
     )
 
     reference = payload.get("reference")
     reference = (
-        observed.price
-        if reference is None
-        else _declared_integer(payload, "reference")
+        observed.price if reference is None else _declared_integer(payload, "reference")
     )
     lower = payload.get("lower")
     upper = payload.get("upper")
@@ -524,6 +541,19 @@ SERVICES: dict[str, Service] = {
                     "the caller-declared non-negative USD cost of recentering the exact "
                     "token_id, including every gas, swap fee and price-impact component the "
                     "caller wants counted. Requires token_id and is not derived by Docket"
+                ),
+            },
+            "observation_block": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "read the position and its pool at this BSC block instead of the latest "
+                    "one. Both are read at the same block either way, so a diagnosis never "
+                    "compares a position from one moment against a price from another. Give "
+                    "it when the answer has to be reproducible — two readers at different "
+                    "times get the same result only if they name the same block. Public "
+                    "dataseeds prune, so an older block may return a stated read failure "
+                    "naming an archive node as the remedy rather than an empty result"
                 ),
             },
         },

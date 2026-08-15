@@ -216,11 +216,19 @@ class _StubReader:
     def __init__(self, read: dict) -> None:
         self._read = read
         self.calls: list[tuple] = []
+        self.observation_blocks: list[int | None] = []
 
     def wallet_positions(
-        self, address, *, limit=None, include_closed=False, token_id=None
+        self,
+        address,
+        *,
+        limit=None,
+        include_closed=False,
+        token_id=None,
+        observation_block=None,
     ):
         self.calls.append((address, limit, include_closed, token_id))
+        self.observation_blocks.append(observation_block)
         # `scan_complete` defaults true here so a fixture that does not care about
         # truncation reads as a finished scan rather than an unknown one.
         return {
@@ -232,7 +240,7 @@ class _StubReader:
             **self._read,
         }
 
-    def pool_state(self, token0, token1, fee):
+    def pool_state(self, token0, token1, fee, *, observation_block=None):
         return POOL
 
 

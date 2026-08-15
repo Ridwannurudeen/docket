@@ -84,6 +84,7 @@ def test_range_doctor_times_this_run_and_leaves_the_unrun_v3_fields_empty(monkey
             {
                 "limit": None,
                 "token_id": 7087132,
+                "observation_block": None,
                 "declared_position_value_usd": 10_000.0,
                 "estimated_recenter_cost_usd": 25.0,
             },
@@ -140,3 +141,32 @@ def test_no_service_promises_an_outcome():
         blob = f"{svc.name} {svc.what_you_get}".lower()
         for word in banned:
             assert word not in blob, f"{svc.id} promises: {word}"
+
+
+def test_range_doctor_accepts_an_observation_block_and_passes_it_down(monkeypatch):
+    """Two readers at different times get the same answer only if they name the same block.
+
+    Without this input a buyer can ask what is true now but not what was true at the moment
+    both arms of a comparison looked, and only the second is reproducible.
+    """
+    calls: list[tuple] = []
+
+    def _fake_report(wallet, **kwargs):
+        calls.append((wallet, kwargs))
+        return {"positions": [], "coverage": "none", "scan_complete": True}
+
+    monkeypatch.setattr("docket.hire.catalogue.doctor.report", _fake_report)
+    SERVICES["range-doctor"].run(
+        {"wallet": "0xwallet", "observation_block": 114_000_000}
+    )
+    assert calls[0][1]["observation_block"] == 114_000_000
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, 1.5, "latest", "0x1"])
+def test_range_doctor_refuses_a_block_that_is_not_a_positive_integer(bad):
+    """A silently coerced block reads a different chain state than the caller named, and the
+    answer looks exactly as authoritative as a correct one."""
+    with pytest.raises(
+        ValueError, match="observation_block must be a positive integer"
+    ):
+        SERVICES["range-doctor"].run({"wallet": "0xwallet", "observation_block": bad})

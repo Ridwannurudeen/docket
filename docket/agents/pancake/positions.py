@@ -54,6 +54,27 @@ RETRY_PAUSE_S = 0.5
 # holding hundreds from turning one hire into a five-minute read.
 MAX_EXAMINED = 30
 
+# What a pruned full node says when asked for state it no longer holds. This is the trap that
+# once made this repository publish the opposite of what the chain said: it is an
+# INFRASTRUCTURE fault, not a revert and not an answer. A read that hits it has failed to
+# observe, and must say so rather than report an absence as a finding.
+PRUNED_STATE_MARKERS = (
+    "missing trie node",
+    "header not found",
+    "state is not available",
+    "required historical state unavailable",
+)
+
+
+class PrunedStateError(RuntimeError):
+    """A historical read landed on a node that no longer holds that block's state.
+
+    Separate from every other failure because the remedy is different — an archive endpoint,
+    not a retry — and because treating it as "no position found" would turn a gap in the
+    infrastructure into a claim about somebody's wallet.
+    """
+
+
 NPM = Web3.to_checksum_address("0x46A15B0b27311cedF172AB29E4f4766fbE7F4364")
 FACTORY = Web3.to_checksum_address("0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865")
 MASTER_CHEF_V3 = Web3.to_checksum_address("0x556B9306565093C855AEA9AE92A594704c2Cd59e")
@@ -177,6 +198,17 @@ class PositionReader:
                     return do(session)
                 except Exception as exc:
                     self._sessions.pop(url, None)
+                    text = str(exc).lower()
+                    if any(marker in text for marker in PRUNED_STATE_MARKERS):
+                        # Re-raise immediately rather than failing over. Every public
+                        # dataseed prunes, so trying the next one wastes time and then
+                        # reports the wrong reason — and the caller must be able to tell
+                        # "this node cannot see that block" from "there is nothing there".
+                        raise PrunedStateError(
+                            f"{url} no longer holds the state for this block: {exc}. "
+                            "This is a pruned endpoint, not an empty result — an archive "
+                            "node is required to read it."
+                        ) from exc
                     failures.append(
                         f"{url} (attempt {attempt + 1}): {type(exc).__name__}: {exc}"
                     )
@@ -192,6 +224,7 @@ class PositionReader:
         include_closed: bool = False,
         max_examined: int | None = MAX_EXAMINED,
         token_id: int | None = None,
+        observation_block: int | None = None,
     ) -> dict:
         """The wallet's v3 positions, held directly or staked, with counts of what was left out.
 
@@ -239,7 +272,12 @@ class PositionReader:
         provenance stamps, not a claim that the whole list is one atomic snapshot.
         """
         owner = Web3.to_checksum_address(address)
-        observed = self._call(lambda w3: w3.eth.get_block("latest"))
+        # A pinned block makes the read reproducible, which is what a paired experiment needs:
+        # the manual arm and the agent arm must be answering about the same chain state, and
+        # "latest" moves between them. Every state read below is pinned to the same block, so
+        # a caller cannot be handed a position from one block and a pool from another.
+        at_block = "latest" if observation_block is None else int(observation_block)
+        observed = self._call(lambda w3: w3.eth.get_block(at_block))
         block = int(observed["number"])
         observed_at = datetime.fromtimestamp(
             int(observed["timestamp"]), timezone.utc
@@ -254,7 +292,7 @@ class PositionReader:
                 lambda w3, h=holder: (
                     w3.eth.contract(address=h, abi=HOLDER_ABI)
                     .functions.balanceOf(owner)
-                    .call()
+                    .call(block_identifier=block)
                 )
             )
             held_total += count
@@ -286,14 +324,14 @@ class PositionReader:
                     lambda w3, h=holder, i=index: (
                         w3.eth.contract(address=h, abi=HOLDER_ABI)
                         .functions.tokenOfOwnerByIndex(owner, i)
-                        .call()
+                        .call(block_identifier=block)
                     )
                 )
                 raw = self._call(
                     lambda w3, t=position_id: (
                         w3.eth.contract(address=NPM, abi=NPM_ABI)
                         .functions.positions(t)
-                        .call()
+                        .call(block_identifier=block)
                     )
                 )
                 examined += 1
@@ -345,13 +383,26 @@ class PositionReader:
             "stopped_by": stopped_by,
         }
 
-    def pool_state(self, token0: str, token1: str, fee: int) -> dict:
+    def pool_state(
+        self,
+        token0: str,
+        token1: str,
+        fee: int,
+        *,
+        observation_block: int | None = None,
+    ) -> dict:
         """Current tick, sqrt price and active liquidity for a pool.
 
         A pair the factory has never deployed reports `address: None` with the
         rest null, rather than raising: one unrecognised position must not take
         down a whole wallet's report.
+
+        `observation_block` pins the pool to the same block the position was read at. Without
+        it a diagnosis compares a position from one moment against a price from another, and
+        the mismatch is invisible in the output — the range would be real, the tick would be
+        real, and "in range" could still be wrong.
         """
+        _at = "latest" if observation_block is None else int(observation_block)
         address = self._call(
             lambda w3: (
                 w3.eth.contract(address=FACTORY, abi=FACTORY_ABI)
@@ -360,7 +411,7 @@ class PositionReader:
                     Web3.to_checksum_address(token1),
                     int(fee),
                 )
-                .call()
+                .call(block_identifier=_at)
             )
         )
         if address == ZERO_ADDRESS:
@@ -381,12 +432,16 @@ class PositionReader:
         ).isoformat()
         slot0 = self._call(
             lambda w3: (
-                w3.eth.contract(address=pool, abi=POOL_ABI).functions.slot0().call()
+                w3.eth.contract(address=pool, abi=POOL_ABI)
+                .functions.slot0()
+                .call(block_identifier=_at)
             )
         )
         liquidity = self._call(
             lambda w3: (
-                w3.eth.contract(address=pool, abi=POOL_ABI).functions.liquidity().call()
+                w3.eth.contract(address=pool, abi=POOL_ABI)
+                .functions.liquidity()
+                .call(block_identifier=_at)
             )
         )
         return {
