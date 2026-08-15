@@ -60,6 +60,11 @@ packages = [
     "v3/runs/*.jsonl",
     "v3/sheets/*/*.json",
     "v3/mappings/*.json",
+    # The frozen vendor vocabulary an input lock validates labels against, and the page it
+    # was read from. Shipping the derived list without the page would leave an installed
+    # Docket asserting a vocabulary with no evidence of where it came from.
+    "v3/sources/*.json",
+    "v3/sources/*.html",
 ]
 
 [tool.pytest.ini_options]

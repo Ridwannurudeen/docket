@@ -1,0 +1,37 @@
+{
+  "classes": [
+    "DRAIN_ADDRESS",
+    "ENCODING_TRICK",
+    "HIDDEN_UNICODE",
+    "MALICIOUS_LINK",
+    "PROMPT_INJECTION",
+    "ROLE_OVERRIDE",
+    "SECRET_EXFIL",
+    "TOOL_HIJACK",
+    "WEB3_INJECTION"
+  ],
+  "continuity": "The v2 security corpus read the same published matrix on 2026-08-10 and recorded eleven codes with nine authorable. Today's reading returns the same eleven, so the vocabulary is unchanged; this snapshot is nonetheless taken fresh rather than inherited, because a frozen input should be evidenced by a reading of its own.",
+  "excluded_codes": [
+    "CORPUS_MATCH",
+    "STATISTICAL_ANOMALY"
+  ],
+  "exclusion_reason": "CORPUS_MATCH and STATISTICAL_ANOMALY describe how the scanner reached a detection, not anything an attacker writes. No hand-authored payload can carry them as ground truth, so admitting them to the label vocabulary would let a mechanism code be scored as an attack class. An emission of either is a decision-level event and never a class match.",
+  "observed_at": "2026-08-15T15:45:53.762634Z",
+  "published_codes": [
+    "CORPUS_MATCH",
+    "DRAIN_ADDRESS",
+    "ENCODING_TRICK",
+    "HIDDEN_UNICODE",
+    "MALICIOUS_LINK",
+    "PROMPT_INJECTION",
+    "ROLE_OVERRIDE",
+    "SECRET_EXFIL",
+    "STATISTICAL_ANOMALY",
+    "TOOL_HIJACK",
+    "WEB3_INJECTION"
+  ],
+  "source_page_ref": "docket/advantage/v3/sources/warden-reason-codes.html",
+  "source_page_sha256": "918243ffe946df74b6307eadbb23398ba53c1bcea070cdb328877e3b65e31e63",
+  "source_url": "https://warden.gudman.xyz/docs",
+  "vendor": "Warden"
+}
