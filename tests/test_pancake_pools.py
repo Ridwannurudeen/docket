@@ -86,6 +86,19 @@ def test_top_pools_parses_the_live_response_shape():
     assert len(pools) == 2 and pools[0]["id"] == "0xpool"
 
 
+def test_snapshot_reads_preserve_the_exact_http_response_bytes():
+    raw = b'[ {"id":"0xpool", "feeUSD24h":"250"} ]\n'
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=raw)
+
+    rows, observed = PoolClient(
+        transport=httpx.MockTransport(handler)
+    ).top_pools_snapshot()
+    assert rows == [{"id": "0xpool", "feeUSD24h": "250"}]
+    assert observed == raw
+
+
 def test_client_retries_transport_errors():
     calls = {"n": 0}
 

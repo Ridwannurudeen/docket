@@ -54,6 +54,9 @@ EXECUTION_FIELDS = frozenset(
         "normalisation_version",
         "score_sheet_hash_recipe",
         "sheets_per_seat",
+        "agent_endpoint",
+        "agent_service_id",
+        "agent_request_contract",
     }
 )
 # Only one order is honest here: a human who has seen the service's answer cannot un-see it.
@@ -73,6 +76,9 @@ CRITERION_FIELDS = frozenset(
 EVALUATOR_FIELDS = frozenset({"evaluator_id"})
 SCORING_FIELDS = frozenset(
     {"randomisation", "disagreement", "selection_rule", "calibration"}
+)
+CORRECTION_FIELDS = frozenset(
+    {"status", "supersedes_stage_one_protocol_hash", "reason"}
 )
 SPEED_FIELDS = frozenset(
     {
@@ -139,6 +145,7 @@ class PairedSpec:
     n_planned: int
     stopping_rule: str
     registration_provenance: str
+    protocol_correction: dict
     inputs_ref: str
     # Empty through stage one. ``lock_inputs`` is the only API that fills it from a file.
     inputs_sha256: str = ""
@@ -165,6 +172,7 @@ class PairedSpec:
             "timing",
             "measures",
             "execution_protocol",
+            "protocol_correction",
         ):
             object.__setattr__(self, name, deepcopy(getattr(self, name)))
 
@@ -289,6 +297,11 @@ class PairedSpec:
                 "spec: exactly one score sheet per seat — a second sheet is a replacement "
                 "for one whose result was unwelcome"
             )
+        expected_path = f"/hire/{self.execution_protocol['agent_service_id']}"
+        if not self.execution_protocol["agent_endpoint"].endswith(expected_path):
+            raise ValueError(
+                "spec: agent_endpoint must end in the registered service hire path"
+            )
 
         unsaid = _blank_fields(self.speed_threshold, SPEED_FIELDS)
         if unsaid:
@@ -324,6 +337,23 @@ class PairedSpec:
         for measure in ("time", "cost"):
             if not str(self.measures.get(measure, "")).strip():
                 raise ValueError(f"spec: measures.{measure} is blank")
+
+        unsaid = _blank_fields(self.protocol_correction, CORRECTION_FIELDS)
+        if unsaid:
+            raise ValueError(
+                f"spec: protocol_correction leaves {sorted(unsaid)} missing or blank"
+            )
+        if self.protocol_correction["status"] != "corrected_before_input_lock":
+            raise ValueError(
+                "spec: protocol correction must be labelled corrected_before_input_lock"
+            )
+        if (
+            OBJECT_HASH.fullmatch(
+                self.protocol_correction["supersedes_stage_one_protocol_hash"]
+            )
+            is None
+        ):
+            raise ValueError("spec: protocol correction must name the superseded hash")
 
         # The nested dicts remain ordinary JSON-shaped objects for deterministic saving.
         # Cache what construction validated so a later write through ``spec.scoring`` or
@@ -368,6 +398,7 @@ class PairedSpec:
             "stopping_rule": self.stopping_rule,
             "failure_policy": self.failure_policy,
             "registration_provenance": self.registration_provenance,
+            "protocol_correction": dict(self.protocol_correction),
             "inputs_ref": self.inputs_ref,
         }
 

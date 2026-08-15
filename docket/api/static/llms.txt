@@ -943,7 +943,7 @@ report never turns a non-refutation into "proved".
 
 The JSON and page are one startup snapshot. The application constructs one report payload,
 renders the HTML from that same object, and serves both unchanged until restart. Future
-append-only ledgers, prompt-blinded score sheets, mappings, quality, speed, cost, formula,
+claim-once ledgers, prompt-blinded score sheets, mappings, quality, speed, cost, formula,
 and falsifier artifacts appear only when they exist and pass the report's guards.
 
 

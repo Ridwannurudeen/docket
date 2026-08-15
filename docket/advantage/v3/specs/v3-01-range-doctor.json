@@ -1,14 +1,14 @@
 {
   "arms": {
     "agent": {
-      "what_is_recorded": "Harness start/end events, elapsed seconds, settled price and asset, payment/input/output hashes, the complete response and receipt, and any timeout, error, empty result or wrong-position result exactly as returned.",
-      "what_it_does": "One paid public-endpoint hire for exactly the frozen (chain_id, position_manager, wallet, token_id, observation_block, observation_time, declared_position_value_usd, estimated_recenter_cost_usd, decision_horizon_days, pool-source refs) tuple. The response must diagnose that token_id at that block. A wallet-only endpoint or a response about another position is not a paired result and blocks the experiment rather than being treated as the registered arm.",
+      "what_is_recorded": "Harness start/end events, elapsed seconds, the receipt's actual free-tier or settled payment status and any amount/asset present, input/output hashes, the complete response and receipt, and any timeout, error, empty result or wrong-position result exactly as returned.",
+      "what_it_does": "One public-endpoint hire for exactly the frozen (chain_id, position_manager, wallet, token_id, observation_block, observation_time, declared_position_value_usd, estimated_recenter_cost_usd, decision_horizon_days, pool-source refs) tuple. Current catalogue admission does not expose a paid Range hire, so no settled payment is assumed; the harness records the receipt actually returned. The response must diagnose that token_id at that block. A wallet-only endpoint or a response about another position is not a paired result and blocks the experiment rather than being treated as the registered arm.",
       "who_runs_it": "The harness against the deployed public service. It owns the clock and validates that the returned position id and evidence block match the frozen case; it does not call Range Doctor in process."
     },
     "manual": {
       "what_is_recorded": "Harness start/end events, elapsed seconds, every source and historical block query, the complete arithmetic and final answer, and any timeout, error or unanswered field.",
       "what_it_does": "The same frozen position tuple answered from public archive-RPC/explorer and PancakeSwap source evidence: enumerate that wallet's held positions and record examined/closed-skipped/scan-complete coverage, then diagnose that token_id's range status at observation_block, gross and protocol-adjusted net pool rate when the gate permits it, fixed-notional dollar consequence at declared_position_value_usd, and state-consistent wait/recenter analysis using estimated_recenter_cost_usd and decision_horizon_days. No other NFT in the wallet may stand in for it.",
-      "who_runs_it": "One operator with neither Docket nor the agent output visible. The harness, not the operator, reveals the case and starts/stops the clock; the operator submits one immutable final answer."
+      "who_runs_it": "One operator with neither Docket nor the agent output visible. The harness, not the operator, reveals the case and starts/stops the clock; the operator submits one final answer and the runner API refuses a replacement."
     }
   },
   "case_selection": {
@@ -22,14 +22,17 @@
   "claim": "Across the five exact registered position cases, the hired arm's median rubric total is no lower than the manual arm's and it is materially faster under the registered complete-pair threshold: median paired saving at least 30.0 seconds and median agent/manual elapsed ratio at most 0.50.",
   "execution_protocol": {
     "arm_block_order": "all_manual_primaries_then_all_agent_primaries",
+    "agent_endpoint": "https://docket.gudman.xyz/hire/range-doctor",
+    "agent_request_contract": "The harness derives wallet, token_id, observation_block, declared_position_value_usd, estimated_recenter_cost_usd, decision_horizon_days, the exact base64 pool/token-list response bytes, their bare SHA-256 digests and the frozen source refs from the locked case. The endpoint must use those bytes rather than fetch live pool metadata.",
+    "agent_service_id": "range-doctor",
     "arm_block_order_reason": "Every manual primary is completed before any agent request is sent. Alternating within a pair would still let the operator carry a service answer into the next case, and an operator cannot un-see one.",
-    "blinding_limitation": "The seed is public once inputs are locked, so the A/B assignment is reproducible and is NOT cryptographically unguessable. Blinding rests on each seat receiving an isolated, tool-free prompt carrying opaque case labels, the normalised outputs and the rubric anchors — and nothing else. It is prompt-level blinding and is not claimed as more.",
+    "blinding_limitation": "The seed is public once inputs are locked, so the A/B assignment is reproducible and is NOT cryptographically unguessable. Blinding rests on each seat receiving an isolated, tool-free prompt carrying an opaque case label, the case's factual input/truth reference, the normalised A/B outputs and the rubric anchors, without the case id or arm mapping. It is prompt-level arm blinding and is not claimed as more.",
     "blinding_parity": "even_a_is_agent",
     "blinding_parity_note": "An arm_digest whose final byte is even maps A=agent and B=manual; odd maps A=manual and B=agent. Stated because the polarity is a free choice and an unregistered one is settled by whichever code runs first.",
     "blinding_seed_recipe": "seed = SHA256( UTF8(stage_one_protocol_hash, with the 0x prefix) || UTF8(inputs_sha256, bare lowercase hex, no prefix) || UTF8(family_salt) ). arm_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"arm\")). order_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"order\")); cases are presented in ascending raw order_digest. Raw bytes, never the hex text, because the two hash differently and only one of them can be the registered one.",
     "normalisation_rule": "A deterministic projection into the registered fields, never a language model. It removes envelope metadata only — tool and service names, HTTP metadata, receipts, prices, timings, transport hashes and presentation formatting — and substitutes registered service-name literals deterministically. Substantive prose is never paraphrased, and the untouched raw outputs are preserved beside the projection.",
     "normalisation_version": "range.v1: position, observation, range, pool_evidence, rates, dollars, action, coverage, limitations, sources",
-    "score_sheet_hash_recipe": "score_sheet_hash = canonical_hash(the parsed sheet) and raw_sheet_sha256 = SHA256 over the seat's untouched response bytes. Both are recorded; the parsed hash identifies what was scored and the raw hash proves the parse did not invent it. The A/B mapping is withheld until both seats' hashes are durable, then published in full.",
+    "score_sheet_hash_recipe": "score_sheet_hash = canonical_hash(the parsed sheet) and raw_sheet_sha256 = SHA256 over the seat's untouched response bytes. Both are recorded; the parsed hash identifies what was scored and the raw hash checks that the preserved bytes decode to that parse. The A/B mapping is withheld until both seat artifacts exist and validate, then published in full. These ordinary files are not independently tamper-resistant.",
     "sheets_per_seat": 1
   },
   "failure_policy": "Exactly one primary attempt is scheduled per case per arm. A timeout, technical error, empty or malformed response, wrong token id/block, or incomplete answer is published, scores zero on every criterion, stays in the five-case quality and reliability denominators, and prevents the complete-pair speed limb. It is never replaced by a scored retry. Any later diagnostic request is labelled secondary and cannot substitute for the primary result.",
@@ -37,7 +40,7 @@
   "inputs_ref": "docket/advantage/v3/inputs/01-range-positions.json",
   "inputs_sha256": "",
   "measures": {
-    "cost": "Out-of-pocket amount and unit only: settled hire price plus any agent-arm gas, and direct cash cost of manual tools. No hourly wage is invented and time is never converted into money.",
+    "cost": "Out-of-pocket amount and unit only: the receipt's actual charged amount, if any, plus any agent-arm gas and direct cash cost of manual tools. A free-tier receipt records zero rather than an invented hire price. No hourly wage is invented and time is never converted into money.",
     "time": "For each complete pair, d_i=manual elapsed seconds-agent elapsed seconds and r_i=agent/manual. Report every raw duration, both medians, median(d_i), median(r_i), timeout count and complete-pair count."
   },
   "n_planned": 5,
@@ -83,6 +86,11 @@
   },
   "question": "For one exact PancakeSwap v3 position NFT at a frozen BSC block and declared value, does hiring Range Doctor produce a diagnosis at least as correct and usable as the same reading by hand, and does it clear the registered material-speed threshold?",
   "registration_provenance": "Git history is the registration witness: the first commit containing this exact stage-one protocol hash establishes that the repaired protocol predates later input-lock and run commits. No independently attested wall-clock registration time is claimed inside this file.",
+  "protocol_correction": {
+    "reason": "Correction before input lock: the earlier bundle withheld truth even though exact factual rubric anchors required it, the public arm did not bind frozen pool bytes, the catalogue did not actually admit a paid hire, and the runner did not own scheduling, deadlines or first-write claims. This record supplies truth under opaque case labels, registers the executable frozen-byte request contract, records the receipt's actual payment status and limits durability claims to atomic API refusal; the JSONL itself has no independent tamper resistance.",
+    "status": "corrected_before_input_lock",
+    "supersedes_stage_one_protocol_hash": "0x8f1510c01610b6b77d6ab80add73e740b64b2d0f73ca8fd3ad6a33a0744f888d"
+  },
   "scoring": {
     "blinded": true,
     "calibration": "Before input lock, the owner publishes one SHA-256-bound base64 UTF-8 JSON answer key for exactly eight Pancake v3 cases. Its literal tick, fee, TVL, notional and cost inputs must cover in/above/below range; the lock recomputes every expected range status, gross/net APR, dollar consequence and break-even value from the registered formulas. For each model seat, the input envelope publishes the exact model/build, session id, canonical hash of the registered objective rubric anchors and all eight structured responses. Each seat must exactly match at least seven complete canonical answers. The lock rejects invented answer-key values and computes the pass count from the published responses. This proves calibration against the published key, not evaluator independence.",
@@ -96,10 +104,10 @@
       }
     ],
     "evaluators": 2,
-    "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'range-blinding'). Per case, SHA-256(seed || case_id || 'arm') parity assigns agent/manual to A/B; sorting SHA-256(seed || case_id || 'order') fixes case order. The harness removes tool names, timings, prices, receipts and formatting tells and withholds mappings, truth and the other sheet from each model prompt until both sheet hashes are submitted. This is prompt-level blinding; operator independence is not claimed.",
+    "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'range-blinding'). Per case, SHA-256(seed || case_id || 'arm') parity assigns agent/manual to A/B; sorting SHA-256(seed || case_id || 'order') fixes case order. The harness removes tool names, timings, prices, receipts and formatting tells. Each model prompt receives the frozen task and truth under only the opaque case label, plus A/B outputs; it withholds the original case id, arm mapping and other sheet until both sheet hashes are submitted. This is prompt-level arm blinding; operator independence is not claimed.",
     "selection_rule": "One operator runs the two fixed model seats identified here for the owner. They are not independent evaluators and no independent-party scoring is claimed. The calibration answer key, both model calibration response sets and both final per-criterion score sheets are published so a reader can recompute the checks. No substitution is permitted after any case output exists; a missing sheet leaves the report unscored."
   },
-  "spec_hash": "0x30f00bcc249fd0adc235df3880026abbbd8bfe01e753781192b9b3a768a54304",
+  "spec_hash": "0x67f748620bc234e8b7f23ec8b0b1a3f16751cc553ad87f745da689cb724f7d41",
   "spec_id": "v3-01-range-doctor",
   "speed_threshold": {
     "formula": "For the five valid complete pairs, d_i=manual_seconds-agent_seconds and r_i=agent_seconds/manual_seconds; compute median(d_i) and median(r_i).",
@@ -108,14 +116,14 @@
     "minimum_median_seconds_saved": 30.0,
     "requires_complete_pairs": true
   },
-  "stage_one_protocol_hash": "0x8f1510c01610b6b77d6ab80add73e740b64b2d0f73ca8fd3ad6a33a0744f888d",
-  "stopping_rule": "Schedule exactly five frozen primary cases once per arm. A primary attempt ends in a valid immutable answer, timeout at 1,200 seconds, technical error, empty/malformed output or wrong-case output. Stop only after all ten primary attempts have terminal records. No scored retry, replacement case or post-output rule change is allowed; incomplete pairs prevent the speed limb.",
+  "stage_one_protocol_hash": "0x6f72298498a43b840f82da1802fe2e5a44586d46e75c4ce5d7cf7fe249764cac",
+  "stopping_rule": "Schedule exactly five frozen primary cases once per arm. A primary attempt ends in a valid first accepted answer, timeout at 1,200 seconds, technical error, empty/malformed output or wrong-case output. Stop only after all ten primary attempts have terminal records. The runner API refuses a scored retry or replacement case; the JSONL file remains ordinary editable storage with no independent tamper resistance. Incomplete pairs prevent the speed limb.",
   "timing": {
-    "clock": "The harness owns a monotonic_ns clock and an append-only UTC event log for both arms.",
+    "clock": "The harness owns a monotonic_ns clock and serializes each read/check/append transaction for both arms; the resulting UTC event log remains an ordinary editable file.",
     "interruptions": "The clock never pauses. Loading, reading, research, arithmetic, corrections, network waits and interruptions remain inside elapsed time; nothing is subtracted after the fact. Breaks occur only between cases.",
-    "operator_control": "The manual operator cannot start, stop, pause or edit the clock. The harness reveals the case and accepts exactly one immutable final submission.",
+    "operator_control": "The manual operator cannot start, stop, pause or edit the clock. The harness reveals the case and accepts one final submission through an API that refuses a replacement.",
     "start_event": "Agent: immediately before the public request is sent. Manual: when the harness first reveals the frozen case tuple and source-access instructions.",
-    "stop_event": "Agent: after the complete response and receipt validate, or at terminal failure. Manual: when the immutable final answer is submitted, or at terminal failure.",
+    "stop_event": "Agent: after the complete response and receipt validate, or at terminal failure. Manual: when the first accepted final answer is submitted, or at terminal failure.",
     "timeout_seconds": 1200
   }
 }

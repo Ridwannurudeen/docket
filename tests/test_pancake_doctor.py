@@ -283,6 +283,32 @@ def test_report_counts_the_closed_positions_it_left_out():
     assert out["positions"][0]["diagnosis"]["status"] == "in_range"
 
 
+def test_report_can_use_the_frozen_pool_bytes_without_a_live_pool_client():
+    reader = _StubReader(
+        {
+            "positions": [POSITION],
+            "positions_held": 1,
+            "positions_examined": 1,
+            "closed_skipped": 0,
+        }
+    )
+    sources = {
+        "pools": {"sha256": "a" * 64},
+        "token_list": {"sha256": "b" * 64},
+    }
+
+    out = report(
+        "0xwallet",
+        reader=reader,
+        pool_rows=[ROW],
+        token_allowlist={ROW["token0"]["id"], ROW["token1"]["id"]},
+        source_evidence=sources,
+    )
+
+    assert out["sources"] == sources
+    assert out["positions"][0]["pool"]["address"].lower() == ROW["id"]
+
+
 def test_report_passes_the_bounds_through_to_the_reader():
     reader = _StubReader(
         {

@@ -26,8 +26,11 @@ upstream fails, `run` raises: the hire route turns that into a 502 naming the
 failure, which is worth more than a half-result that looks like an answer.
 """
 
-import time
+import base64
+import hashlib
+import json
 import math
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -35,7 +38,6 @@ from datetime import datetime, timezone
 import httpx
 
 from ..agents.pancake import doctor
-from .receipts import canonical_hash
 from ..agents.pancake.positions import MAX_EXAMINED
 
 # $U (ERC-8183, 18 decimals) on BSC mainnet. Priced in the asset whose
@@ -206,6 +208,57 @@ def _declared_integer(
     return value
 
 
+def _decode_source_snapshot(snapshot: dict, name: str) -> tuple[object, dict]:
+    required = {"url", "observed_at", "sha256", "body_base64"}
+    if not isinstance(snapshot, dict) or not required <= set(snapshot):
+        raise ValueError(f"{name} must carry url, observed_at, sha256 and body_base64")
+    if not all(
+        isinstance(snapshot[field], str) and snapshot[field].strip()
+        for field in ("url", "observed_at", "sha256", "body_base64")
+    ):
+        raise ValueError(f"{name} source fields must be nonblank strings")
+    try:
+        raw = base64.b64decode(snapshot["body_base64"], validate=True)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name}.body_base64 is invalid") from exc
+    digest = hashlib.sha256(raw).hexdigest()
+    if snapshot["sha256"] != digest:
+        raise ValueError(f"{name}.sha256 does not match the exact response bytes")
+    try:
+        body = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{name} is not a UTF-8 JSON response") from exc
+    return body, {
+        "url": snapshot["url"],
+        "observed_at": snapshot["observed_at"],
+        "sha256": digest,
+    }
+
+
+def _pool_rows(body: object, name: str) -> list[dict]:
+    if isinstance(body, list):
+        rows = body
+    elif isinstance(body, dict) and isinstance(body.get("rows"), list):
+        rows = body["rows"]
+    else:
+        raise ValueError(f"{name} must be an array or an object with a rows array")
+    if not all(isinstance(row, dict) for row in rows):
+        raise ValueError(f"{name} contains a non-object pool row")
+    return rows
+
+
+def _allowlist(body: object, name: str) -> set[str]:
+    if not isinstance(body, dict) or not isinstance(body.get("tokens"), list):
+        raise ValueError(f"{name} must contain a tokens array")
+    return {
+        str(token["address"]).lower()
+        for token in body["tokens"]
+        if isinstance(token, dict)
+        and token.get("chainId") == 56
+        and token.get("address")
+    }
+
+
 def _run_range_doctor(payload: dict) -> dict:
     """Validate declared economics before any upstream read, then time this exact run."""
     raw_token_id = payload.get("token_id")
@@ -251,22 +304,72 @@ def _run_range_doctor(payload: dict) -> dict:
     ):
         raise ValueError("observation_block must be a positive integer block number")
 
+    snapshot_fields = ("pool_snapshot", "token_list_snapshot", "source_refs")
+    supplied_snapshots = [payload.get(field) is not None for field in snapshot_fields]
+    if any(supplied_snapshots) and not all(supplied_snapshots):
+        raise ValueError(
+            "pool_snapshot, token_list_snapshot and source_refs must be supplied together"
+        )
+    frozen = all(supplied_snapshots)
+    pool_rows = None
+    token_allowlist = None
+    source_evidence = None
+    if frozen:
+        from ..agents.pancake.positions import NPM
+
+        manager = payload.get("position_manager")
+        if not isinstance(manager, str) or manager.lower() != NPM.lower():
+            raise ValueError("position_manager must name PancakeSwap v3 NPM on BSC")
+        if (
+            not isinstance(payload["source_refs"], list)
+            or not payload["source_refs"]
+            or not all(isinstance(source, dict) for source in payload["source_refs"])
+        ):
+            raise ValueError("source_refs must be a nonempty array")
+        pools_body, pools_evidence = _decode_source_snapshot(
+            payload["pool_snapshot"], "pool_snapshot"
+        )
+        tokens_body, tokens_evidence = _decode_source_snapshot(
+            payload["token_list_snapshot"], "token_list_snapshot"
+        )
+        pool_rows = _pool_rows(pools_body, "pool_snapshot")
+        token_allowlist = _allowlist(tokens_body, "token_list_snapshot")
+        source_evidence = {
+            "pools": pools_evidence,
+            "token_list": tokens_evidence,
+            "source_refs": payload["source_refs"],
+        }
+
+    decision_horizon = _declared_integer(payload, "decision_horizon_days")
+    if decision_horizon is not None and decision_horizon <= 0:
+        raise ValueError("decision_horizon_days must be a positive integer")
+
     limit = payload.get("limit")
     started = time.perf_counter()
-    result = doctor.report(
-        payload["wallet"],
-        limit=(
+    report_kwargs = {
+        "limit": (
             None
             if token_id is not None
             else RANGE_DOCTOR_LIMIT
             if limit is None
             else int(limit)
         ),
-        token_id=token_id,
-        observation_block=observation_block,
-        declared_position_value_usd=position_value,
-        estimated_recenter_cost_usd=recenter_cost,
-    )
+        "token_id": token_id,
+        "observation_block": observation_block,
+        "declared_position_value_usd": position_value,
+        "estimated_recenter_cost_usd": recenter_cost,
+    }
+    if decision_horizon is not None:
+        report_kwargs["decision_horizon_days"] = decision_horizon
+    if frozen:
+        report_kwargs.update(
+            {
+                "pool_rows": pool_rows,
+                "token_allowlist": token_allowlist,
+                "source_evidence": source_evidence,
+            }
+        )
+    result = doctor.report(payload["wallet"], **report_kwargs)
     elapsed = max(0.0, time.perf_counter() - started)
     return result | {
         "measured_value": {
@@ -403,54 +506,51 @@ def _run_yield_router(payload: dict) -> dict:
     from ..agents.yield_router.universe import eligible_pools
     from ..execution.simulate import BscQuoteReader
 
-    with PoolClient() as client:
-        rows = client.top_pools()
-        allowlist = client.token_allowlist()
-
-    # A comparison is only reproducible if both readers used the same universe, and this
-    # endpoint fetches a live one that moves between calls. The caller may therefore declare
-    # the digests they expect; the service computes the digests of what it ACTUALLY used and
-    # reports both. A mismatch is stated, never resolved silently — a service that quietly
-    # answers from a later universe than the one it was asked about looks identical to one
-    # that honoured the request, and that is precisely the substitution worth catching.
-    observed_pool_digest = canonical_hash(rows)
-    observed_allowlist_digest = canonical_hash(sorted(allowlist))
-    expected_pool = payload.get("pool_snapshot_sha256")
-    expected_allowlist = payload.get("allowlist_snapshot_sha256")
-    snapshot_attestation = {
-        "observed_pool_snapshot_sha256": observed_pool_digest,
-        "observed_allowlist_snapshot_sha256": observed_allowlist_digest,
-        "expected_pool_snapshot_sha256": expected_pool,
-        "expected_allowlist_snapshot_sha256": expected_allowlist,
-        "matches_expected": (
-            None
-            if expected_pool is None and expected_allowlist is None
-            else (
-                (expected_pool is None or expected_pool == observed_pool_digest)
-                and (
-                    expected_allowlist is None
-                    or expected_allowlist == observed_allowlist_digest
-                )
-            )
-        ),
-        "what_this_means": (
-            "This endpoint reads a live universe. The observed digests identify the exact "
-            "rows and allowlist this answer was computed from. Where an expected digest was "
-            "supplied and does not match, the answer is about a different universe than the "
-            "caller named and must not be treated as the same observation."
-        ),
-    }
+    pool_snapshot = payload.get("pool_snapshot")
+    token_snapshot = payload.get("token_list_snapshot")
+    if (pool_snapshot is None) != (token_snapshot is None):
+        raise ValueError(
+            "pool_snapshot and token_list_snapshot must be supplied together"
+        )
+    if pool_snapshot is not None:
+        pools_body, pools_evidence = _decode_source_snapshot(
+            pool_snapshot, "pool_snapshot"
+        )
+        tokens_body, tokens_evidence = _decode_source_snapshot(
+            token_snapshot, "token_list_snapshot"
+        )
+        rows = _pool_rows(pools_body, "pool_snapshot")
+        allowlist = _allowlist(tokens_body, "token_list_snapshot")
+    else:
+        with PoolClient() as client:
+            rows, pools_raw = client.top_pools_snapshot()
+            allowlist, tokens_raw = client.token_allowlist_snapshot()
+        observed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        pools_evidence = {
+            "url": (
+                "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top"
+            ),
+            "observed_at": observed_at,
+            "sha256": hashlib.sha256(pools_raw).hexdigest(),
+        }
+        tokens_evidence = {
+            "url": "https://tokens.pancakeswap.finance/pancakeswap-extended.json",
+            "observed_at": observed_at,
+            "sha256": hashlib.sha256(tokens_raw).hexdigest(),
+        }
+    sources = {"pools": pools_evidence, "token_list": tokens_evidence}
     universe = eligible_pools(
         rows,
         allowlist,
-        source="explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
-        observed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        source=pools_evidence["url"],
+        observed_at=pools_evidence["observed_at"],
     )
     if not universe.included:
         return {
             "current": None,
             "candidates": [],
             "universe": universe.as_record(),
+            "sources": sources,
             "note": (
                 "no pool in this snapshot cleared the gate, so there is nothing to compare "
                 "and no highest to name. Every row that was turned away is listed with its "
@@ -519,7 +619,7 @@ def _run_yield_router(payload: dict) -> dict:
     )
     return out | {
         "current_pool_chosen_by": chosen_by,
-        "snapshot_attestation": snapshot_attestation,
+        "sources": sources,
     }
 
 
@@ -596,6 +696,40 @@ SERVICES: dict[str, Service] = {
                     "dataseeds prune, so an older block may return a stated read failure "
                     "naming an archive node as the remedy rather than an empty result"
                 ),
+            },
+            "position_manager": {
+                "type": "string",
+                "required": False,
+                "description": (
+                    "the PancakeSwap v3 NPM address; required with frozen source snapshots"
+                ),
+            },
+            "decision_horizon_days": {
+                "type": "integer",
+                "required": False,
+                "description": "the positive horizon for the cost-only break-even comparison",
+            },
+            "pool_snapshot": {
+                "type": "object",
+                "required": False,
+                "description": (
+                    "exact top-pools HTTP response bytes as base64 with URL, observation "
+                    "time and bare SHA-256; supplied with token_list_snapshot and source_refs"
+                ),
+            },
+            "token_list_snapshot": {
+                "type": "object",
+                "required": False,
+                "description": (
+                    "exact token-list HTTP response bytes as base64 with URL, observation "
+                    "time and bare SHA-256; supplied with pool_snapshot and source_refs"
+                ),
+            },
+            "source_refs": {
+                "type": "array",
+                "items": {"type": "object"},
+                "required": False,
+                "description": "the frozen typed source references bound to this position",
             },
         },
         typical_seconds=30,
@@ -855,22 +989,20 @@ SERVICES: dict[str, Service] = {
                     "response, so another horizon can be applied without asking"
                 ),
             },
-            "pool_snapshot_sha256": {
-                "type": "string",
+            "pool_snapshot": {
+                "type": "object",
                 "required": False,
                 "description": (
-                    "the digest of the pool universe you expect this answer to be computed "
-                    "from. This endpoint reads a live universe that moves between calls, so "
-                    "the response always carries the digest of the rows it actually used; "
-                    "supplying one here makes any difference explicit instead of leaving two "
-                    "answers about different universes looking identical"
+                    "exact top-pools HTTP response bytes as base64 with URL, observation "
+                    "time and bare SHA-256; supplied together with token_list_snapshot"
                 ),
             },
-            "allowlist_snapshot_sha256": {
-                "type": "string",
+            "token_list_snapshot": {
+                "type": "object",
                 "required": False,
                 "description": (
-                    "the same, for the token allowlist that decides which pools are eligible"
+                    "exact token-list HTTP response bytes as base64 with URL, observation "
+                    "time and bare SHA-256; supplied together with pool_snapshot"
                 ),
             },
         },

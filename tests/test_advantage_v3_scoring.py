@@ -232,7 +232,9 @@ def test_a_b_assignment_uses_the_registered_text_then_raw_seed_bytes(
     )
 
 
-def test_bundle_withholds_mapping_truth_metadata_and_raw_outputs(tmp_path, monkeypatch):
+def test_bundle_exposes_truth_under_opaque_labels_but_withholds_mapping_and_raw_outputs(
+    tmp_path, monkeypatch
+):
     spec, inputs = _locked_family(tmp_path, monkeypatch, "v3-01-range-doctor")
     ledger = tmp_path / "runs" / f"{spec.spec_id}.jsonl"
     failed = {(inputs["cases"][0]["case_id"], "agent")}
@@ -244,7 +246,8 @@ def test_bundle_withholds_mapping_truth_metadata_and_raw_outputs(tmp_path, monke
         bundle["normalisation_version"]
         == spec.execution_protocol["normalisation_version"]
     )
-    assert all("truth" not in case for case in bundle["cases"])
+    assert all(case["reference"]["truth"] is not None for case in bundle["cases"])
+    assert all("case_id" not in case["reference"] for case in bundle["cases"])
     assert "raw_output" not in json.dumps(bundle)
     assert "range-doctor" not in json.dumps(bundle["cases"]).lower()
     assert all("case_id" not in case for case in bundle["cases"])
@@ -312,7 +315,138 @@ def test_a_success_record_with_an_empty_answer_is_a_zero_not_a_speed_pair(
     )
 
 
-def test_one_immutable_sheet_per_seat_precedes_mapping_publication(
+def test_range_validity_rejects_wrong_token_block_source_or_coverage(
+    tmp_path, monkeypatch
+):
+    spec, inputs = _locked_family(tmp_path, monkeypatch, "v3-01-range-doctor")
+    snapshots = {
+        "pools": {"url": "pools", "observed_at": "t1", "sha256": "a" * 64},
+        "token_list": {
+            "url": "tokens",
+            "observed_at": "t2",
+            "sha256": "b" * 64,
+        },
+    }
+    pool_truth = tmp_path / "pool-truth.json"
+    pool_truth.write_text(
+        json.dumps(
+            {
+                "source_snapshots": {
+                    name: value | {"attempt_ordinal": 1, "body_base64": "e30="}
+                    for name, value in snapshots.items()
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    source = {
+        "kind": "pool_truth",
+        "ref": pool_truth.name,
+        "sha256": hashlib.sha256(pool_truth.read_bytes()).hexdigest(),
+    }
+    case = {
+        "case_id": "range-1",
+        "wallet": "0x" + "1" * 40,
+        "token_id": 7,
+        "observation_block": 123,
+        "observation_time": "2026-08-21T12:00:00Z",
+        "source_refs": [source],
+        "truth": {
+            "positions_held": 1,
+            "positions_examined": 1,
+            "closed_skipped": 0,
+            "scan_complete": True,
+        },
+    }
+    output = _range_output() | {
+        "sources": snapshots | {"source_refs": [source]},
+        "coverage": {
+            "positions_held": 1,
+            "positions_examined": 1,
+            "closed_skipped": 0,
+            "scan_complete": True,
+        },
+    }
+
+    def valid(raw):
+        return scoring._valid_completed_output(
+            spec,
+            {"outcome": runner.SUCCEEDED, "raw_output": raw},
+            case,
+            inputs=inputs,
+            repo_root=tmp_path,
+            vocabulary=None,
+        )
+
+    assert valid(output) is True
+    for changed in (
+        output | {"position": {"token_id": 8}},
+        output | {"observation": {"block": 124, "time": case["observation_time"]}},
+        output | {"sources": output["sources"] | {"pools": {"sha256": "c" * 64}}},
+        output | {"coverage": output["coverage"] | {"scan_complete": False}},
+    ):
+        assert valid(changed) is False
+
+
+def test_yield_validity_rejects_a_wrong_snapshot_or_incomplete_universe(
+    tmp_path, monkeypatch
+):
+    spec, _inputs = _locked_family(tmp_path, monkeypatch, "v3-02-yield-router")
+    sources = {
+        "pools": {"url": "pools", "observed_at": "t1", "sha256": "a" * 64},
+        "token_list": {
+            "url": "tokens",
+            "observed_at": "t2",
+            "sha256": "b" * 64,
+        },
+    }
+    inputs = {
+        "source_snapshots": {
+            name: value | {"attempt_ordinal": 1, "body_base64": "e30="}
+            for name, value in sources.items()
+        },
+        "truth_manifest": {
+            "raw_pool_ids": ["0xaaa", "0xbbb"],
+            "included_pool_ids": ["0xaaa"],
+            "excluded": [{"pool_id": "0xbbb", "first_failed_gate": "tvl_floor"}],
+        },
+    }
+    case = {"case_id": "yield-1", "pool_id": "0xaaa"}
+    output = {
+        "sources": sources,
+        "universe": {
+            "included": [{"pool_id": "0xaaa"}],
+            "excluded": [{"pool_id": "0xbbb", "first_failed_gate": "tvl_floor"}],
+        },
+        "rates": {"current": {"pool_id": "0xaaa"}, "candidates": [{}]},
+        "scenario": [{"days": 1}],
+        "decision": "STAY",
+        "limitations": "bounded",
+    }
+
+    def valid(raw):
+        return scoring._valid_completed_output(
+            spec,
+            {"outcome": runner.SUCCEEDED, "raw_output": raw},
+            case,
+            inputs=inputs,
+            repo_root=tmp_path,
+            vocabulary=None,
+        )
+
+    assert valid(output) is True
+    assert (
+        valid(output | {"sources": sources | {"pools": {"sha256": "c" * 64}}}) is False
+    )
+    assert (
+        valid(
+            output | {"universe": {"included": [{"pool_id": "0xaaa"}], "excluded": []}}
+        )
+        is False
+    )
+
+
+def test_one_first_write_sheet_per_seat_precedes_mapping_publication(
     tmp_path, monkeypatch
 ):
     spec, inputs = _locked_family(tmp_path, monkeypatch, "v3-01-range-doctor")
@@ -356,6 +490,27 @@ def test_one_immutable_sheet_per_seat_precedes_mapping_publication(
     assert mapping["mapping_hash"] == canonical_hash(
         {key: value for key, value in mapping.items() if key != "mapping_hash"}
     )
+
+
+def test_harness_exports_isolated_sessions_and_imports_the_first_sheet(
+    tmp_path, monkeypatch
+):
+    spec, inputs = _locked_family(tmp_path, monkeypatch, "v3-01-range-doctor")
+    runs = tmp_path / "runs"
+    ledger = runs / f"{spec.spec_id}.jsonl"
+    _complete_range_ledger(spec, inputs, ledger)
+    harness = runner.ExperimentHarness(spec, runs, repo_root=tmp_path)
+
+    sessions = harness.export_evaluation_sessions(tmp_path / "sessions")
+    exported = json.loads(sessions[0].read_text(encoding="utf-8"))
+    bundle = exported["bundle"]
+    assert len(sessions) == len(spec.scoring["evaluator_roster"])
+    assert "mapping" not in exported
+
+    seat = spec.scoring["evaluator_roster"][0]["evaluator_id"]
+    raw = _score_sheet(spec, bundle, {"agent": 3, "manual": 2}, seat_id=seat)
+    artifact = harness.import_evaluation_submission(raw, tmp_path / "sheets")
+    assert artifact["evaluator_id"] == seat
 
 
 def test_failed_outputs_are_fixed_zeros_and_disagreements_are_published(
@@ -403,7 +558,11 @@ def test_failed_outputs_are_fixed_zeros_and_disagreements_are_published(
     assert len(quality["disagreements"][0]["seat_records"]) == 2
 
     tampered = json.loads(json.dumps(mapping))
-    tampered["cases"][0]["arms"] = {"A": "manual", "B": "agent"}
+    original_arms = tampered["cases"][0]["arms"]
+    tampered["cases"][0]["arms"] = {
+        "A": original_arms["B"],
+        "B": original_arms["A"],
+    }
     tampered["mapping_hash"] = canonical_hash(
         {key: value for key, value in tampered.items() if key != "mapping_hash"}
     )
@@ -473,11 +632,12 @@ def test_warden_metrics_keep_failures_in_recall_reliability_and_critical_gates(
                 )
                 output = {
                     "verdict": verdict,
-                    "classes": [] if verdict == "ALLOW" else case["labels"],
-                    "evidence": [],
-                    "effective_text": case["text"] if verdict == "ALLOW" else None,
-                    "reason": "frozen test answer",
-                    "limitations": ["detector silence is not safety"],
+                    "risk_level": "LOW" if verdict == "ALLOW" else "HIGH",
+                    "threat_classes": ([] if verdict == "ALLOW" else case["labels"]),
+                    "detections": [],
+                    "sanitized_payload": None,
+                    "recommendation": "Use the registered checks.",
+                    "checks": {"fixture": True},
                 }
             _append_attempt(
                 spec,
@@ -536,7 +696,10 @@ def test_yield_completeness_requires_the_exact_partition_and_frozen_sources(
         },
     }
     inputs = locked_inputs | {
-        "sources": expected_sources,
+        "source_snapshots": {
+            name: value | {"attempt_ordinal": 1, "body_base64": "e30="}
+            for name, value in expected_sources.items()
+        },
         "truth_manifest": {
             "raw_pool_ids": ["0xaaa", "0xbbb"],
             "included_pool_ids": ["0xaaa"],
@@ -600,3 +763,26 @@ def test_a_blocked_service_contract_never_becomes_a_rubric_zero(tmp_path, monkey
 
     with pytest.raises(ValueError, match="blocked service contract"):
         scoring.build_blinded_bundle(spec, ledger, repo_root=tmp_path)
+
+
+def test_a_manual_primary_cannot_be_relabelled_as_a_blocked_service_contract(
+    tmp_path, monkeypatch
+):
+    spec, inputs = _locked_family(tmp_path, monkeypatch, "v3-01-range-doctor")
+    ledger = tmp_path / "runs" / f"{spec.spec_id}.jsonl"
+    _complete_range_ledger(spec, inputs, ledger)
+    events = runner.read_events(ledger)
+    manual = next(
+        event
+        for event in events
+        if event["kind"] == runner.TERMINATED and event["arm"] == "manual"
+    )
+    manual["outcome"] = runner.BLOCKED_CONTRACT
+    manual["eligible_for_speed"] = False
+    ledger.write_text(
+        "".join(json.dumps(event, sort_keys=True) + "\n" for event in events),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="only for an agent primary"):
+        scoring.primary_attempts(spec, ledger, repo_root=tmp_path)

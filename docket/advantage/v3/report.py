@@ -188,6 +188,7 @@ def family_report(
     inputs = scoring.load_inputs(spec, repo_root=repo_root)
     calibration = scoring.calibration_metrics(spec, inputs)
     ledger_path = runner.ledger_path(spec, runs_dir)
+    runner.recover_interrupted(spec, runs_dir, expired_only=True)
     events = runner.read_events(ledger_path)
     attempts = scoring.primary_attempts(spec, ledger_path, repo_root=repo_root)
     progress = _progress(attempts)
@@ -210,7 +211,7 @@ def family_report(
     blocked = [
         {"case_id": case_id, "arm": arm}
         for (case_id, arm), attempt in attempts.items()
-        if attempt["terminal"]["outcome"] == runner.BLOCKED_CONTRACT
+        if arm == "agent" and attempt["terminal"]["outcome"] == runner.BLOCKED_CONTRACT
     ]
     if blocked:
         family["state"] = COMPLETE_UNSCORED

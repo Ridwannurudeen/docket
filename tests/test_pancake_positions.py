@@ -96,6 +96,37 @@ class _Eth:
         return {"number": BLOCK, "timestamp": BLOCK_TIMESTAMP}
 
 
+class _PoolFunctions:
+    def __init__(self, log):
+        self._log = log
+
+    def getPool(self, token0, token1, fee):
+        return _Call(
+            self._log, ("getPool",), "0x0000000000000000000000000000000000000001"
+        )
+
+    def slot0(self):
+        return _Call(self._log, ("slot0",), (1, 0, 0, 0, 0, 0, True))
+
+    def liquidity(self):
+        return _Call(self._log, ("liquidity",), 1)
+
+
+class _PoolContract:
+    def __init__(self, log):
+        self.functions = _PoolFunctions(log)
+
+
+class _PoolEth(_Eth):
+    def contract(self, address, abi):
+        return _PoolContract(self._log)
+
+
+class _PoolW3:
+    def __init__(self, log):
+        self.eth = _PoolEth(log)
+
+
 class _FakeW3:
     def __init__(self, log):
         self.eth = _Eth(log)
@@ -243,9 +274,15 @@ def test_every_state_read_is_pinned_to_one_block(monkeypatch):
     reader, log = _reader()
     reader.wallet_positions(WALLET)
 
-    pinned = [entry[-1] for entry in log if entry[0] in ("balanceOf", "tokenOfOwnerByIndex", "positions")]
+    pinned = [
+        entry[-1]
+        for entry in log
+        if entry[0] in ("balanceOf", "tokenOfOwnerByIndex", "positions")
+    ]
     assert pinned, "no state reads were logged"
-    assert set(pinned) == {BLOCK}, f"reads were not all pinned to one block: {set(pinned)}"
+    assert set(pinned) == {BLOCK}, (
+        f"reads were not all pinned to one block: {set(pinned)}"
+    )
 
 
 def test_a_requested_historical_block_is_the_one_read(monkeypatch):
@@ -254,6 +291,21 @@ def test_a_requested_historical_block_is_the_one_read(monkeypatch):
     # The fake header read returns its own BLOCK; what matters is that the caller's block is
     # what was asked for, which the get_block entry records.
     assert ("get_block", 114_000_000) in [e[:2] for e in log]
+
+
+def test_historical_pool_provenance_uses_the_requested_block_header():
+    log = []
+    reader = PositionReader(w3=_PoolW3(log))
+
+    state = reader.pool_state(
+        "0x205812CdBed920aFf76C6580abD681a46D11efc7",
+        "0x55d398326f99059fF775485246999027B3197955",
+        100,
+        observation_block=114_000_000,
+    )
+
+    assert ("get_block", 114_000_000) in [entry[:2] for entry in log]
+    assert state["block_number"] == BLOCK
 
 
 def test_a_pruned_node_is_an_infrastructure_fault_not_an_empty_wallet():

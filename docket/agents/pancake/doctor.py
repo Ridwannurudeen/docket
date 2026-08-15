@@ -59,6 +59,7 @@ def diagnose(
     *,
     declared_position_value_usd: float | None = None,
     estimated_recenter_cost_usd: float | None = None,
+    decision_horizon_days: int | None = None,
 ) -> dict:
     """One position's status, and the findings and conditional actions that follow from it.
 
@@ -163,7 +164,11 @@ def diagnose(
         "observation_time"
     )
     conditional_actions = _conditional_actions(
-        status, actions, economics, estimated_recenter_cost_usd
+        status,
+        actions,
+        economics,
+        estimated_recenter_cost_usd,
+        decision_horizon_days,
     )
 
     return {
@@ -204,6 +209,10 @@ def report(
     observation_block: int | None = None,
     declared_position_value_usd: float | None = None,
     estimated_recenter_cost_usd: float | None = None,
+    decision_horizon_days: int | None = None,
+    pool_rows: list[dict] | None = None,
+    token_allowlist: set[str] | None = None,
+    source_evidence: dict | None = None,
 ) -> dict:
     """Diagnose the v3 positions a wallet controls, held directly or staked.
 
@@ -227,15 +236,27 @@ def report(
             "token_id is required when declaring a position value or recenter cost"
         )
 
+    frozen_values = (pool_rows, token_allowlist, source_evidence)
+    if any(value is not None for value in frozen_values) and not all(
+        value is not None for value in frozen_values
+    ):
+        raise ValueError(
+            "pool_rows, token_allowlist and source_evidence must be supplied together"
+        )
+
     reader = reader or PositionReader()
-    borrowed = pools is not None
-    client = pools or PoolClient()
-    try:
-        rows = client.top_pools()
-        allowlist = client.token_allowlist()
-    finally:
-        if not borrowed:
-            client.close()
+    if pool_rows is not None:
+        rows = pool_rows
+        allowlist = token_allowlist
+    else:
+        borrowed = pools is not None
+        client = pools or PoolClient()
+        try:
+            rows = client.top_pools()
+            allowlist = client.token_allowlist()
+        finally:
+            if not borrowed:
+                client.close()
 
     by_pool: dict[str, dict] = {}
     rejected: list[dict] = []
@@ -284,6 +305,7 @@ def report(
                         None,
                         declared_position_value_usd=declared_position_value_usd,
                         estimated_recenter_cost_usd=estimated_recenter_cost_usd,
+                        decision_horizon_days=decision_horizon_days,
                     ),
                 }
             )
@@ -302,6 +324,7 @@ def report(
                     by_pool.get(str(pool.get("address") or "").lower()),
                     declared_position_value_usd=declared_position_value_usd,
                     estimated_recenter_cost_usd=estimated_recenter_cost_usd,
+                    decision_horizon_days=decision_horizon_days,
                 ),
             }
         )
@@ -326,6 +349,7 @@ def report(
         "primary_limitation": _primary_limitation(read, entries),
         "positions": entries,
         "pools": {"checked": len(rows), "rejected": rejected},
+        "sources": source_evidence,
     }
 
 
@@ -460,6 +484,7 @@ def _conditional_actions(
     actions: list[dict],
     economics: dict,
     estimated_recenter_cost_usd: float | None,
+    decision_horizon_days: int | None,
 ) -> dict:
     result = {
         "actions": actions,
@@ -468,6 +493,8 @@ def _conditional_actions(
             "caller" if estimated_recenter_cost_usd is not None else None
         ),
         "cost_only_break_even_days": None,
+        "decision_horizon_days": decision_horizon_days,
+        "within_horizon": None,
         "limitation": BREAK_EVEN_LIMITATION,
         "unavailable_reason": None,
     }
@@ -497,6 +524,10 @@ def _conditional_actions(
     result["cost_only_break_even_days"] = estimated_recenter_cost_usd / (
         value * net / 365
     )
+    if decision_horizon_days is not None:
+        result["within_horizon"] = (
+            result["cost_only_break_even_days"] <= decision_horizon_days
+        )
     return result
 
 

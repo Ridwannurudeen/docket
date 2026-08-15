@@ -1,11 +1,11 @@
-"""Turn the immutable v3 ledger into blinded, checkable score evidence.
+"""Turn the hash-checked v3 ledger into blinded, checkable score evidence.
 
 This module contains no provider client and makes no model call. The operator exports one
 bundle into two clean sessions and imports one JSON sheet from each registered seat. Until
-both immutable sheet artifacts exist, the A/B mapping is not written anywhere by this
+both API-first-write sheet artifacts exist, the A/B mapping is not written anywhere by this
 module. Once they do, the mapping publishes every byte needed to recompute it.
 
-Raw arm outputs remain in the append-only ledger. The bundle carries only a deterministic
+Raw arm outputs remain in the runner ledger. The bundle carries only a deterministic
 family projection: registered task fields with transport and commercial envelope metadata
 removed. A failed primary never asks a model to judge an error message; every criterion is
 fixed at zero. A blocked service contract is different. It means the registered agent arm
@@ -65,15 +65,17 @@ FAMILY_PROTOCOLS = {
     },
     "v3-03-warden-security": {
         "normalisation_version": (
-            "warden.v1: verdict, classes, evidence, effective_text, reason, limitations"
+            "warden.v2: verdict, risk_level, threat_classes, detections, "
+            "sanitized_payload, recommendation, checks"
         ),
         "fields": (
             "verdict",
-            "classes",
-            "evidence",
-            "effective_text",
-            "reason",
-            "limitations",
+            "risk_level",
+            "threat_classes",
+            "detections",
+            "sanitized_payload",
+            "recommendation",
+            "checks",
         ),
         "family_salt": "warden-blinding",
         "service_literals": ("Warden Payload Scan", "warden-scan", "Warden"),
@@ -270,7 +272,13 @@ def _range_projection(body: dict) -> dict:
 
 def _yield_projection(body: dict) -> dict:
     if all(field in body for field in FAMILY_PROTOCOLS["v3-02-yield-router"]["fields"]):
-        return body
+        projected = dict(body)
+        if isinstance(projected.get("decision"), str):
+            projected["decision"] = {
+                "move_or_stay": projected["decision"],
+                "destination_pool_id": projected.get("destination_pool_id"),
+            }
+        return projected
     universe = body.get("universe") if isinstance(body.get("universe"), dict) else {}
     candidates = (
         body.get("candidates") if isinstance(body.get("candidates"), list) else []
@@ -285,7 +293,14 @@ def _yield_projection(body: dict) -> dict:
         "rates": {"current": body.get("current"), "candidates": candidates},
         "scenario": body.get("scenario")
         or ([row.get("break_even") for row in candidates] if candidates else None),
-        "decision": body.get("decision"),
+        "decision": (
+            {
+                "move_or_stay": body.get("decision"),
+                "destination_pool_id": body.get("destination_pool_id"),
+            }
+            if isinstance(body.get("decision"), str)
+            else body.get("decision")
+        ),
         "limitations": body.get("limitations") or universe.get("bound"),
     }
 
@@ -302,11 +317,13 @@ def _warden_projection(body: dict, case: dict | None) -> dict:
         effective_text = None if case is None else case.get("text")
     return {
         "verdict": verdict,
-        "classes": body.get("classes", body.get("threat_classes")),
-        "evidence": body.get("evidence", body.get("detections")),
+        "risk_level": body.get("risk_level"),
+        "threat_classes": body.get("threat_classes"),
+        "detections": body.get("detections"),
+        "sanitized_payload": body.get("sanitized_payload"),
+        "recommendation": body.get("recommendation"),
+        "checks": body.get("checks"),
         "effective_text": effective_text,
-        "reason": body.get("reason"),
-        "limitations": body.get("limitations"),
     }
 
 
@@ -462,6 +479,10 @@ def primary_attempts(
             raise ValueError(
                 f"scoring: primary {identity!r} has unknown outcome {outcome!r}"
             )
+        if outcome == runner.BLOCKED_CONTRACT and arm != "agent":
+            raise ValueError(
+                "scoring: blocked_service_contract is valid only for an agent primary"
+            )
         eligible = outcome == runner.SUCCEEDED
         if event.get("eligible_for_speed") is not eligible:
             raise ValueError(
@@ -497,11 +518,84 @@ def _has_substance(value) -> bool:
     return True
 
 
+def _source_summaries(inputs: dict) -> dict | None:
+    snapshots = inputs.get("source_snapshots")
+    if not isinstance(snapshots, dict):
+        return None
+    summaries = {}
+    for name in ("pools", "token_list"):
+        snapshot = snapshots.get(name)
+        if not isinstance(snapshot, dict):
+            return None
+        summaries[name] = {
+            key: snapshot.get(key) for key in ("url", "observed_at", "sha256")
+        }
+    return summaries
+
+
+def _range_source_summaries(case: dict, repo_root: Path | None) -> dict | None:
+    refs = case.get("source_refs")
+    if not isinstance(refs, list) or repo_root is None:
+        return None
+    pool_truth = next(
+        (
+            source
+            for source in refs
+            if isinstance(source, dict) and source.get("kind") == "pool_truth"
+        ),
+        None,
+    )
+    if not isinstance(pool_truth, dict):
+        return None
+    try:
+        raw = (Path(repo_root) / pool_truth["ref"]).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != pool_truth["sha256"]:
+            return None
+        body = json.loads(raw.decode("utf-8"))
+    except (KeyError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    summaries = _source_summaries(body)
+    if summaries is None:
+        return None
+    return summaries | {"source_refs": refs}
+
+
+def _yield_partition_matches(projection: dict, inputs: dict) -> bool:
+    truth = inputs.get("truth_manifest")
+    universe = projection.get("universe")
+    if not isinstance(truth, dict) or not isinstance(universe, dict):
+        return False
+    raw_ids = [str(value).lower() for value in truth.get("raw_pool_ids", [])]
+    included_truth = {
+        str(value).lower() for value in truth.get("included_pool_ids", [])
+    }
+    excluded_truth = _exclusion_map(truth.get("excluded"))
+    included_values = universe.get("included_pool_ids", universe.get("included"))
+    included = (
+        [_pool_id(value) for value in included_values]
+        if isinstance(included_values, list)
+        else []
+    )
+    excluded = _exclusion_map(universe.get("excluded"))
+    combined = included + ([] if excluded is None else list(excluded))
+    return bool(
+        raw_ids
+        and all(identity is not None for identity in included)
+        and excluded is not None
+        and len(combined) == len(set(combined))
+        and Counter(combined) == Counter(raw_ids)
+        and set(included) == included_truth
+        and excluded == excluded_truth
+    )
+
+
 def _valid_completed_output(
     spec: PairedSpec,
     terminal: dict,
     case: dict | None,
     *,
+    inputs: dict | None = None,
+    repo_root: Path | None = None,
     vocabulary: set[str] | None,
 ) -> bool:
     if terminal["outcome"] != runner.SUCCEEDED:
@@ -514,6 +608,54 @@ def _valid_completed_output(
             _project_output(spec, raw, case), case, vocabulary or set()
         )
     projection = normalise_output(spec, raw, case=case)
+    if (
+        spec.spec_id == "v3-01-range-doctor"
+        and case is not None
+        and {"token_id", "observation_block", "source_refs", "truth"} <= set(case)
+    ):
+        position = projection.get("position")
+        observation = projection.get("observation")
+        coverage = projection.get("coverage")
+        truth = case["truth"]
+        if not all(
+            isinstance(value, dict) for value in (position, observation, coverage)
+        ):
+            return False
+        if (
+            position.get("token_id") != case["token_id"]
+            or observation.get("block", observation.get("bsc_block"))
+            != case["observation_block"]
+            or observation.get("time", observation.get("observation_time"))
+            != case.get("observation_time")
+            or projection.get("sources") != _range_source_summaries(case, repo_root)
+            or any(
+                coverage.get(name) != truth.get(name)
+                for name in (
+                    "positions_held",
+                    "positions_examined",
+                    "closed_skipped",
+                    "scan_complete",
+                )
+            )
+        ):
+            return False
+    if (
+        spec.spec_id == "v3-02-yield-router"
+        and case is not None
+        and inputs is not None
+        and "pool_id" in case
+        and "truth_manifest" in inputs
+    ):
+        rates = projection.get("rates")
+        current = rates.get("current") if isinstance(rates, dict) else None
+        if (
+            _pool_id(current) != str(case["pool_id"]).lower()
+            or projection.get("sources") != _source_summaries(inputs)
+            or not _yield_partition_matches(projection, inputs)
+            or not isinstance(projection.get("decision"), dict)
+            or projection["decision"].get("move_or_stay") not in {"MOVE", "STAY"}
+        ):
+            return False
     return all(_has_substance(value) for value in projection.values())
 
 
@@ -556,7 +698,12 @@ def build_blinded_bundle(
             terminal = attempts[(assigned["case_id"], arm)]["terminal"]
             outcome = terminal["outcome"]
             malformed = outcome == runner.SUCCEEDED and not _valid_completed_output(
-                spec, terminal, case, vocabulary=vocabulary
+                spec,
+                terminal,
+                case,
+                inputs=inputs,
+                repo_root=repo_root,
+                vocabulary=vocabulary,
             )
             if outcome in ZERO_OUTCOMES or malformed:
                 outputs.append(
@@ -577,7 +724,27 @@ def build_blinded_bundle(
                         ),
                     }
                 )
-        bundled_cases.append({"case_label": assigned["case_label"], "outputs": outputs})
+        reference = {key: value for key, value in case.items() if key != "case_id"}
+        if "truth" not in reference:
+            reference["truth"] = {
+                key: case[key]
+                for key in (
+                    "expected_verdict",
+                    "labels",
+                    "evidence_spans",
+                    "hostile",
+                    "critical",
+                    "survival_predicates",
+                )
+                if key in case
+            }
+        bundled_cases.append(
+            {
+                "case_label": assigned["case_label"],
+                "reference": reference,
+                "outputs": outputs,
+            }
+        )
     return {
         "bundle_version": "v3.blinded-bundle.v1",
         "spec_id": spec.spec_id,
@@ -588,8 +755,9 @@ def build_blinded_bundle(
         "rubric": spec.quality_rubric,
         "instructions": (
             "Score only outputs where judgment_required is true, using every registered "
-            "criterion anchor. Do not infer an arm identity. Automatic scores are fixed by "
-            "the registered failure policy and must not appear in the submitted rows."
+            "criterion anchor and the opaque case reference beside the A/B outputs. Do not "
+            "infer an arm identity. Automatic scores are fixed by the registered failure "
+            "policy and must not appear in the submitted rows."
         ),
         "cases": bundled_cases,
     }
@@ -623,7 +791,7 @@ def _write_exclusive(path: Path, body: dict) -> None:
             os.fsync(handle.fileno())
     except FileExistsError as exc:
         raise ValueError(
-            f"scoring: immutable artifact {path.name!r} already exists"
+            f"scoring: first-write artifact {path.name!r} already exists"
         ) from exc
 
 
@@ -707,7 +875,7 @@ def _validate_sheet(spec: PairedSpec, bundle: dict, sheet: dict) -> None:
 def ingest_score_sheet(
     spec: PairedSpec, bundle: dict, raw_sheet: bytes, sheets_dir: Path
 ) -> dict:
-    """Durably import the first and only response from one registered seat."""
+    """Import the first response from one registered seat through the claim-once API."""
     if not isinstance(raw_sheet, bytes) or not raw_sheet:
         raise ValueError("scoring: raw score sheet must be nonempty bytes")
     try:
@@ -797,7 +965,7 @@ def load_score_sheets(
         if not path.exists():
             if require_all:
                 raise ValueError(
-                    "scoring: both score sheets must be durable before mapping"
+                    "scoring: both score sheets must exist and validate before mapping"
                 )
             continue
         artifacts.append(_read_sheet_artifact(spec, bundle, path, evaluator_id))
@@ -821,10 +989,12 @@ def publish_mapping(
     *,
     repo_root: Path,
 ) -> dict:
-    """Publish A/B only after both immutable sheet hashes can be verified."""
+    """Publish A/B only after both API-first-write sheet hashes can be verified."""
     artifacts = load_score_sheets(spec, bundle, sheets_dir, require_all=True)
     if len(artifacts) != len(spec.scoring["evaluator_roster"]):
-        raise ValueError("scoring: both score sheets must be durable before mapping")
+        raise ValueError(
+            "scoring: both score sheets must exist and validate before mapping"
+        )
     inputs = load_inputs(spec, repo_root=repo_root)
     case_ids = [case["case_id"] for case in inputs["cases"]]
     derived = _derive_for_bundle(spec, bundle, case_ids)
@@ -918,7 +1088,7 @@ def aggregate_rubric(
     *,
     repo_root: Path,
 ) -> dict:
-    """Average the two immutable per-criterion sheets without adjudicating a gap."""
+    """Average the two API-first-write sheets without adjudicating a gap."""
     mapping_body = {
         key: value for key, value in mapping.items() if key != "mapping_hash"
     }
@@ -1091,6 +1261,8 @@ def speed_metrics(
                 spec,
                 terminals[arm],
                 cases_by_id.get(case_id),
+                inputs=inputs,
+                repo_root=repo_root,
                 vocabulary=vocabulary,
             )
             for arm in runner.ARMS
@@ -1207,20 +1379,10 @@ def _warden_vocabulary(inputs: dict, repo_root: Path | None) -> set[str]:
     }
 
 
-def _nonblank_limitations(value) -> bool:
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, list):
-        return bool(value) and all(
-            isinstance(item, str) and item.strip() for item in value
-        )
-    return False
-
-
 def _valid_warden_output(projection: dict, case: dict, vocabulary: set[str]) -> bool:
     verdict = projection["verdict"]
-    classes = projection["classes"]
-    evidence = projection["evidence"]
+    classes = projection["threat_classes"]
+    evidence = projection["detections"]
     if verdict not in WARDEN_VERDICTS:
         return False
     if (
@@ -1230,9 +1392,12 @@ def _valid_warden_output(projection: dict, case: dict, vocabulary: set[str]) -> 
         )
         or len(classes) != len(set(classes))
         or not isinstance(evidence, list)
-        or not isinstance(projection["reason"], str)
-        or not projection["reason"].strip()
-        or not _nonblank_limitations(projection["limitations"])
+        or not isinstance(projection["risk_level"], str)
+        or not projection["risk_level"].strip()
+        or not isinstance(projection["recommendation"], str)
+        or not projection["recommendation"].strip()
+        or not isinstance(projection["checks"], dict)
+        or not projection["checks"]
     ):
         return False
     effective = projection["effective_text"]
@@ -1380,7 +1545,7 @@ def _exclusion_map(values) -> dict[str, str] | None:
         if not isinstance(row, dict):
             return None
         identity = _pool_id(row)
-        reason = row.get("reason", row.get("first_failed_gate"))
+        reason = row.get("first_failed_gate", row.get("reason"))
         if identity is None or not isinstance(reason, str) or identity in mapped:
             return None
         mapped[identity] = reason
@@ -1391,19 +1556,11 @@ def yield_completeness(spec: PairedSpec, inputs: dict, attempts: dict) -> dict:
     """Check the hired arm's shown partition against every frozen source row."""
     if spec.spec_id != "v3-02-yield-router":
         raise ValueError("scoring: universe completeness requires the Yield family")
-    truth = inputs["truth_manifest"]
-    raw_ids = [str(value).lower() for value in truth["raw_pool_ids"]]
-    included_truth = {str(value).lower() for value in truth["included_pool_ids"]}
-    excluded_truth = _exclusion_map(truth["excluded"])
-    if excluded_truth is None:
+    if _exclusion_map(inputs["truth_manifest"]["excluded"]) is None:
         raise ValueError("scoring: frozen Yield exclusion manifest is malformed")
-    expected_sources = {
-        name: {
-            key: inputs["sources"][name].get(key)
-            for key in ("url", "observed_at", "sha256")
-        }
-        for name in ("pools", "token_list")
-    }
+    expected_sources = _source_summaries(inputs)
+    if expected_sources is None:
+        raise ValueError("scoring: frozen Yield source snapshots are malformed")
     cases = []
     for case in inputs["cases"]:
         terminal = attempts[(case["case_id"], "agent")]["terminal"]
@@ -1423,15 +1580,9 @@ def yield_completeness(spec: PairedSpec, inputs: dict, attempts: dict) -> dict:
                 )
                 excluded = _exclusion_map(universe.get("excluded"))
                 observed = {"included_pool_ids": included, "excluded": excluded}
-                combined = included + ([] if excluded is None else list(excluded))
                 complete = bool(
-                    all(identity is not None for identity in included)
-                    and excluded is not None
-                    and projection["sources"] == expected_sources
-                    and len(combined) == len(set(combined))
-                    and Counter(combined) == Counter(raw_ids)
-                    and set(included) == included_truth
-                    and excluded == excluded_truth
+                    projection["sources"] == expected_sources
+                    and _yield_partition_matches(projection, inputs)
                 )
         cases.append(
             {

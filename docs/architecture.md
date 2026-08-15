@@ -86,7 +86,7 @@ V2 stores corpora, hash-bearing specifications, runs, null baselines, every tria
 computed falsifiers under `docket/advantage/v2/`. `docket.advantage.v2.report.report()` is
 the common builder for `/advantage/v2.json` and its HTML page.
 
-V3 stores three stage-one paired specifications plus its append-only runner, prompt-blinded
+V3 stores three stage-one paired specifications plus its claim-once runner, prompt-blinded
 scoring, and artifact-derived report under `docket/advantage/v3/`. It has no input or run
 artifacts today, so all three families serve `registered_waiting_for_inputs` at
 `/advantage/v3.json`. Its registration fields identify a local Git sequence only; see

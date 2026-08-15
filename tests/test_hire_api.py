@@ -195,6 +195,55 @@ def test_declared_range_economics_require_one_exact_position(tmp_path, monkeypat
     assert "token_id" in error["message"]
 
 
+def test_range_hire_passes_the_exact_frozen_pool_bytes_to_the_doctor(monkeypatch):
+    captured = {}
+
+    def record(address, **kwargs):
+        captured["address"] = address
+        captured.update(kwargs)
+        return {"address": address, "positions": [], "positions_held": 0}
+
+    monkeypatch.setattr(doctor, "report", record)
+    pools_raw = b'[{"id":"0xpool"}]\n'
+    tokens_raw = b'{"tokens":[]}\n'
+
+    def snapshot(url, raw):
+        return {
+            "url": url,
+            "observed_at": "2026-08-21T12:00:00Z",
+            "attempt_ordinal": 1,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "body_base64": base64.b64encode(raw).decode(),
+        }
+
+    SERVICES["range-doctor"].run(
+        {
+            "wallet": WALLET,
+            "position_manager": "0x46A15B0b27311cedF172AB29E4f4766fbE7F4364",
+            "token_id": 7,
+            "observation_block": 123,
+            "declared_position_value_usd": 10_000,
+            "estimated_recenter_cost_usd": 25,
+            "decision_horizon_days": 30,
+            "source_refs": [{"kind": "pool_truth", "ref": "frozen.json"}],
+            "pool_snapshot": snapshot(
+                "https://explorer.pancakeswap.com/pools", pools_raw
+            ),
+            "token_list_snapshot": snapshot(
+                "https://tokens.pancakeswap.finance/list", tokens_raw
+            ),
+        }
+    )
+
+    assert captured["pool_rows"] == [{"id": "0xpool"}]
+    assert captured["token_allowlist"] == set()
+    assert (
+        captured["source_evidence"]["pools"]["sha256"]
+        == hashlib.sha256(pools_raw).hexdigest()
+    )
+    assert captured["decision_horizon_days"] == 30
+
+
 def test_a_missing_required_field_is_named(tmp_path, monkeypatch):
     resp = _client(tmp_path, monkeypatch).post("/hire/range-doctor", json={"limit": 3})
     assert resp.status_code == 422
@@ -264,7 +313,9 @@ def test_a_request_docket_could_not_read_never_spends_the_allowance(
     assert served.json()["receipt"]["payment"]["status"] == "free_tier"
 
 
-def test_a_paid_preflight_settles_once_and_rejects_the_exact_replay(tmp_path, monkeypatch):
+def test_a_paid_preflight_settles_once_and_rejects_the_exact_replay(
+    tmp_path, monkeypatch
+):
     """The lifecycle crosses local verification, facilitator verification, work, durable
     output binding and settlement. Replaying the same authorization is rejected and never
     repeats either work or settlement."""
@@ -497,9 +548,7 @@ def test_de_admission_after_verification_prevents_settlement(tmp_path, monkeypat
     class DeAdmittingFacilitator(FixtureFacilitator):
         def verify(self, envelope):
             verification = super().verify(envelope)
-            Store(db_path).begin_canary_run(
-                "range-doctor", "https://docket.example"
-            )
+            Store(db_path).begin_canary_run("range-doctor", "https://docket.example")
             return verification
 
     facilitator = DeAdmittingFacilitator()

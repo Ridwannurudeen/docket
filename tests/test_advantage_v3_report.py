@@ -91,6 +91,38 @@ def test_locked_not_run_running_and_complete_unscored_come_only_from_the_ledger(
     assert family["falsifier_result"] is None
 
 
+def test_report_closes_a_dangling_attempt_after_its_registered_deadline(
+    tmp_path, monkeypatch
+):
+    spec, inputs = _locked_family(tmp_path, monkeypatch, "v3-01-range-doctor")
+    case_id = inputs["cases"][0]["case_id"]
+    ledger = tmp_path / "runs" / f"{spec.spec_id}.jsonl"
+    runner.append_event(
+        ledger,
+        {
+            "kind": runner.STARTED,
+            "slot": runner.slot_id(spec.spec_id, case_id, "manual"),
+            "spec_id": spec.spec_id,
+            "case_id": case_id,
+            "arm": "manual",
+            "attempt_kind": runner.PRIMARY,
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "deadline_at": "2026-01-01T00:20:00+00:00",
+            "started_monotonic_ns": 1,
+            "case_binding": {},
+            "stage_one_protocol_hash": spec.stage_one_protocol_hash,
+            "spec_hash": spec.spec_hash,
+            "inputs_sha256": spec.inputs_sha256,
+            "inputs_ref": spec.inputs_ref,
+        },
+    )
+
+    family = _build_report(tmp_path)["families"][0]
+
+    assert family["state"] == report.RUNNING
+    assert any(event["kind"] == runner.INTERRUPTED for event in family["ledger"])
+
+
 def test_two_durable_sheets_and_mapping_produce_not_refuted_from_the_numbers(
     tmp_path, monkeypatch
 ):

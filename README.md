@@ -101,7 +101,7 @@ the installed v3 JSON, HTML, and agent-facing documentation.
   `docket/advantage/experiments/`. Every recorded payment status is `free_tier`.
 - V2 stores its corpora, registered specifications, completed runs, null baselines, and
   computed falsifiers under `docket/advantage/v2/`.
-- V3 stores three stage-one specifications plus the append-only runner, prompt-blinded
+- V3 stores three stage-one specifications plus the claim-once runner, prompt-blinded
   scoring, report builder, and served page under `docket/advantage/v3/`. There is no
   `inputs/` or `runs/` directory, every `inputs_sha256` is empty, and all three families at
   `/advantage/v3.json` truthfully report `registered_waiting_for_inputs`.

@@ -15,7 +15,7 @@ MARKER = "<!-- v3-records -->"
 STATE_TEXT = {
     report_module.REGISTERED_WAITING: "No input artifact is locked. No arm has run.",
     report_module.LOCKED_NOT_RUN: "Inputs are locked. No primary attempt has been claimed.",
-    report_module.RUNNING: "The append-only ledger has work in progress.",
+    report_module.RUNNING: "The claim-once ledger has work in progress.",
     report_module.COMPLETE_UNSCORED: (
         "Every scheduled primary has a terminal ledger event; performance remains unscored."
     ),

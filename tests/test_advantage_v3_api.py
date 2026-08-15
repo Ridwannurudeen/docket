@@ -72,7 +72,7 @@ def test_the_report_is_built_once_and_both_routes_use_that_startup_payload(
             report.LOCKED_NOT_RUN,
             "Inputs are locked. No primary attempt has been claimed.",
         ),
-        (report.RUNNING, "The append-only ledger has work in progress."),
+        (report.RUNNING, "The claim-once ledger has work in progress."),
         (
             report.COMPLETE_UNSCORED,
             "Every scheduled primary has a terminal ledger event; performance remains unscored.",

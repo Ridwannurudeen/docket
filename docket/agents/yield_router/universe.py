@@ -49,6 +49,7 @@ class Exclusion:
     pool_id: str
     pair: str
     gate: str
+    first_failed_gate: str
     reason: str
 
     def as_record(self) -> dict:
@@ -56,6 +57,7 @@ class Exclusion:
             "pool_id": self.pool_id,
             "pair": self.pair,
             "gate": self.gate,
+            "first_failed_gate": self.first_failed_gate,
             "reason": self.reason,
         }
 
@@ -85,14 +87,17 @@ class Universe:
             "ordering": "the source's own order, unchanged — nothing here re-orders a set",
             "bound": UNIVERSE_BOUND,
             "bound_note": EMPTY_UNIVERSE if not self.included else UNIVERSE_BOUND,
-            "included": [{"pool_id": row.get("id"), "pair": _pair(row)} for row in self.included],
+            "included": [
+                {"pool_id": row.get("id"), "pair": _pair(row)} for row in self.included
+            ],
             "excluded": [row.as_record() for row in self.excluded],
         }
 
 
 def _pair(pool: dict) -> str:
     return "/".join(
-        str((pool.get(side) or {}).get("symbol") or "?") for side in ("token0", "token1")
+        str((pool.get(side) or {}).get("symbol") or "?")
+        for side in ("token0", "token1")
     )
 
 
@@ -117,6 +122,25 @@ def _fee_data(pool: dict) -> tuple[bool, str]:
     return True, "ok"
 
 
+def _first_failed_gate(
+    pool: dict, allowlist: set[str], min_tvl: float, max_turnover: float
+) -> str | None:
+    for side in ("token0", "token1"):
+        address = str(((pool.get(side) or {}).get("id")) or "").lower()
+        if address not in allowlist:
+            return f"{side}_allowlist"
+    tvl = float(pool.get("tvlUSD") or 0)
+    if tvl < min_tvl:
+        return "tvl_floor"
+    if float(pool.get("volumeUSD24h") or 0) / tvl > max_turnover:
+        return "turnover_ceiling"
+    if pool.get("feeUSD24h") is None:
+        return "feeUSD24h_non_null"
+    if pool.get("protocolFeeUSD24h") is None:
+        return "protocolFeeUSD24h_non_null"
+    return None
+
+
 def eligible_pools(
     pools,
     allowlist: set[str],
@@ -136,6 +160,7 @@ def eligible_pools(
     included: list[dict] = []
     excluded: list[Exclusion] = []
     for pool in pools:
+        first_failed_gate = _first_failed_gate(pool, allowlist, min_tvl, max_turnover)
         plausible, reason = is_plausible(
             pool, allowlist, min_tvl=min_tvl, max_turnover=max_turnover
         )
@@ -145,6 +170,7 @@ def eligible_pools(
                     pool_id=str(pool.get("id") or "?"),
                     pair=_pair(pool),
                     gate="is_plausible",
+                    first_failed_gate=first_failed_gate,
                     reason=reason,
                 )
             )
@@ -156,6 +182,7 @@ def eligible_pools(
                     pool_id=str(pool.get("id") or "?"),
                     pair=_pair(pool),
                     gate="fee_data",
+                    first_failed_gate=first_failed_gate,
                     reason=fee_reason,
                 )
             )

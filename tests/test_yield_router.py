@@ -19,6 +19,9 @@ with the break-even that makes it look worse, and labelled.
 which, so a reader can tell an observation from an opinion.
 """
 
+import base64
+import hashlib
+import json
 import re
 
 import pytest
@@ -57,7 +60,15 @@ def frozen_clock(monkeypatch):
         monkeypatch.setattr(f"{module}.now", lambda: FROZEN_NOW)
 
 
-def _pool(pool_id, *, tvl="1000000", fee="250", protocol="82", volume="500000", pair=(USDT, USDC)):
+def _pool(
+    pool_id,
+    *,
+    tvl="1000000",
+    fee="250",
+    protocol="82",
+    volume="500000",
+    pair=(USDT, USDC),
+):
     return {
         "id": pool_id,
         "feeTier": 500,
@@ -104,7 +115,9 @@ class _Reader:
 def test_the_net_rate_is_not_the_gross_one_and_the_gap_is_the_protocol_cut():
     """The pool charged 250 and the protocol kept 82, so quoting 250 would overstate what
     a liquidity provider keeps by about half again."""
-    candidate = next(c for c in compare(CURRENT, _universe()) if c.pool_id == "0xcurrent")
+    candidate = next(
+        c for c in compare(CURRENT, _universe()) if c.pool_id == "0xcurrent"
+    )
     assert candidate.gross_fee_apr == pytest.approx(250 * 365 / 1_000_000)
     assert candidate.net_fee_apr == pytest.approx((250 - 82) * 365 / 1_000_000)
     assert candidate.net_fee_apr < candidate.gross_fee_apr
@@ -119,8 +132,21 @@ def test_every_rate_carries_the_window_it_was_observed_over_and_what_it_is_over(
     assert "position" in record["rate_denominator"].lower()
 
 
+def test_universe_exclusions_name_the_registered_first_failed_gate():
+    excluded = eligible_pools(
+        [{**CURRENT, "token0": {"symbol": "X", "id": "0xnot-allowed"}}],
+        ALLOWLIST,
+        source=SOURCE,
+        observed_at=OBSERVED,
+    ).as_record()["excluded"][0]
+
+    assert excluded["first_failed_gate"] == "token0_allowlist"
+
+
 def test_a_candidate_carries_the_liquidity_and_turnover_behind_its_rate():
-    record = next(c for c in compare(CURRENT, _universe()) if c.pool_id == "0xthin").as_record()
+    record = next(
+        c for c in compare(CURRENT, _universe()) if c.pool_id == "0xthin"
+    ).as_record()
     assert record["tvl_usd"] == 60_000.0
     assert record["turnover"] == pytest.approx(0.5)
     assert record["fee_usd_24h"] == 600.0
@@ -134,6 +160,14 @@ def test_the_comparison_is_ordered_by_one_named_observed_metric():
     assert [c.pool_id for c in candidates] == ["0xthin", "0xricher", "0xcurrent"]
     assert "net_fee_apr" in ORDERING
     assert "observed" in ORDERING.lower()
+
+
+def test_equal_net_rates_are_tied_by_lowercase_pool_id():
+    same_rate = _pool("0xbbb")
+    earlier_id = _pool("0xAAA")
+    candidates = compare(same_rate, _universe((same_rate, earlier_id)))
+
+    assert [candidate.pool_id for candidate in candidates] == ["0xAAA", "0xbbb"]
 
 
 def test_each_candidate_states_how_far_its_rate_is_from_the_current_one():
@@ -283,7 +317,9 @@ def test_a_destination_outside_the_stated_universe_is_refused():
     """The eligible set is the destination allowlist. A pool that did not clear the gate is
     not somewhere this build routes to, whatever its rate says."""
     thin_only = eligible_pools([THIN], ALLOWLIST, source=SOURCE, observed_at=OBSERVED)
-    candidate = next(c for c in compare(CURRENT, _universe()) if c.pool_id == "0xricher")
+    candidate = next(
+        c for c in compare(CURRENT, _universe()) if c.pool_id == "0xricher"
+    )
     with pytest.raises(ValueError) as exc:
         plan_move(
             candidate,
@@ -340,8 +376,20 @@ def test_every_candidate_in_the_preview_carries_its_own_break_even():
     for candidate in out["candidates"]:
         assert "break_even" in candidate
         assert candidate["break_even"]["horizon_days"] == HORIZON_DAYS
-    beyond = [c for c in out["candidates"] if c["break_even"]["within_horizon"] is False]
+    beyond = [
+        c for c in out["candidates"] if c["break_even"]["within_horizon"] is False
+    ]
     assert beyond, "this test means nothing if every candidate pays for itself"
+
+
+def test_the_preview_returns_the_registered_move_or_stay_decision():
+    move = _preview().preview(position_size_usd=10_000, switching_cost_usd=12)
+    stay = _preview().preview(position_size_usd=10_000, switching_cost_usd=1_000_000)
+
+    assert move["decision"] == "MOVE"
+    assert move["destination_pool_id"] == "0xthin"
+    assert stay["decision"] == "STAY"
+    assert stay["destination_pool_id"] is None
 
 
 def test_the_preview_carries_the_universe_that_bounds_every_claim_in_it():
@@ -400,7 +448,9 @@ def test_the_drafted_move_carries_the_break_even_of_the_candidate_it_chose():
         cap=5_000 * E18,
     )
     action = out["actions"][0]
-    chosen = next(c for c in out["candidates"] if c["pool_id"] == action["destination_pool"])
+    chosen = next(
+        c for c in out["candidates"] if c["pool_id"] == action["destination_pool"]
+    )
     assert action["break_even"] == chosen["break_even"]
 
 
@@ -458,6 +508,19 @@ class _PoolClient:
     def token_allowlist(self):
         return set(ALLOWLIST)
 
+    def top_pools_snapshot(self, chain="bsc", version="v3"):
+        raw = json.dumps([CURRENT, RICHER, THIN], separators=(",", ":")).encode()
+        return [CURRENT, RICHER, THIN], raw
+
+    def token_allowlist_snapshot(self):
+        body = {
+            "tokens": [
+                {"chainId": 56, "address": address} for address in sorted(ALLOWLIST)
+            ]
+        }
+        raw = json.dumps(body, separators=(",", ":")).encode()
+        return set(ALLOWLIST), raw
+
 
 @pytest.fixture
 def hire(monkeypatch):
@@ -481,7 +544,9 @@ def test_a_baseline_named_in_another_casing_is_still_the_pool_it_names(hire):
     assert out["current"]["pool_id"] == "0xricher"
 
 
-def test_a_baseline_that_is_not_in_the_set_is_said_rather_than_quietly_substituted(hire):
+def test_a_baseline_that_is_not_in_the_set_is_said_rather_than_quietly_substituted(
+    hire,
+):
     """The failure this test exists to prevent: a named pool that is not in the eligible
     set falling back to the deepest one while the payload reports that no pool was named.
     Every delta in the response is measured from this row, so a false sentence about which
@@ -576,30 +641,55 @@ def test_the_yield_answer_attests_which_universe_it_was_actually_computed_from(
 
     monkeypatch.setattr("docket.agents.pancake.pools.PoolClient", _PoolClient)
     out = SERVICES["yield-router"].run({"position_size_usd": 10_000})
-    attestation = out["snapshot_attestation"]
-    assert attestation["observed_pool_snapshot_sha256"].startswith("0x")
-    assert attestation["observed_allowlist_snapshot_sha256"].startswith("0x")
-    # Nothing was claimed, so nothing is asserted about matching.
-    assert attestation["matches_expected"] is None
+    pools_raw = _PoolClient().top_pools_snapshot()[1]
+    tokens_raw = _PoolClient().token_allowlist_snapshot()[1]
+    assert out["sources"]["pools"]["sha256"] == hashlib.sha256(pools_raw).hexdigest()
+    assert (
+        out["sources"]["token_list"]["sha256"] == hashlib.sha256(tokens_raw).hexdigest()
+    )
 
 
-def test_a_declared_snapshot_that_does_not_match_is_reported_rather_than_resolved(
+def test_the_hire_consumes_supplied_frozen_http_bytes_instead_of_fetching_live(
     monkeypatch,
 ):
-    """A service that quietly answers from a later universe than the one it was asked
-    about looks exactly like one that honoured the request. That is the substitution the
-    registered arm exists to catch, so the mismatch is stated on the response."""
     from docket.hire.catalogue import SERVICES
 
-    monkeypatch.setattr("docket.agents.pancake.pools.PoolClient", _PoolClient)
+    class NoLivePoolClient:
+        def __enter__(self):
+            raise AssertionError("the frozen request must not fetch live pool data")
+
+        def __exit__(self, *exc):
+            return None
+
+    monkeypatch.setattr("docket.agents.pancake.pools.PoolClient", NoLivePoolClient)
+    pools_raw = json.dumps([CURRENT, RICHER, THIN], separators=(",", ":")).encode()
+    tokens_raw = json.dumps(
+        {
+            "tokens": [
+                {"chainId": 56, "address": address} for address in sorted(ALLOWLIST)
+            ]
+        },
+        separators=(",", ":"),
+    ).encode()
+
+    def snapshot(url, raw):
+        return {
+            "url": url,
+            "observed_at": OBSERVED,
+            "attempt_ordinal": 1,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "body_base64": base64.b64encode(raw).decode(),
+        }
+
     out = SERVICES["yield-router"].run(
-        {"position_size_usd": 10_000, "pool_snapshot_sha256": "0x" + "de" * 32}
+        {
+            "position_size_usd": 10_000,
+            "pool_snapshot": snapshot("https://example.test/pools", pools_raw),
+            "token_list_snapshot": snapshot("https://example.test/tokens", tokens_raw),
+        }
     )
-    attestation = out["snapshot_attestation"]
-    assert attestation["matches_expected"] is False
-    assert attestation["expected_pool_snapshot_sha256"] == "0x" + "de" * 32
+
+    assert out["sources"]["pools"]["sha256"] == hashlib.sha256(pools_raw).hexdigest()
     assert (
-        attestation["observed_pool_snapshot_sha256"]
-        != attestation["expected_pool_snapshot_sha256"]
+        out["sources"]["token_list"]["sha256"] == hashlib.sha256(tokens_raw).hexdigest()
     )
-    assert "different universe" in attestation["what_this_means"]

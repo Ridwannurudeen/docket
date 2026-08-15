@@ -425,7 +425,7 @@ class PositionReader:
             }
 
         pool = Web3.to_checksum_address(address)
-        observed = self._call(lambda w3: w3.eth.get_block("latest"))
+        observed = self._call(lambda w3: w3.eth.get_block(_at))
         block = int(observed["number"])
         observed_at = datetime.fromtimestamp(
             int(observed["timestamp"]), timezone.utc

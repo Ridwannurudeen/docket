@@ -115,6 +115,9 @@ def _valid(**overrides) -> dict:
             "normalisation_version": "test.v1: a, b",
             "score_sheet_hash_recipe": "canonical hash of the parsed sheet",
             "sheets_per_seat": 1,
+            "agent_endpoint": "https://docket.gudman.xyz/hire/test-service",
+            "agent_service_id": "test-service",
+            "agent_request_contract": "the harness derives the request from locked inputs",
         },
         "n_planned": 5,
         "stopping_rule": "every frozen primary case once per arm; no scored retry",
@@ -123,6 +126,11 @@ def _valid(**overrides) -> dict:
             "exact stage-one protocol hash establishes that it predates later input and "
             "run commits. No independently attested wall-clock time is claimed."
         ),
+        "protocol_correction": {
+            "status": "corrected_before_input_lock",
+            "supersedes_stage_one_protocol_hash": "0x" + "1" * 64,
+            "reason": "The earlier stage-one protocol could not be executed as written.",
+        },
         "inputs_ref": INPUT_REF,
     }
     return body | overrides
@@ -1155,6 +1163,23 @@ def test_registration_provenance_claims_only_what_git_can_witness():
         assert "wall-clock" in provenance
 
 
+def test_each_family_is_legibly_a_correction_before_input_lock():
+    prior_hashes = {
+        "v3-01-range-doctor": "0x8f1510c01610b6b77d6ab80add73e740b64b2d0f73ca8fd3ad6a33a0744f888d",
+        "v3-02-yield-router": "0x49ad6b20381fb72ec20600b283203d5aee399406c6a7314eadac6eefe2b6c730",
+        "v3-03-warden-security": "0xed5bbe50edb9ff8675f5d6e11a82a41f6019e94b8f75f6813932f1ba792a5bda",
+    }
+    for spec in map(load, REGISTERED):
+        correction = spec.protocol_correction
+        assert correction["status"] == "corrected_before_input_lock"
+        assert (
+            correction["supersedes_stage_one_protocol_hash"]
+            == prior_hashes[spec.spec_id]
+        )
+        assert "truth" in correction["reason"].lower()
+        assert spec.inputs_sha256 == ""
+
+
 def test_every_family_registers_objective_anchors_disclosed_model_seats_and_timing():
     """The seats are two models run by one operator, not independent evaluators; the
     published keys and sheets make their scoring checkable without that stronger claim."""
@@ -1242,7 +1267,8 @@ def test_the_runner_may_not_choose_which_arm_block_runs_first():
     with pytest.raises(ValueError, match="arm_block_order must be"):
         PairedSpec(
             **_valid(
-                execution_protocol=protocol | {"arm_block_order": "alternating_per_case"}
+                execution_protocol=protocol
+                | {"arm_block_order": "alternating_per_case"}
             )
         )
 
@@ -1295,4 +1321,7 @@ def test_all_three_registered_families_fix_the_same_execution_protocol():
     assert len({p["normalisation_version"] for p in protocols}) == 3
     for protocol in protocols:
         # The honest limit of prompt-level blinding travels with the registration.
-        assert "not cryptographically unguessable" in protocol["blinding_limitation"].lower()
+        assert (
+            "not cryptographically unguessable"
+            in protocol["blinding_limitation"].lower()
+        )
