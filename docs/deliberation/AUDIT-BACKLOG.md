@@ -234,10 +234,9 @@ registered v3 spec, so no protocol hash moved.
   and say so only via the limitation.
 - Prod still serves the old field names until the next deploy.
 
-## 8. `<pending>` — Start the controlled position's history while it is still happening
+## 8. `81addbb` — Start the controlled position's history while it is still happening
 
-**Status: OPEN FOR CODEX.** Fable: not reviewed. **Not yet installed on the VPS** — the units
-exist in source, which is not evidence that they run.
+**Status: OPEN FOR CODEX.** Fable: not reviewed. **Installed and firing on the VPS 2026-08-15T21:41:39Z**; day one recorded at block 116154206.
 
 Codex's LP ruling §3 asked for current ownership recorded at every daily observation and a
 "state → diagnosis → owner decision → later state" record, never claimed as causal alpha. This
@@ -260,8 +259,9 @@ unpatchable and a test that believed it had substituted a reader silently hit th
 
 **Not verified, and worth Codex's attention:**
 
-- **The units are not installed.** No timer has fired; there is no record on disk. Until they
-  are installed the daily history does not exist, and the source is only an intention.
+- Installed 2026-08-15 and fired once by hand so the history starts the day the position was
+  funded. Next scheduled 06:00Z daily. Only one day exists; nothing has yet exercised the
+  catch-up path, a failed read in production, or a day on which the position is out of range.
 - The declared value (50.55) and recenter cost (1.00) are baked into the unit's ExecStart. If
   either is revised, the unit is the place that has to change, and nothing checks the two agree
   with what any report or registration says.
