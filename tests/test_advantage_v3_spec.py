@@ -1289,35 +1289,44 @@ def test_each_family_is_legibly_a_correction_before_input_lock():
     SHA-256 protocol identities, but bare `0x`-plus-64-hex is also the shape of a private
     key, and the repository blocks that pattern rather than asking each time which it is.
     """
-    origin = {
-        "v3-01-range-doctor": "8f1510c01610b6b77d6ab80add73e740b64b2d0f73ca8fd3ad6a33a0744f888d",
-        "v3-02-yield-router": "49ad6b20381fb72ec20600b283203d5aee399406c6a7314eadac6eefe2b6c730",
-        "v3-03-warden-security": "ed5bbe50edb9ff8675f5d6e11a82a41f6019e94b8f75f6813932f1ba792a5bda",
+    # The complete chain per family, oldest first. Recording only the origin and the
+    # immediate predecessor lost a link the moment Range was corrected a third time: the
+    # hash between them stopped appearing anywhere in the tree, recoverable only by the
+    # git archaeology this test exists to make unnecessary.
+    chains = {
+        "v3-01-range-doctor": [
+            "8f1510c01610b6b77d6ab80add73e740b64b2d0f73ca8fd3ad6a33a0744f888d",
+            "6f72298498a43b840f82da1802fe2e5a44586d46e75c4ce5d7cf7fe249764cac",
+            "dfbd387a3e7fc54e45aee6c437bffc5acab985a5d9e2be68b5fe5f0b95d39abf",
+            "c49c7dd8bec5dcd7d625657e0c2ee0c2968b30aa1550092a25ba6598a0a60a1a",
+        ],
+        "v3-02-yield-router": [
+            "49ad6b20381fb72ec20600b283203d5aee399406c6a7314eadac6eefe2b6c730",
+            "a90a364ed2e8df21e189b292c49b53294bbd653ec7b56e02457c663286d2825f",
+        ],
+        "v3-03-warden-security": [
+            "ed5bbe50edb9ff8675f5d6e11a82a41f6019e94b8f75f6813932f1ba792a5bda",
+            "38953631ae932a439e7d824a689aea58c465bd9a92fb8f635295ee79e6ea5bbc",
+        ],
     }
-    superseded = {
-        "v3-01-range-doctor": "dfbd387a3e7fc54e45aee6c437bffc5acab985a5d9e2be68b5fe5f0b95d39abf",
-        "v3-02-yield-router": "a90a364ed2e8df21e189b292c49b53294bbd653ec7b56e02457c663286d2825f",
-        "v3-03-warden-security": "38953631ae932a439e7d824a689aea58c465bd9a92fb8f635295ee79e6ea5bbc",
-    }
-    # Range's latest correction is about the conflict exclusion, not the seats; the other
-    # two still stand on the seat rename.
+    # What each family's most recent correction was actually about.
     subject = {
-        "v3-01-range-doctor": "exclusion",
+        "v3-01-range-doctor": "completeness claim",
         "v3-02-yield-router": "seat",
         "v3-03-warden-security": "seat",
     }
     for spec in map(load, REGISTERED):
         correction = spec.protocol_correction
         assert correction["status"] == "corrected_before_input_lock"
-        assert (
-            correction["supersedes_stage_one_protocol_hash"]
-            == "0x" + superseded[spec.spec_id]
-        )
+        chain = chains[spec.spec_id]
+        assert correction["supersedes_stage_one_protocol_hash"] == "0x" + chain[-1]
         # A correction has to say what changed and why, not merely that something did.
         assert len(correction["reason"]) > 200
         assert subject[spec.spec_id] in correction["reason"].lower()
-        # Two deep: the superseded registration is itself not the original one.
-        assert superseded[spec.spec_id] != origin[spec.spec_id]
+        # At least two deep, every link distinct, and none of them the current identity.
+        assert len(chain) >= 2
+        assert len(set(chain)) == len(chain)
+        assert spec.stage_one_protocol_hash not in {"0x" + link for link in chain}
         # Only legitimate before a lock. After one it would be a protocol swapped out from
         # under evidence already frozen against it.
         assert spec.inputs_sha256 == ""

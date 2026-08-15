@@ -546,12 +546,18 @@ def _range_conflict_exclusion(spec: PairedSpec) -> tuple[set[str], set[int]]:
         raise ValueError(
             "spec: Range conflict token ids must be distinct non-negative integers"
         )
-    if not RANGE_CONTROLLED_WALLETS <= set(
-        wallets
-    ) or not RANGE_CONTROLLED_TOKEN_IDS <= set(token_ids):
+    if (
+        set(wallets) != RANGE_CONTROLLED_WALLETS
+        or set(token_ids) != RANGE_CONTROLLED_TOKEN_IDS
+    ):
+        # Equality, not a floor. A floor stops the list being written short, but leaves it
+        # free to be padded — and padding an honest third party's wallet into it deletes
+        # their positions from the draw deterministically, on a claim ("we control this")
+        # that nobody outside can disprove. Requiring equality means growing the list takes
+        # a code change and a re-registration together, both visible in git.
         raise ValueError(
-            "spec: Range conflict exclusion omits a position this build knows the "
-            "experiment party controls"
+            "spec: Range conflict exclusion does not match the positions this build knows "
+            "the experiment party controls"
         )
     return set(wallets), set(token_ids)
 
@@ -863,7 +869,17 @@ def _range_source_frame(sources: list[dict], repo_root: Path, conflict: tuple):
             ):
                 # Recorded before liquidity, range, pool-gate or stratum classification, so
                 # nothing about this position's outcome can influence whether it is dropped.
-                conflicted[(RANGE_POSITION_MANAGER, row["token_id"])] = {
+                conflict_identity = (RANGE_POSITION_MANAGER, row["token_id"])
+                if conflict_identity in conflicted or conflict_identity in positions:
+                    # One token id, two holders. On chain `ownerOf` is unique, so this can
+                    # only come from a fabricated enumeration — and left unchecked it lets
+                    # a token be declared excluded under the controlled wallet while a
+                    # second copy of it stays in the drawable frame under an honest one.
+                    raise ValueError(
+                        "spec: Range enumeration repeats a position identity across "
+                        "holders, so one copy could be excluded while another is drawn"
+                    )
+                conflicted[conflict_identity] = {
                     "position_manager": row["position_manager"],
                     "wallet": wallet,
                     "token_id": row["token_id"],
@@ -903,7 +919,7 @@ def _range_source_frame(sources: list[dict], repo_root: Path, conflict: tuple):
             )
             tvl_usd = _yield_number(pool_row, "tvlUSD")
             identity = (RANGE_POSITION_MANAGER, row["token_id"])
-            if identity in positions:
+            if identity in positions or identity in conflicted:
                 raise ValueError("spec: Range enumeration repeats a position identity")
             positions[identity] = {
                 "position_manager": row["position_manager"],

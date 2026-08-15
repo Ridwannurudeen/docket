@@ -118,7 +118,7 @@ reading did not.
 - Whether registering the exclusion should also have re-derived anything else keyed on the
   stage-one hash was not checked beyond the test suite.
 
-## 4. `<this commit>` — Protect the input envelope from line-ending rewriting
+## 4. `0d8bd8e` — Protect the input envelope from line-ending rewriting
 
 **Status: OPEN FOR CODEX.** Fable: not reviewed.
 
@@ -131,7 +131,7 @@ Not verified: no input envelope exists yet, so this is protection against a fail
 currently be reproduced. The v2 corpus rule was proven by an actual 224-byte discrepancy; this
 one is reasoned by analogy.
 
-## 5. `<this commit>` — Cover the other connection nobody was testing
+## 5. `05184cd` — Cover the other connection nobody was testing
 
 **Status: OPEN FOR CODEX.** Fable: not reviewed.
 
@@ -157,3 +157,49 @@ line from `escrow/chain.py` failed nothing before this commit and fails a test a
   block instead.
 - The sweep covered proof-of-authority specifically. Whether these components share **other**
   latent chain-shape assumptions was not examined.
+
+## 6. `<pending>` — Close the exclusion's own gaps, and stop over-claiming in the registration
+
+**Status: OPEN FOR CODEX.** Fable: **audited entries 3 and 4 and found real defects in both** —
+this entry is the response to that audit, so it has itself had no review.
+
+v3-01 stage-one hash `0xc49c7dd8` → `0x361f830f`, superseding correctly.
+
+Three findings from the interim auditor, all reproduced here before being fixed:
+
+1. **The registration floor had no ceiling.** `_range_conflict_exclusion` required only
+   `RANGE_CONTROLLED_WALLETS <= wallets`. A later re-registration could *pad* the list with an
+   honest third party's wallet and delete their positions from the draw deterministically — on a
+   claim ("we control this") that no reader can disprove from chain, unlike a fabricated
+   enumeration. Now equality, so growing the list needs a code change and a re-registration
+   together, both visible in git.
+2. **One token could be excluded under one holder and drawn under another.** The derivation
+   deduplicated within `positions` but never against `conflicted`. Both equality directions
+   passed because each set was internally consistent. Both insertions now check the other
+   collection.
+3. 🔴 **The registration contained the blanket completeness attestation this file claimed it
+   avoided.** Entry 3 says the wording states only what was established; the registered text
+   actually said the party "attests that these lists name every position it controls". The
+   registration is the published, hash-bound half, so the file and the artifact contradicted each
+   other and the artifact over-claimed. Corrected: the wording now says the lists are not an
+   exhaustive enumeration, marks the evidence-wallet judgement as inferential and names the four
+   inferences, and rests the guarantee on the invalidation clause.
+
+**Not verified, and worth Codex's attention:**
+
+- The interim auditor judged the belt-and-braces per-case check in `_validate_range_inputs`
+  **provably refusal-redundant** — it changes which message fires, never accept/reject — and
+  noted it silently lacks the farm-beneficiary prong. It was kept as regression armor and is
+  **not** a second net. Decide whether to make it real or delete it.
+- Two guards found mutually redundant across scan orders: disabling either alone fails no test,
+  disabling both fails two. That is genuine belt-and-braces, but it means neither is individually
+  pinned.
+- Dropping the duplicate-declared-conflict guard and allowing extra keys in declared conflict
+  records remain invisible to the suite (auditor's finding 5). Cosmetic, unfixed.
+- **The Range source files have no `.gitattributes` home yet.** `sources/*` and `inputs/*.json`
+  globs do not cross `/`, so if the future capture writes the three typed source files into a
+  subdirectory they are unprotected by the defect class entry 4 just fixed. Decide the directory
+  before the sampler is written.
+- The auditor could not independently re-derive the four evidence-wallet inferences, and takes
+  on trust that no sample index or drawn outcome was inspected. `inputs_sha256 == ""` is the only
+  checkable half of that.

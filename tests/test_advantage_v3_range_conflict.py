@@ -476,7 +476,9 @@ def test_a_registration_that_omits_either_half_cannot_lock(
     thinned = PairedSpec(**record)
     save(thinned, tmp_path / "specs" / "v3-01-range-doctor.json", repo_root=tmp_path)
     _write(tmp_path, thinned, manifest, cases)
-    with pytest.raises(ValueError, match="omits a position this build knows"):
+    with pytest.raises(
+        ValueError, match="does not match the positions this build knows"
+    ):
         lock_inputs(thinned, repo_root=tmp_path)
 
 
@@ -509,3 +511,103 @@ def test_the_registered_wallets_are_lowercase_and_cover_the_known_position():
         "staking beneficiary",
     ):
         assert clause in excluded
+
+
+@pytest.mark.parametrize(
+    "wallets, token_ids",
+    [
+        ([CONTROLLED_WALLET, STRANGER], [CONTROLLED_TOKEN]),
+        ([CONTROLLED_WALLET], [CONTROLLED_TOKEN, 4242]),
+    ],
+    ids=["padded-wallet", "padded-token"],
+)
+def test_a_padded_registration_cannot_lock(tmp_path, wallets, token_ids):
+    """A floor stops the list being written short. Nothing stopped it being written long.
+
+    Adding an honest third party's wallet to the controlled list deletes their positions
+    from the draw deterministically, and the claim that we control it is publicly
+    undisprovable — unlike a fabricated enumeration, no reader re-deriving from chain can
+    catch it. Padding also hands over a free parameter: iterate paddings, keep the one
+    whose induced draw you like. So the check is equality, not containment.
+    """
+    spec, manifest, cases = _envelope(tmp_path)
+    record = spec.as_record()
+    record.pop("stage_one_protocol_hash")
+    record.pop("spec_hash")
+    record["case_selection"]["conflict_exclusion"] = {
+        "excluded_reason": REASON,
+        "wallets": wallets,
+        "token_ids": token_ids,
+    }
+    padded = PairedSpec(**record)
+    save(padded, tmp_path / "specs" / "v3-01-range-doctor.json", repo_root=tmp_path)
+    _write(tmp_path, padded, manifest, cases)
+    with pytest.raises(
+        ValueError, match="does not match the positions this build knows"
+    ):
+        lock_inputs(padded, repo_root=tmp_path)
+
+
+def test_one_token_cannot_be_excluded_under_one_holder_and_drawn_under_another(
+    tmp_path,
+):
+    """The symmetry claim held at the manifest level and failed one level down.
+
+    Listing the same token id twice — once under the controlled wallet, once under an
+    honest one — let the conflicted copy be declared while the second copy stayed in the
+    drawable frame. Both equality directions passed, because they compare sets of
+    identities and each set was internally consistent. `ownerOf` is unique on chain, so
+    this only arises from a fabricated enumeration, but nothing here was checking.
+    """
+    spec, manifest, cases = _envelope(
+        tmp_path,
+        extra=[
+            (CONTROLLED_WALLET, _row(CONTROLLED_TOKEN)),
+            (STRANGER, _row(CONTROLLED_TOKEN, pool=BAD_POOL)),
+        ],
+    )
+    manifest["conflict_exclusions"] = [_exclusion(CONTROLLED_WALLET, CONTROLLED_TOKEN)]
+    manifest["eligible_positions"].append(
+        {
+            "position_manager": RANGE_MANAGER,
+            "wallet": STRANGER,
+            "token_id": CONTROLLED_TOKEN,
+            "range_status": "in_range",
+            "liquidity": 1,
+            "pool_gate_passes": False,
+        }
+    )
+    _write(tmp_path, spec, manifest, cases)
+    with pytest.raises(ValueError, match="repeats a position identity"):
+        lock_inputs(spec, repo_root=tmp_path)
+
+
+def test_the_duplicate_check_holds_in_the_other_scan_order(tmp_path):
+    """The same fabrication with the honest holder enumerated first.
+
+    Guarding only the conflicted-side insertion caught this when the controlled copy was
+    scanned first and missed it entirely when it was scanned second — the wallet scans are
+    a dict of the fabricator's own making, so the order is theirs to choose. Both
+    insertions check the other collection.
+    """
+    spec, manifest, cases = _envelope(
+        tmp_path,
+        extra=[
+            (STRANGER, _row(CONTROLLED_TOKEN, pool=BAD_POOL)),
+            (CONTROLLED_WALLET, _row(CONTROLLED_TOKEN)),
+        ],
+    )
+    manifest["conflict_exclusions"] = [_exclusion(CONTROLLED_WALLET, CONTROLLED_TOKEN)]
+    manifest["eligible_positions"].append(
+        {
+            "position_manager": RANGE_MANAGER,
+            "wallet": STRANGER,
+            "token_id": CONTROLLED_TOKEN,
+            "range_status": "in_range",
+            "liquidity": 1,
+            "pool_gate_passes": False,
+        }
+    )
+    _write(tmp_path, spec, manifest, cases)
+    with pytest.raises(ValueError, match="repeats a position identity"):
+        lock_inputs(spec, repo_root=tmp_path)
