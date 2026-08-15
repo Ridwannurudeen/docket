@@ -16,9 +16,11 @@ and Docket has durably bound a non-empty result to its input; missing owner
 settlement configuration disables paid stock rather than preview access.
 """
 
+import hmac
 import os
 import time
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -41,7 +43,8 @@ from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
 from ..escrow import constants as escrow_constants
 from ..escrow.chain import JobNotFound, JobReader
 from ..escrow.flow import hire_calls
-from ..hire.catalogue import SERVICES, get_service
+from ..hire.admission import CANARY_MAX_AGE_SECONDS, resolve_admission
+from ..hire.catalogue import SERVICES, PaidStockAdmission, get_service
 from ..hire.receipts import (
     build_receipt,
     canonical_hash,
@@ -188,7 +191,7 @@ def _category_job(category: Category | None) -> str | None:
     return next(entry.job for entry in CATEGORIES if entry.category is category)
 
 
-def _card(record: ServiceRecord) -> ServiceCard:
+def _card(record: ServiceRecord, admission: PaidStockAdmission) -> ServiceCard:
     return ServiceCard(
         service_id=record.service_id,
         name=record.name,
@@ -198,9 +201,9 @@ def _card(record: ServiceRecord) -> ServiceCard:
         price_display=record.price_display,
         price_atomic=record.price_atomic,
         asset=record.asset,
-        paid_stock=record.paid_stock,
+        paid_stock=admission.passes,
         stock_status=record.stock_status,
-        admission=record.admission,
+        admission=asdict(admission),
         typical_seconds=record.typical_seconds,
         activation=record.activation,
         activation_means=record.activation_means,
@@ -259,10 +262,24 @@ async def _validation_error(
     return _error(422, "invalid_query_parameter", f"{where}: {first['msg']}")
 
 
+def _snapshot_age_seconds(captured_at: str | None) -> int | None:
+    if captured_at is None:
+        return None
+    try:
+        captured = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if captured.tzinfo is None:
+        return None
+    age = (datetime.now(timezone.utc) - captured.astimezone(timezone.utc)).total_seconds()
+    return None if age < 0 else int(age)
+
+
 def _coverage(report: dict, applied_filter: str | None = None) -> Coverage:
     return Coverage(
         snapshot_id=report["snapshot_id"],
         captured_at=report["captured_at"],
+        snapshot_age_seconds=_snapshot_age_seconds(report["captured_at"]),
         sampled=report["sampled"],
         expected=report["expected"],
         dropped=report["dropped"],
@@ -313,6 +330,10 @@ def create_app(
         # The newest COMPLETE sweep, never merely the newest row. An explicit snapshot_id is
         # still honoured, so an operator can inspect a partial capture on purpose.
         snapshot_id = store.latest_complete_snapshot_id(CHAIN_ID)
+    served_snapshot = store.snapshot(snapshot_id) if snapshot_id is not None else {}
+    snapshot_captured_at = (
+        served_snapshot.get("finished_at") or served_snapshot.get("started_at")
+    )
     # Read once, at startup: a missing document should fail the app that ships it, not the one
     # request that happened to ask for it.
     llms_body = (STATIC_DIR / "llms.txt").read_text(encoding="utf-8")
@@ -343,6 +364,13 @@ def create_app(
                 "DOCKET_ENABLE_SETTLEMENT=1 requires DOCKET_FACILITATOR_URL and DOCKET_PAY_TO"
             )
         facilitator = FacilitatorClient(facilitator_url)
+    canary_token = None
+    canary_token_file = os.environ.get("DOCKET_CANARY_TOKEN_FILE")
+    canary_service_id = os.environ.get("DOCKET_CANARY_SERVICE_ID") or "range-doctor"
+    if canary_token_file:
+        canary_token = Path(canary_token_file).read_text(encoding="ascii").strip()
+        if not canary_token:
+            raise RuntimeError("DOCKET_CANARY_TOKEN_FILE must contain a non-empty token")
     # Per app instance, so one process's allowances never outlive it. {ip: (window_start, used)}.
     hires: dict[str, tuple[float, int]] = {}
 
@@ -414,6 +442,22 @@ def create_app(
         started, used = hires[client_ip]
         hires[client_ip] = (started, max(used - 1, 0))
 
+    def _effective_admission(service_id: str) -> PaidStockAdmission:
+        service = get_service(service_id)
+        if service is None:
+            raise KeyError(service_id)
+        return resolve_admission(service, store.latest_canary_run(service_id))
+
+    def _canary_authorized(request: Request, service_id: str) -> tuple[bool, bool]:
+        supplied = request.headers.get("x-docket-canary")
+        if supplied is None:
+            return False, False
+        if canary_token is None or service_id != canary_service_id:
+            return True, False
+        return True, hmac.compare_digest(
+            supplied.encode("utf-8"), canary_token.encode("ascii")
+        )
+
     @app.get("/")
     def root(request: Request):
         """One URL, two audiences. A browser says it wants HTML and gets the page; anything
@@ -429,6 +473,7 @@ def create_app(
             ),
             "snapshot_id": snapshot_id,
             "llms_txt": "/llms.txt",
+            "canary": "/canary",
             "openapi": "/openapi.json",
             "stats": "/stats",
             "agents": "/agents",
@@ -488,6 +533,36 @@ def create_app(
         return {
             "status": "ok" if snapshot_id is not None else "no_snapshot",
             "snapshot_id": snapshot_id,
+            "snapshot_captured_at": snapshot_captured_at,
+            "snapshot_age_seconds": _snapshot_age_seconds(snapshot_captured_at),
+        }
+
+    @app.get("/canary", response_model=None)
+    def canary_history(service_id: str = "range-doctor", limit: int = 30) -> dict:
+        service = get_service(service_id)
+        if service is None:
+            raise HTTPException(
+                404,
+                detail={
+                    "code": "service_not_found",
+                    "message": f"No service {service_id!r}. GET /hire lists every service.",
+                },
+            )
+        try:
+            history = list(store.iter_canary_runs(service_id, limit))
+        except ValueError as exc:
+            raise HTTPException(
+                422,
+                detail={"code": "invalid_query_parameter", "message": str(exc)},
+            ) from exc
+        admission = resolve_admission(service, history[0] if history else {})
+        return {
+            "service_id": service_id,
+            "admission_max_age_seconds": CANARY_MAX_AGE_SECONDS,
+            "latest": history[0] if history else None,
+            "history": history,
+            "admission": asdict(admission),
+            "paid_stock": admission.passes,
         }
 
     @app.get("/llms.txt", response_class=PlainTextResponse)
@@ -678,7 +753,7 @@ def create_app(
             observations=observations,
             coverage=_coverage(coverage_report(store, sid)),
             associated_services=[
-                _card(record)
+                _card(record, _effective_admission(record.service_id))
                 for record in all_records()
                 if record.agent_id is not None
                 and record.agent_id.lower() == agent["agent_id"].lower()
@@ -745,7 +820,10 @@ def create_app(
         """
         records = all_records() if category is None else records_in(category)
         return ServicesResponse(
-            services=[_card(record) for record in records],
+            services=[
+                _card(record, _effective_admission(record.service_id))
+                for record in records
+            ],
             total=len(records),
             category=None if category is None else category.value,
             ordering=SERVICE_ORDERING,
@@ -770,7 +848,7 @@ def create_app(
             )
         agent_path, identity_note = _identity_link(record)
         return ServiceDetail(
-            **_card(record).model_dump(),
+            **_card(record, _effective_admission(record.service_id)).model_dump(),
             registration_uri=record.registration_uri,
             input_schema=record.input_schema,
             limitations=record.limitations,
@@ -797,9 +875,9 @@ def create_app(
                     price_display=svc.price_display,
                     price_atomic=svc.price_atomic,
                     asset=svc.asset,
-                    paid_stock=svc.paid_stock,
+                    paid_stock=(admission := _effective_admission(svc.id)).passes,
                     stock_status=svc.stock_status,
-                    admission=asdict(svc.admission),
+                    admission=asdict(admission),
                 )
                 for svc in SERVICES.values()
             ]
@@ -959,11 +1037,21 @@ def create_app(
         payment_header_present = any(
             request.headers.get(name) for name in ("x-payment", "payment-signature")
         )
+        canary_header_present, canary_authorized = _canary_authorized(
+            request, service.id
+        )
+        if canary_header_present and not canary_authorized:
+            return _error(
+                403,
+                "canary_unauthorized",
+                "The canary credential was not accepted. No work ran and no charge was attempted.",
+            )
         payment_payload = parse_payment_header(request.headers)
         input_hash = canonical_hash(payload)
         resource_url = str(request.url)
+        paid_stock = _effective_admission(service.id).passes
 
-        if payment_header_present and service.paid_stock:
+        if payment_header_present and (paid_stock or canary_authorized):
             if pay_to is None or facilitator is None:
                 return _error(
                     503,
@@ -1022,10 +1110,11 @@ def create_app(
                         "That authorization nonce is already bound to different work.",
                     )
                 if existing["status"] == "settled":
-                    return {
-                        "result": existing["result"],
-                        "receipt": existing["receipt"],
-                    }
+                    return _error(
+                        409,
+                        "authorization_replay",
+                        "That authorization already settled and cannot be replayed.",
+                    )
                 if existing["status"] == "settlement_unknown":
                     return _error(
                         409,
@@ -1137,6 +1226,18 @@ def create_app(
             store.record_payment_output(
                 verified.payment_id, output_hash=output_hash, result=result
             )
+            if not canary_authorized and not _effective_admission(service.id).passes:
+                store.fail_payment(
+                    verified.payment_id,
+                    status="failed_no_charge",
+                    error="paid admission closed before settlement",
+                )
+                return _error(
+                    503,
+                    "service_de_admitted",
+                    "The service left paid admission before settlement. The result was not "
+                    "delivered and no settlement ran.",
+                )
             if not store.begin_payment_settlement(verified.payment_id):
                 return _error(
                     409,
@@ -1215,9 +1316,7 @@ def create_app(
             return {"result": result, "receipt": receipt}
 
         client_ip = request.client.host if request.client else "unknown"
-        payment_available = (
-            service.paid_stock and pay_to is not None and facilitator is not None
-        )
+        payment_available = paid_stock and pay_to is not None and facilitator is not None
         resets_in = _spend_allowance(client_ip) if payment_available else None
         if resets_in is not None:
             return JSONResponse(
@@ -1269,7 +1368,7 @@ def create_app(
                 "stock_status": service.stock_status,
                 "authorization_used": False,
             }
-            if payment_header_present and not service.paid_stock
+            if payment_header_present and not paid_stock
             else {"status": "free_tier"}
         )
         return {

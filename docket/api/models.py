@@ -39,6 +39,9 @@ class Coverage(pydantic.BaseModel):
 
     snapshot_id: int
     captured_at: str | None
+    # Computed by the server from the exact snapshot this process is serving. A caller should
+    # not have to infer operational freshness from its own clock and a timestamp.
+    snapshot_age_seconds: int | None
     sampled: int
     expected: int
     dropped: int

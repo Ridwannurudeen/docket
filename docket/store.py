@@ -17,6 +17,22 @@ from pathlib import Path
 # promoted to readers; the rest describe a sweep that ended without reaching the end.
 STOP_REASONS = ("exhausted", "max_pages", "not_advancing")
 COMPLETE_STOP_REASON = "exhausted"
+CANARY_TERMINAL_VERDICTS = ("passed", "failed", "not_yet_exercised")
+CANARY_CHECK_STATUSES = CANARY_TERMINAL_VERDICTS
+MAX_CANARY_HISTORY_LIMIT = 100
+CANARY_SENSITIVE_FIELDS = frozenset(
+    {
+        "x-payment",
+        "payment-signature",
+        "authorization",
+        "signature",
+        "private-key",
+        "mnemonic",
+        "api-key",
+        "api-secret",
+        "secret-key",
+    }
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -95,11 +111,46 @@ CREATE TABLE IF NOT EXISTS hire_payments (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS hire_payments_status ON hire_payments (status);
+CREATE TABLE IF NOT EXISTS canary_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    service_id TEXT NOT NULL,
+    target_url TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    verdict TEXT NOT NULL CHECK (
+        verdict IN ('running', 'passed', 'failed', 'not_yet_exercised')
+    ),
+    checks_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS canary_runs_service ON canary_runs (service_id, id DESC);
 """
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _canary_run(row: sqlite3.Row) -> dict:
+    run = dict(row)
+    run["checks"] = json.loads(run.pop("checks_json"))
+    return run
+
+
+def _sensitive_canary_field(value) -> str | None:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            normalized = str(key).strip().lower().replace("_", "-")
+            if normalized in CANARY_SENSITIVE_FIELDS:
+                return normalized
+            found = _sensitive_canary_field(nested)
+            if found is not None:
+                return found
+    elif isinstance(value, (list, tuple)):
+        for nested in value:
+            found = _sensitive_canary_field(nested)
+            if found is not None:
+                return found
+    return None
 
 
 class Store:
@@ -250,6 +301,121 @@ class Store:
                    WHERE payment_id = ? AND status != 'settled'""",
                 (status, error, _now(), payment_id),
             )
+
+    def begin_canary_run(
+        self, service_id: str, target_url: str, started_at: str | None = None
+    ) -> int:
+        """Persist the running state before the canary makes any external request."""
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """INSERT INTO canary_runs
+                   (service_id, target_url, started_at, verdict, checks_json)
+                   VALUES (?, ?, ?, 'running', '[]')""",
+                (
+                    service_id,
+                    target_url,
+                    started_at if started_at is not None else _now(),
+                ),
+            )
+        return int(cursor.lastrowid)
+
+    def finish_canary_run(
+        self,
+        run_id: int,
+        *,
+        verdict: str,
+        checks: list[dict],
+        finished_at: str | None = None,
+    ) -> dict:
+        if verdict not in CANARY_TERMINAL_VERDICTS:
+            raise ValueError(
+                f"unsupported canary verdict {verdict!r}; "
+                f"expected one of {CANARY_TERMINAL_VERDICTS}"
+            )
+        if not isinstance(checks, list):
+            raise ValueError("canary checks must be a list")
+        for check in checks:
+            if (
+                not isinstance(check, dict)
+                or not {
+                    "leg",
+                    "checked",
+                    "observed",
+                    "evidence",
+                }
+                <= check.keys()
+            ):
+                raise ValueError(
+                    "every canary check must carry leg, checked, observed and evidence"
+                )
+            if check.get("status") not in CANARY_CHECK_STATUSES:
+                raise ValueError(
+                    f"unsupported canary check status {check.get('status')!r}; "
+                    f"expected one of {CANARY_CHECK_STATUSES}"
+                )
+        if verdict == "passed" and not checks:
+            raise ValueError("a passed canary requires a non-empty list of checks")
+        if verdict == "passed" and any(check["status"] != "passed" for check in checks):
+            raise ValueError(
+                "a passed canary requires every check to have status 'passed'"
+            )
+        sensitive_field = _sensitive_canary_field(checks)
+        if sensitive_field is not None:
+            raise ValueError(
+                f"canary checks must not store sensitive field {sensitive_field!r}"
+            )
+        try:
+            encoded_checks = json.dumps(
+                checks, sort_keys=True, ensure_ascii=False, allow_nan=False
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("canary checks must be finite JSON values") from exc
+
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE canary_runs
+                   SET finished_at = ?, verdict = ?, checks_json = ?
+                   WHERE id = ? AND verdict = 'running'""",
+                (
+                    finished_at if finished_at is not None else _now(),
+                    verdict,
+                    encoded_checks,
+                    run_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("canary run does not exist or is no longer running")
+            row = conn.execute(
+                "SELECT * FROM canary_runs WHERE id = ?", (run_id,)
+            ).fetchone()
+        return _canary_run(row)
+
+    def latest_canary_run(self, service_id: str) -> dict:
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT * FROM canary_runs
+                   WHERE service_id = ? ORDER BY id DESC LIMIT 1""",
+                (service_id,),
+            ).fetchone()
+        return _canary_run(row) if row else {}
+
+    def iter_canary_runs(self, service_id: str, limit: int = 30) -> Iterator[dict]:
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not 1 <= limit <= MAX_CANARY_HISTORY_LIMIT
+        ):
+            raise ValueError(
+                f"canary history limit must be between 1 and {MAX_CANARY_HISTORY_LIMIT}"
+            )
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM canary_runs
+                   WHERE service_id = ? ORDER BY id DESC LIMIT ?""",
+                (service_id, limit),
+            ).fetchall()
+        for row in rows:
+            yield _canary_run(row)
 
     def begin_snapshot(
         self, chain_id: int, expected: int | None, population: str | None = None

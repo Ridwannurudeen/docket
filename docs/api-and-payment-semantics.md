@@ -13,7 +13,8 @@ requesting JSON receives the endpoint index.
 
 | Method and path | Meaning |
 |---|---|
-| `GET /health` | Process status and startup-bound snapshot ID |
+| `GET /health` | Process status plus the served snapshot's ID, capture time, and current age |
+| `GET /canary` | Durable canary history and the resulting dynamic admission decision |
 | `GET /stats` | Observation counts with coverage and denominators |
 | `GET /agents` | Paginated agents from the startup-bound snapshot |
 | `GET /agents/{agent_id}` | One agent, observations, coverage, and explicitly bound services |
@@ -28,6 +29,13 @@ requesting JSON receives the endpoint index.
 | `GET /advantage/v2.json` | V2 registered experiments and computed report |
 
 There is no v3 API route because v3 has specifications only and no input/run/report.
+
+`GET /health` returns `snapshot_captured_at`, the exact capture time of the snapshot
+bound at startup, and `snapshot_age_seconds`, its age in whole seconds when the response
+is made.
+Every `coverage` object repeats that snapshot's `captured_at` and computed
+`snapshot_age_seconds`, so freshness is a served fact rather than something a caller has
+to imply from an old timestamp. Both age fields are null when no valid capture time exists.
 
 ## Categories and identities
 
@@ -51,8 +59,18 @@ Every `GET /hire.services[]` record contains:
 - `admission` with `fresh_paired_benchmark`, `cold_canary`,
   `decision_grade_presenter`, and `true_settlement`
 
-`paid_stock` is the conjunction of those four admission values. It is false for all six
-services now. The shared catalogue term is 0.50 $U, represented as
+`paid_stock` is the conjunction of those four admission values, recomputed from durable
+state on every catalogue, service-detail, service-card, and paid-hire decision. The
+latest canary run controls the `cold_canary` limb: only `passed` with a UTC
+`finished_at` no more than 36 hours old opens it. An absent, running, failed,
+`not_yet_exercised`, future-dated, or stale latest run closes it. `GET /canary` exposes
+the 129600-second limit, latest run, bounded newest-first history, the resulting four
+facts, and `paid_stock`; history starts empty. It is false for all six services now.
+Every durable run names its target, start and finish time, verdict, and structured checks;
+each check records the leg, what was checked, its status, what was observed, and the
+evidence for the status. Closing the gate removes Pay and hire but leaves the free
+verified example and free preview available.
+The shared catalogue term is 0.50 $U, represented as
 `500000000000000000` atomic units of token
 `0xcE24439F2D9C6a2289F741120FE202248B666666`; it is not an available purchase while
 `paid_stock` is false.
@@ -78,17 +96,26 @@ returns:
 The hashes are canonical SHA-256 object identities from `docket.hire.receipts`. They bind
 the delivered request and result, not truth, endorsement, or finality.
 
-If a caller supplies a payment header to an unadmitted service, the service still runs but
-the receipt says `not_for_sale`, includes `stock_status`, and sets
+If a public caller supplies a payment header to an unadmitted service, the service still
+runs but the receipt says `not_for_sale`, includes `stock_status`, and sets
 `authorization_used=false`.
 
 ## x402 exact settlement
 
-The paid branch requires both `service.paid_stock=true` and owner-supplied settlement
-configuration. Enabling configuration cannot bypass admission.
+The public paid branch requires both dynamic `paid_stock=true` and owner-supplied
+settlement configuration. Enabling configuration cannot bypass admission.
 
-For an admitted service, the challenge uses x402 version 2, scheme `exact`, network
-`eip155:56`, the service's exact amount/asset/recipient, and EIP-3009
+There is one private bootstrap for measuring the paid path that governs its own
+admission: the owner-operated canary may send `X-Docket-Canary`. Its value is loaded
+from a private file and must never be printed, copied into documentation, returned by an
+endpoint, or persisted as canary evidence. The header allows only that measured payment
+branch while public admission is closed; it does not modify any admission fact or make
+public `paid_stock` true. An absent or rejected value cannot use the bootstrap, and a
+rejected value returns `403 canary_unauthorized` before work or payment.
+
+For either an admitted public request or the authorized canary, the challenge uses x402
+version 2, scheme `exact`, network `eip155:56`, the service's exact
+amount/asset/recipient, and EIP-3009
 `TransferWithAuthorization`. Local verification checks:
 
 1. Resource equality with this hire URL.
@@ -111,12 +138,15 @@ Outcomes are intentionally terminal:
 | `settlement_unknown` | Call returned no usable result; Docket will not retry automatically |
 | `settlement_failed` | Facilitator refused settlement; authorization cannot be replayed |
 | `failed_no_charge` | Work failed/empty before settlement; authorization cannot be replayed |
-| `authorization_replay` | Nonce is already bound to different work |
+| `authorization_replay` | Nonce is bound to different work, or an exact identical authorization already settled |
 | `authorization_spent` | Prior attempt reached a terminal state |
 
 A `settled` receipt is evidence of the configured facilitator response. It is not an
 independent receipt lookup or chain-finality proof. No committed Docket receipt has this
 status and no live settlement transaction is recorded in the repository.
+
+An exact identical settled request returns `409 authorization_replay`; it does not return
+the stored result and cannot repeat either the service work or settlement.
 
 ## ERC-8183 escrow
 
@@ -140,7 +170,10 @@ package has no artifact showing Docket created, funded, delivered, or settled a 
 - Invalid field value: `422 invalid_field`.
 - Upstream/service failure: `502 service_failed`.
 - Unknown service: `404 service_not_found`.
+- Rejected private canary credential: `403 canary_unauthorized`; no work or charge.
 - Settlement required/configuration absent for admitted stock: `503 settlement_unavailable`.
+- Admission closes after payment verification: `503 service_de_admitted`; no result is
+  delivered and settlement does not run.
 
 An upstream timeout or 5xx is not converted into a partial success. SOLVENT and Warden
 relay upstream structures; failure surfaces as a typed service error.

@@ -21,6 +21,16 @@ ROW = {
     "created_at": "2026-06-16T15:03:30Z",
 }
 
+CANARY_CHECKS = [
+    {
+        "leg": "fresh_browser_surface",
+        "checked": "a fresh client received the public landing page",
+        "status": "passed",
+        "observed": {"status_code": 200, "content_type": "text/html"},
+        "evidence": {"path": "/", "body_sha256": "0xabc"},
+    }
+]
+
 
 def test_snapshot_roundtrip(tmp_path: Path):
     store = Store(tmp_path / "d.sqlite3")
@@ -322,3 +332,175 @@ def test_an_unknown_stop_reason_is_refused_rather_than_stored(tmp_path: Path):
     sid = store.begin_snapshot(chain_id=56, expected=1)
     with pytest.raises(ValueError, match="unknown stop_reason"):
         store.finish_snapshot(sid, sampled=1, stop_reason="gave_up")
+
+
+def test_a_new_store_does_not_invent_canary_history(tmp_path: Path):
+    store = Store(tmp_path / "empty-canary.sqlite3")
+
+    assert store.latest_canary_run("range-doctor") == {}
+    assert list(store.iter_canary_runs("range-doctor")) == []
+    with sqlite3.connect(store.path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM canary_runs").fetchone()[0] == 0
+
+
+def test_a_canary_is_running_durably_before_external_work_starts(tmp_path: Path):
+    store = Store(tmp_path / "running-canary.sqlite3")
+
+    run_id = store.begin_canary_run(
+        "range-doctor",
+        "https://docket.example",
+        started_at="2026-08-15T08:00:00+00:00",
+    )
+
+    assert store.latest_canary_run("range-doctor") == {
+        "id": run_id,
+        "service_id": "range-doctor",
+        "target_url": "https://docket.example",
+        "started_at": "2026-08-15T08:00:00+00:00",
+        "finished_at": None,
+        "verdict": "running",
+        "checks": [],
+    }
+
+
+def test_a_finished_canary_round_trips_its_structured_evidence(tmp_path: Path):
+    store = Store(tmp_path / "finished-canary.sqlite3")
+    run_id = store.begin_canary_run("range-doctor", "https://docket.example")
+
+    finished = store.finish_canary_run(
+        run_id,
+        verdict="passed",
+        checks=CANARY_CHECKS,
+        finished_at="2026-08-15T08:01:00+00:00",
+    )
+
+    assert finished["verdict"] == "passed"
+    assert finished["finished_at"] == "2026-08-15T08:01:00+00:00"
+    assert finished["checks"] == CANARY_CHECKS
+    assert store.latest_canary_run("range-doctor") == finished
+
+
+@pytest.mark.parametrize("verdict", ("passed", "failed", "not_yet_exercised"))
+def test_every_terminal_canary_verdict_is_retained(tmp_path: Path, verdict: str):
+    store = Store(tmp_path / f"{verdict}.sqlite3")
+    run_id = store.begin_canary_run("range-doctor", "https://docket.example")
+    checks = [
+        {
+            **CANARY_CHECKS[0],
+            "status": "passed" if verdict == "passed" else verdict,
+        }
+    ]
+
+    assert (
+        store.finish_canary_run(run_id, verdict=verdict, checks=checks)["verdict"]
+        == verdict
+    )
+
+
+def test_a_passed_canary_requires_at_least_one_check_and_every_check_to_pass(
+    tmp_path: Path,
+):
+    store = Store(tmp_path / "pass-validation.sqlite3")
+    empty = store.begin_canary_run("range-doctor", "https://docket.example")
+    incomplete = store.begin_canary_run("range-doctor", "https://docket.example")
+
+    with pytest.raises(ValueError, match="non-empty"):
+        store.finish_canary_run(empty, verdict="passed", checks=[])
+    with pytest.raises(ValueError, match="every check"):
+        store.finish_canary_run(
+            incomplete,
+            verdict="passed",
+            checks=[{**CANARY_CHECKS[0], "status": "not_yet_exercised"}],
+        )
+
+    assert store.latest_canary_run("range-doctor")["verdict"] == "running"
+
+
+@pytest.mark.parametrize("status", ("running", "green", "skipped", ""))
+def test_a_canary_refuses_an_unknown_check_status(tmp_path: Path, status: str):
+    store = Store(tmp_path / f"bad-check-{status or 'blank'}.sqlite3")
+    run_id = store.begin_canary_run("range-doctor", "https://docket.example")
+
+    with pytest.raises(ValueError, match="check status"):
+        store.finish_canary_run(
+            run_id,
+            verdict="failed",
+            checks=[{**CANARY_CHECKS[0], "status": status}],
+        )
+
+
+def test_a_canary_check_must_carry_what_was_checked_observed_and_evidenced(
+    tmp_path: Path,
+):
+    store = Store(tmp_path / "unstructured-check.sqlite3")
+    run_id = store.begin_canary_run("range-doctor", "https://docket.example")
+
+    with pytest.raises(ValueError, match="leg, checked, observed and evidence"):
+        store.finish_canary_run(
+            run_id,
+            verdict="failed",
+            checks=[{"status": "failed", "checked": "landing page"}],
+        )
+
+
+@pytest.mark.parametrize(
+    "sensitive_key",
+    (
+        "x-payment",
+        "payment_signature",
+        "authorization",
+        "signature",
+        "private_key",
+        "mnemonic",
+        "api_secret",
+    ),
+)
+def test_canary_evidence_refuses_raw_payment_material_and_secrets(
+    tmp_path: Path, sensitive_key: str
+):
+    store = Store(tmp_path / f"sensitive-{sensitive_key}.sqlite3")
+    run_id = store.begin_canary_run("range-doctor", "https://docket.example")
+    check = {
+        **CANARY_CHECKS[0],
+        "evidence": {"response": {sensitive_key: "must-not-be-stored"}},
+    }
+
+    with pytest.raises(ValueError, match="sensitive"):
+        store.finish_canary_run(run_id, verdict="failed", checks=[check])
+
+    assert store.latest_canary_run("range-doctor")["verdict"] == "running"
+
+
+def test_a_finished_canary_cannot_be_rewritten(tmp_path: Path):
+    store = Store(tmp_path / "terminal-canary.sqlite3")
+    run_id = store.begin_canary_run("range-doctor", "https://docket.example")
+    store.finish_canary_run(run_id, verdict="passed", checks=CANARY_CHECKS)
+
+    with pytest.raises(ValueError, match="running"):
+        store.finish_canary_run(run_id, verdict="failed", checks=CANARY_CHECKS)
+
+    assert store.latest_canary_run("range-doctor")["verdict"] == "passed"
+
+
+def test_canary_history_is_newest_first_and_scoped_to_one_service(tmp_path: Path):
+    store = Store(tmp_path / "canary-history.sqlite3")
+    first = store.begin_canary_run("range-doctor", "https://docket.example")
+    store.finish_canary_run(first, verdict="passed", checks=CANARY_CHECKS)
+    second = store.begin_canary_run("range-doctor", "https://docket.example")
+    store.begin_canary_run("grid-operator", "https://docket.example")
+
+    assert [row["id"] for row in store.iter_canary_runs("range-doctor")] == [
+        second,
+        first,
+    ]
+    assert store.latest_canary_run("range-doctor")["id"] == second
+
+
+@pytest.mark.parametrize("limit", (0, -1, 101))
+def test_canary_history_refuses_an_unbounded_or_non_positive_limit(
+    tmp_path: Path, limit: int
+):
+    store = Store(tmp_path / "canary-limit.sqlite3")
+
+    with pytest.raises(ValueError, match="limit"):
+        list(store.iter_canary_runs("range-doctor", limit=limit))

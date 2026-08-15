@@ -20,10 +20,11 @@ Running a local copy instead? Point DOCKET at it; nothing below changes.
     python -m uvicorn --factory "docket.api:create_app" --host 127.0.0.1 --port 8099
     DOCKET=http://127.0.0.1:8099
 
-No authentication, no API key, no account, no wallet. Every path but one is GET and
-read-only, so a caller cannot change what Docket has observed by calling it. The
-exception is POST /hire/{service_id}, which runs work — it needs no credentials
-either, and the free tier serves it on the first request. See "Hiring" below.
+The public contract needs no authentication, API key, account or wallet. Every path
+but one is GET and read-only, so a caller cannot change what Docket has observed by
+calling it. The exception is POST /hire/{service_id}, which runs work; its public free
+tier needs no credential. A private owner-operated canary uses a separate bootstrap
+credential described under "Hiring". It is not a public API credential.
 
 Responses are JSON except /llms.txt (text/plain) and /skill.md (text/markdown). CORS
 is GET-only from any origin, no credentials, so a cross-origin browser page cannot
@@ -44,11 +45,25 @@ GET /
     curl -s "$DOCKET/"
 
 GET /health
-    Docket's own liveness, and the snapshot id it is serving. Returns
-    {"status": "ok", "snapshot_id": 3}, or status "no_snapshot" when no sweep has
-    been ingested yet. No parameters.
+    Docket's own liveness, the snapshot id it is serving, that snapshot's exact
+    capture time and its age in whole seconds. Returns status "no_snapshot" and null
+    snapshot fields when no sweep has been ingested yet. No parameters.
 
     curl -s "$DOCKET/health"
+
+GET /canary
+    Durable service-canary history and the admission decision it currently produces.
+    `service_id` defaults to `range-doctor`; `limit` defaults to 30 and must be 1..100.
+    Returns `service_id`, `admission_max_age_seconds` (129600, or 36 hours), `latest`
+    (null before the first run), newest-first `history`, the four current `admission`
+    facts, and their `paid_stock` conjunction. A running, failed, not-yet-exercised,
+    absent or older-than-36-hours latest run closes `cold_canary`; only the latest
+    fresh `passed` run opens it. The record starts empty and Docket does not invent
+    uptime before monitoring begins. Each run carries its target, start/finish times,
+    verdict and checks; every check states its leg, what was checked, status, what was
+    observed, and the evidence for that status.
+
+    curl -s "$DOCKET/canary"
 
 GET /stats
     Every generated figure for the served snapshot, each one inside the coverage it
@@ -201,8 +216,9 @@ GET /services
     price_display, price_atomic, asset, paid_stock, stock_status, admission,
     typical_seconds, activation (one_shot, monitor or policy_action), activation_means,
     metrics, agent_id, identity, hire_method and hire_path — the last two being exactly
-    how to run it, POST /hire/{service_id}. paid_stock becomes true only when every
-    admission fact is true.
+    how to run it, POST /hire/{service_id}. `paid_stock` is recomputed from the latest
+    durable canary verdict on every request and becomes true only when every admission
+    fact is true. See GET /canary for that verdict and its 36-hour freshness limit.
 
     Every entry in "metrics" carries name, unit, window, observed_at, method, value,
     numerator, denominator and display. A share cannot exist here without the population
@@ -243,7 +259,8 @@ GET /hire
       price_display     the flat price after admission, "0.50 $U"
       price_atomic      the same price in the asset's smallest unit
       asset             the token contract the price is denominated in
-      paid_stock        whether all four admission facts currently pass
+      paid_stock        whether all four admission facts currently pass, recomputed
+                        from the latest durable canary verdict on every request
       stock_status      preview, research, beta or candidate while not admitted
       admission         fresh paired benchmark, cold canary, decision-grade presenter
                         and true settlement, each as a boolean
@@ -396,7 +413,10 @@ Branch on "code", which is stable. "message" is prose for a human and may change
       payment_invalid          402  a supplied payment is malformed or does not exactly
                                     match the service, resource, asset, amount or recipient
       payment_not_verified     402  the configured facilitator rejected the authorization
-      authorization_replay     409  the nonce is already bound to different work
+      canary_unauthorized       403  a private canary credential was supplied but rejected;
+                                    no work ran and no charge was attempted
+      authorization_replay     409  the nonce is bound to different work, or the exact
+                                    authorization already settled and cannot be replayed
       authorization_spent      409  this authorization reached a terminal no-replay state
       payment_in_progress      409  another request reserved or is settling this payment
       settlement_pending_reconciliation
@@ -414,6 +434,8 @@ Branch on "code", which is stable. "message" is prose for a human and may change
                                     began and did not finish is not served
       settlement_unavailable  503  paid stock exists but owner-authorized settlement is off;
                                     no work ran and no charge was attempted
+      service_de_admitted      503  the shared admission gate closed after verification;
+                                    no result was delivered and no settlement ran
 
 
 ## Coverage: why every number carries one
@@ -423,6 +445,9 @@ omits the coverage it was counted in. Every "coverage" object has:
 
       snapshot_id   which capture this figure came from
       captured_at   ISO 8601 UTC timestamp of that capture
+      snapshot_age_seconds
+                    age in whole seconds computed by the server from `captured_at`;
+                    null when the capture time is absent or invalid
       sampled       agents actually stored in the snapshot
       expected      agents the registry API said the query would return
       dropped       expected - sampled. Above 0, the snapshot is missing rows and
@@ -648,9 +673,16 @@ SOLVENT is research; Warden is beta; Range is a candidate. The published 0.50 $U
 flat term that applies after admission, not evidence that a service is on sale today.
 
 Admission requires a fresh paired benchmark, a passing cold canary, a decision-grade
-presenter and true settlement. An admitted service may keep an allowance of 20 unsigned
-hires per caller per hour when both a recipient and facilitator are configured. A
-request Docket could not read costs no allowance and cannot enter the payment path.
+presenter and true settlement. Those four facts and `paid_stock` are one dynamic gate,
+not a cached catalogue claim. Docket reads the latest durable run on each catalogue,
+service and hire decision. Only a `passed` latest run finished no more than 36 hours ago
+opens `cold_canary`; an absent, running, failed, `not_yet_exercised` or stale latest run
+closes it immediately. GET /canary publishes the history and the resulting four facts.
+Closing the gate removes Pay and hire; it does not remove the free verified example or
+free preview.
+An admitted service may keep an allowance of 20 unsigned hires per caller per hour when
+both a recipient and facilitator are configured. A request Docket could not read costs
+no allowance and cannot enter the payment path.
 
 ### The receipt
 
@@ -716,10 +748,18 @@ asset domain, canonical TransferWithAuthorization fields and active validity win
 then recovers the payer. It asks the configured facilitator to verify, atomically binds
 nonce and payment_id to service, resource and input hash, and only then runs the work.
 After a service returns a non-empty human-readable result, Docket adds the output hash,
-durably enters its one-way settling state and calls settle once. The same authorization
-and input replay the stored settled result. A nonce bound to other work is refused. A
-failed or uncertain settlement is never retried automatically; it requires owner
-reconciliation.
+durably enters its one-way settling state and calls settle once. An exact identical
+settled replay is rejected with 409 `authorization_replay`; it does not return the
+stored result and it never runs or settles twice. A nonce bound to other work is refused
+with the same code. A failed or uncertain settlement is never retried automatically; it
+requires owner reconciliation.
+
+The governing canary must test that paid path before its own successful verdict can open
+`cold_canary`, so the owner-operated runner alone may send `X-Docket-Canary`. Its value
+comes from a private file and is never returned by Docket or written into canary evidence.
+The header opens only the measured payment path: it does not alter the public admission
+facts or make `paid_stock` true. A missing or rejected value cannot bootstrap the path;
+public callers must not send or attempt to discover it.
 
 Local signature checks do not read the payer's balance, token authorization state or
 chain finality. Those are responsibilities of the configured live facilitator. The

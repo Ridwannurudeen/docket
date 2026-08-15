@@ -1,0 +1,19 @@
+# Non-secret settings shared by the daily canary runner. The installer preserves the
+# operator's /etc/docket/docket-canary.conf after its first installation.
+DOCKET_CANARY_BASE_URL=https://docket.gudman.xyz
+DOCKET_CANARY_SERVICE_ID=range-doctor
+DOCKET_CANARY_TOKEN_FILE=/etc/docket/docket-canary.token
+
+# DOCKET_DB and the exclusive DOCKET_CANARY_END_AT boundary are fixed in the service unit.
+# The installer generates the token file without printing its contents. It does not create
+# the separately owner-supplied payment key file.
+
+# Leave every controlled-LP/payment value below unset until the owner funds the position and
+# authorizes the exact-settlement canary. While they are absent, those legs are recorded as
+# not_yet_exercised; they are never reported as passing.
+# DOCKET_CANARY_WALLET=
+# DOCKET_CANARY_TOKEN_ID=
+# DOCKET_CANARY_POSITION_VALUE_USD=
+# DOCKET_CANARY_RECENTER_COST_USD=
+# DOCKET_CANARY_PRIVATE_KEY_FILE=/etc/docket/docket-canary-payment.key
+

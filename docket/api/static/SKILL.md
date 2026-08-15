@@ -28,12 +28,13 @@ question, and nothing in its output should be presented as if it did.
 
 ```bash
 DOCKET=https://docket.gudman.xyz   # the public host; or the origin serving this file
-curl -s "$DOCKET/health"       # {"status":"ok","snapshot_id":3}
+curl -s "$DOCKET/health"       # liveness plus snapshot capture time and age
 ```
 
-No authentication, no key, no account, no wallet. Every path but one is GET and
-read-only; `POST /hire/{service_id}` is the one route that runs work, and it needs no
-credentials either. `GET $DOCKET/llms.txt` is the full reference;
+The public contract needs no authentication, key, account or wallet. Every path but one
+is GET and read-only; `POST /hire/{service_id}` is the one route that runs work, and its
+public free tier needs no credential. The private owner canary credential described in
+Workflow 4 is not a public API credential. `GET $DOCKET/llms.txt` is the full reference;
 `GET $DOCKET/openapi.json` is the generated schema. If a workflow is not in one of
 those, Docket does not serve it - say so rather than inventing an endpoint.
 
@@ -42,7 +43,8 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | Method | Path | Returns |
 | --- | --- | --- |
 | GET | `/` | Service identity and orientation links |
-| GET | `/health` | Docket's liveness and the snapshot id being served |
+| GET | `/health` | Liveness plus the served snapshot's id, capture time, and age in seconds |
+| GET | `/canary` | Durable canary history and the dynamic four-fact paid-stock decision |
 | GET | `/stats` | Every generated figure, inside its coverage |
 | GET | `/agents` | Filterable listing with `total`, pagination, coverage |
 | GET | `/agents/{agent_id}` | One agent, its endpoints, observations, and Docket-bound `associated_services` |
@@ -79,10 +81,11 @@ Errors are always `{"error": {"code": "...", "message": "..."}}`. Branch on `cod
 `no_snapshot`, and on the hire routes `service_not_found` (404), `invalid_json` (400),
 `missing_field` (422, the message names the field), `invalid_field` (422),
 `payment_invalid`/`payment_not_verified`/`free_tier_exhausted` (402),
+`canary_unauthorized` (403; no work or charge attempted),
 `authorization_replay`/`authorization_spent`/`payment_in_progress`/
 `settlement_pending_reconciliation` (409), `service_failed`/`empty_result`/
 `payment_verification_unavailable`/`settlement_failed`/`settlement_unknown` (502),
-and `settlement_unavailable` (503).
+and `settlement_unavailable`/`service_de_admitted` (503).
 
 ## The rule: a number is never quoted alone
 
@@ -162,9 +165,15 @@ Read `coverage` first, every time:
 
 ```json
 {"snapshot_id": 3, "captured_at": "2026-08-07T17:51:02.942750+00:00",
- "sampled": 506, "expected": 506, "dropped": 0, "complete": true,
+ "snapshot_age_seconds": 675000, "sampled": 506, "expected": 506,
+ "dropped": 0, "complete": true,
  "population": null, "filter": null}
 ```
+
+`snapshot_age_seconds` is computed by the server from this response's exact
+`captured_at`; read it directly instead of implying that the served observations are
+fresh. `GET /health` exposes the same capture time and current age for the process's
+served snapshot.
 
 - `complete: false` or `dropped > 0` means rows are missing and every count in that
   response understates its population. Say so when you quote it.
@@ -236,18 +245,35 @@ payload hashes to something else.
 
 Every catalogue entry carries `paid_stock`, `stock_status` and the four `admission`
 facts: fresh paired benchmark, cold canary, decision-grade presenter and true
-settlement. A price is a comparison term, not an admission. Current Grid and Health
-entries are previews, SOLVENT is research evidence, Warden is beta, and Range is a
-candidate; none is paid stock, so none should be presented as **Pay and hire**.
+settlement. They are one dynamic gate, recomputed from the latest durable canary run on
+every catalogue, service and hire decision. Only a latest `passed` run finished within
+36 hours opens `cold_canary`; absent, running, failed, `not_yet_exercised` or stale
+latest runs close it. `GET /canary` returns the newest-first history, the 129600-second
+limit, the resulting four facts and `paid_stock`; its history is empty before the first
+run. Each run states its target, start/finish times, verdict and structured checks, and
+each check carries what was checked, observed and used as evidence. A price is a
+comparison term, not an admission. Current Grid and Health entries are previews,
+SOLVENT is research evidence, Warden is beta, and Range is a candidate; none is paid
+stock, so none should be presented as **Pay and hire**. A closed gate removes Pay and
+hire, not the free verified example or free preview.
 
 For an unadmitted service, sending a payment header does not consume it: the receipt
 uses `not_for_sale` with `authorization_used: false`. Free previews use `free_tier`.
-Only an admitted service may return `settled`, and only after local exact-payment
-validation, facilitator `/verify`, a non-empty human-readable result, durable
-payment/input/output binding and one facilitator `/settle` call. A settled receipt
+Only an admitted public request may return `settled`; the private governing-canary
+bootstrap described below is the sole exception. Either path still requires local
+exact-payment validation, facilitator `/verify`, a non-empty human-readable result,
+durable payment/input/output binding and one facilitator `/settle` call. A settled receipt
 carries the payer, recipient, asset, exact amount, nonce, payment id, transaction id
-and network. Replaying the same authorization and input returns the stored result;
-using its nonce for different work is rejected.
+and network. An exact identical settled replay is rejected with 409
+`authorization_replay`, without rerunning work or settlement. Using its nonce for
+different work is rejected with the same code.
+
+The owner-operated governing canary alone may send `X-Docket-Canary` so it can measure
+the paid path before that very measurement opens `cold_canary`. Never ask for, print,
+store, copy or invent the header value: the process reads it from a private file, does
+not return it, and canary evidence excludes it. The header opens only that measured
+payment path; it does not alter admission or publish `paid_stock: true`. A rejected
+value returns 403 `canary_unauthorized` before work or payment.
 
 The concrete facilitator is owner-configured and live settlement is disabled unless
 the owner explicitly enables it. Fixture tests prove Docket's generic x402 v2 adapter

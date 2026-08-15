@@ -15,6 +15,7 @@ from docket.api import create_app
 from docket.api.routes import FREE_TIER_HIRES
 from docket.hire.catalogue import SERVICES, U_TOKEN, PaidStockAdmission, get_service
 from docket.hire.x402 import EIP3009_TYPES, build_challenge
+from docket.store import Store
 
 PAY_TO = "0x" + "11" * 20
 WALLET = "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"
@@ -69,6 +70,7 @@ def _client(
     facilitator=None,
     admit_range=False,
 ):
+    db_path = tmp_path / f"{name}.sqlite3"
     if pay_to is None:
         monkeypatch.delenv("DOCKET_PAY_TO", raising=False)
     else:
@@ -82,8 +84,23 @@ def _client(
                 admission=PaidStockAdmission(True, True, True, True),
             ),
         )
+        store = Store(db_path)
+        run_id = store.begin_canary_run("range-doctor", "http://testserver")
+        store.finish_canary_run(
+            run_id,
+            verdict="passed",
+            checks=[
+                {
+                    "leg": "complete_human_result",
+                    "checked": "the complete paid hire chain",
+                    "status": "passed",
+                    "observed": {"settlement_amount": "0.50"},
+                    "evidence": {"replay_status": 409},
+                }
+            ],
+        )
     # No snapshot is ingested: hiring must not depend on one.
-    return TestClient(create_app(tmp_path / f"{name}.sqlite3", facilitator=facilitator))
+    return TestClient(create_app(db_path, facilitator=facilitator))
 
 
 def _authorization(
@@ -247,12 +264,10 @@ def test_a_request_docket_could_not_read_never_spends_the_allowance(
     assert served.json()["receipt"]["payment"]["status"] == "free_tier"
 
 
-def test_a_paid_preflight_settles_once_and_replays_the_bound_receipt(
-    tmp_path, monkeypatch
-):
+def test_a_paid_preflight_settles_once_and_rejects_the_exact_replay(tmp_path, monkeypatch):
     """The lifecycle crosses local verification, facilitator verification, work, durable
-    output binding and settlement. Replaying the same authorization returns the original
-    delivery and never repeats either work or settlement."""
+    output binding and settlement. Replaying the same authorization is rejected and never
+    repeats either work or settlement."""
     work_calls = []
 
     def counted_report(address, **kwargs):
@@ -279,8 +294,9 @@ def test_a_paid_preflight_settles_once_and_replays_the_bound_receipt(
         "/hire/range-doctor", json=request, headers={"X-PAYMENT": header}
     )
 
-    assert first.status_code == replay.status_code == 200
-    assert replay.json() == first.json()
+    assert first.status_code == 200
+    assert replay.status_code == 409
+    assert replay.json()["error"]["code"] == "authorization_replay"
     receipt = first.json()["receipt"]
     payment = receipt["payment"]
     assert payment["status"] == "settled"
@@ -331,7 +347,7 @@ def test_a_malformed_paid_attempt_is_not_silently_served_as_a_preview(
 
 def test_a_settled_replay_survives_an_app_restart(tmp_path, monkeypatch):
     """Exactly-once is a database property, not an in-memory promise: a new app instance
-    returns the stored result and never asks the facilitator to settle again."""
+    rejects the spent authorization and never asks the facilitator to settle again."""
     facilitator = FixtureFacilitator()
     header = _authorization(Account.create(), nonce="0x" + "04" * 32)
     first_client = _client(
@@ -359,7 +375,9 @@ def test_a_settled_replay_survives_an_app_restart(tmp_path, monkeypatch):
         "/hire/range-doctor", json={"wallet": WALLET}, headers={"X-PAYMENT": header}
     )
 
-    assert replay.json() == first.json()
+    assert first.status_code == 200
+    assert replay.status_code == 409
+    assert replay.json()["error"]["code"] == "authorization_replay"
     assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
 
 
@@ -414,6 +432,7 @@ def test_an_empty_result_is_never_settled(tmp_path, monkeypatch):
         name="empty",
         pay_to=PAY_TO,
         facilitator=facilitator,
+        admit_range=True,
     )
     header = _authorization(Account.create(), nonce="0x" + "06" * 32)
 
@@ -468,6 +487,43 @@ def test_an_unknown_settlement_outcome_is_never_retried_automatically(
     assert first.json()["error"]["code"] == "settlement_unknown"
     assert replay.status_code == 409
     assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+
+
+def test_de_admission_after_verification_prevents_settlement(tmp_path, monkeypatch):
+    """A canary can fail while paid work is in flight. The request must re-read the shared
+    gate after producing value and close without settlement or delivery."""
+    db_path = tmp_path / "admission-race.sqlite3"
+
+    class DeAdmittingFacilitator(FixtureFacilitator):
+        def verify(self, envelope):
+            verification = super().verify(envelope)
+            Store(db_path).begin_canary_run(
+                "range-doctor", "https://docket.example"
+            )
+            return verification
+
+    facilitator = DeAdmittingFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="admission-race",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+    header = _authorization(Account.create(), nonce="0x" + "08" * 32)
+
+    response = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": header},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "service_de_admitted"
+    assert [name for name, _ in facilitator.calls] == ["verify"]
+    payment = Store(db_path).payment_by_nonce("0x" + "08" * 32)
+    assert payment["status"] == "failed_no_charge"
 
 
 def test_unadmitted_services_never_offer_or_consume_payment(tmp_path, monkeypatch):

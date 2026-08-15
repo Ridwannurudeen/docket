@@ -61,7 +61,14 @@ def test_the_word_a_marketplace_reaches_for_first_is_banned_too():
 
 def test_every_statistic_carries_its_coverage():
     """StatsResponse must not be able to report a count without the snapshot it came from."""
-    required = {"snapshot_id", "captured_at", "sampled", "expected", "dropped"}
+    required = {
+        "snapshot_id",
+        "captured_at",
+        "snapshot_age_seconds",
+        "sampled",
+        "expected",
+        "dropped",
+    }
     assert required <= _field_names(Coverage)
     assert "coverage" in _field_names(StatsResponse)
     assert Coverage.model_fields["snapshot_id"].is_required()

@@ -264,6 +264,7 @@ function paintCoverage(coverage) {
     <span>${partial ? "Partial snapshot" : "Complete snapshot"}</span>
     <span><span class="status-key">id</span> <strong class="num">${escapeHTML(coverage.snapshot_id)}</strong></span>
     <span><span class="status-key">captured</span> <strong title="${escapeHTML(captured || "")}">${escapeHTML(relativeTime(captured))}</strong></span>
+    <span><span class="status-key">age</span> <strong class="num">${escapeHTML(fmtInt(coverage.snapshot_age_seconds))} seconds</strong></span>
     <span><span class="status-key">sampled</span> <strong class="num">${escapeHTML(fmtInt(coverage.sampled))} of ${escapeHTML(fmtInt(coverage.expected))}</strong></span>
     <span><span class="status-key">dropped</span> <strong class="num">${escapeHTML(fmtInt(coverage.dropped))}</strong></span>
     <span><span class="status-key">population</span> <strong class="mono">${escapeHTML(populationLabel(coverage))}</strong></span>`;
@@ -1620,6 +1621,7 @@ function paintAgent(detail, example) {
         <dl class="deflist">
           <dt>Snapshot</dt><dd class="num">${escapeHTML(cov.snapshot_id)}</dd>
           <dt>Captured</dt><dd title="${escapeHTML(cov.captured_at || "")}">${escapeHTML(relativeTime(cov.captured_at))}</dd>
+          <dt>Snapshot age</dt><dd class="num">${escapeHTML(fmtInt(cov.snapshot_age_seconds))} seconds</dd>
           <dt>Population swept</dt><dd class="mono">${escapeHTML(populationLabel(cov))}</dd>
           <dt>Agents sampled</dt><dd class="num">${escapeHTML(fmtInt(cov.sampled))}</dd>
           <dt>Agents expected</dt><dd class="num">${escapeHTML(fmtInt(cov.expected))}</dd>

@@ -58,6 +58,16 @@ def test_static_assets_are_served(client):
         assert ctype in resp.headers["content-type"]
 
 
+def test_snapshot_age_is_rendered_as_an_exact_server_value():
+    """Relative prose may remain, but operational freshness must also be inspectable
+    without trusting the browser clock or deriving seconds from a timestamp."""
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "coverage.snapshot_age_seconds" in js
+    assert "cov.snapshot_age_seconds" in js
+    assert "Snapshot age" in js
+
+
 def test_no_external_requests_anywhere_in_the_ui():
     """Zero third-party surface: no CDN, no web fonts, no remote anything."""
     for f in WEB_DIR.glob("*"):
