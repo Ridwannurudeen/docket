@@ -12,7 +12,7 @@ externally anchored.
 | Python | `>=3.11`; CI uses 3.12 |
 | Application factory | `docket.api:create_app` |
 | Builder base commit | `731dcb3d3fe1267546c96fd73118a3b34d58b7b3` |
-| Release source commit | `bcccafea9b461889ae2fbed7086c827ce1fe7386` — **local only, see below** |
+| Release source commit | `bcccafea9b461889ae2fbed7086c827ce1fe7386` — remote-reachable, see below |
 | Release wheel digest | `ddc128bacf689840ee0845e58bcb05d5bef92b760a92161e89ae1ee14784b91b` |
 | Public repository visibility action | Not performed; owner-only |
 | Deployment action | **Performed 2026-08-15T05:17:06Z** to `docket.gudman.xyz` |
@@ -40,10 +40,28 @@ ran an *editable* install — `__editable__.docket-0.1.0.pth` resolved `docket` 
 would have been false. This release installs the wheel into a fresh venv at a path that does
 not move, and the runtime import path above was read from the live interpreter after cutover.
 
-**The release commit is local only.** No remote branch contains `bcccafea9b46`; the repository
-is private and the deploy authorization did not include a push. Until the commit is reachable
-from a remote this manifest records an identity that only this machine can produce, which is
-the same limitation the v3 registration carries and is stated for the same reason.
+## Remote reachability, and exactly what it witnesses
+
+**Pushed 2026-08-15.** `origin/docs/deliberation-round2` contains both the v3 stage-one
+registration `88cc2bc` and the release commit `bcccafea9b46`. GitHub recorded the ref creation
+at **`2026-08-15T06:08:36Z`**, matching `repo.pushed_at`. That timestamp is GitHub's and cannot
+be set by this repository's authors.
+
+What that does and does not establish, stated precisely because the v3 specs rest on it:
+
+- **It does establish** that this content existed by 2026-08-15T06:08:36Z, attested by a third
+  party. A commit backdated after that moment can no longer be silently inserted *before* the
+  registration, which is the specific forgery the audit demonstrated against the unpushed chain.
+- **It does not establish** that the commits were authored when their headers say. Committer
+  dates are still set locally, and branch protection is unavailable on a private repository —
+  the API answers `Upgrade to GitHub Pro or make this repository public` — so the ref can still
+  be force-pushed by its owner.
+- **What would close the gap:** an OpenTimestamps proof over the stage-one protocol hash, which
+  is Bitcoin-anchored, works on a private repository, and is checkable by a stranger with no
+  GitHub account. Not yet done.
+
+The repository remains **private**. Public accessibility during Sep 9-23 judging is an owner
+action and a stated eligibility condition.
 
 ## Source roots
 
