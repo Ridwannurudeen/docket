@@ -149,11 +149,16 @@ export async function postJSON(path, body) {
 /** Encode request bodies without routing integers through JavaScript's lossy Number type. */
 export function encodeJSON(value) {
   if (typeof value === "bigint") return value.toString();
-  if (value === null || typeof value === "string" || typeof value === "boolean") {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
     return JSON.stringify(value);
   }
   if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new TypeError("JSON numbers must be finite.");
+    if (!Number.isFinite(value))
+      throw new TypeError("JSON numbers must be finite.");
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
@@ -436,9 +441,10 @@ export function inputControl(name, field) {
     return `<textarea id="${id}" name="${escapeHTML(name)}" rows="6"${required}></textarea>`;
   }
   if (field.type === "array") {
-    const values = Array.isArray(field.default) && field.default.length
-      ? field.default
-      : [""];
+    const values =
+      Array.isArray(field.default) && field.default.length
+        ? field.default
+        : [""];
     return `<div id="${id}-array" data-array-control="${escapeHTML(name)}" data-next-index="${values.length}">
         <div data-array-items>
           ${values.map((item, index) => arrayItemControl(name, item, index)).join("")}
@@ -448,7 +454,8 @@ export function inputControl(name, field) {
   }
   const numeric = field.type === "integer" || field.type === "number";
   const type = numeric ? "number" : "text";
-  const step = field.type === "number" ? ' step="any"' : numeric ? ' step="1"' : "";
+  const step =
+    field.type === "number" ? ' step="any"' : numeric ? ' step="1"' : "";
   return `<input id="${id}" name="${escapeHTML(name)}" type="${type}" value="${value}"${step}${required} />`;
 }
 
@@ -618,7 +625,9 @@ export function readForm(record, form) {
     if (field.type === "array") {
       const container = form.querySelector(`[data-array-control="${name}"]`);
       const values = container
-        ? Array.from(container.querySelectorAll("input"), (input) => input.value.trim()).filter(Boolean)
+        ? Array.from(container.querySelectorAll("input"), (input) =>
+            input.value.trim(),
+          ).filter(Boolean)
         : [];
       if (!values.length && !field.required) continue;
       body[name] = values.map((raw) =>
@@ -659,7 +668,73 @@ export function readForm(record, form) {
    the raw JSON one click away, never instead of it: the evidence is still the point, it
    just stops being the only thing offered. Services with no presenter yet fall back to the
    payload, so an unpresented service reads as unpolished rather than broken. */
-const PRESENTERS = { "range-doctor": presentRangeDoctor };
+const VERDICT_WORDS = {
+  ALLOW: "nothing was detected in this payload",
+  SANITIZE: "this payload carries something that must be removed before use",
+  BLOCK: "this payload should not be passed downstream",
+};
+
+function presentWardenScan(result, _receipt, _record) {
+  const verdict = result.verdict;
+  const classes = result.threat_classes || [];
+  const detections = result.detections || [];
+  const rows = detections
+    .map(
+      (d) => `<tr>
+        <td class="mono">${escapeHTML(String(d.class))}</td>
+        <td class="mono">${escapeHTML(String(d.match))}</td>
+        <td>${escapeHTML(String(d.source))}</td>
+        <td class="mono">${escapeHTML(String(d.confidence))}</td>
+      </tr>`,
+    )
+    .join("");
+
+  /* The sanitized payload is the part a buyer actually acts on, and the part most likely to
+     be accepted without a second look. It is shown as the text it is, never rendered, and it
+     is labelled as the scanner's output rather than as a safe string — a classifier that
+     removed what it recognised has not established that nothing else is there. */
+  const sanitized =
+    result.sanitized_payload === undefined || result.sanitized_payload === null
+      ? ""
+      : `<h4>What the scanner would pass downstream</h4>
+         <pre>${escapeHTML(String(result.sanitized_payload))}</pre>
+         <p class="dim">This is what the scanner returned after removing what it matched. It
+           is not a statement that the remaining text is safe: a classifier establishes what it
+           recognised, never the absence of everything it did not.</p>`;
+
+  return `<section aria-labelledby="result-heading">
+      <h3 id="result-heading">What came back</h3>
+      <p class="lede">${escapeHTML(verdict || "no verdict")} — ${escapeHTML(
+        VERDICT_WORDS[verdict] ||
+          "the scanner returned a verdict this page does not recognise",
+      )}.</p>
+      <dl class="deflist">
+        <dt>Risk level</dt><dd class="mono">${escapeHTML(String(result.risk_level))}</dd>
+        <dt>Threat classes</dt><dd class="mono">${
+          classes.length ? escapeHTML(classes.join(", ")) : "none returned"
+        }</dd>
+        <dt>Recommendation</dt><dd>${escapeHTML(String(result.recommendation ?? "none given"))}</dd>
+        <dt>Scan time</dt><dd class="mono">${escapeHTML(String(result.latency_ms))} ms</dd>
+      </dl>
+      ${
+        rows
+          ? `<p class="status-key">What it matched, and where</p>
+             <table><thead><tr><th>Class</th><th>Match</th><th>Source</th><th>Confidence</th></tr></thead>
+             <tbody>${rows}</tbody></table>`
+          : `<p class="dim">No individual detection was returned. An empty detection list with
+               an ALLOW verdict means nothing matched — it does not mean the payload is safe.</p>`
+      }
+      ${sanitized}
+      <p class="dim">A scan reports what this scanner recognised in this text. It is not a
+        guarantee about the payload, and a clean result is the weaker of the two answers it can
+        give: a miss and an absence look identical from here.</p>
+    </section>`;
+}
+
+const PRESENTERS = {
+  "range-doctor": presentRangeDoctor,
+  "warden-scan": presentWardenScan,
+};
 
 function presentResult(record, answer) {
   const result = answer.result;
@@ -964,7 +1039,9 @@ function wireActivation(record) {
     const missing = Object.entries(record.input_schema)
       .filter(([name, field]) => {
         if (field.type === "array") {
-          const container = form.querySelector(`[data-array-control="${name}"]`);
+          const container = form.querySelector(
+            `[data-array-control="${name}"]`,
+          );
           return (
             field.required &&
             container &&

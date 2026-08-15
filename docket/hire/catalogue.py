@@ -113,6 +113,9 @@ class PaidStockAdmission:
 
 NO_PAID_ADMISSION = PaidStockAdmission(False, False, False, False)
 RANGE_ADMISSION = PaidStockAdmission(False, False, True, False)
+# Warden shares Range's position: a decision-grade presenter exists, and the other three
+# limbs are owner-gated or wait on a run that has not happened.
+WARDEN_ADMISSION = PaidStockAdmission(False, False, True, False)
 
 
 @dataclass(frozen=True)
@@ -936,7 +939,13 @@ SERVICES: dict[str, Service] = {
         price_atomic=HIRE_PRICE_ATOMIC,
         asset=U_TOKEN,
         stock_status="beta",
-        admission=NO_PAID_ADMISSION,
+        # One of four limbs now holds: the result is presented as a decision with its
+        # detections, their sources and the sanitized text, rather than as raw JSON. The other
+        # three remain false and are the reason this is still beta rather than paid stock —
+        # settlement is owner-gated, the canary cannot exercise a paid leg until it is, and no
+        # paired benchmark has run. Flipping the presenter limb alone changes nothing a buyer
+        # can reach, which is the point of requiring all four.
+        admission=WARDEN_ADMISSION,
         run=_run_warden_scan,
     ),
 }

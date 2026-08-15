@@ -553,3 +553,27 @@ def test_a_service_with_no_presenter_still_shows_its_payload():
     assert (
         "if (!presenter) return `<pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>`;"
     ) in js
+
+
+def test_warden_results_are_presented_as_a_decision_not_a_payload():
+    """The second presenter, and the second of Warden's four admission limbs.
+
+    A security verdict dumped as JSON is the case where raw output is worst: the reader most
+    needs to know what was matched and where, and is least able to work it out from a nested
+    structure.
+    """
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    assert '"warden-scan": presentWardenScan' in js
+    assert "function presentWardenScan(" in js
+    flat = re.sub(r"\s+", " ", js)
+    # A clean scan is the weaker of the two answers, and must say so.
+    assert "a miss and an absence look identical" in flat
+    # The sanitized text is labelled as the scanner's output, never as a safe string.
+    assert "not a statement that the remaining text is safe" in flat
+
+
+def test_a_clean_warden_verdict_does_not_read_as_a_guarantee():
+    js = re.sub(r"\s+", " ", (WEB_DIR / "app.js").read_text(encoding="utf-8"))
+    assert "nothing was detected in this payload" in js
+    # An empty detection list is explained rather than left to imply safety.
+    assert "does not mean the payload is safe" in js
