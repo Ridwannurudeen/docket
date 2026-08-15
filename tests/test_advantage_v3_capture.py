@@ -330,3 +330,49 @@ def _captured_result() -> dict:
         },
         "_raw": (pools, tokens),
     }
+
+
+def test_an_attempt_that_cannot_finish_inside_its_window_is_not_begun():
+    """Starting at +59s is inside the window and useless: two timeouts would stamp the
+    observations a minute late, the attempt would report 200/200, and the lock would refuse
+    the snapshot already frozen. The budget that bounds attempt one bounds every attempt."""
+    elapsed = {"s": 0.0}
+
+    def clock():
+        return SCHEDULED + timedelta(seconds=elapsed["s"])
+
+    def sleep(seconds):
+        # An oversleeping OS: the wait overshoots attempt two's start by most of its minute.
+        elapsed["s"] += seconds + 50.0
+
+    result = capture.run_registered_capture(
+        SPEC, now=SCHEDULED, clock=clock, sleep=sleep, attempt=_attempt(99)
+    )
+    assert result["captured"] is False
+    assert len(result["attempts"]) == 1  # attempt two was never begun
+
+
+def test_a_success_observed_outside_its_window_is_reported_not_frozen():
+    """The worst outcome is a 200/200 the lock will refuse. It cannot be used, and it cannot
+    be recorded as an unchosen attempt either, so the capture has to end and say why."""
+
+    def late_success(urls, *, ordinal, scheduled_at):
+        start = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
+        record = _attempt(1)(urls, ordinal=ordinal, scheduled_at=scheduled_at)
+        # Both fetches returned 200, but the second landed after the minute closed.
+        record["token_list_observed_at"] = capture._stamp_at(start + timedelta(seconds=75))
+        return record
+
+    result = capture.run_registered_capture(
+        SPEC, now=SCHEDULED, sleep=lambda _s: None, attempt=late_success
+    )
+    assert result["captured"] is False
+    assert "token_list" in result["why"]
+    assert "outside its registered minute" in result["why"]
+    assert "must be recommitted" in result["why"]
+
+
+def test_an_in_window_success_is_still_frozen_normally():
+    """The new guard must not reject the ordinary case it exists to protect."""
+    result = capture.run_registered_capture(SPEC, now=SCHEDULED, attempt=_attempt(1))
+    assert result["captured"] is True

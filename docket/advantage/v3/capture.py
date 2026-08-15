@@ -82,6 +82,23 @@ def _stamp() -> str:
     return _stamp_at(_utc_now())
 
 
+def _observations_outside(record: dict, attempt_start: datetime) -> list[str]:
+    """Which of the two observations fell outside the attempt's own registered minute.
+
+    The lock checks `attempt_start <= observed_at < attempt_start + 1 minute` per URL, so this
+    asks the same question the validator will, before the bytes are frozen rather than after.
+    """
+    window_end = attempt_start + timedelta(minutes=1)
+    outside = []
+    for name in ("pools", "token_list"):
+        observed = datetime.fromisoformat(
+            record[f"{name}_observed_at"].replace("Z", "+00:00")
+        )
+        if not attempt_start <= observed < window_end:
+            outside.append(name)
+    return outside
+
+
 def _fetch(client: httpx.Client, url: str) -> dict:
     """One request, returning the raw bytes and the status, never raising for status.
 
@@ -190,20 +207,42 @@ def run_registered_capture(
             if delay > 0:
                 sleep(delay)
         attempt_start = scheduled + timedelta(seconds=offset)
-        if clock() >= attempt_start + timedelta(minutes=1):
-            # The window closed while earlier attempts ran. Stopping is the honest outcome:
-            # a fetch now would observe a later universe than the one this attempt names.
+        if clock() > attempt_start + timedelta(seconds=LATE_TOLERANCE_S):
+            # Not "has the window closed" but "can this attempt still FINISH inside it".
+            # Starting at +59s is inside the window and useless: two timeouts would stamp the
+            # observations a minute late, the attempt would report 200/200, and the lock would
+            # refuse the snapshot it had already frozen. The same budget that bounds the first
+            # attempt bounds every attempt, so an attempt that cannot fit is not begun.
+            #
+            # Skipping ahead is not the alternative. The validator requires capture_log entry
+            # i to carry attempt_ordinal i with no gaps, so a skipped attempt makes every
+            # later one unlockable. Stopping is the only honest outcome.
             break
         record = attempt(
             (schedule["pools_url"], schedule["token_list_url"]),
             ordinal=ordinal,
-            scheduled_at=(scheduled + timedelta(seconds=offset))
-            .isoformat()
-            .replace("+00:00", "Z"),
+            scheduled_at=_stamp_at(attempt_start),
         )
         bodies_this = record.pop("_bodies", None)
         attempts.append(record)
         if record["succeeded"]:
+            late = _observations_outside(record, attempt_start)
+            if late:
+                # A 200/200 that landed outside its minute cannot be used and cannot be
+                # recorded as an unchosen attempt either — spec.py refuses to log a both-200
+                # attempt as anything but the chosen one. The capture is over; saying so is
+                # the only output that does not produce evidence the lock will reject.
+                return {
+                    "captured": False,
+                    "attempts": attempts,
+                    "why": (
+                        f"attempt {ordinal} returned 200 from both URLs but observed "
+                        f"{late} outside its registered minute beginning "
+                        f"{_stamp_at(attempt_start)}. The lock requires each observation "
+                        "inside its own attempt window, and a both-200 attempt cannot be "
+                        "recorded as unchosen, so the protocol must be recommitted."
+                    ),
+                }
             bodies = bodies_this
             break
 
@@ -307,7 +346,9 @@ def _resolve_spec(reference: str) -> Path:
     candidate = Path(reference)
     if candidate.is_file():
         return candidate
-    packaged = resources.files("docket.advantage") / "v3" / "specs" / f"{reference}.json"
+    packaged = (
+        resources.files("docket.advantage") / "v3" / "specs" / f"{reference}.json"
+    )
     if packaged.is_file():
         return Path(str(packaged))
     raise CaptureRefused(
