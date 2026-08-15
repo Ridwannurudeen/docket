@@ -15,6 +15,7 @@ import pytest
 from docket.agents.pancake.positions import (
     MASTER_CHEF_V3,
     NPM,
+    ZERO_ADDRESS,
     PositionReader,
     PrunedStateError,
 )
@@ -76,6 +77,26 @@ class _Functions:
 
     def positions(self, token_id):
         return _Call(self._log, ("positions", token_id), _raw(token_id))
+
+    def ownerOf(self, token_id):
+        # Real ownership, not the fixture's grouping key: a directly held token answers with
+        # the wallet, a staked one answers with the farm, and an unheld one with nobody.
+        if token_id in HOLDINGS[NPM]:
+            holder = WALLET
+        elif token_id in HOLDINGS[MASTER_CHEF_V3]:
+            holder = MASTER_CHEF_V3
+        else:
+            holder = ZERO_ADDRESS
+        return _Call(self._log, ("ownerOf", token_id), holder)
+
+    def userPositionInfos(self, token_id):
+        # The farm's record of who deposited. Index 6 is the depositor; the rest is padding
+        # the reader never touches.
+        return _Call(
+            self._log,
+            ("userPositionInfos", token_id),
+            [0, 0, 0, 0, 0, 0, WALLET, 0, 0],
+        )
 
 
 class _Contract:
@@ -337,3 +358,39 @@ def test_an_ordinary_endpoint_failure_still_fails_over_and_is_not_called_pruned(
     with pytest.raises(RuntimeError, match="every BSC endpoint failed") as caught:
         reader._call(flaky)
     assert not isinstance(caught.value, PrunedStateError)
+
+
+def test_a_target_beyond_the_examine_bound_is_still_found(monkeypatch):
+    """The defect this closes: `max_examined` stopped the walk after thirty positions, so a
+    wallet holding hundreds could hide the requested NFT behind the bound and report it
+    missing. The v3 registration says that if the hire cannot select its token_id, no arm
+    runs at all — a work ceiling must not decide whether the experiment happens.
+    """
+    deep = tuple(range(9_000_000, 9_000_200)) + (7098969,)  # target at index 200
+    monkeypatch.setitem(HOLDINGS, NPM, deep)
+    for token in deep:
+        LIQUIDITY.setdefault(token, 1)
+
+    log = []
+    read = PositionReader(w3=_FakeW3(log)).wallet_positions(
+        WALLET, token_id=7098969, max_examined=30
+    )
+
+    assert read["target_found"] is True
+    assert [p["token_id"] for p in read["positions"]] == [7098969]
+    # The walk still stopped at its bound — the direct read is what found the target, and the
+    # coverage counts stay honest about what the enumeration did not reach.
+    assert read["scan_complete"] is False
+    assert read["positions_examined"] == 30
+    assert ("ownerOf", 7098969, BLOCK) in log
+
+
+def test_an_exact_token_the_wallet_does_not_own_is_not_returned(monkeypatch):
+    """A direct read answers for any token on the contract. Without the ownership check a
+    caller could ask about a stranger's position and be told it was theirs."""
+    log = []
+    read = PositionReader(w3=_FakeW3(log)).wallet_positions(
+        WALLET, token_id=4_242_424, max_examined=30
+    )
+    assert read["positions"] == []
+    assert read["target_found"] is False

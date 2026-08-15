@@ -37,6 +37,7 @@ import time
 from datetime import datetime, timezone
 
 from web3 import Web3
+from web3.exceptions import BadFunctionCallOutput, ContractLogicError
 
 BSC_RPCS = (
     "https://bsc-dataseed.binance.org",
@@ -124,6 +125,42 @@ NPM_ABI = HOLDER_ABI + [
         ],
     },
 ]
+# Reading one NFT directly, for the case where walking the wallet to find it is the thing
+# that fails. `ownerOf` is what stops a direct read from answering about someone else's
+# position, so it is not optional.
+OWNER_ABI = [
+    {
+        "name": "ownerOf",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "tokenId", "type": "uint256"}],
+        "outputs": [{"name": "", "type": "address"}],
+    },
+]
+# A staked position is owned by the farm, so `ownerOf` names MasterChefV3 rather than the
+# wallet. The farm records who deposited it; the shape below was read off-chain against a
+# live farm-held token rather than transcribed from documentation.
+FARM_OWNER_ABI = [
+    {
+        "name": "userPositionInfos",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "tokenId", "type": "uint256"}],
+        "outputs": [
+            {"name": "liquidity", "type": "uint128"},
+            {"name": "boostLiquidity", "type": "uint128"},
+            {"name": "tickLower", "type": "int24"},
+            {"name": "tickUpper", "type": "int24"},
+            {"name": "rewardGrowthInside", "type": "uint256"},
+            {"name": "reward", "type": "uint256"},
+            {"name": "user", "type": "address"},
+            {"name": "pid", "type": "uint256"},
+            {"name": "boostMultiplier", "type": "uint256"},
+        ],
+    },
+]
+USER_POSITION_OWNER_INDEX = 6
+
 FACTORY_ABI = [
     {
         "name": "getPool",
@@ -216,6 +253,67 @@ class PositionReader:
                         time.sleep(RETRY_PAUSE_S)
         raise RuntimeError("every BSC endpoint failed:\n  " + "\n  ".join(failures))
 
+    def _exact_position(
+        self, owner: str, token_id: int, block: int, observed_at: str
+    ) -> dict | None:
+        """Read one NFT directly and confirm this wallet holds it.
+
+        Ownership is checked, not assumed. `positions(token_id)` answers for any token on the
+        contract, so returning it without `ownerOf` would let a caller ask about a stranger's
+        position and be told it was theirs. A staked position is owned by the farm, so the
+        farm counts as this wallet holding it only when the farm says so — which is the same
+        rule the enumeration below follows.
+        """
+        try:
+            holder = self._call(
+                lambda w3: (
+                    w3.eth.contract(address=NPM, abi=OWNER_ABI)
+                    .functions.ownerOf(int(token_id))
+                    .call(block_identifier=block)
+                )
+            )
+        except (BadFunctionCallOutput, ContractLogicError, ValueError):
+            # A burned or never-minted token id. Not an error: the caller asked whether this
+            # wallet has it, and the answer is no.
+            return None
+        holder = Web3.to_checksum_address(holder)
+        staked = holder == MASTER_CHEF_V3
+        if holder != owner and not staked:
+            return None
+        if staked:
+            farm_owner = self._call(
+                lambda w3: (
+                    w3.eth.contract(address=MASTER_CHEF_V3, abi=FARM_OWNER_ABI)
+                    .functions.userPositionInfos(int(token_id))
+                    .call(block_identifier=block)
+                )
+            )
+            # userPositionInfos exposes the depositor; a farm-held token belongs to this
+            # wallet only if the farm records this wallet as the one that staked it.
+            if Web3.to_checksum_address(farm_owner[USER_POSITION_OWNER_INDEX]) != owner:
+                return None
+        raw = self._call(
+            lambda w3: (
+                w3.eth.contract(address=NPM, abi=NPM_ABI)
+                .functions.positions(int(token_id))
+                .call(block_identifier=block)
+            )
+        )
+        return {
+            "token_id": int(token_id),
+            "staked": staked,
+            "token0": raw[2],
+            "token1": raw[3],
+            "fee": raw[4],
+            "tick_lower": raw[5],
+            "tick_upper": raw[6],
+            "liquidity": raw[7],
+            "tokens_owed0": raw[10],
+            "tokens_owed1": raw[11],
+            "block_number": block,
+            "observation_time": observed_at,
+        }
+
     def wallet_positions(
         self,
         address: str,
@@ -302,6 +400,19 @@ class PositionReader:
         closed_skipped = 0
         open_skipped = 0
         examined = 0
+        # An exact request is answered by reading the token, not by hoping the walk reaches
+        # it. `max_examined` stops the enumeration after thirty positions, so a wallet holding
+        # 155 of them could hide the requested NFT behind the bound and report it missing —
+        # and the v3 registration says that if the hire cannot select its token_id, no arm
+        # runs at all. Two calls settle it regardless of where the token sits in the wallet;
+        # the enumeration below still runs, for the coverage counts it is the only source of.
+        direct = (
+            self._exact_position(owner, token_id, block, observed_at)
+            if token_id
+            else None
+        )
+        if direct is not None:
+            positions.append(direct)
         # Enumeration and reading are interleaved so the loop can stop on a result count.
         # Kept as one pass rather than two: enumerating everything first would spend a call
         # per position before learning that the first few answered the question.
@@ -335,7 +446,16 @@ class PositionReader:
                     )
                 )
                 examined += 1
-                selected = token_id is None or token_id == position_id
+                # The target was already read directly, so the walk counts it for coverage
+                # rather than returning it twice.
+                selected = token_id is None or (
+                    token_id == position_id and direct is None
+                )
+                if direct is not None and position_id == token_id:
+                    # Reached the target the direct read already returned. It is neither
+                    # selected again nor skipped — counting it as skipped would report the
+                    # answer as something the read left out.
+                    continue
                 if not selected:
                     if raw[7] == 0:
                         closed_skipped += 1
