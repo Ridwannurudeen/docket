@@ -13,6 +13,7 @@ staleness bug these pages exist to avoid.
 """
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -185,7 +186,67 @@ def test_the_service_page_builds_its_form_from_the_declared_input_schema(client)
     # a single-line input cannot hold one.
     assert "textarea" in app_js.lower()
     assert 'field.type === "number"' in app_js
-    assert "Number(raw)" in app_js
+    assert 'field.type === "array"' in app_js
+    assert "data-array-control" in app_js
+
+
+def test_the_service_form_keeps_integer_arrays_and_large_integers_exact(tmp_path):
+    """A grid order must carry the exact indexes and atomic-unit integers the reader typed."""
+    module = tmp_path / "app.mjs"
+    module.write_text(_read("app.js"), encoding="utf-8")
+    script = tmp_path / "form-contract.mjs"
+    script.write_text(
+        """
+globalThis.document = {
+  body: { dataset: {} },
+  querySelector: () => null,
+  querySelectorAll: () => [],
+};
+globalThis.window = {};
+const { encodeJSON, inputControl, readForm } = await import("./app.mjs");
+
+const arrayMarkup = inputControl("filled", { type: "array", required: false });
+if (!arrayMarkup.includes("data-array-control") || !arrayMarkup.includes('type="number"')) {
+  throw new Error("filled is not rendered as an integer-array control");
+}
+
+const scalar = { value: "9007199254740993123456789" };
+const items = [{ value: "2" }, { value: "9007199254740993" }];
+const form = {
+  elements: { namedItem: (name) => name === "lower" ? scalar : null },
+  querySelector: (selector) => selector.includes("filled")
+    ? { querySelectorAll: () => items }
+    : null,
+};
+const record = {
+  input_schema: {
+    lower: { type: "integer", required: true },
+    filled: { type: "array", items: { type: "integer" }, required: false },
+  },
+};
+const body = readForm(record, form);
+const encoded = encodeJSON(body);
+if (encoded !== '{"lower":9007199254740993123456789,"filled":[2,9007199254740993]}') {
+  throw new Error(`integer precision or array shape changed: ${encoded}`);
+}
+""",
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        ["node", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_the_agent_page_exposes_dockets_bound_service_with_the_same_hire_gating(client):
+    app_js = _read("app.js")
+    assert "detail.associated_services" in app_js
+    assert "serviceCard(service)" in app_js
+    assert "card.paid_stock" in app_js
 
 
 def test_the_service_page_shows_the_receipt_it_was_handed(client):

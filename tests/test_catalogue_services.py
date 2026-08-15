@@ -64,10 +64,16 @@ def test_the_health_guard_reads_one_address_and_takes_nothing_else_required():
     assert "never touched" in schema["wallet"]["description"]
 
 
-def test_the_yield_router_asks_for_no_wallet_at_all():
-    """The whole comparison is a read. A service in the yield category that demanded an
-    address before it would compare pools would be asking for something it does not use."""
+def test_grid_filled_is_an_array_of_integer_level_indexes():
+    schema = get_service("grid-operator").input_schema["filled"]
+    assert schema["type"] == "array"
+    assert schema["items"] == {"type": "integer"}
+
+
+def test_the_yield_comparison_needs_no_wallet_and_the_draft_declares_every_input():
+    """The comparison stays a read, while the optional draft has a complete contract."""
     schema = get_service("yield-router").input_schema
-    assert "wallet" not in schema
     assert not any(field.get("required") for field in schema.values())
+    for field in ("wallet", "token_in", "token_out", "amount", "cap"):
+        assert field in schema
     assert "supplied rather than derived" in schema["switching_cost_usd"]["description"]

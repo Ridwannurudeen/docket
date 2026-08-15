@@ -191,6 +191,15 @@ def _declared_number(payload: dict, field: str, *, allow_zero: bool) -> float | 
     return number
 
 
+def _declared_integer(payload: dict, field: str, default: int | None = None) -> int | None:
+    value = payload.get(field)
+    if value is None:
+        return default
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{field} must be an integer")
+    return value
+
+
 def _run_range_doctor(payload: dict) -> dict:
     """Validate declared economics before any upstream read, then time this exact run."""
     raw_token_id = payload.get("token_id")
@@ -267,26 +276,50 @@ def _run_grid_operator(payload: dict) -> dict:
     reader = BscQuoteReader()
     base = payload.get("base") or GRID_BASE
     quote = payload.get("quote") or GRID_QUOTE
-    base_decimals = int(payload.get("base_decimals") or GRID_BASE_DECIMALS)
+    base_decimals = _declared_integer(
+        payload, "base_decimals", GRID_BASE_DECIMALS
+    )
     observed = observe_price(
         reader, base=base, quote=quote, base_decimals=base_decimals
     )
 
     reference = payload.get("reference")
-    reference = observed.price if reference is None else int(reference)
+    reference = (
+        observed.price
+        if reference is None
+        else _declared_integer(payload, "reference")
+    )
     lower = payload.get("lower")
     upper = payload.get("upper")
     plan = build_plan(
-        lower=reference * (100 - GRID_BAND_PCT) // 100 if lower is None else int(lower),
-        upper=reference * (100 + GRID_BAND_PCT) // 100 if upper is None else int(upper),
-        levels=int(payload.get("levels") or GRID_LEVELS),
-        size_per_level=int(payload.get("size_per_level") or GRID_SIZE_PER_LEVEL),
+        lower=(
+            reference * (100 - GRID_BAND_PCT) // 100
+            if lower is None
+            else _declared_integer(payload, "lower")
+        ),
+        upper=(
+            reference * (100 + GRID_BAND_PCT) // 100
+            if upper is None
+            else _declared_integer(payload, "upper")
+        ),
+        levels=_declared_integer(payload, "levels", GRID_LEVELS),
+        size_per_level=_declared_integer(
+            payload, "size_per_level", GRID_SIZE_PER_LEVEL
+        ),
         base=base,
         quote=quote,
         base_decimals=base_decimals,
         reference=reference,
     )
-    filled = tuple(int(index) for index in payload.get("filled") or ())
+    raw_filled = payload.get("filled")
+    if raw_filled is not None and not isinstance(raw_filled, list):
+        raise ValueError("filled must be an array of integer level indexes")
+    if any(
+        not isinstance(index, int) or isinstance(index, bool)
+        for index in (raw_filled or ())
+    ):
+        raise ValueError("filled must be an array of integer level indexes")
+    filled = tuple(raw_filled or ())
     return GridPreview(plan, reader=reader, wallet=payload["wallet"]).preview(
         filled=filled
     )
@@ -335,9 +368,19 @@ def _run_yield_router(payload: dict) -> dict:
     rather than implied, because a comparison against an unnamed baseline is a delta
     against nothing.
     """
+    draft_fields = ("wallet", "token_in", "token_out", "amount", "cap")
+    supplied = {field for field in draft_fields if payload.get(field) is not None}
+    if supplied and supplied != set(draft_fields):
+        raise ValueError(
+            "drafting requires wallet, token_in, token_out, amount and cap together"
+        )
+    amount = _declared_integer(payload, "amount")
+    cap = _declared_integer(payload, "cap")
+
     from ..agents.pancake.pools import PoolClient
     from ..agents.yield_router.router import YieldRouterPreview
     from ..agents.yield_router.universe import eligible_pools
+    from ..execution.simulate import BscQuoteReader
 
     with PoolClient() as client:
         rows = client.top_pools()
@@ -396,7 +439,12 @@ def _run_yield_router(payload: dict) -> dict:
             "deepest pool in the set and not a pool anybody is known to be in"
         )
     horizon = payload.get("horizon_days")
-    out = YieldRouterPreview(universe=universe, current=current).preview(
+    wallet = payload.get("wallet")
+    out = YieldRouterPreview(
+        universe=universe,
+        current=current,
+        reader=BscQuoteReader() if wallet is not None else None,
+    ).preview(
         position_size_usd=float(
             payload.get("position_size_usd")
             if payload.get("position_size_usd") is not None
@@ -408,6 +456,11 @@ def _run_yield_router(payload: dict) -> dict:
             else ROUTER_SWITCHING_COST_USD
         ),
         **({} if horizon is None else {"horizon_days": int(horizon)}),
+        wallet=wallet,
+        token_in=payload.get("token_in"),
+        token_out=payload.get("token_out"),
+        amount=amount,
+        cap=cap,
     )
     return out | {"current_pool_chosen_by": chosen_by}
 
@@ -571,6 +624,7 @@ SERVICES: dict[str, Service] = {
             },
             "filled": {
                 "type": "array",
+                "items": {"type": "integer"},
                 "required": False,
                 "description": "level indexes already filled, which are not drafted again",
             },
@@ -651,8 +705,9 @@ SERVICES: dict[str, Service] = {
             "the input you supplied rather than a figure Docket derived. A pool with a higher "
             "rate whose break-even runs past that horizon is shown with that fact attached "
             "rather than dropped. Ordering is by one named observed metric and the payload "
-            "says which, so no order here is an opinion Docket formed. No wallet is needed "
-            "for any of it, and nothing is signed, approved, submitted or moved."
+            "says which, so no order here is an opinion Docket formed. The comparison needs "
+            "no wallet; drafting a swap leg requires the wallet, token pair, amount and cap "
+            "declared together. Nothing is signed, approved, submitted or moved."
         ),
         input_schema={
             "pool": {
@@ -662,6 +717,46 @@ SERVICES: dict[str, Service] = {
                     "the pool id your capital is in, as the explorer spells it. With none "
                     "given the first row of the eligible set stands in as the baseline and "
                     "the response says so"
+                ),
+            },
+            "wallet": {
+                "type": "string",
+                "required": False,
+                "description": (
+                    "the recipient for an optional drafted swap leg. Supply it together "
+                    "with token_in, token_out, amount and cap; omit all five for comparison only"
+                ),
+            },
+            "token_in": {
+                "type": "string",
+                "required": False,
+                "description": (
+                    "the token the optional draft would spend; supply it with wallet, "
+                    "token_out, amount and cap"
+                ),
+            },
+            "token_out": {
+                "type": "string",
+                "required": False,
+                "description": (
+                    "the token the optional draft would buy; it must be held by the "
+                    "destination pool and supplied with wallet, token_in, amount and cap"
+                ),
+            },
+            "amount": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "the exact atomic-unit input for the optional draft; supply it with "
+                    "wallet, token_in, token_out and cap"
+                ),
+            },
+            "cap": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "the maximum atomic-unit input the optional draft may name; the amount "
+                    "is refused rather than trimmed when it exceeds this"
                 ),
             },
             "position_size_usd": {

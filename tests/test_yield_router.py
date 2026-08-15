@@ -519,6 +519,27 @@ def test_the_hire_needs_no_wallet_and_drafts_nothing(hire):
     assert out["submitted"] is False
 
 
+def test_the_hire_wires_every_declared_draft_input_to_the_preview(hire, monkeypatch):
+    monkeypatch.setattr("docket.execution.simulate.BscQuoteReader", _Reader)
+    out = hire(
+        {
+            "wallet": WALLET,
+            "token_in": USDC,
+            "token_out": USDT,
+            "amount": 1_000 * E18,
+            "cap": 5_000 * E18,
+        }
+    )
+    assert out["submitted"] is False
+    assert len(out["actions"]) == 1
+    assert out["actions"][0]["intent"]["max_input"] == str(1_000 * E18)
+
+
+def test_the_hire_refuses_a_partial_draft_instead_of_returning_only_a_comparison(hire):
+    with pytest.raises(ValueError, match="wallet, token_in, token_out, amount and cap"):
+        hire({"wallet": WALLET})
+
+
 # ------------------------------------------------------------------ what it may say
 
 

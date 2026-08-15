@@ -677,6 +677,12 @@ def create_app(
             endpoints=sorted(kinds),
             observations=observations,
             coverage=_coverage(coverage_report(store, sid)),
+            associated_services=[
+                _card(record)
+                for record in all_records()
+                if record.agent_id is not None
+                and record.agent_id.lower() == agent["agent_id"].lower()
+            ],
         )
 
     def _identity_link(record: ServiceRecord) -> tuple[str | None, str]:

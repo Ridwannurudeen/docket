@@ -45,7 +45,7 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/health` | Docket's liveness and the snapshot id being served |
 | GET | `/stats` | Every generated figure, inside its coverage |
 | GET | `/agents` | Filterable listing with `total`, pagination, coverage |
-| GET | `/agents/{agent_id}` | One agent, its endpoints, and every observation of them |
+| GET | `/agents/{agent_id}` | One agent, its endpoints, observations, and Docket-bound `associated_services` |
 | GET | `/categories` | BNB's four jobs, what each gets done, and how many services stand in it |
 | GET | `/services` | Service cards with paid-stock status; `?category=` narrows to one job |
 | GET | `/services/{service_id}` | Inputs, price-after-admission, admission facts, evidence, limitations, identity |
@@ -354,6 +354,10 @@ guessed. Services are ordered by service id and by nothing else - there is no ra
 here to read as one - and `?category=` accepts only the four slugs, refusing anything
 else with `422 invalid_query_parameter` naming them.
 
+If the user starts from an agent instead of a job, read `/agents/{agent_id}` and follow
+its `associated_services` cards to the same `hire_path`. That array is Docket's explicit
+marketplace binding. It is not a service or category claimed by the ERC-8004 identity.
+
 Three things to carry into any answer built on this layer:
 
 - **A category is Docket's declaration about a service Docket runs, not a measurement.**
@@ -368,7 +372,9 @@ Three things to carry into any answer built on this layer:
   carry a caveat about their own name: `health_factor` is named after a figure Venus does
   not publish, so `health-guard` repeats Venus's liquidity and shortfall verbatim and
   derives a ratio with its method stated inline; and `yield_optimisation` invites "the
-  highest APR", so `yield-router` states the set that superlative is bounded by.
+  highest APR", so `yield-router` states the set that superlative is bounded by. Its
+  comparison needs no wallet; its optional swap draft requires `wallet`, `token_in`,
+  `token_out`, `amount`, and `cap` together.
 - **`identity` and `agent_path` are different facts.** `agent_id: null` means no
   ERC-8004 identity was ever registered for that service. `agent_id` set with
   `agent_path: null` means the identity is registered on chain and is not in the

@@ -116,7 +116,7 @@ export async function postJSON(path, body) {
         "content-type": "application/json",
         accept: "application/json",
       },
-      body: JSON.stringify(body),
+      body: encodeJSON(body),
     });
   } catch (cause) {
     const err = new Error(
@@ -144,6 +144,28 @@ export async function postJSON(path, body) {
     throw err;
   }
   return payload;
+}
+
+/** Encode request bodies without routing integers through JavaScript's lossy Number type. */
+export function encodeJSON(value) {
+  if (typeof value === "bigint") return value.toString();
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new TypeError("JSON numbers must be finite.");
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => encodeJSON(item)).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const fields = Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .map(([key, item]) => `${JSON.stringify(key)}:${encodeJSON(item)}`);
+    return `{${fields.join(",")}}`;
+  }
+  throw new TypeError(`Cannot encode ${typeof value} as JSON.`);
 }
 
 /* -------------------------------------------------------------- formatting */
@@ -394,7 +416,15 @@ async function paintJobs() {
    pasted. */
 const TEXTAREA_FIELDS = new Set(["payload"]);
 
-function inputControl(name, field) {
+function arrayItemControl(name, value, index) {
+  return `<div data-array-item>
+      <input id="field-${escapeHTML(name)}${index === 0 ? "" : `-${index}`}" name="${escapeHTML(name)}" type="number"
+        step="1" value="${escapeHTML(value)}" aria-label="${escapeHTML(name)} item ${index + 1}" />
+      <button type="button" class="btn" data-array-remove>Remove</button>
+    </div>`;
+}
+
+export function inputControl(name, field) {
   const id = `field-${name}`;
   const required = field.required ? " required" : "";
   const value =
@@ -404,9 +434,20 @@ function inputControl(name, field) {
   if (TEXTAREA_FIELDS.has(name)) {
     return `<textarea id="${id}" name="${escapeHTML(name)}" rows="6"${required}></textarea>`;
   }
+  if (field.type === "array") {
+    const values = Array.isArray(field.default) && field.default.length
+      ? field.default
+      : [""];
+    return `<div id="${id}-array" data-array-control="${escapeHTML(name)}" data-next-index="${values.length}">
+        <div data-array-items>
+          ${values.map((item, index) => arrayItemControl(name, item, index)).join("")}
+        </div>
+        <button type="button" class="btn" data-array-add>Add ${escapeHTML(name)} item</button>
+      </div>`;
+  }
   const numeric = field.type === "integer" || field.type === "number";
   const type = numeric ? "number" : "text";
-  const step = field.type === "number" ? ' step="any"' : "";
+  const step = field.type === "number" ? ' step="any"' : numeric ? ' step="1"' : "";
   return `<input id="${id}" name="${escapeHTML(name)}" type="${type}" value="${value}"${step}${required} />`;
 }
 
@@ -529,9 +570,63 @@ function paintRunFailure(container, err) {
     </div>`;
 }
 
-function readForm(record, form) {
+function wireArrayControls(form) {
+  for (const control of form.querySelectorAll("[data-array-control]")) {
+    control.addEventListener("click", (event) => {
+      if (event.target.matches("[data-array-add]")) {
+        const items = control.querySelector("[data-array-items]");
+        const index = Number(control.dataset.nextIndex);
+        items.insertAdjacentHTML(
+          "beforeend",
+          arrayItemControl(control.dataset.arrayControl, "", index),
+        );
+        control.dataset.nextIndex = String(index + 1);
+      }
+      if (event.target.matches("[data-array-remove]")) {
+        const item = event.target.closest("[data-array-item]");
+        const items = control.querySelector("[data-array-items]");
+        if (items.children.length === 1) item.querySelector("input").value = "";
+        else {
+          item.remove();
+          Array.from(items.children).forEach((row, index) => {
+            const input = row.querySelector("input");
+            input.id = `field-${control.dataset.arrayControl}${index === 0 ? "" : `-${index}`}`;
+            input.setAttribute(
+              "aria-label",
+              `${control.dataset.arrayControl} item ${index + 1}`,
+            );
+          });
+        }
+      }
+    });
+  }
+}
+
+function integerValue(raw, name) {
+  if (!/^-?\d+$/.test(raw)) {
+    const err = new Error(`${name} must be an integer written in base 10.`);
+    err.code = "invalid_field";
+    throw err;
+  }
+  return BigInt(raw);
+}
+
+export function readForm(record, form) {
   const body = {};
   for (const [name, field] of Object.entries(record.input_schema)) {
+    if (field.type === "array") {
+      const container = form.querySelector(`[data-array-control="${name}"]`);
+      const values = container
+        ? Array.from(container.querySelectorAll("input"), (input) => input.value.trim()).filter(Boolean)
+        : [];
+      if (!values.length && !field.required) continue;
+      body[name] = values.map((raw) =>
+        field.items && field.items.type === "integer"
+          ? integerValue(raw, name)
+          : raw,
+      );
+      continue;
+    }
     const control = form.elements.namedItem(name);
     if (!control) continue;
     const raw = control.value.trim();
@@ -539,15 +634,12 @@ function readForm(record, form) {
        `limit` explicitly so that an explicit 0 stays 0, and a blank sent as one would
        turn "use the default" into "read nothing". */
     if (!raw && !field.required) continue;
-    if (field.type === "integer" || field.type === "number") {
+    if (field.type === "integer") {
+      body[name] = integerValue(raw, name);
+    } else if (field.type === "number") {
       const number = Number(raw);
-      const valid =
-        Number.isFinite(number) &&
-        (field.type !== "integer" || Number.isInteger(number));
-      if (!valid) {
-        const err = new Error(
-          `${name} must be ${field.type === "integer" ? "an integer" : "a finite number"}.`,
-        );
+      if (!Number.isFinite(number)) {
+        const err = new Error(`${name} must be a finite number.`);
         err.code = "invalid_field";
         throw err;
       }
@@ -863,12 +955,23 @@ function wireActivation(record) {
   if (!target) return;
   target.innerHTML = activationForm(record);
   const form = target.querySelector("[data-activate]");
+  wireArrayControls(form);
   const button = form.querySelector("[data-run]");
   const outcome = region("outcome");
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const missing = Object.entries(record.input_schema)
       .filter(([name, field]) => {
+        if (field.type === "array") {
+          const container = form.querySelector(`[data-array-control="${name}"]`);
+          return (
+            field.required &&
+            container &&
+            !Array.from(container.querySelectorAll("input")).some((input) =>
+              input.value.trim(),
+            )
+          );
+        }
         const control = form.elements.namedItem(name);
         return field.required && control && !control.value.trim();
       })
@@ -1469,6 +1572,9 @@ function paintAgent(detail, example) {
     ? `<ul>${detail.endpoints.map((url) => `<li class="mono">${escapeHTML(url)}</li>`).join("")}</ul>`
     : `<p class="dim">No endpoint URL resolved from this agent's card.</p>`;
   const cov = detail.coverage;
+  const associatedServices = detail.associated_services.length
+    ? detail.associated_services.map((service) => serviceCard(service)).join("")
+    : `<p class="dim">Docket binds no service in its own marketplace to this identity.</p>`;
 
   region("agent").innerHTML = `<h1>${escapeHTML(name)}</h1>
     ${placeholder}
@@ -1489,6 +1595,11 @@ function paintAgent(detail, example) {
           <dt>Declared endpoints</dt><dd>${endpoints}</dd>
         </dl>
       </div>
+    </section>
+    <section aria-labelledby="services-heading">
+      <h2 id="services-heading">Services Docket associates with this identity</h2>
+      <p class="section-note">These are Docket's own bindings. The ERC-8004 registration does not declare them.</p>
+      <div class="panel">${associatedServices}</div>
     </section>
     <section aria-labelledby="observed-heading">
       <h2 id="observed-heading">What Docket observed</h2>

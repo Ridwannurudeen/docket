@@ -291,9 +291,10 @@ def test_no_service_response_carries_a_verdict_word(client):
                 )
 
 
-def test_the_raw_agent_plane_is_untouched_by_the_layer_above_it(client):
-    """/agents is the fact plane. The marketplace is built on top of it and changes
-    nothing about it — no category, no service, no hire path leaks into an agent."""
+def test_agent_listings_stay_raw_while_detail_carries_the_reverse_marketplace_link(
+    client,
+):
+    """The listing stays registry-only; detail names Docket's explicit service join."""
     listing = client.get("/agents").json()
     assert set(listing) == {"items", "total", "limit", "offset", "coverage"}
     item = listing["items"][0]
@@ -312,7 +313,27 @@ def test_the_raw_agent_plane_is_untouched_by_the_layer_above_it(client):
         "placeholder_name",
     }
     detail = client.get(f"/agents/{item['agent_id']}").json()
-    assert set(detail) == set(item) | {"endpoints", "observations", "coverage"}
+    assert set(detail) == set(item) | {
+        "endpoints",
+        "observations",
+        "coverage",
+        "associated_services",
+    }
+    assert detail["associated_services"] == []
+
+
+def test_a_bound_agent_exposes_the_service_page_and_hire_action(
+    client_holding_the_identity,
+):
+    detail = client_holding_the_identity.get(f"/agents/{SOLVENT_AGENT_ID}").json()
+    assert len(detail["associated_services"]) == 1
+    service = detail["associated_services"][0]
+    assert service["service_id"] == "solvent-signal"
+    assert service["name"] == "SOLVENT Last Published Regime Signal"
+    assert service["hire_method"] == "POST"
+    assert service["hire_path"] == "/hire/solvent-signal"
+    assert service["paid_stock"] is False
+    assert service["stock_status"] == "research"
 
 
 def test_the_machine_front_door_points_at_the_new_layer(client):
@@ -328,6 +349,14 @@ def test_llms_txt_documents_the_service_paths(client):
     for path in ("/categories", "/services", "/services/{service_id}"):
         assert path in body, path
     assert "ordered by service id" in body.lower()
+
+
+def test_agent_docs_explain_the_reverse_marketplace_link(client):
+    llms = client.get("/llms.txt").text
+    skill = client.get("/skill.md").text
+    assert "associated_services" in llms
+    assert "associated_services" in skill
+    assert "Nothing on that plane carries a category, a service or a hire path" not in llms
 
 
 def test_llms_txt_names_every_service_a_caller_can_hire(client):

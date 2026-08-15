@@ -146,6 +146,10 @@ GET /agents/{agent_id}
                      was registered under), observed_at, outcome, status_code,
                      elapsed_ms, detail
       coverage       the snapshot this agent was read from
+      associated_services
+                     Docket service cards explicitly bound to this identity, including
+                     hire_method and hire_path. These are Docket's bindings, not fields
+                     declared by the ERC-8004 registration
 
     An agent with no observations was never probed. That is a statement about
     Docket's coverage, not about the agent.
@@ -233,8 +237,8 @@ GET /hire
       id                the value to put in the POST path
       name              human label
       what_you_get      what the service does, stated as work performed
-      input_schema      {field: {type, required, description, default?}} — the whole
-                        contract for the request body
+      input_schema      {field: {type, required, description, default?, items?}} — the
+                        whole contract for the request body; arrays declare their items
       typical_seconds   how long one run usually takes
       price_display     the flat price after admission, "0.50 $U"
       price_atomic      the same price in the asset's smallest unit
@@ -556,9 +560,10 @@ Reproduce it:
 
 Docket serves two planes and joins them rather than merging them.
 
-/agents and /agents/{agent_id} are the fact plane: what an agent declared on chain, and
-what answered when Docket asked. Nothing on that plane carries a category, a service or
-a hire path, and this stage did not add one.
+/agents is the fact-plane listing: what an agent declared on chain. /agents/{agent_id}
+adds observations plus associated_services, an explicit reverse join to Docket's own
+service cards and their hire paths. That join does not turn a Docket category or service
+into an ERC-8004 fact, and Docket does not infer one from an agent's name or description.
 
 /categories and /services are a second, much smaller layer above it: the work Docket
 runs itself. Six services today: range-doctor, grid-operator, yield-router, health-guard,
@@ -586,9 +591,10 @@ Three rules govern that layer, and they are the reason it is small.
       the four. Every one of them returns a preview built against the chain and none of
       them can submit anything: grid-operator and health-guard both run from objects that
       hold no session key, no signer and no submitter, health-guard has no armed
-      counterpart class in this build at all, and yield-router needs no wallet to run.
-      Acting on anything they draft needs a session the wallet's owner grants on chain,
-      and Docket never holds the owner key.
+      counterpart class in this build at all. yield-router needs no wallet for its pool
+      comparison; an optional swap draft requires wallet, token_in, token_out, amount and
+      cap together. Acting on any draft needs a session the wallet's owner grants on
+      chain, and Docket never holds the owner key.
 
   Two of those four carry a caveat about the claim in their own name.
       health_factor is named after a figure Venus does not publish. Venus's comptroller

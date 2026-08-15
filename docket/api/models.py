@@ -85,12 +85,6 @@ class EndpointObservation(pydantic.BaseModel):
     detail: str | None
 
 
-class AgentDetail(AgentSummary):
-    endpoints: list[str]
-    observations: list[EndpointObservation]
-    coverage: Coverage
-
-
 class ListResponse(pydantic.BaseModel):
     items: list[AgentSummary]
     total: int
@@ -202,6 +196,19 @@ class ServiceCard(pydantic.BaseModel):
     identity: str
     hire_method: str
     hire_path: str
+
+
+class AgentDetail(AgentSummary):
+    """Registry facts plus Docket services explicitly bound to this identity.
+
+    `associated_services` is Docket's marketplace overlay, not something inferred from
+    the agent's registration. It is required so a missing join cannot look like an empty one.
+    """
+
+    endpoints: list[str]
+    observations: list[EndpointObservation]
+    coverage: Coverage
+    associated_services: list[ServiceCard]
 
 
 class ServiceDetail(ServiceCard):
