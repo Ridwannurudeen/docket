@@ -15,6 +15,7 @@ import pytest
 
 import docket.advantage.v3.spec as spec_module
 from docket.advantage.v3.spec import (
+    MANUAL_FIRST,
     PairedSpec,
     assert_runnable,
     load,
@@ -106,6 +107,14 @@ def _valid(**overrides) -> dict:
         "measures": {
             "time": "elapsed monotonic seconds from the registered events",
             "cost": "out-of-pocket amount and unit only",
+        },
+        "execution_protocol": {
+            "arm_block_order": MANUAL_FIRST,
+            "blinding_seed_recipe": "the registered byte recipe",
+            "blinding_parity": "even_a_is_agent",
+            "normalisation_version": "test.v1: a, b",
+            "score_sheet_hash_recipe": "canonical hash of the parsed sheet",
+            "sheets_per_seat": 1,
         },
         "n_planned": 5,
         "stopping_rule": "every frozen primary case once per arm; no scored retry",
@@ -1219,3 +1228,71 @@ def test_warden_defines_every_denominator_and_the_high_stakes_ship_gate():
     ):
         assert term in combined
     assert "either arm's precision is null" in spec.falsifier.lower()
+
+
+# ------------------------------------------- the choices a runner must not make for itself
+
+
+def test_the_runner_may_not_choose_which_arm_block_runs_first():
+    """An operator who has seen the service's answer cannot produce an independent manual
+    arm for the cases that follow. Registering only "manual first within a pair" would still
+    allow that, so the whole manual block precedes the whole agent block, and the order is
+    part of the protocol rather than a line in the runner."""
+    protocol = _valid()["execution_protocol"]
+    with pytest.raises(ValueError, match="arm_block_order must be"):
+        PairedSpec(
+            **_valid(
+                execution_protocol=protocol | {"arm_block_order": "alternating_per_case"}
+            )
+        )
+
+
+def test_the_runner_may_not_choose_the_blinding_polarity():
+    """Even-means-agent is a free choice. Unregistered, it is settled by whichever code runs
+    first, and "reproducible A/B" then means only "reproducible by that code"."""
+    protocol = _valid()["execution_protocol"]
+    with pytest.raises(ValueError, match="blinding_parity"):
+        PairedSpec(**_valid(execution_protocol=protocol | {"blinding_parity": ""}))
+
+
+def test_a_second_score_sheet_from_one_seat_is_refused_by_the_protocol():
+    """A replacement sheet is a sheet whose first result was unwelcome."""
+    protocol = _valid()["execution_protocol"]
+    with pytest.raises(ValueError, match="one score sheet per seat"):
+        PairedSpec(**_valid(execution_protocol=protocol | {"sheets_per_seat": 2}))
+
+
+def test_every_execution_choice_must_be_registered_not_merely_present():
+    for missing in sorted(spec_module.EXECUTION_FIELDS):
+        protocol = dict(_valid()["execution_protocol"])
+        protocol[missing] = ""
+        with pytest.raises(ValueError, match="execution_protocol leaves"):
+            PairedSpec(**_valid(execution_protocol=protocol))
+
+
+def test_the_execution_protocol_is_covered_by_the_stage_one_hash():
+    """If it were outside the protocol hash, amending it would leave the registration
+    looking untouched — which is exactly the silent post-registration change the two-stage
+    lock exists to make visible."""
+    base = PairedSpec(**_valid())
+    changed = PairedSpec(
+        **_valid(
+            execution_protocol=_valid()["execution_protocol"]
+            | {"normalisation_version": "test.v2: a, b, c"}
+        )
+    )
+    assert base.stage_one_protocol_hash != changed.stage_one_protocol_hash
+
+
+def test_all_three_registered_families_fix_the_same_execution_protocol():
+    """The three families differ in what they measure, not in how the evidence is produced.
+    A per-family order or polarity would be a place for one family's result to be shaped."""
+    protocols = [load(path).execution_protocol for path in REGISTERED]
+    assert {p["arm_block_order"] for p in protocols} == {MANUAL_FIRST}
+    assert {p["blinding_parity"] for p in protocols} == {"even_a_is_agent"}
+    assert {int(p["sheets_per_seat"]) for p in protocols} == {1}
+    # The projection is the one part that must differ: the families return different shapes.
+    assert len({p["normalisation_version"] for p in protocols}) == 3
+    for protocol in protocols:
+        # The honest limit of prompt-level blinding travels with the registration.
+        assert "not cryptographically unguessable" in protocol["blinding_limitation"].lower()

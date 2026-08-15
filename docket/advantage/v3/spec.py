@@ -36,6 +36,28 @@ from ...hire.receipts import canonical_hash
 
 ARMS = ("agent", "manual")
 ARM_FIELDS = frozenset({"what_it_does", "who_runs_it", "what_is_recorded"})
+# The result-affecting choices a runner must not be left to make. `arm_block_order` fixes
+# whether the human or the service goes first across the whole family — running every manual
+# case before any agent case is stronger than alternating, because the operator then never
+# sees a service answer before finishing their own. `blinding_seed_recipe` and
+# `blinding_parity` pin the exact bytes and the even/odd meaning, without which "reproducible
+# A/B" is only reproducible by the code that happened to run. `normalisation_version` names
+# the projection that strips arm tells, so a later change to it is visible as a different
+# protocol rather than a silent re-scoring. `score_sheet_hash_recipe` and `sheets_per_seat`
+# fix how a sheet is identified and that exactly one arrives per seat — no patches, no
+# replacements after a disappointing sheet.
+EXECUTION_FIELDS = frozenset(
+    {
+        "arm_block_order",
+        "blinding_seed_recipe",
+        "blinding_parity",
+        "normalisation_version",
+        "score_sheet_hash_recipe",
+        "sheets_per_seat",
+    }
+)
+# Only one order is honest here: a human who has seen the service's answer cannot un-see it.
+MANUAL_FIRST = "all_manual_primaries_then_all_agent_primaries"
 CASE_SELECTION_FIELDS = frozenset(
     {"rule", "chosen_by", "excluded", "population", "truth_source"}
 )
@@ -108,6 +130,12 @@ class PairedSpec:
     speed_threshold: dict
     timing: dict
     measures: dict
+    # Everything the runner would otherwise decide for itself. Each of these changes the
+    # result, so each is registered before the inputs are locked rather than settled in code
+    # once the outputs are visible: which arm block runs first, the exact bytes that derive
+    # the A/B assignment, the projection that strips arm tells, and how a score sheet is
+    # identified. A choice made in the runner is a choice made after registration.
+    execution_protocol: dict
     n_planned: int
     stopping_rule: str
     registration_provenance: str
@@ -136,6 +164,7 @@ class PairedSpec:
             "speed_threshold",
             "timing",
             "measures",
+            "execution_protocol",
         ):
             object.__setattr__(self, name, deepcopy(getattr(self, name)))
 
@@ -237,6 +266,30 @@ class PairedSpec:
         if unsaid:
             raise ValueError(f"spec: scoring leaves {sorted(unsaid)} missing or blank")
 
+        unsaid = _blank_fields(self.execution_protocol, EXECUTION_FIELDS)
+        if unsaid:
+            raise ValueError(
+                f"spec: execution_protocol leaves {sorted(unsaid)} missing or blank — "
+                "a result-affecting choice left out here is one the runner makes after "
+                "registration, which is the objection this whole file answers"
+            )
+        if self.execution_protocol["arm_block_order"] != MANUAL_FIRST:
+            raise ValueError(
+                "spec: arm_block_order must be "
+                f"{MANUAL_FIRST!r} — an operator who has seen the service's answer for any "
+                "case cannot produce an independent manual arm for the ones that follow"
+            )
+        if self.execution_protocol["blinding_parity"] not in ("even_a_is_agent",):
+            raise ValueError(
+                "spec: blinding_parity must state which way an even digest maps, or the "
+                "runner picks the polarity and 'reproducible' means only 'by that code'"
+            )
+        if int(self.execution_protocol["sheets_per_seat"]) != 1:
+            raise ValueError(
+                "spec: exactly one score sheet per seat — a second sheet is a replacement "
+                "for one whose result was unwelcome"
+            )
+
         unsaid = _blank_fields(self.speed_threshold, SPEED_FIELDS)
         if unsaid:
             raise ValueError(
@@ -310,6 +363,7 @@ class PairedSpec:
             "speed_threshold": dict(self.speed_threshold),
             "timing": dict(self.timing),
             "measures": dict(self.measures),
+            "execution_protocol": dict(self.execution_protocol),
             "n_planned": self.n_planned,
             "stopping_rule": self.stopping_rule,
             "failure_policy": self.failure_policy,

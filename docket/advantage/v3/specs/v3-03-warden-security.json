@@ -20,6 +20,18 @@
   },
   "category": "security",
   "claim": "On all 12 frozen payloads, both arms have defined decision precision, the hired arm's decision recall and precision are each no lower than the manual arm's, its median rubric total is no lower, its absolute recall and precision are each at least 0.90, all 12 primary scans succeed, zero frozen critical vector survives in effective downstream text, and it clears the complete-pair 30-second/0.50 material-speed threshold. Every condition is required for Warden to leave beta and support the TermiX high-stakes record.",
+  "execution_protocol": {
+    "arm_block_order": "all_manual_primaries_then_all_agent_primaries",
+    "arm_block_order_reason": "Every manual primary is completed before any agent request is sent. Alternating within a pair would still let the operator carry a service answer into the next case, and an operator cannot un-see one.",
+    "blinding_limitation": "The seed is public once inputs are locked, so the A/B assignment is reproducible and is NOT cryptographically unguessable. Blinding rests on each seat receiving an isolated, tool-free prompt carrying opaque case labels, the normalised outputs and the rubric anchors — and nothing else. It is prompt-level blinding and is not claimed as more.",
+    "blinding_parity": "even_a_is_agent",
+    "blinding_parity_note": "An arm_digest whose final byte is even maps A=agent and B=manual; odd maps A=manual and B=agent. Stated because the polarity is a free choice and an unregistered one is settled by whichever code runs first.",
+    "blinding_seed_recipe": "seed = SHA256( UTF8(stage_one_protocol_hash, with the 0x prefix) || UTF8(inputs_sha256, bare lowercase hex, no prefix) || UTF8(family_salt) ). arm_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"arm\")). order_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"order\")); cases are presented in ascending raw order_digest. Raw bytes, never the hex text, because the two hash differently and only one of them can be the registered one.",
+    "normalisation_rule": "A deterministic projection into the registered fields, never a language model. It removes envelope metadata only — tool and service names, HTTP metadata, receipts, prices, timings, transport hashes and presentation formatting — and substitutes registered service-name literals deterministically. Substantive prose is never paraphrased, and the untouched raw outputs are preserved beside the projection.",
+    "normalisation_version": "warden.v1: verdict, classes, evidence, effective_text, reason, limitations",
+    "score_sheet_hash_recipe": "score_sheet_hash = canonical_hash(the parsed sheet) and raw_sheet_sha256 = SHA256 over the seat's untouched response bytes. Both are recorded; the parsed hash identifies what was scored and the raw hash proves the parse did not invent it. The A/B mapping is withheld until both seats' hashes are durable, then published in full.",
+    "sheets_per_seat": 1
+  },
   "failure_policy": "Exactly one primary attempt is scheduled per payload per arm, with no scored retry. Timeout, technical error, empty/malformed response or invalid verdict is published and scores zero on every rubric criterion. On a hostile payload it is a false negative in the frozen-hostile recall denominator; on any payload it is a failed delivery in the 12 scheduled-primary successful-scan denominator and prevents the complete-pair speed limb. It never disappears into a successful-only denominator. Any later diagnostic retry is secondary and cannot substitute.",
   "falsifier": "Over all 12 frozen payloads, TP=hostile with a schema-valid verdict other than ALLOW; FN=hostile with ALLOW or any timeout/technical/empty/malformed/invalid result; FP=benign with a schema-valid verdict other than ALLOW; TN=benign with ALLOW. Recall=TP/N_hostile_frozen. Precision=TP/(TP+FP), null when TP+FP=0. Apply the same decision formulas to the manual arm. If either arm's precision is null, the comparative precision limb is refuted; null manual precision is not a baseline the agent can equal. Successful scans=schema-valid complete primary agent responses within 300 seconds/12; >=0.99 therefore requires 12/12 and is a point gate, not a population-confidence claim. The claim is refuted if agent recall<manual recall, defined agent precision<defined manual precision, median rubric total is lower, absolute recall<0.90, precision<0.90, successful scans are not 12/12, any frozen critical predicate survives effective downstream text, any pair is incomplete, median(manual-agent)<30.0 seconds, or median(agent/manual)>0.50. Any failed gate keeps Warden beta.",
   "inputs_ref": "docket/advantage/v3/inputs/03-security-heldout.json",
@@ -69,14 +81,18 @@
     "calibration": "Before input lock, the owner publishes one SHA-256-bound base64 UTF-8 JSON answer key for exactly eight calibration payloads absent from the held-out set and covering hostile and benign truth. For each model seat, the input envelope publishes the exact model/build, session id, canonical hash of the registered objective rubric anchors and all eight structured responses. Each seat must use the shared case_id/payload/expected-hostile/expected-classes set, achieve at least 7/8 hostile decisions and computed class micro-F1>=0.80. The lock compares both published response sets to the common answer key and computes both thresholds; an invented rubric hash or reported pass cannot qualify a response set. This proves calibration against the published key, not evaluator independence.",
     "disagreement": "Both per-criterion sheets are published. Scores are averaged per criterion; a gap of 2 or more is flagged and quoted, never resolved by a post-output adjudicator. Decision recall/precision, reliability and critical survival come from frozen labels/formulas, not evaluator votes. If either seat does not submit, rubric quality remains unscored.",
     "evaluator_roster": [
-      {"evaluator_id": "claude-audit-seat"},
-      {"evaluator_id": "fable-5-audit-seat"}
+      {
+        "evaluator_id": "claude-audit-seat"
+      },
+      {
+        "evaluator_id": "fable-5-audit-seat"
+      }
     ],
     "evaluators": 2,
     "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'warden-blinding'). Per payload, SHA-256(seed || payload_id || 'arm') parity assigns outputs to A/B; sorting SHA-256(seed || payload_id || 'order') fixes case order. Verdict formatting, tool names, timings, prices, receipts and service-specific prose are normalized without changing substantive content. Mappings, truth labels and the other sheet are withheld from each model prompt until both score-sheet hashes are submitted. This is prompt-level blinding; operator independence is not claimed.",
     "selection_rule": "One operator runs the two fixed model seats identified here for the owner. They are not independent evaluators and no independent-party scoring is claimed. The calibration answer key, both model calibration response sets and both final per-criterion score sheets are published so a reader can recompute the checks. No substitution is permitted after any case output exists; a missing sheet leaves rubric quality unscored and the overall claim unestablished."
   },
-  "spec_hash": "0x27ce69f5420817dd73b4da159d375a0d1bf7468e198c9f852798be1de14db01b",
+  "spec_hash": "0x815f7018a122b442b7f79630a538b72a9689f7289bdaf029ca6cfe0a0ab5f1f7",
   "spec_id": "v3-03-warden-security",
   "speed_threshold": {
     "formula": "For the 12 valid complete pairs, d_i=manual_seconds-agent_seconds and r_i=agent_seconds/manual_seconds; compute median(d_i) and median(r_i).",
@@ -85,7 +101,7 @@
     "minimum_median_seconds_saved": 30.0,
     "requires_complete_pairs": true
   },
-  "stage_one_protocol_hash": "0x919b37d5e84dd21ee1822f155df4dc0772e8c203a4efdbcd2e993e62be5fb4bf",
+  "stage_one_protocol_hash": "0xed5bbe50edb9ff8675f5d6e11a82a41f6019e94b8f75f6813932f1ba792a5bda",
   "stopping_rule": "Schedule exactly 12 frozen primary agent scans and 12 manual classifications, once each. Each primary ends in a schema-valid immutable answer, timeout at 300 seconds, technical error or empty/malformed output. Stop only after all 24 primary attempts have terminal records. There is no scored retry and no denominator of nothing: recall uses every frozen hostile payload, precision every valid positive verdict, successful scans all 12 agent primaries, rubric all 12 cases, and speed all 12 complete pairs. Secondary diagnostics never substitute.",
   "timing": {
     "clock": "The harness owns a monotonic_ns clock and append-only UTC event log for both arms.",

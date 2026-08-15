@@ -20,6 +20,18 @@
   },
   "category": "yield/LP",
   "claim": "Within the exact frozen eligible top-pools response and the common $10,000/$25/30-day scenario, the hired arm's median rubric total is no lower than the manual arm's, every agent universe exactly matches the truth manifest, and the hired arm is materially faster under the registered complete-pair 30-second/0.50 threshold.",
+  "execution_protocol": {
+    "arm_block_order": "all_manual_primaries_then_all_agent_primaries",
+    "arm_block_order_reason": "Every manual primary is completed before any agent request is sent. Alternating within a pair would still let the operator carry a service answer into the next case, and an operator cannot un-see one.",
+    "blinding_limitation": "The seed is public once inputs are locked, so the A/B assignment is reproducible and is NOT cryptographically unguessable. Blinding rests on each seat receiving an isolated, tool-free prompt carrying opaque case labels, the normalised outputs and the rubric anchors — and nothing else. It is prompt-level blinding and is not claimed as more.",
+    "blinding_parity": "even_a_is_agent",
+    "blinding_parity_note": "An arm_digest whose final byte is even maps A=agent and B=manual; odd maps A=manual and B=agent. Stated because the polarity is a free choice and an unregistered one is settled by whichever code runs first.",
+    "blinding_seed_recipe": "seed = SHA256( UTF8(stage_one_protocol_hash, with the 0x prefix) || UTF8(inputs_sha256, bare lowercase hex, no prefix) || UTF8(family_salt) ). arm_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"arm\")). order_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"order\")); cases are presented in ascending raw order_digest. Raw bytes, never the hex text, because the two hash differently and only one of them can be the registered one.",
+    "normalisation_rule": "A deterministic projection into the registered fields, never a language model. It removes envelope metadata only — tool and service names, HTTP metadata, receipts, prices, timings, transport hashes and presentation formatting — and substitutes registered service-name literals deterministically. Substantive prose is never paraphrased, and the untouched raw outputs are preserved beside the projection.",
+    "normalisation_version": "yield.v1: sources, universe, rates, scenario, decision, limitations",
+    "score_sheet_hash_recipe": "score_sheet_hash = canonical_hash(the parsed sheet) and raw_sheet_sha256 = SHA256 over the seat's untouched response bytes. Both are recorded; the parsed hash identifies what was scored and the raw hash proves the parse did not invent it. The A/B mapping is withheld until both seats' hashes are durable, then published in full.",
+    "sheets_per_seat": 1
+  },
   "failure_policy": "Exactly one primary attempt is scheduled per case per arm. A timeout, technical error, empty/malformed response, wrong snapshot hash or incomplete universe is published, scores zero on every criterion, stays in the five-case quality and reliability denominators, and prevents the complete-pair speed limb. It is never replaced by a scored retry. Any later diagnostic request is secondary and cannot substitute.",
   "falsifier": "The quality limb is refuted if the hired arm's median rubric total is lower. The completeness limb is refuted if any agent output does not partition every frozen row exactly as the truth manifest. The speed limb is refuted if any pair is incomplete, median(manual_seconds-agent_seconds)<30.0, or median(agent_seconds/manual_seconds)>0.50. A recommendation from a later live fetch, an ineligible destination, or a displayed but incomplete universe cannot support the claim.",
   "inputs_ref": "docket/advantage/v3/inputs/02-yield-cases.json",
@@ -76,14 +88,18 @@
     "calibration": "Before input lock, the owner publishes one SHA-256-bound base64 UTF-8 JSON answer key for exactly eight Pancake cases. Its literal allowlists, pool rows and common scenarios must include eligible and at least two distinct excluded outcomes; the lock recomputes first failed gates, both net APRs, incremental dollars, break-even and move/stay truth from the registered formulas. For each model seat, the input envelope publishes the exact model/build, session id, canonical hash of the registered objective rubric anchors and all eight structured responses. Each seat must exactly match at least seven complete canonical answers. The lock rejects invented answer-key values and computes the pass count from the published responses. This proves calibration against the published key, not evaluator independence.",
     "disagreement": "Both per-criterion sheets are published. Scores are averaged per criterion; a gap of 2 or more is flagged and quoted, never resolved by a post-output adjudicator. If either named seat does not submit, the family remains unscored.",
     "evaluator_roster": [
-      {"evaluator_id": "claude-audit-seat"},
-      {"evaluator_id": "fable-5-audit-seat"}
+      {
+        "evaluator_id": "claude-audit-seat"
+      },
+      {
+        "evaluator_id": "fable-5-audit-seat"
+      }
     ],
     "evaluators": 2,
     "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'yield-blinding'). Per case, SHA-256(seed || case_id || 'arm') parity assigns A/B; sorting SHA-256(seed || case_id || 'order') fixes case order. Tool names, timing, prices, receipts and formatting tells are removed, and mappings, truth and the other sheet are withheld from each model prompt until both sheet hashes are submitted. This is prompt-level blinding; operator independence is not claimed.",
     "selection_rule": "One operator runs the two fixed model seats identified here for the owner. They are not independent evaluators and no independent-party scoring is claimed. The calibration answer key, both model calibration response sets and both final per-criterion score sheets are published so a reader can recompute the checks. No substitution is permitted after any case output exists; a missing sheet leaves the family unscored."
   },
-  "spec_hash": "0x9455cc8c811af8c497ff8d16b5ff62c951cc8835f8bafdab76c20bc8947baa1e",
+  "spec_hash": "0xc0eed24428c0d64f3ed1a01c1b767a55693de51cc3ba52dfef65ee0f8d2a3423",
   "spec_id": "v3-02-yield-router",
   "speed_threshold": {
     "formula": "For the five valid complete pairs, d_i=manual_seconds-agent_seconds and r_i=agent_seconds/manual_seconds; compute median(d_i) and median(r_i).",
@@ -92,7 +108,7 @@
     "minimum_median_seconds_saved": 30.0,
     "requires_complete_pairs": true
   },
-  "stage_one_protocol_hash": "0x2d567eae84c22c61cf83b86bd63692894af65b231ef16ca6c880065d7f254ace",
+  "stage_one_protocol_hash": "0x49ad6b20381fb72ec20600b283203d5aee399406c6a7314eadac6eefe2b6c730",
   "stopping_rule": "Schedule exactly five frozen primary cases once per arm. A primary attempt ends in a valid immutable answer, timeout at 1,200 seconds, technical error, empty/malformed output or snapshot mismatch. Stop only after all ten primary attempts have terminal records. No scored retry, replacement case/source or post-output rule change is allowed; incomplete pairs prevent the speed limb.",
   "timing": {
     "clock": "The harness owns a monotonic_ns clock and an append-only UTC event log for both arms.",

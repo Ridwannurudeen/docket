@@ -20,6 +20,18 @@
   },
   "category": "yield/LP",
   "claim": "Across the five exact registered position cases, the hired arm's median rubric total is no lower than the manual arm's and it is materially faster under the registered complete-pair threshold: median paired saving at least 30.0 seconds and median agent/manual elapsed ratio at most 0.50.",
+  "execution_protocol": {
+    "arm_block_order": "all_manual_primaries_then_all_agent_primaries",
+    "arm_block_order_reason": "Every manual primary is completed before any agent request is sent. Alternating within a pair would still let the operator carry a service answer into the next case, and an operator cannot un-see one.",
+    "blinding_limitation": "The seed is public once inputs are locked, so the A/B assignment is reproducible and is NOT cryptographically unguessable. Blinding rests on each seat receiving an isolated, tool-free prompt carrying opaque case labels, the normalised outputs and the rubric anchors — and nothing else. It is prompt-level blinding and is not claimed as more.",
+    "blinding_parity": "even_a_is_agent",
+    "blinding_parity_note": "An arm_digest whose final byte is even maps A=agent and B=manual; odd maps A=manual and B=agent. Stated because the polarity is a free choice and an unregistered one is settled by whichever code runs first.",
+    "blinding_seed_recipe": "seed = SHA256( UTF8(stage_one_protocol_hash, with the 0x prefix) || UTF8(inputs_sha256, bare lowercase hex, no prefix) || UTF8(family_salt) ). arm_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"arm\")). order_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"order\")); cases are presented in ascending raw order_digest. Raw bytes, never the hex text, because the two hash differently and only one of them can be the registered one.",
+    "normalisation_rule": "A deterministic projection into the registered fields, never a language model. It removes envelope metadata only — tool and service names, HTTP metadata, receipts, prices, timings, transport hashes and presentation formatting — and substitutes registered service-name literals deterministically. Substantive prose is never paraphrased, and the untouched raw outputs are preserved beside the projection.",
+    "normalisation_version": "range.v1: position, observation, range, pool_evidence, rates, dollars, action, coverage, limitations, sources",
+    "score_sheet_hash_recipe": "score_sheet_hash = canonical_hash(the parsed sheet) and raw_sheet_sha256 = SHA256 over the seat's untouched response bytes. Both are recorded; the parsed hash identifies what was scored and the raw hash proves the parse did not invent it. The A/B mapping is withheld until both seats' hashes are durable, then published in full.",
+    "sheets_per_seat": 1
+  },
   "failure_policy": "Exactly one primary attempt is scheduled per case per arm. A timeout, technical error, empty or malformed response, wrong token id/block, or incomplete answer is published, scores zero on every criterion, stays in the five-case quality and reliability denominators, and prevents the complete-pair speed limb. It is never replaced by a scored retry. Any later diagnostic request is labelled secondary and cannot substitute for the primary result.",
   "falsifier": "The quality limb is refuted if the hired arm's median rubric total is lower than the manual arm's. The speed limb is refuted if any of the five pairs lacks two valid completed outputs, median(manual_seconds-agent_seconds) is below 30.0 seconds, or median(agent_seconds/manual_seconds) exceeds 0.50. A fast error cannot support speed. A returned dollar consequence outside the registered tolerance receives no correctness credit merely because a dollar figure is present.",
   "inputs_ref": "docket/advantage/v3/inputs/01-range-positions.json",
@@ -76,14 +88,18 @@
     "calibration": "Before input lock, the owner publishes one SHA-256-bound base64 UTF-8 JSON answer key for exactly eight Pancake v3 cases. Its literal tick, fee, TVL, notional and cost inputs must cover in/above/below range; the lock recomputes every expected range status, gross/net APR, dollar consequence and break-even value from the registered formulas. For each model seat, the input envelope publishes the exact model/build, session id, canonical hash of the registered objective rubric anchors and all eight structured responses. Each seat must exactly match at least seven complete canonical answers. The lock rejects invented answer-key values and computes the pass count from the published responses. This proves calibration against the published key, not evaluator independence.",
     "disagreement": "Both per-criterion sheets are published. Scores are averaged per criterion; a gap of 2 or more is flagged and quoted, never resolved by a post-output adjudicator. If either named seat does not submit, the family remains unscored.",
     "evaluator_roster": [
-      {"evaluator_id": "claude-audit-seat"},
-      {"evaluator_id": "fable-5-audit-seat"}
+      {
+        "evaluator_id": "claude-audit-seat"
+      },
+      {
+        "evaluator_id": "fable-5-audit-seat"
+      }
     ],
     "evaluators": 2,
     "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'range-blinding'). Per case, SHA-256(seed || case_id || 'arm') parity assigns agent/manual to A/B; sorting SHA-256(seed || case_id || 'order') fixes case order. The harness removes tool names, timings, prices, receipts and formatting tells and withholds mappings, truth and the other sheet from each model prompt until both sheet hashes are submitted. This is prompt-level blinding; operator independence is not claimed.",
     "selection_rule": "One operator runs the two fixed model seats identified here for the owner. They are not independent evaluators and no independent-party scoring is claimed. The calibration answer key, both model calibration response sets and both final per-criterion score sheets are published so a reader can recompute the checks. No substitution is permitted after any case output exists; a missing sheet leaves the report unscored."
   },
-  "spec_hash": "0x2d3a615b689ce1611783d218a2ab9406cd93421485cdb6eef6e6b61f9470d282",
+  "spec_hash": "0x30f00bcc249fd0adc235df3880026abbbd8bfe01e753781192b9b3a768a54304",
   "spec_id": "v3-01-range-doctor",
   "speed_threshold": {
     "formula": "For the five valid complete pairs, d_i=manual_seconds-agent_seconds and r_i=agent_seconds/manual_seconds; compute median(d_i) and median(r_i).",
@@ -92,7 +108,7 @@
     "minimum_median_seconds_saved": 30.0,
     "requires_complete_pairs": true
   },
-  "stage_one_protocol_hash": "0xcfaf6d9655c35385456efed490169540258422fca9f5f17e385b4fb4a0f68bd6",
+  "stage_one_protocol_hash": "0x8f1510c01610b6b77d6ab80add73e740b64b2d0f73ca8fd3ad6a33a0744f888d",
   "stopping_rule": "Schedule exactly five frozen primary cases once per arm. A primary attempt ends in a valid immutable answer, timeout at 1,200 seconds, technical error, empty/malformed output or wrong-case output. Stop only after all ten primary attempts have terminal records. No scored retry, replacement case or post-output rule change is allowed; incomplete pairs prevent the speed limb.",
   "timing": {
     "clock": "The harness owns a monotonic_ns clock and an append-only UTC event log for both arms.",
