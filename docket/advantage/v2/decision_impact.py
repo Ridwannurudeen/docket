@@ -149,60 +149,74 @@ def dollars_at_notionals(pools: list[dict], notionals_usd: list[float]) -> dict:
 def break_even_shift(
     pools: list[dict], *, notional_usd: float, switching_cost_usd: float
 ) -> dict:
-    """How much sooner a move appears to pay back when the gain is read gross.
+    """How much sooner a MOVE appears to pay back when the gain is read gross.
 
-    A provider weighing a move compares the extra yield against what moving costs. Computed
-    from gross, the payback arrives earlier than it will — so the error does not only inflate
-    the reward, it makes the move look like it recovers its cost faster.
+    A move is a comparison between two pools, and its payback comes from the *difference*
+    between them — not from the destination's whole return. An earlier version of this
+    function divided the switching cost by the destination's entire yield, which answers
+    "how long until this pool's fees cover the cost of getting here" and understated the real
+    payback roughly sixfold on a representative pair. The published figure was wrong, and the
+    docstring above it described the correct model while the code did something else.
+
+    So the unit here is an ordered pair: stay in `current`, or pay the switching cost to reach
+    `destination`. Only pairs where the destination actually beats the current pool are
+    break-even candidates at all — moving to a worse pool never repays, and including those
+    would mix "never" into a median of days.
     """
+    ranked = [
+        pool
+        for pool in pools
+        if pool.get("gross_fee_apr") is not None and pool.get("net_fee_apr") is not None
+    ]
     rows = []
-    for pool in pools:
-        gross = pool.get("gross_fee_apr")
-        net = pool.get("net_fee_apr")
-        if gross is None or net is None:
-            continue
-        gross_daily = notional_usd * gross / 365
-        net_daily = notional_usd * net / 365
-        gross_days = None if gross_daily <= 0 else switching_cost_usd / gross_daily
-        net_days = None if net_daily <= 0 else switching_cost_usd / net_daily
-        rows.append(
-            {
-                "pool": pool["pool"],
-                "pair": pool.get("pair"),
-                "break_even_days_from_gross": gross_days,
-                "break_even_days_from_net": net_days,
-                # Positive means the real payback is later than the gross figure implies,
-                # which is the direction that matters: the optimistic error is the dangerous
-                # one, because it is the one that talks somebody into acting.
-                "days_later_than_gross_implies": (
-                    None
-                    if gross_days is None or net_days is None
-                    else net_days - gross_days
-                ),
-            }
-        )
-    shifts = sorted(
-        row["days_later_than_gross_implies"]
-        for row in rows
-        if row["days_later_than_gross_implies"] is not None
-    )
+    for current in ranked:
+        for destination in ranked:
+            if current["pool"] == destination["pool"]:
+                continue
+            gross_gain = destination["gross_fee_apr"] - current["gross_fee_apr"]
+            net_gain = destination["net_fee_apr"] - current["net_fee_apr"]
+            # A pair only informs a move decision if BOTH readings call it an improvement.
+            # Where they disagree the ranking itself reversed, which the reversal measure
+            # already counts and which is a different finding from a mis-stated payback.
+            if gross_gain <= 0 or net_gain <= 0:
+                continue
+            gross_days = switching_cost_usd / (notional_usd * gross_gain / 365)
+            net_days = switching_cost_usd / (notional_usd * net_gain / 365)
+            rows.append(
+                {
+                    "from_pool": current["pool"],
+                    "from_pair": current.get("pair"),
+                    "to_pool": destination["pool"],
+                    "to_pair": destination.get("pair"),
+                    "break_even_days_from_gross": gross_days,
+                    "break_even_days_from_net": net_days,
+                    # Positive means the real payback is later than the gross figure implies.
+                    # That direction is the one that matters: an optimistic error is the one
+                    # that talks somebody into acting.
+                    "days_later_than_gross_implies": net_days - gross_days,
+                }
+            )
+    shifts = sorted(row["days_later_than_gross_implies"] for row in rows)
     return {
         "notional_usd": notional_usd,
         "switching_cost_usd": switching_cost_usd,
-        "n_pools": len(rows),
+        "n_moves": len(rows),
         "median_days_later_than_gross_implies": _median(shifts),
         "max_days_later_than_gross_implies": shifts[-1] if shifts else None,
-        "pools": rows,
+        "moves": rows,
         "what_this_measures": (
-            "The difference between the payback period a gross rate implies and the one the "
-            "net rate supports, at a declared position size and switching cost. Both are "
-            "inputs. A positive figure means the real payback is later than the published "
-            "number suggests."
+            "For each ordered pair of pools where moving is an improvement under both "
+            "readings, the difference between the payback period the gross rates imply and "
+            "the one the net rates support. The notional and the switching cost are inputs. A "
+            "positive figure means the real payback is later than the published numbers "
+            "suggest."
         ),
         "what_it_does_not_measure": (
-            "Impermanent loss, price movement, gas, or whether either rate persists. A "
-            "break-even computed from one annualised day is a statement about today's "
-            "figures, not a forecast."
+            "Impermanent loss, price movement, gas beyond the declared switching cost, or "
+            "whether either rate persists. A break-even computed from one annualised day is a "
+            "statement about today's figures, not a forecast. Pairs where the two readings "
+            "disagree about whether moving helps at all are excluded here and counted as "
+            "ranking reversals instead."
         ),
     }
 

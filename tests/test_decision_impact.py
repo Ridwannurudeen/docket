@@ -8,6 +8,8 @@ answers is no — which is why the other two are worth anything.
 import json
 from pathlib import Path
 
+import pytest
+
 from docket.advantage.v2.decision_impact import (
     break_even_shift,
     dollars_at_notionals,
@@ -69,20 +71,53 @@ def test_the_dollar_overstatement_is_real_and_scales_with_the_declared_notional(
     assert "no wallet was read" in dollars_at_notionals(POOLS, [1.0])["what_this_measures"]
 
 
+def test_a_move_break_even_uses_the_gain_from_moving_not_the_destination_s_whole_return():
+    """The error this test exists because of.
+
+    The first version divided the switching cost by the destination pool's entire yield,
+    which answers "how long until this pool's fees cover the cost of getting here" — a
+    different question, and one that understated the real payback roughly sixfold on a
+    representative pair. A move is paid for by the DIFFERENCE between two pools.
+    """
+    current = {"pool": "a", "gross_fee_apr": 0.050, "net_fee_apr": 0.050}
+    destination = {"pool": "b", "gross_fee_apr": 0.060, "net_fee_apr": 0.060}
+    row = break_even_shift(
+        [current, destination], notional_usd=10_000.0, switching_cost_usd=25.0
+    )["moves"][0]
+
+    # 1% of $10,000 is $100/yr, so $25 takes about a quarter of a year.
+    assert row["break_even_days_from_gross"] == pytest.approx(91.25, rel=1e-3)
+    # The whole-return answer would have been ~15.2 days. It is not this.
+    assert row["break_even_days_from_gross"] > 80
+
+
+def test_a_move_to_a_worse_pool_is_not_a_break_even_candidate():
+    """Moving to a worse pool never repays. Including it would mix "never" into a median."""
+    better = {"pool": "a", "gross_fee_apr": 0.06, "net_fee_apr": 0.06}
+    worse = {"pool": "b", "gross_fee_apr": 0.05, "net_fee_apr": 0.05}
+    moves = break_even_shift(
+        [better, worse], notional_usd=10_000.0, switching_cost_usd=25.0
+    )["moves"]
+    assert [(m["from_pool"], m["to_pool"]) for m in moves] == [("b", "a")]
+
+
 def test_reading_gross_makes_a_move_look_like_it_pays_back_sooner_than_it_does():
     """The optimistic error is the dangerous one: it is the one that talks somebody into
     acting. Positive days mean the real payback is later than the published figure implies."""
     shift = break_even_shift(POOLS, notional_usd=10_000.0, switching_cost_usd=25.0)
     assert shift["median_days_later_than_gross_implies"] > 0
-    assert shift["n_pools"] == 22
+    # Ordered pairs of the 22 comparable pools, not one row per pool.
+    assert shift["n_moves"] > 22
     assert "not a forecast" in shift["what_it_does_not_measure"]
 
 
-def test_break_even_refuses_to_divide_by_a_zero_rate():
-    flat = [{"pool": "a", "gross_fee_apr": 0.0, "net_fee_apr": 0.0}]
-    row = break_even_shift(flat, notional_usd=10_000.0, switching_cost_usd=25.0)["pools"][0]
-    assert row["break_even_days_from_gross"] is None
-    assert row["days_later_than_gross_implies"] is None
+def test_two_pools_with_no_gain_between_them_produce_no_move():
+    """A zero gain is not a payback of zero days — there is nothing to pay back."""
+    flat = [
+        {"pool": "a", "gross_fee_apr": 0.05, "net_fee_apr": 0.05},
+        {"pool": "b", "gross_fee_apr": 0.05, "net_fee_apr": 0.05},
+    ]
+    assert break_even_shift(flat, notional_usd=10_000.0, switching_cost_usd=25.0)["moves"] == []
 
 
 def test_a_pool_missing_either_rate_is_excluded_rather_than_assumed():
