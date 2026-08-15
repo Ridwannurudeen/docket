@@ -12,10 +12,10 @@ externally anchored.
 | Python | `>=3.11`; CI uses 3.12 |
 | Application factory | `docket.api:create_app` |
 | Builder base commit | `731dcb3d3fe1267546c96fd73118a3b34d58b7b3` |
-| Release source commit | `bcccafea9b461889ae2fbed7086c827ce1fe7386` — remote-reachable, see below |
-| Release wheel digest | `ddc128bacf689840ee0845e58bcb05d5bef92b760a92161e89ae1ee14784b91b` |
+| Release source commit | `b883e3f5167f8d705a3a2a13c174a0a94d543dfc` — remote-reachable, see below |
+| Release wheel digest | `bc5f33f7fb063fc6ed43d535eac96c1e885f2aebb994b12d92bbd71f343e2ac4` |
 | Public repository visibility action | Not performed; owner-only |
-| Deployment action | **Performed 2026-08-15T05:17:06Z** to `docket.gudman.xyz` |
+| Deployment action | **Performed 2026-08-15T12:08:12Z** to `docket.gudman.xyz` (supersedes the 05:17:06Z deployment of `bcccafe`) |
 | Deployed source/wheel identity | The wheel above, imported from site-packages — see "Deployed identity" |
 | Live settlement transaction | Missing. Settlement is built, disabled, and has never run. |
 
@@ -26,12 +26,12 @@ the release and must not be used as a deployment hash.
 
 | Field | Value |
 |---|---|
-| Deployed at | `2026-08-15T05:17:06Z` |
-| Runtime venv | `/opt/docket-venvs/bcccafea9b46` (permanent path; `/opt/docket/.venv` is a symlink to it) |
-| Runtime `docket.__file__` | `/opt/docket-venvs/bcccafea9b46/lib/python3.12/site-packages/docket/__init__.py` |
+| Deployed at | `2026-08-15T12:08:12Z` |
+| Runtime venv | `/opt/docket-venvs/b883e3f5167f` (permanent path; `/opt/docket/.venv` is a symlink to it) |
+| Runtime `docket.__file__` | `/opt/docket-venvs/b883e3f5167f/lib/python3.12/site-packages/docket/__init__.py` |
 | Python | 3.12.3 · `pip check` clean |
-| Previous release backup | `/opt/docket.bak-20260815T051706Z` (retained) |
-| Database backup | `/root/docket-db-backups/agents-20260815T051706Z.sqlite3`, 45,240,320 bytes, `PRAGMA integrity_check` = ok, 3 snapshots, taken with the app stopped and **before** the additive `stop_reason` migration ran |
+| Previous release backup | `/opt/docket.bak-20260815T120812Z` (retained; the earlier `/opt/docket.bak-20260815T051706Z` is also kept) |
+| Database backup | `/root/docket-db-backups/agents-20260815T120812Z.sqlite3`, 45,240,320 bytes, `PRAGMA integrity_check` = ok, 3 snapshots, taken with the app stopped and **before** the additive `stop_reason` migration ran |
 | Canary units | `docket-canary.service` + `.timer` installed and enabled; first record `not_yet_exercised` |
 
 **Why the wheel digest may now be called the deployed artifact.** Before this release the host

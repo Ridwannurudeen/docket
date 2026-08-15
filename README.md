@@ -37,11 +37,10 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
   set locally, and branch protection is unavailable on a private repository, so the ref
   can still be rewritten by its owner. There is no independently attested wall-clock time
   for any individual protocol registration.
-- **C-09.** A deployment of commit `bcccafe` to `docket.gudman.xyz` is recorded in
-  `docs/source-deploy-manifest.md`, with the runtime import path read from the live
-  interpreter after cutover. That is not parity with this revision: later commits have not
-  been deployed, and this package makes no claim that the public deployment runs the
-  current HEAD.
+- **C-09.** Commit `b883e3f` is deployed to `docket.gudman.xyz` as recorded in
+  `docs/source-deploy-manifest.md`, installed from a wheel into a fresh environment and
+  confirmed by reading the runtime import path from the live interpreter after cutover.
+  Any commit made after that deployment is not covered by it.
 
 The table records where evidence is missing instead of substituting a number or a
 transaction that does not exist.
