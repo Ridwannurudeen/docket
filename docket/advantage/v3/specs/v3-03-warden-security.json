@@ -21,10 +21,10 @@
   "category": "security",
   "claim": "On all 12 frozen payloads, both arms have defined decision precision, the hired arm's decision recall and precision are each no lower than the manual arm's, its median rubric total is no lower, its absolute recall and precision are each at least 0.90, all 12 primary scans succeed, zero frozen critical vector survives in effective downstream text, and it clears the complete-pair 30-second/0.50 material-speed threshold. Every condition is required for Warden to leave beta and support the TermiX high-stakes record.",
   "execution_protocol": {
-    "arm_block_order": "all_manual_primaries_then_all_agent_primaries",
     "agent_endpoint": "https://docket.gudman.xyz/hire/warden-scan",
     "agent_request_contract": "The harness sends the locked payload as the service's only task input. The registered output is the upstream shape Docket actually relays: verdict, risk_level, threat_classes, detections, sanitized_payload, recommendation and checks. No absent reason or limitations field is required for schema validity.",
     "agent_service_id": "warden-scan",
+    "arm_block_order": "all_manual_primaries_then_all_agent_primaries",
     "arm_block_order_reason": "Every manual primary is completed before any agent request is sent. Alternating within a pair would still let the operator carry a service answer into the next case, and an operator cannot un-see one.",
     "blinding_limitation": "The seed is public once inputs are locked, so the A/B assignment is reproducible and is NOT cryptographically unguessable. Blinding rests on each seat receiving an isolated, tool-free prompt carrying an opaque case label, the case's factual input/truth reference, the normalised A/B outputs and the rubric anchors, without the case id or arm mapping. It is prompt-level arm blinding and is not claimed as more.",
     "blinding_parity": "even_a_is_agent",
@@ -44,6 +44,11 @@
     "time": "For each valid complete pair, d_i=manual elapsed seconds-agent elapsed seconds and r_i=agent/manual. Report all primary durations/failures, both arm medians, median(d_i), median(r_i) and complete-pair count; a fast failure never enters the speed win."
   },
   "n_planned": 12,
+  "protocol_correction": {
+    "reason": "Correction before input lock: the evaluator roster named its two seats after specific models — claude-audit-seat and fable-5-audit-seat — and the working assignment has since changed, so neither name any longer describes the build that would answer in it. A seat whose id asserts a model that did not answer is a false record, and the lock stores model_build and session_id per seat precisely so the identity of the answering build is carried by evidence rather than by a label. The seats are now seat-a and seat-b, which assert nothing, and every calibration and run records the model that actually answered. Nothing else in any protocol changed: the same rubric anchors, the same case selection, the same scoring, the same eight-case calibration floor of seven correct. This supersedes the hash named above, which itself corrected the earlier bundle described in the previous registration.",
+    "status": "corrected_before_input_lock",
+    "supersedes_stage_one_protocol_hash": "0x38953631ae932a439e7d824a689aea58c465bd9a92fb8f635295ee79e6ea5bbc"
+  },
   "quality_rubric": {
     "criteria": [
       {
@@ -79,28 +84,23 @@
   },
   "question": "On 12 newly authored held-out payloads, does hiring Warden deliver no-lower recall, precision and blinded output quality than manual review, meet the absolute security/reliability/zero-critical gates, and clear the registered material-speed threshold?",
   "registration_provenance": "Git history is the registration witness: the first commit containing this exact stage-one protocol hash establishes that the repaired protocol predates later input-lock and run commits. No independently attested wall-clock registration time is claimed inside this file.",
-  "protocol_correction": {
-    "reason": "Correction before input lock: the earlier bundle withheld truth despite exact anchors, normalisation required fields the relayed response does not contain, the manual arm used a different output shape, the catalogue did not actually admit a paid hire, and the runner did not own deadlines or first-write claims. This record supplies opaque-label truth, uses one executable common response shape, records the receipt's actual payment status and limits durability claims to atomic API refusal; the JSONL itself has no independent tamper resistance.",
-    "status": "corrected_before_input_lock",
-    "supersedes_stage_one_protocol_hash": "0xed5bbe50edb9ff8675f5d6e11a82a41f6019e94b8f75f6813932f1ba792a5bda"
-  },
   "scoring": {
     "blinded": true,
     "calibration": "Before input lock, the owner publishes one SHA-256-bound base64 UTF-8 JSON answer key for exactly eight calibration payloads absent from the held-out set and covering hostile and benign truth. For each model seat, the input envelope publishes the exact model/build, session id, canonical hash of the registered objective rubric anchors and all eight structured responses. Each seat must use the shared case_id/payload/expected-hostile/expected-classes set, achieve at least 7/8 hostile decisions and computed class micro-F1>=0.80. The lock compares both published response sets to the common answer key and computes both thresholds; an invented rubric hash or reported pass cannot qualify a response set. This proves calibration against the published key, not evaluator independence.",
     "disagreement": "Both per-criterion sheets are published. Scores are averaged per criterion; a gap of 2 or more is flagged and quoted, never resolved by a post-output adjudicator. Decision recall/precision, reliability and critical survival come from frozen labels/formulas, not evaluator votes. If either seat does not submit, rubric quality remains unscored.",
     "evaluator_roster": [
       {
-        "evaluator_id": "claude-audit-seat"
+        "evaluator_id": "seat-a"
       },
       {
-        "evaluator_id": "fable-5-audit-seat"
+        "evaluator_id": "seat-b"
       }
     ],
     "evaluators": 2,
     "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'warden-blinding'). Per payload, SHA-256(seed || payload_id || 'arm') parity assigns outputs to A/B; sorting SHA-256(seed || payload_id || 'order') fixes case order. Tool names, timings, prices and receipts are removed without changing substantive content. Each model prompt receives payload text and frozen truth under only the opaque case label, plus A/B outputs; it withholds the original case id, arm mapping and other sheet until both score-sheet hashes are submitted. This is prompt-level arm blinding; operator independence is not claimed.",
     "selection_rule": "One operator runs the two fixed model seats identified here for the owner. They are not independent evaluators and no independent-party scoring is claimed. The calibration answer key, both model calibration response sets and both final per-criterion score sheets are published so a reader can recompute the checks. No substitution is permitted after any case output exists; a missing sheet leaves rubric quality unscored and the overall claim unestablished."
   },
-  "spec_hash": "0xe17d389f4de778c8dbe4cad82c3e6c160e57c1c2a40c1e11d1ec521fc5254df4",
+  "spec_hash": "0x9321343763a7b8ff215b54f356ef8cc781ad4db56924d1bc5f23b3a53b7e618e",
   "spec_id": "v3-03-warden-security",
   "speed_threshold": {
     "formula": "For the 12 valid complete pairs, d_i=manual_seconds-agent_seconds and r_i=agent_seconds/manual_seconds; compute median(d_i) and median(r_i).",
@@ -109,7 +109,7 @@
     "minimum_median_seconds_saved": 30.0,
     "requires_complete_pairs": true
   },
-  "stage_one_protocol_hash": "0x38953631ae932a439e7d824a689aea58c465bd9a92fb8f635295ee79e6ea5bbc",
+  "stage_one_protocol_hash": "0xcd4c698f55c316fdedaa2eb52d80091c3a08d004175d7d156527f224c4e941eb",
   "stopping_rule": "Schedule exactly 12 frozen primary agent scans and 12 manual classifications, once each. Each primary ends in a schema-valid first accepted answer, timeout at 300 seconds, technical error or empty/malformed output. Stop only after all 24 primary attempts have terminal records. The runner API refuses a scored retry; the JSONL file remains ordinary editable storage with no independent tamper resistance. Recall uses every frozen hostile payload, precision every valid positive result, successful scans all 12 agent primaries, rubric all 12 cases, and speed all 12 complete pairs. Secondary diagnostics never substitute.",
   "timing": {
     "clock": "The harness owns a monotonic_ns clock and serializes each read/check/append transaction for both arms; the resulting UTC event log remains an ordinary editable file.",

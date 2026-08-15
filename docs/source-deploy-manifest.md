@@ -134,9 +134,9 @@ artifact. The warning remains a backend-maintenance risk; this build does not hi
 | `docket/advantage/v2/runs/01-liquidity-arithmetic.json` | `bcb4836197192cb275a4d520646ef2c4d345023dcc547cbdb2d7a5afe10f35a7` |
 | `docket/advantage/v2/runs/03-security-corpus.json` | `b67f0d3c1b923065c505705fe3358d0e7dacb64e6c15da4d0d33f2896afa34f0` |
 | `docket/advantage/v2/runs/04-grid-replay.json` | `7a81088a5b7189c5b260e0957e1221b2557711bc8f71f934515b0dbc82128af4` |
-| `docket/advantage/v3/specs/v3-01-range-doctor.json` | `58792f2d54c0cb6a243f3a7c782ddc688d32f18e1e66ce12b5c0d872810c343a` |
-| `docket/advantage/v3/specs/v3-02-yield-router.json` | `a521138cc48708fabb73ddd0366a758c7f9cc041e6dc0aea94aef9abb78dcd58` |
-| `docket/advantage/v3/specs/v3-03-warden-security.json` | `c54619b502d187f78792fcee9d72baf0d8263cd4a4897e5d251255faf4b2ee89` |
+| `docket/advantage/v3/specs/v3-01-range-doctor.json` | `c31b4800208860bffa6f8b93348f92eec063181b2b2c4dfa4086e68e357edb21` |
+| `docket/advantage/v3/specs/v3-02-yield-router.json` | `b7d5530fad502bac37df54397b9438375ccd4b09f8acb200e2999602f3253efa` |
+| `docket/advantage/v3/specs/v3-03-warden-security.json` | `d18270a88d0bfcd4d2fae807824427d117e7a1d6440317afd5b8a519cd1e9771` |
 
 ## Deployment record required for parity
 

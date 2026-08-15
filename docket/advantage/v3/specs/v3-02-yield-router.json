@@ -21,10 +21,10 @@
   "category": "yield/LP",
   "claim": "Within the exact frozen eligible top-pools response and the common $10,000/$25/30-day scenario, the hired arm's median rubric total is no lower than the manual arm's, every agent universe exactly matches the truth manifest, and the hired arm is materially faster under the registered complete-pair 30-second/0.50 threshold.",
   "execution_protocol": {
-    "arm_block_order": "all_manual_primaries_then_all_agent_primaries",
     "agent_endpoint": "https://docket.gudman.xyz/hire/yield-router",
     "agent_request_contract": "The harness derives the sampled current pool, common scenario, exact base64 pools/token-list response bytes, their registered bare SHA-256 digests, URLs and observation times from the locked case. The endpoint must compute from those bytes, return their exact source identities and the complete partition, and emit MOVE or STAY.",
     "agent_service_id": "yield-router",
+    "arm_block_order": "all_manual_primaries_then_all_agent_primaries",
     "arm_block_order_reason": "Every manual primary is completed before any agent request is sent. Alternating within a pair would still let the operator carry a service answer into the next case, and an operator cannot un-see one.",
     "blinding_limitation": "The seed is public once inputs are locked, so the A/B assignment is reproducible and is NOT cryptographically unguessable. Blinding rests on each seat receiving an isolated, tool-free prompt carrying an opaque case label, the case's factual input/truth reference, the normalised A/B outputs and the rubric anchors, without the case id or arm mapping. It is prompt-level arm blinding and is not claimed as more.",
     "blinding_parity": "even_a_is_agent",
@@ -44,6 +44,11 @@
     "time": "For each complete pair, d_i=manual elapsed seconds-agent elapsed seconds and r_i=agent/manual. Report all durations, both arm medians, median(d_i), median(r_i), timeouts and complete-pair count."
   },
   "n_planned": 5,
+  "protocol_correction": {
+    "reason": "Correction before input lock: the evaluator roster named its two seats after specific models — claude-audit-seat and fable-5-audit-seat — and the working assignment has since changed, so neither name any longer describes the build that would answer in it. A seat whose id asserts a model that did not answer is a false record, and the lock stores model_build and session_id per seat precisely so the identity of the answering build is carried by evidence rather than by a label. The seats are now seat-a and seat-b, which assert nothing, and every calibration and run records the model that actually answered. Nothing else in any protocol changed: the same rubric anchors, the same case selection, the same scoring, the same eight-case calibration floor of seven correct. This supersedes the hash named above, which itself corrected the earlier bundle described in the previous registration.",
+    "status": "corrected_before_input_lock",
+    "supersedes_stage_one_protocol_hash": "0xa90a364ed2e8df21e189b292c49b53294bbd653ec7b56e02457c663286d2825f"
+  },
   "quality_rubric": {
     "criteria": [
       {
@@ -86,28 +91,23 @@
   },
   "question": "Within one exact frozen PancakeSwap top-pools response and a fixed $10,000 position/$25 switch/30-day scenario, does hiring Yield Router produce a complete, correct move-or-stay answer at least as usable as the same work by hand, and materially faster?",
   "registration_provenance": "Git history is the registration witness: the first commit containing this exact stage-one protocol hash establishes that the repaired protocol predates later input-lock and run commits. No independently attested wall-clock registration time is claimed inside this file.",
-  "protocol_correction": {
-    "reason": "Correction before input lock: the earlier bundle withheld truth despite exact anchors; the runtime used canonical parsed-JSON digests, source-order ties and no MOVE/STAY field; the catalogue did not actually admit a paid hire; and the runner did not own capture scheduling, deadlines or first-write claims. This record supplies opaque-label truth, binds the executable raw-byte contract, records the receipt's actual payment status and limits durability claims to atomic API refusal; the JSONL itself has no independent tamper resistance.",
-    "status": "corrected_before_input_lock",
-    "supersedes_stage_one_protocol_hash": "0x49ad6b20381fb72ec20600b283203d5aee399406c6a7314eadac6eefe2b6c730"
-  },
   "scoring": {
     "blinded": true,
     "calibration": "Before input lock, the owner publishes one SHA-256-bound base64 UTF-8 JSON answer key for exactly eight Pancake cases. Its literal allowlists, pool rows and common scenarios must include eligible and at least two distinct excluded outcomes; the lock recomputes first failed gates, both net APRs, incremental dollars, break-even and move/stay truth from the registered formulas. For each model seat, the input envelope publishes the exact model/build, session id, canonical hash of the registered objective rubric anchors and all eight structured responses. Each seat must exactly match at least seven complete canonical answers. The lock rejects invented answer-key values and computes the pass count from the published responses. This proves calibration against the published key, not evaluator independence.",
     "disagreement": "Both per-criterion sheets are published. Scores are averaged per criterion; a gap of 2 or more is flagged and quoted, never resolved by a post-output adjudicator. If either named seat does not submit, the family remains unscored.",
     "evaluator_roster": [
       {
-        "evaluator_id": "claude-audit-seat"
+        "evaluator_id": "seat-a"
       },
       {
-        "evaluator_id": "fable-5-audit-seat"
+        "evaluator_id": "seat-b"
       }
     ],
     "evaluators": 2,
     "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'yield-blinding'). Per case, SHA-256(seed || case_id || 'arm') parity assigns A/B; sorting SHA-256(seed || case_id || 'order') fixes case order. Tool names, timing, prices, receipts and formatting tells are removed. Each model prompt receives the frozen task and truth under only the opaque case label, plus A/B outputs; it withholds the original case id, arm mapping and other sheet until both sheet hashes are submitted. This is prompt-level arm blinding; operator independence is not claimed.",
     "selection_rule": "One operator runs the two fixed model seats identified here for the owner. They are not independent evaluators and no independent-party scoring is claimed. The calibration answer key, both model calibration response sets and both final per-criterion score sheets are published so a reader can recompute the checks. No substitution is permitted after any case output exists; a missing sheet leaves the family unscored."
   },
-  "spec_hash": "0x98e574dc655d47bf84b4f191be199db781516b3dc654947a8b7607d7da67b882",
+  "spec_hash": "0xb1b203db589bf1c78eccea132af9c82dee60b4e99e67268f5b010b90d4e6e1da",
   "spec_id": "v3-02-yield-router",
   "speed_threshold": {
     "formula": "For the five valid complete pairs, d_i=manual_seconds-agent_seconds and r_i=agent_seconds/manual_seconds; compute median(d_i) and median(r_i).",
@@ -116,7 +116,7 @@
     "minimum_median_seconds_saved": 30.0,
     "requires_complete_pairs": true
   },
-  "stage_one_protocol_hash": "0xa90a364ed2e8df21e189b292c49b53294bbd653ec7b56e02457c663286d2825f",
+  "stage_one_protocol_hash": "0x52930b5854db990fbde1fe2f66e63b1f1ab0b396b07f6f0a07eab9833840d7a7",
   "stopping_rule": "Schedule exactly five frozen primary cases once per arm. A primary attempt ends in a valid first accepted answer, timeout at 1,200 seconds, technical error, empty/malformed output or snapshot mismatch. Stop only after all ten primary attempts have terminal records. The runner API refuses a scored retry or replacement case/source; the JSONL file remains ordinary editable storage with no independent tamper resistance. Incomplete pairs prevent the speed limb.",
   "timing": {
     "clock": "The harness owns a monotonic_ns clock and serializes each read/check/append transaction for both arms; the resulting UTC event log remains an ordinary editable file.",
