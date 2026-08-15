@@ -99,6 +99,16 @@ ADDRESS = re.compile(r"0x[0-9a-fA-F]{40}")
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RANGE_POSITION_MANAGER = "0x46a15b0b27311cedf172ab29e4f4766fbe7f4364"
 RANGE_MASTER_CHEF = "0x556b9306565093c855aea9ae92a594704c2cd59e"
+
+# Positions the experiment party controls. The Range population enumerates every live v3
+# position on chain, so without this the sampler could draw Docket's own demonstration LP
+# into Docket's own evidence. Registering the list is not enough on its own: a registration
+# that omitted a known controlled position would still lock, so the constants below are the
+# floor the registration must cover, and the registration is the hash-bound part that cannot
+# drift afterwards. Neither layer survives both attacks alone.
+RANGE_CONTROLLED_WALLETS = frozenset({"0xe55816904796341bf8535e25f6c8b647927fc946"})
+RANGE_CONTROLLED_TOKEN_IDS = frozenset({7141050})
+RANGE_CONFLICT_REASON = "experiment_party_controlled"
 TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 YIELD_SOURCE_URLS = {
     "pools": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
@@ -486,7 +496,68 @@ def _locked_json(source: dict, repo_root: Path, context: str):
         raise ValueError(f"spec: {context} is not valid UTF-8 JSON") from exc
 
 
-def _range_source_frame(sources: list[dict], repo_root: Path):
+def _range_conflict_exclusion(spec: PairedSpec) -> tuple[set[str], set[int]]:
+    """The registered conflict lists, checked against the ones this build knows about.
+
+    The registration is what a reader can verify: it is inside the stage-one protocol hash,
+    so it cannot be edited once a sample has been drawn against it. The constants are what
+    stops a registration from being written that quietly leaves out a position we hold.
+    """
+    exclusion = spec.case_selection.get("conflict_exclusion")
+    if not isinstance(exclusion, dict) or set(exclusion) != {
+        "wallets",
+        "token_ids",
+        "excluded_reason",
+    }:
+        raise ValueError(
+            "spec: Range case_selection needs a conflict_exclusion with exactly "
+            "wallets, token_ids and excluded_reason"
+        )
+    if exclusion["excluded_reason"] != RANGE_CONFLICT_REASON:
+        raise ValueError(
+            f"spec: Range conflict exclusions must be recorded as {RANGE_CONFLICT_REASON!r}"
+        )
+    wallets = exclusion["wallets"]
+    token_ids = exclusion["token_ids"]
+    if (
+        not isinstance(wallets, list)
+        or not wallets
+        or not all(
+            isinstance(wallet, str)
+            and wallet == wallet.lower()
+            and ADDRESS.fullmatch(wallet)
+            for wallet in wallets
+        )
+        or len(set(wallets)) != len(wallets)
+    ):
+        raise ValueError(
+            "spec: Range conflict wallets must be distinct lowercase 20-byte addresses"
+        )
+    if (
+        not isinstance(token_ids, list)
+        or not all(
+            isinstance(token_id, int)
+            and not isinstance(token_id, bool)
+            and token_id >= 0
+            for token_id in token_ids
+        )
+        or len(set(token_ids)) != len(token_ids)
+    ):
+        raise ValueError(
+            "spec: Range conflict token ids must be distinct non-negative integers"
+        )
+    if not RANGE_CONTROLLED_WALLETS <= set(
+        wallets
+    ) or not RANGE_CONTROLLED_TOKEN_IDS <= set(token_ids):
+        raise ValueError(
+            "spec: Range conflict exclusion omits a position this build knows the "
+            "experiment party controls"
+        )
+    return set(wallets), set(token_ids)
+
+
+def _range_source_frame(sources: list[dict], repo_root: Path, conflict: tuple):
+    conflict_wallets, conflict_token_ids = conflict
     if not isinstance(sources, list) or len(sources) != 3:
         raise ValueError("spec: Range manifest needs exactly three typed source refs")
     if not all(isinstance(source, dict) for source in sources):
@@ -729,6 +800,7 @@ def _range_source_frame(sources: list[dict], repo_root: Path):
         pools_by_id[pool_id] = row
 
     positions = {}
+    conflicted = {}
     for wallet, scan in scans.items():
         rows = scan["positions"]
         closed_count = 0
@@ -767,6 +839,41 @@ def _range_source_frame(sources: list[dict], repo_root: Path):
                 raise ValueError("spec: Range enumerated position values are invalid")
             if row["tick_lower"] >= row["tick_upper"]:
                 raise ValueError("spec: Range tick bounds are not ordered")
+            beneficiary = row.get("staking_beneficiary")
+            if wallet == RANGE_MASTER_CHEF:
+                if (
+                    not isinstance(beneficiary, str)
+                    or ADDRESS.fullmatch(beneficiary) is None
+                ):
+                    raise ValueError(
+                        "spec: every farm-held Range position needs a 20-byte "
+                        "staking_beneficiary, or the conflict check cannot be applied to it"
+                    )
+            elif beneficiary is not None:
+                raise ValueError(
+                    "spec: only farm-held Range positions may name a staking_beneficiary"
+                )
+            if (
+                row["token_id"] in conflict_token_ids
+                or wallet in conflict_wallets
+                or (
+                    wallet == RANGE_MASTER_CHEF
+                    and beneficiary.lower() in conflict_wallets
+                )
+            ):
+                # Recorded before liquidity, range, pool-gate or stratum classification, so
+                # nothing about this position's outcome can influence whether it is dropped.
+                conflicted[(RANGE_POSITION_MANAGER, row["token_id"])] = {
+                    "position_manager": row["position_manager"],
+                    "wallet": wallet,
+                    "token_id": row["token_id"],
+                    "excluded_reason": RANGE_CONFLICT_REASON,
+                }
+                # The scanner counted a closed position in its own closed_skipped, so the
+                # reconciliation below still has to see it. Counting is not classifying.
+                if row["liquidity"] <= 0:
+                    closed_count += 1
+                continue
             if row["liquidity"] <= 0:
                 closed_count += 1
                 continue
@@ -822,6 +929,7 @@ def _range_source_frame(sources: list[dict], repo_root: Path):
     return (
         candidate_wallets,
         positions,
+        conflicted,
         enumeration["observation_block"],
         enumeration["observation_time"],
     )
@@ -835,12 +943,18 @@ def _validate_range_inputs(
         raise ValueError("spec: Range inputs need a selection_manifest object")
     _required_fields(
         manifest,
-        {"candidate_wallets", "eligible_positions", "source_refs"},
+        {
+            "candidate_wallets",
+            "eligible_positions",
+            "conflict_exclusions",
+            "source_refs",
+        },
         "Range selection_manifest",
     )
     candidate_wallets = manifest["candidate_wallets"]
     eligible_positions = manifest["eligible_positions"]
     manifest_sources = manifest["source_refs"]
+    conflict = _range_conflict_exclusion(spec)
     if not isinstance(candidate_wallets, list) or not candidate_wallets:
         raise ValueError("spec: Range candidate_wallets must be a nonempty array")
     if not all(
@@ -854,9 +968,10 @@ def _validate_range_inputs(
     (
         source_wallets,
         source_positions,
+        source_conflicted,
         source_observation_block,
         source_observation_time,
-    ) = _range_source_frame(manifest_sources, repo_root)
+    ) = _range_source_frame(manifest_sources, repo_root, conflict)
     if candidate_wallets != source_wallets:
         raise ValueError("spec: Range candidate manifest differs from transfer logs")
     if not isinstance(eligible_positions, list) or len(eligible_positions) < 5:
@@ -912,10 +1027,64 @@ def _validate_range_inputs(
                 "spec: Range manifest position identities are not distinct"
             )
         position_frame[identity] = position
+    declared_conflicts = manifest["conflict_exclusions"]
+    if not isinstance(declared_conflicts, list):
+        raise ValueError("spec: Range conflict_exclusions must be an array")
+    declared = {}
+    for index, record in enumerate(declared_conflicts):
+        if not isinstance(record, dict):
+            raise ValueError("spec: every Range conflict exclusion must be an object")
+        _required_fields(
+            record,
+            {"position_manager", "wallet", "token_id", "excluded_reason"},
+            f"Range conflict exclusion {index + 1}",
+        )
+        manager = record["position_manager"]
+        if not isinstance(manager, str) or manager.lower() != RANGE_POSITION_MANAGER:
+            raise ValueError(
+                "spec: Range conflict exclusion names an unregistered position manager"
+            )
+        if not isinstance(record["token_id"], int) or isinstance(
+            record["token_id"], bool
+        ):
+            raise ValueError(
+                "spec: Range conflict exclusion token_id must be an integer"
+            )
+        identity = (RANGE_POSITION_MANAGER, record["token_id"])
+        if identity in declared:
+            raise ValueError(
+                "spec: Range conflict exclusions repeat a position identity"
+            )
+        declared[identity] = record
+    # Both directions. An omitted conflict is self-dealing; an invented one deletes an
+    # honest position and shifts which token wins the lowest-hash draw, which is the same
+    # attack pointed the other way.
+    if set(declared) != set(source_conflicted):
+        raise ValueError(
+            "spec: Range conflict exclusions differ from the ones derived from the sources"
+        )
+    for identity, record in declared.items():
+        derived = source_conflicted[identity]
+        if (
+            record["wallet"].lower() != derived["wallet"].lower()
+            or record["excluded_reason"] != RANGE_CONFLICT_REASON
+        ):
+            raise ValueError(
+                "spec: Range conflict exclusion contradicts the parsed sources"
+            )
     if set(position_frame) != set(source_positions):
         raise ValueError(
             "spec: Range eligible manifest differs from archive enumeration"
         )
+    conflict_wallets, conflict_token_ids = conflict
+    for identity, position in position_frame.items():
+        if (
+            identity[1] in conflict_token_ids
+            or position["wallet"].lower() in conflict_wallets
+        ):
+            raise ValueError(
+                "spec: a Range eligible position is experiment-party controlled"
+            )
     for identity, position in position_frame.items():
         source_position = source_positions[identity]
         if (
