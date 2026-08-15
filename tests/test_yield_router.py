@@ -560,3 +560,40 @@ def test_no_string_in_the_output_implies_a_docket_recommendation():
             )
     for word in ("optimal", "should move", "we suggest"):
         assert not any(word in text.lower() for text in _strings(out)), word
+
+
+def test_the_yield_answer_attests_which_universe_it_was_actually_computed_from(monkeypatch):
+    """This endpoint reads a live universe that moves between calls.
+
+    Two answers about two different universes look identical without this, and the
+    registered v3 arm requires the service to consume or attest the exact frozen snapshot.
+    Attesting is the honest half: the response says which rows it used, so a silent
+    substitution becomes visible instead of being assumed away.
+    """
+    from docket.hire.catalogue import SERVICES
+
+    out = SERVICES["yield-router"].run({"position_size_usd": 10_000})
+    attestation = out["snapshot_attestation"]
+    assert attestation["observed_pool_snapshot_sha256"].startswith("0x")
+    assert attestation["observed_allowlist_snapshot_sha256"].startswith("0x")
+    # Nothing was claimed, so nothing is asserted about matching.
+    assert attestation["matches_expected"] is None
+
+
+def test_a_declared_snapshot_that_does_not_match_is_reported_rather_than_resolved():
+    """A service that quietly answers from a later universe than the one it was asked
+    about looks exactly like one that honoured the request. That is the substitution the
+    registered arm exists to catch, so the mismatch is stated on the response."""
+    from docket.hire.catalogue import SERVICES
+
+    out = SERVICES["yield-router"].run(
+        {"position_size_usd": 10_000, "pool_snapshot_sha256": "0x" + "de" * 32}
+    )
+    attestation = out["snapshot_attestation"]
+    assert attestation["matches_expected"] is False
+    assert attestation["expected_pool_snapshot_sha256"] == "0x" + "de" * 32
+    assert (
+        attestation["observed_pool_snapshot_sha256"]
+        != attestation["expected_pool_snapshot_sha256"]
+    )
+    assert "different universe" in attestation["what_this_means"]

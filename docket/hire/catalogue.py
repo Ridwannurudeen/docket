@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 import httpx
 
 from ..agents.pancake import doctor
+from .receipts import canonical_hash
 from ..agents.pancake.positions import MAX_EXAMINED
 
 # $U (ERC-8183, 18 decimals) on BSC mainnet. Priced in the asset whose
@@ -402,6 +403,40 @@ def _run_yield_router(payload: dict) -> dict:
     with PoolClient() as client:
         rows = client.top_pools()
         allowlist = client.token_allowlist()
+
+    # A comparison is only reproducible if both readers used the same universe, and this
+    # endpoint fetches a live one that moves between calls. The caller may therefore declare
+    # the digests they expect; the service computes the digests of what it ACTUALLY used and
+    # reports both. A mismatch is stated, never resolved silently — a service that quietly
+    # answers from a later universe than the one it was asked about looks identical to one
+    # that honoured the request, and that is precisely the substitution worth catching.
+    observed_pool_digest = canonical_hash(rows)
+    observed_allowlist_digest = canonical_hash(sorted(allowlist))
+    expected_pool = payload.get("pool_snapshot_sha256")
+    expected_allowlist = payload.get("allowlist_snapshot_sha256")
+    snapshot_attestation = {
+        "observed_pool_snapshot_sha256": observed_pool_digest,
+        "observed_allowlist_snapshot_sha256": observed_allowlist_digest,
+        "expected_pool_snapshot_sha256": expected_pool,
+        "expected_allowlist_snapshot_sha256": expected_allowlist,
+        "matches_expected": (
+            None
+            if expected_pool is None and expected_allowlist is None
+            else (
+                (expected_pool is None or expected_pool == observed_pool_digest)
+                and (
+                    expected_allowlist is None
+                    or expected_allowlist == observed_allowlist_digest
+                )
+            )
+        ),
+        "what_this_means": (
+            "This endpoint reads a live universe. The observed digests identify the exact "
+            "rows and allowlist this answer was computed from. Where an expected digest was "
+            "supplied and does not match, the answer is about a different universe than the "
+            "caller named and must not be treated as the same observation."
+        ),
+    }
     universe = eligible_pools(
         rows,
         allowlist,
@@ -479,7 +514,10 @@ def _run_yield_router(payload: dict) -> dict:
         amount=amount,
         cap=cap,
     )
-    return out | {"current_pool_chosen_by": chosen_by}
+    return out | {
+        "current_pool_chosen_by": chosen_by,
+        "snapshot_attestation": snapshot_attestation,
+    }
 
 
 SERVICES: dict[str, Service] = {
@@ -812,6 +850,24 @@ SERVICES: dict[str, Service] = {
                 "description": (
                     "the horizon a break-even is judged against; every input is on the "
                     "response, so another horizon can be applied without asking"
+                ),
+            },
+            "pool_snapshot_sha256": {
+                "type": "string",
+                "required": False,
+                "description": (
+                    "the digest of the pool universe you expect this answer to be computed "
+                    "from. This endpoint reads a live universe that moves between calls, so "
+                    "the response always carries the digest of the rows it actually used; "
+                    "supplying one here makes any difference explicit instead of leaving two "
+                    "answers about different universes looking identical"
+                ),
+            },
+            "allowlist_snapshot_sha256": {
+                "type": "string",
+                "required": False,
+                "description": (
+                    "the same, for the token allowlist that decides which pools are eligible"
                 ),
             },
         },
