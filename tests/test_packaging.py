@@ -105,4 +105,49 @@ def test_the_published_evidence_hashes_match_the_files_they_name():
         actual = hashlib.sha256(path.read_bytes()).hexdigest()
         if actual != published:
             stale.append(f"{relative}: manifest {published[:12]}, file {actual[:12]}")
-    assert not stale, "the manifest names digests these files do not have:\n  " + "\n  ".join(stale)
+    assert not stale, (
+        "the manifest names digests these files do not have:\n  " + "\n  ".join(stale)
+    )
+
+
+def _unit_directives(name: str) -> dict[str, str]:
+    """Directives only. Comments mention the settings they explain, so a substring search
+    over the raw text would find `RandomizedDelaySec` in the note saying it is absent."""
+    text = (Path(__file__).resolve().parents[1] / "deploy/systemd" / name).read_text(
+        encoding="utf-8"
+    )
+    # systemd continues a directive onto the next line after a trailing backslash.
+    text = text.replace("\\\n", " ")
+    directives = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith(("#", "[")):
+            continue
+        key, _, value = line.partition("=")
+        directives[key.strip()] = value.strip()
+    return directives
+
+
+def test_the_capture_timer_names_a_family_the_installed_package_can_resolve():
+    """A unit file is not covered by any other test, and this one fires once, on a date.
+
+    An absolute path would have been worse than wrong: /opt/docket/docket is the previous
+    release's source tree, so a path there resolves, parses, and captures against a
+    registration that is not the deployed one. Naming the family means the running Docket
+    supplies the spec — and this test fails now if that name ever stops resolving.
+    """
+    from docket.advantage.v3.capture import _resolve_spec
+
+    exec_start = _unit_directives("docket-v3-capture.service")["ExecStart"].split()
+    assert "docket.advantage.v3.capture" in exec_start
+    family = exec_start[exec_start.index("docket.advantage.v3.capture") + 1]
+    assert _resolve_spec(family).is_file()
+
+
+def test_the_capture_timer_does_not_jitter_or_catch_up():
+    """Both are correct for the daily canary and fatal here: the capture has a one-minute
+    window, and a catch-up run would file a later universe under the registered time."""
+    timer = _unit_directives("docket-v3-capture.timer")
+    assert "RandomizedDelaySec" not in timer
+    assert timer["Persistent"] == "false"
+    assert timer["AccuracySec"] == "1s"

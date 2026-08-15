@@ -32,6 +32,7 @@ import json
 import re
 import time
 from datetime import datetime, timedelta, timezone
+from importlib import resources
 from pathlib import Path
 
 import httpx
@@ -294,6 +295,27 @@ def write_capture(result: dict, directory: Path) -> dict:
     return result
 
 
+def _resolve_spec(reference: str) -> Path:
+    """Take a family id or a path, and return the specification the runtime actually has.
+
+    A unit file naming an absolute path pins a filesystem layout: the deployed venv lives at
+    /opt/docket-venvs/<commit>, while /opt/docket/docket is the *previous* release's source
+    tree. A path pointing there would still exist and would still parse, so the capture would
+    run happily against a spec that is not the deployed one. Resolving from the installed
+    package means the capture uses the registration the running Docket ships with.
+    """
+    candidate = Path(reference)
+    if candidate.is_file():
+        return candidate
+    packaged = resources.files("docket.advantage") / "v3" / "specs" / f"{reference}.json"
+    if packaged.is_file():
+        return Path(str(packaged))
+    raise CaptureRefused(
+        f"{reference!r} is neither a readable specification file nor a family id shipped "
+        "with the installed package"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """The production entry point, so the capture is something a timer can actually run.
 
@@ -304,13 +326,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Perform a v3 family's registered capture, at its registered moment."
     )
-    parser.add_argument("spec", help="path to the stage-one specification JSON")
+    parser.add_argument(
+        "spec", help="a registered family id, or a path to a specification JSON"
+    )
     parser.add_argument(
         "out", help="directory to write the raw bodies and attempt log into"
     )
     args = parser.parse_args(argv)
 
-    spec = load(Path(args.spec))
+    try:
+        spec = load(_resolve_spec(args.spec))
+    except CaptureRefused as refusal:
+        print(f"capture refused: {refusal}")
+        return 2
+
     try:
         result = run_registered_capture(spec)
     except CaptureRefused as refusal:

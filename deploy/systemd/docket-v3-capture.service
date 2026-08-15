@@ -1,25 +1,30 @@
 [Unit]
 Description=Docket v3 Yield capture — the registered 2026-08-21T12:00:00Z observation
-Documentation=https://github.com/Ridwannurudeen/docket
 # Deliberately not Wants=docket.service: this reads two public URLs and has nothing to do
 # with the API being up. Coupling them would let a Docket restart move a registered moment.
-After=network-online.target
 Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=oneshot
 User=docket
 Group=docket
 WorkingDirectory=/var/lib/docket
-# The capture refuses to run outside its registered minute, so the timer's job is only to
-# start it close enough. It cannot move the moment and neither can the operator.
+# The family id, not a path. The deployed venv lives at /opt/docket-venvs/<commit> while
+# /opt/docket/docket is the PREVIOUS release's source tree — a path there would still exist,
+# still parse, and would capture against a registration that is not the deployed one.
 ExecStart=/opt/docket/.venv/bin/python -m docket.advantage.v3.capture \
-  /opt/docket/docket/advantage/v3/specs/v3-02-yield-router.json \
-  /var/lib/docket/v3-capture/yield
-Nice=0
-TimeoutStartSec=600
-ProtectSystem=strict
-ProtectHome=true
+  v3-02-yield-router /var/lib/docket/v3-capture/yield
+
+# Unlike the canary, this is not a background job: it has a one-minute window and cannot be
+# repeated, so it does not yield CPU or IO to the rest of the shared host.
+Nice=-5
+TimeoutStartSec=10min
+Restart=no
+UMask=0027
+
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
 ReadWritePaths=/var/lib/docket

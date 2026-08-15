@@ -2,13 +2,14 @@
 Description=Fire the v3 Yield capture at its one registered moment
 
 [Timer]
-# The exact registered moment. No randomised delay: the capture must observe inside its own
-# one-minute attempt window, and jitter would push it into the next attempt or out entirely.
 OnCalendar=2026-08-21 12:00:00 UTC
+# No RandomizedDelaySec, unlike the canary. The capture must observe inside its own
+# one-minute attempt window; jitter would push it into the next attempt or past the last.
 AccuracySec=1s
-# If the machine is down at 12:00:00Z the moment is gone and the protocol says recommit —
-# a catch-up run would capture a later universe and present it as the registered one.
+# If the machine is down at 12:00:00Z the moment is gone and the protocol says recommit. A
+# catch-up run would capture a later universe and file it under the registered time.
 Persistent=false
+Unit=docket-v3-capture.service
 
 [Install]
 WantedBy=timers.target
