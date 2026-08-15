@@ -118,6 +118,10 @@ RANGE_ADMISSION = PaidStockAdmission(False, False, True, False)
 # Warden shares Range's position: a decision-grade presenter exists, and the other three
 # limbs are owner-gated or wait on a run that has not happened.
 WARDEN_ADMISSION = PaidStockAdmission(False, False, True, False)
+# Grid, Yield and Health each gained a decision-grade presenter. The limb is per service and
+# is the only one of the four they hold: none has a paired benchmark, a passing cold canary
+# or settlement, so none is paid stock and the flag changes nothing a buyer can reach.
+PREVIEW_ADMISSION = PaidStockAdmission(False, False, True, False)
 
 
 @dataclass(frozen=True)
@@ -839,7 +843,7 @@ SERVICES: dict[str, Service] = {
         price_atomic=HIRE_PRICE_ATOMIC,
         asset=U_TOKEN,
         stock_status="preview",
-        admission=NO_PAID_ADMISSION,
+        admission=PREVIEW_ADMISSION,
         run=_run_grid_operator,
     ),
     "health-guard": Service(
@@ -889,7 +893,7 @@ SERVICES: dict[str, Service] = {
         price_atomic=HIRE_PRICE_ATOMIC,
         asset=U_TOKEN,
         stock_status="preview",
-        admission=NO_PAID_ADMISSION,
+        admission=PREVIEW_ADMISSION,
         run=_run_health_guard,
     ),
     "yield-router": Service(
@@ -1011,7 +1015,7 @@ SERVICES: dict[str, Service] = {
         price_atomic=HIRE_PRICE_ATOMIC,
         asset=U_TOKEN,
         stock_status="preview",
-        admission=NO_PAID_ADMISSION,
+        admission=PREVIEW_ADMISSION,
         run=_run_yield_router,
     ),
     "solvent-signal": Service(

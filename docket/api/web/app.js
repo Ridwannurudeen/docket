@@ -731,9 +731,144 @@ function presentWardenScan(result, _receipt, _record) {
     </section>`;
 }
 
+function presentYieldRouter(result, _receipt, _record) {
+  const current = result.current || {};
+  const universe = result.universe || {};
+  const decision = result.decision;
+  const candidates = (result.candidates || []).slice(0, 5);
+  const rows = candidates
+    .map(
+      (c) => `<tr>
+        <td>${escapeHTML(String(c.pair))}</td>
+        <td class="mono">${escapeHTML(String(c.fee_tier))}</td>
+        <td class="mono">${pct(c.net_fee_apr) ?? "—"}</td>
+        <td class="mono">${pct(c.gross_fee_apr) ?? "—"}</td>
+      </tr>`,
+    )
+    .join("");
+
+  /* The decision is the product. A reader who has to derive MOVE from a table of rates has
+     been handed the raw material for an answer rather than the answer, which is the thing
+     they paid to avoid — and the destination is meaningless without the pool it is measured
+     against, so the baseline travels beside it. */
+  return `<section aria-labelledby="result-heading">
+      <h3 id="result-heading">What came back</h3>
+      <p class="lede">${escapeHTML(String(decision))} — ${
+        decision === "MOVE"
+          ? "a pool in the eligible set earns more than the one this compares against, by enough to clear the switching cost over the stated horizon"
+          : "no pool in the eligible set beats the current one by enough to repay the switching cost over the stated horizon"
+      }.</p>
+      <dl class="deflist">
+        <dt>Compared against</dt><dd>${escapeHTML(String(current.pair))} <span class="mono">${escapeHTML(String(current.pool_id))}</span></dd>
+        <dt>Its net rate</dt><dd class="mono">${pct(current.net_fee_apr) ?? "—"} <span class="dim">(gross ${pct(current.gross_fee_apr) ?? "—"})</span></dd>
+        ${
+          result.destination_pool_id
+            ? `<dt>Destination</dt><dd class="mono">${escapeHTML(String(result.destination_pool_id))}</dd>`
+            : ""
+        }
+        <dt>Eligible universe</dt><dd>${escapeHTML(String(universe.size))} of ${escapeHTML(String(universe.considered))} pools considered; ${escapeHTML(String(universe.excluded_count))} excluded, each with its reason in the payload below</dd>
+      </dl>
+      ${
+        rows
+          ? `<p class="status-key">The eligible set, by the source's own order</p>
+             <table><thead><tr><th>Pair</th><th>Fee tier</th><th>Net APR</th><th>Gross APR</th></tr></thead>
+             <tbody>${rows}</tbody></table>`
+          : ""
+      }
+      <p class="dim">Net is the fee less the protocol's own reported cut — the part a liquidity
+        provider keeps. Both rates annualise one 24-hour observation of the pool, so they
+        describe today's figures and are not a forecast. Which pool your capital is in was not
+        read from any wallet: ${escapeHTML(String(result.current_pool_chosen_by || "it was supplied by the caller"))}</p>
+    </section>`;
+}
+
+function presentGridOperator(result, _receipt, _record) {
+  const plan = result.plan || {};
+  const levels = (plan.levels || []).slice(0, 8);
+  const rows = levels
+    .map(
+      (l) => `<tr>
+        <td class="mono">${escapeHTML(String(l.index))}</td>
+        <td class="mono">${escapeHTML(String(l.price))}</td>
+        <td>${escapeHTML(String(l.side ?? "—"))}</td>
+      </tr>`,
+    )
+    .join("");
+
+  /* Grid is a preview and the single most important thing on this page is that it stays one.
+     A grid of prices reads like an order book, and a reader who skims could believe something
+     is working on their behalf. Nothing is: the object that produced this holds no key, no
+     signer and no submitter. */
+  return `<section aria-labelledby="result-heading">
+      <h3 id="result-heading">What came back</h3>
+      <p class="lede">A plan, and only a plan. ${escapeHTML(String(plan.requested_levels ?? levels.length))}
+        levels drawn ${escapeHTML(String(plan.side_rule || "around the observed price"))}.
+        Nothing was signed, submitted or held.</p>
+      <dl class="deflist">
+        <dt>Band</dt><dd class="mono">${escapeHTML(String(plan.lower))} to ${escapeHTML(String(plan.upper))}</dd>
+        <dt>Reference price</dt><dd class="mono">${escapeHTML(String(plan.reference))}</dd>
+        <dt>Size per level</dt><dd class="mono">${escapeHTML(String(plan.size_per_level))}</dd>
+        <dt>Submitted</dt><dd>${result.submitted ? "yes" : "no"} — ${escapeHTML(String(result.why_not_submitted || "no submitter exists on this path"))}</dd>
+      </dl>
+      ${
+        rows
+          ? `<p class="status-key">The levels this plan would place, if something could place them</p>
+             <table><thead><tr><th>#</th><th>Price</th><th>Side</th></tr></thead><tbody>${rows}</tbody></table>`
+          : ""
+      }
+      <p class="dim">Prices are integers in the pair's own base units, not decimals — they are
+        shown as returned so they can be checked against the router's quote without a
+        conversion this page invented. Acting on any level requires a session the wallet's
+        owner grants on chain, with a spend cap and an expiry.</p>
+    </section>`;
+}
+
+function presentHealthGuard(result, _receipt, _record) {
+  const account = result.account || {};
+  const assessment = result.assessment || {};
+  const entered = Number(account.markets_entered ?? 0);
+
+  /* The empty case is the one that matters, and it is the common one: most wallets a judge
+     tries have no Venus borrow at all. "No shortfall" on an account with nothing in it is not
+     a health report, and saying so is the difference between an answer and a reassurance. */
+  if (!entered) {
+    return `<section aria-labelledby="result-heading">
+        <h3 id="result-heading">What came back</h3>
+        <p class="lede">This account has entered no Venus markets, so there is no lending
+          position here to protect.</p>
+        <dl class="deflist">
+          <dt>Markets listed</dt><dd class="mono">${escapeHTML(String(account.markets_listed))}</dd>
+          <dt>Markets entered</dt><dd class="mono">0</dd>
+          <dt>Read at block</dt><dd class="mono">${escapeHTML(String(account.as_of_block))}</dd>
+        </dl>
+        <p class="dim">A zero shortfall on an account holding nothing is not a statement that
+          the account is healthy — there is simply nothing borrowed to be liquidated. This is a
+          fact about the address, not a diagnosis of a position.</p>
+      </section>`;
+  }
+
+  return `<section aria-labelledby="result-heading">
+      <h3 id="result-heading">What came back</h3>
+      <p class="lede">${escapeHTML(String(assessment.summary || "The account's Venus position, as the comptroller reports it."))}</p>
+      <dl class="deflist">
+        <dt>Liquidity</dt><dd class="mono">${escapeHTML(String(account.liquidity_usd))} <span class="dim">(${escapeHTML(String(account.scale))})</span></dd>
+        <dt>Shortfall</dt><dd class="mono">${escapeHTML(String(account.shortfall_usd))}</dd>
+        <dt>Markets entered</dt><dd class="mono">${escapeHTML(String(account.markets_entered))} of ${escapeHTML(String(account.markets_listed))}</dd>
+        <dt>Read at block</dt><dd class="mono">${escapeHTML(String(account.as_of_block))}</dd>
+        <dt>Submitted</dt><dd>${result.submitted ? "yes" : "no"} — ${escapeHTML(String(result.why_not_submitted || "no submitter exists on this path"))}</dd>
+      </dl>
+      <p class="dim">Both figures are the comptroller's own, at the block named above, and a
+        shortfall is what makes an account liquidatable rather than a prediction that it will
+        be. Nothing here was signed or submitted.</p>
+    </section>`;
+}
+
 const PRESENTERS = {
   "range-doctor": presentRangeDoctor,
   "warden-scan": presentWardenScan,
+  "yield-router": presentYieldRouter,
+  "grid-operator": presentGridOperator,
+  "health-guard": presentHealthGuard,
 };
 
 function presentResult(record, answer) {

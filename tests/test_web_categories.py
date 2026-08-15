@@ -601,3 +601,49 @@ def test_a_clean_warden_verdict_does_not_read_as_a_guarantee():
     assert "nothing was detected in this payload" in js
     # An empty detection list is explained rather than left to imply safety.
     assert "does not mean the payload is safe" in js
+
+
+def test_every_service_a_judge_can_run_presents_its_result():
+    """Half the catalogue was still handing back raw JSON.
+
+    A presenter is one of the four admission limbs, but the reason it matters here is
+    simpler: BNB's functionality criterion is a stranger activating a service and
+    understanding what came back, and a nested payload fails that whether or not anything is
+    for sale.
+    """
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    for service in (
+        "range-doctor",
+        "warden-scan",
+        "yield-router",
+        "grid-operator",
+        "health-guard",
+    ):
+        assert f'"{service}": present' in js, f"{service} still falls back to raw JSON"
+
+
+def test_the_grid_preview_cannot_be_mistaken_for_a_working_grid():
+    """A table of prices reads like an order book. A reader who skims could believe something
+    is placing them, and nothing is — the object that produced it holds no signer."""
+    flat = re.sub(r"\s+", " ", (WEB_DIR / "app.js").read_text(encoding="utf-8"))
+    assert "A plan, and only a plan." in flat
+    assert "Nothing was signed, submitted or held." in flat
+    assert "requires a session the wallet's owner grants on chain" in flat
+
+
+def test_an_empty_venus_account_is_not_reported_as_a_healthy_one():
+    """The common case for any wallet a judge tries. A zero shortfall on an account holding
+    nothing is not a health report, and the difference is an answer versus a reassurance."""
+    flat = re.sub(r"\s+", " ", (WEB_DIR / "app.js").read_text(encoding="utf-8"))
+    assert "no Venus markets" in flat
+    assert "is not a statement that the account is healthy" in flat
+    assert "nothing borrowed to be liquidated" in flat
+
+
+def test_the_yield_decision_leads_and_carries_the_pool_it_was_measured_against():
+    """MOVE means nothing without the baseline it beat, and the baseline was not read from a
+    wallet — so the page says where it came from rather than letting a reader assume."""
+    flat = re.sub(r"\s+", " ", (WEB_DIR / "app.js").read_text(encoding="utf-8"))
+    assert "Compared against" in flat
+    assert "was not read from any wallet" in flat
+    assert "annualise one 24-hour observation" in flat
