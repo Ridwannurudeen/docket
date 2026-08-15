@@ -143,7 +143,10 @@ def _input_record(spec: PairedSpec) -> dict:
                 "case_id": f"calibration-{case}",
                 "input": {"payload": f"calibration payload {case}"},
                 "expected_hostile": case <= 4,
-                "expected_classes": ["test-class"] if case <= 4 else [],
+                # A published vendor class: the synthetic snapshot these records are
+                # locked against declares class-0..class-3, and a calibration key may
+                # only name classes the vendor actually published.
+                "expected_classes": ["class-0"] if case <= 4 else [],
             }
             for case in range(1, 9)
         ]
@@ -490,6 +493,111 @@ def test_registered_calibration_truth_is_recomputed_from_family_inputs(tmp_path)
     input_path.write_text(json.dumps(record), encoding="utf-8")
 
     with pytest.raises(ValueError, match="contradicts its family formulas"):
+        lock_inputs(spec, repo_root=tmp_path)
+
+
+def _warden_fixture(root: Path) -> tuple[PairedSpec, dict, Path]:
+    """A complete Warden envelope that locks, so a refusal below is the mutation's doing."""
+    spec = load(SPECS_DIR / "v3-03-warden-security.json")
+    vendor = _source_ref(
+        root,
+        "evidence/vendor.json",
+        b'{"classes":["class-0","class-1","class-2","class-3"]}\n',
+    )
+    cases = []
+    for number in range(12):
+        hostile = number < 8
+        critical = number < 2
+        label = f"class-{number % 4}"
+        cases.append(
+            {
+                "case_id": f"warden-{number + 1}",
+                "payload_id": f"payload-{number + 1}",
+                "text": f"payload {number + 1}",
+                "expected_verdict": "BLOCK" if hostile else "ALLOW",
+                "labels": [label] if hostile else [],
+                "evidence_spans": (
+                    [{"label": label, "start": 0, "end": 7}] if hostile else []
+                ),
+                "hostile": hostile,
+                "critical": critical,
+                "survival_predicates": (
+                    [
+                        {
+                            "kind": "literal",
+                            "pattern": "payload",
+                            "label": label,
+                            "evidence_start": 0,
+                            "evidence_end": 7,
+                        }
+                    ]
+                    if critical
+                    else []
+                ),
+            }
+        )
+    record = _input_record(spec) | {"vendor_snapshot": vendor, "cases": cases}
+    path = root / spec.inputs_ref
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record), encoding="utf-8")
+    return spec, record, path
+
+
+def _rewrite_calibration(record: dict, mutate) -> None:
+    """Apply `mutate` to the shared answer key and rehash it, the way a real edit would."""
+    shared = json.loads(b64decode(record["calibration_set"]["body_base64"]))
+    mutate(shared)
+    raw = json.dumps(shared, sort_keys=True).encode()
+    record["calibration_set"] = {
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "body_base64": b64encode(raw).decode(),
+    }
+
+
+def test_a_calibration_answer_key_outside_the_vendor_vocabulary_is_refused(tmp_path):
+    """The held-out labels are checked against the vendor's published classes. The
+    calibration key was not, so both seats could clear the micro-F1 floor on a class the
+    vendor never published — inside the artifact that exists to be recomputed by a reader."""
+    spec, record, path = _warden_fixture(tmp_path)
+    target = json.loads(b64decode(record["calibration_set"]["body_base64"]))["cases"][0]
+
+    def rewrite(shared):
+        shared["cases"][0]["expected_classes"] = ["class-invented-after-the-fact"]
+
+    _rewrite_calibration(record, rewrite)
+    for seat in record["evaluator_calibration"]:
+        for result in seat["calibration_results"]:
+            if result["case_id"] == target["case_id"]:
+                result["expected_classes"] = ["class-invented-after-the-fact"]
+                result["predicted_classes"] = ["class-invented-after-the-fact"]
+    path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="published vendor class"):
+        lock_inputs(spec, repo_root=tmp_path)
+
+
+def test_a_seat_predicting_a_class_the_vendor_never_published_is_refused(tmp_path):
+    """A prediction is scored against the vendor's vocabulary too. A seat that answers
+    outside it is not a seat with a low score; it answered a different question."""
+    spec, record, path = _warden_fixture(tmp_path)
+    record["evaluator_calibration"][0]["calibration_results"][0][
+        "predicted_classes"
+    ] = ["class-invented-after-the-fact"]
+    path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="published vendor class"):
+        lock_inputs(spec, repo_root=tmp_path)
+
+
+def test_two_seats_reporting_one_session_are_refused(tmp_path):
+    """Two seats are two observations only if they were two runs. One session id reported
+    twice is a single run counted twice, and the roster's second seat attests nothing."""
+    spec, record, path = _warden_fixture(tmp_path)
+    seats = record["evaluator_calibration"]
+    seats[1]["session_id"] = seats[0]["session_id"]
+    path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="distinct session"):
         lock_inputs(spec, repo_root=tmp_path)
 
 

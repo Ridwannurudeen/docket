@@ -1439,8 +1439,13 @@ def _calibration_truth_matches(actual, expected) -> bool:
 
 
 def _validate_evaluator_calibration(
-    spec: PairedSpec, body: dict, held_out_cases: list[dict]
+    spec: PairedSpec, body: dict, held_out_cases: list[dict], repo_root: Path
 ) -> None:
+    vendor_classes = (
+        _warden_vendor_classes(body, repo_root)
+        if spec.spec_id == "v3-03-warden-security"
+        else set()
+    )
     shared = body.get("calibration_set")
     if not isinstance(shared, dict):
         raise ValueError("spec: input envelope needs one shared calibration_set")
@@ -1496,6 +1501,14 @@ def _validate_evaluator_calibration(
             or not case["input"]["payload"].strip()
         ):
             raise ValueError("spec: shared Warden calibration truth is invalid")
+        if (
+            spec.spec_id == "v3-03-warden-security"
+            and not set(case["expected_classes"]) <= vendor_classes
+        ):
+            raise ValueError(
+                "spec: the shared Warden calibration key names a class the vendor never "
+                "published; every calibration class must be a published vendor class"
+            )
         computed = _computed_calibration_truth(spec.spec_id, case["input"])
         if computed is not None and not _calibration_truth_matches(
             case["expected"], computed
@@ -1624,6 +1637,12 @@ def _validate_evaluator_calibration(
                     predicted_classes
                 ):
                     raise ValueError("spec: Warden calibration classes are invalid")
+                if not set(expected_classes) | set(predicted_classes) <= vendor_classes:
+                    raise ValueError(
+                        "spec: a Warden calibration seat answered outside the frozen "
+                        "vocabulary; every calibration class must be a published vendor "
+                        "class"
+                    )
                 decisions += result["expected_hostile"] == result["predicted_hostile"]
                 expected_set = set(expected_classes)
                 predicted_set = set(predicted_classes)
@@ -1653,6 +1672,11 @@ def _validate_evaluator_calibration(
                 raise ValueError(
                     "spec: evaluator did not pass at least seven of eight cases"
                 )
+    if len({row["session_id"] for row in calibration}) != len(roster):
+        raise ValueError(
+            "spec: every evaluator seat needs its own distinct session; one session id "
+            "reported twice is one run counted twice"
+        )
 
 
 def _validate_source_snapshot(snapshot: dict, name: str):
@@ -1989,9 +2013,12 @@ def _validate_yield_inputs(
                 raise ValueError(f"spec: Yield case truth has incorrect {name}")
 
 
-def _validate_warden_inputs(
-    spec: PairedSpec, body: dict, cases: list[dict], repo_root: Path
-) -> None:
+def _warden_vendor_classes(body: dict, repo_root: Path) -> set[str]:
+    """The vendor's own published class list, read from the frozen snapshot.
+
+    Both the calibration answer key and the held-out labels are scored against this
+    vocabulary, so it is parsed once here rather than twice with two chances to disagree.
+    """
     snapshot = body.get("vendor_snapshot")
     if not isinstance(snapshot, dict):
         raise ValueError("spec: Warden inputs need a vendor_snapshot object")
@@ -2017,7 +2044,13 @@ def _validate_warden_inputs(
         raise ValueError(
             "spec: Warden vendor classes must be distinct nonblank strings"
         )
-    vendor_classes = set(vendor_class_list)
+    return set(vendor_class_list)
+
+
+def _validate_warden_inputs(
+    spec: PairedSpec, body: dict, cases: list[dict], repo_root: Path
+) -> None:
+    vendor_classes = _warden_vendor_classes(body, repo_root)
 
     hostile_count = 0
     benign_count = 0
@@ -2245,7 +2278,7 @@ def _validate_inputs(spec: PairedSpec, raw: bytes, repo_root: Path) -> None:
     if len(set(case_ids)) != len(case_ids):
         raise ValueError(f"spec {spec.spec_id!r} case ids are not distinct")
 
-    _validate_evaluator_calibration(spec, body, cases)
+    _validate_evaluator_calibration(spec, body, cases, repo_root)
 
     validator = INPUT_VALIDATORS.get(spec.spec_id)
     if validator is None:

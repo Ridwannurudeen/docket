@@ -16,7 +16,7 @@ from docket.advantage.v3 import runner, scoring
 from docket.advantage.v3.spec import PairedSpec, load, lock_inputs, save
 from docket.hire.receipts import canonical_hash
 
-from test_advantage_v3_spec import SPECS_DIR, _input_record
+from test_advantage_v3_spec import SPECS_DIR, _input_record, _source_ref
 
 
 def _locked_family(tmp_path: Path, monkeypatch, spec_id: str):
@@ -30,6 +30,14 @@ def _locked_family(tmp_path: Path, monkeypatch, spec_id: str):
         lambda _spec, _body, _cases, _repo_root: None,
     )
     inputs = _input_record(stage_one)
+    if spec_id == "v3-03-warden-security":
+        # Warden's calibration classes are checked against the vendor's published list, so
+        # even an envelope built to avoid family truth carries the snapshot that names it.
+        inputs["vendor_snapshot"] = _source_ref(
+            tmp_path,
+            "evidence/vendor.json",
+            b'{"classes":["class-0","class-1","class-2","class-3"]}\n',
+        )
     path = tmp_path / stage_one.inputs_ref
     path.write_text(json.dumps(inputs, sort_keys=True) + "\n", encoding="utf-8")
     spec_path = tmp_path / "specs" / f"{spec_id}.json"
@@ -609,7 +617,7 @@ def test_warden_metrics_keep_failures_in_recall_reliability_and_critical_gates(
                 "payload_id": f"payload-{index + 1}",
                 "text": text,
                 "expected_verdict": "BLOCK" if hostile else "ALLOW",
-                "labels": ["test-class"] if hostile else [],
+                "labels": ["class-0"] if hostile else [],
                 "evidence_spans": [],
                 "hostile": hostile,
                 "critical": critical,
