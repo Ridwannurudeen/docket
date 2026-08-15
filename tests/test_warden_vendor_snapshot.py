@@ -52,3 +52,21 @@ def test_every_published_code_actually_appears_in_the_captured_page():
     text = (ROOT / BODY["source_page_ref"]).read_text(encoding="utf-8", errors="replace")
     for code in BODY["published_codes"]:
         assert code in text, f"{code} is not in the captured page"
+
+
+def test_the_hashed_evidence_is_protected_from_line_ending_rewriting():
+    """A captured HTTP response is bytes, and git rewrites line endings by default.
+
+    This is not hypothetical here: the page was committed once without protection and the
+    object store held 22,336 bytes against 22,560 on disk — 224 stripped carriage returns.
+    Every clone would have produced a file failing the digest recorded beside it, and the
+    failure would have looked like tampering rather than like a checkout setting.
+    """
+    attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+    rules = [
+        line.strip()
+        for line in attributes.splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    for path in ("docket/advantage/v3/sources/*", "docket/advantage/v3/specs/*.json"):
+        assert f"{path} -text" in rules, f"{path} is not protected from eol rewriting"

@@ -17,6 +17,14 @@ docket/advantage/experiments/*.json -text
 docket/advantage/v2/corpus/*/*.json -text
 docket/advantage/v2/specs/*.json -text
 docket/advantage/v2/runs/*.json -text
+# The v3 vendor snapshot is a captured HTTP response, hashed as evidence of what the vendor
+# published. It arrived with CRLF line endings, and git stripped 224 of them on the first
+# commit — 22,560 bytes on disk, 22,336 in the object store — so a fresh clone would have
+# produced a page that failed its own recorded digest. The snapshot JSON is hashed by the
+# packaging test for the same reason.
+docket/advantage/v3/sources/* -text
+docket/advantage/v3/specs/*.json -text
+
 *.png binary
 *.jpg binary
 *.ico binary
