@@ -79,3 +79,30 @@ def test_every_v3_state_artifact_has_a_package_data_path():
         "v3/mappings/*.json",
     } <= declared
     assert "v3/runs/*.json" not in declared
+
+
+def test_the_published_evidence_hashes_match_the_files_they_name():
+    """Hand-transcribed digests rot silently, and this table is the one a reader checks.
+
+    Every v3 spec digest in the manifest was stale within a day of being written: the
+    protocols were corrected, the files changed, and the document went on naming the old
+    bytes. A digest table that disagrees with its own repository is worse than no table,
+    because it invites a reader to conclude the evidence was swapped.
+    """
+    import hashlib
+    import re
+
+    manifest = (ROOT / "docs/source-deploy-manifest.md").read_text(encoding="utf-8")
+    rows = re.findall(r"^\| `([^`]+\.json)` \| `([0-9a-f]{64})` \|$", manifest, re.M)
+    assert rows, "the evidence manifest lists no artifact digests"
+
+    stale = []
+    for relative, published in rows:
+        path = ROOT / relative
+        if not path.exists():
+            stale.append(f"{relative}: listed but absent")
+            continue
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual != published:
+            stale.append(f"{relative}: manifest {published[:12]}, file {actual[:12]}")
+    assert not stale, "the manifest names digests these files do not have:\n  " + "\n  ".join(stale)

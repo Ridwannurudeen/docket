@@ -128,3 +128,41 @@ def test_a_pool_missing_either_rate_is_excluded_rather_than_assumed():
     ]
     assert ranking_reversals(partial)["denominator"] == 0  # only one comparable pool
     assert dollars_at_notionals(partial, [1000.0])["notionals"][0]["n_pools"] == 1
+
+
+def test_the_decision_impact_analysis_is_actually_served_not_merely_computable():
+    """It was claimed as published while its only consumer was this test file.
+
+    A module nobody serves is not a finding — it is code. The audit caught the claim before a
+    judge did, and this test is what stops the claim drifting back apart from the artifact.
+    """
+    from docket.advantage.v2.report import report
+
+    section = report()["decision_impact"]
+    assert section["ranking_reversals"]["denominator"] == 231
+    assert section["ranking_reversals"]["numerator"] == 0
+    assert section["dataset_sha256"]
+
+
+def test_the_decision_impact_analysis_admits_it_is_post_hoc():
+    """Its questions were written after the run they read, against a snapshot whose answer was
+    already knowable. That is a weaker footing than the registered experiments beside it, and
+    the difference is stated rather than left for a reader to assume the stronger one."""
+    from docket.advantage.v2.report import report
+
+    section = report()["decision_impact"]
+    assert section["registration_state"] == "post_hoc"
+    note = section["registration_note"]
+    assert "already knowable" in note
+    assert "not as pre-registered findings" in note
+
+
+def test_the_served_finding_leads_with_the_measure_that_found_nothing():
+    """The reversal count is the limb needing no assumption about position size, and it is the
+    one that came back empty. A finding that opened with the two limbs that fired would be
+    selecting its own evidence."""
+    from docket.advantage.v2.report import report
+
+    finding = report()["decision_impact"]["finding"]
+    assert finding.index("change order") < finding.index("overstates")
+    assert "changes nothing here" in finding

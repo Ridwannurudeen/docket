@@ -30,11 +30,18 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
 - **C-07.** A Docket receipt binds the request and result hashes to a delivery record; it
   does not establish that the result is correct or that a reported settlement reached
   chain finality.
-- **C-08.** The current v3 registration sequence is only a self-controlled local Git
-  witness: it is not reachable from the configured remote refs, can be rewritten by the
-  repository owner, and has no independently attested wall-clock time.
-- **C-09.** No source-to-deployment parity evidence exists for this build, so this package
-  makes no claim that a public deployment runs this revision.
+- **C-08.** The v3 registration sequence is reachable from `origin/docs/deliberation-round2`,
+  and GitHub recorded that ref at `2026-08-15T06:08:36Z` — a timestamp this repository
+  cannot set. That establishes only that the content pushed at that moment existed by
+  then. Commits registered afterwards are not covered by it, committer dates are still
+  set locally, and branch protection is unavailable on a private repository, so the ref
+  can still be rewritten by its owner. There is no independently attested wall-clock time
+  for any individual protocol registration.
+- **C-09.** A deployment of commit `bcccafe` to `docket.gudman.xyz` is recorded in
+  `docs/source-deploy-manifest.md`, with the runtime import path read from the live
+  interpreter after cutover. That is not parity with this revision: later commits have not
+  been deployed, and this package makes no claim that the public deployment runs the
+  current HEAD.
 
 The table records where evidence is missing instead of substituting a number or a
 transaction that does not exist.
