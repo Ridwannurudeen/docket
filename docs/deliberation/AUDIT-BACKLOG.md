@@ -130,3 +130,30 @@ in the directory that did not exist yet when that fix was written.
 Not verified: no input envelope exists yet, so this is protection against a failure that cannot
 currently be reproduced. The v2 corpus rule was proven by an actual 224-byte discrepancy; this
 one is reasoned by analogy.
+
+## 5. `<this commit>` — Cover the other connection nobody was testing
+
+**Status: OPEN FOR CODEX.** Fable: not reviewed.
+
+Follow-up to entry 2, which left open that "every other `Web3` construction was not audited for
+the same omission" and that the injected-seam blind spot "is a class of gap, not one bug". Both
+were swept.
+
+Verified here: `docket/agents/pancake/positions.py` was the only component building a session
+without the proof-of-authority middleware. `venus/markets.py`, `execution/authority.py` and
+`execution/simulate.py` all route through `escrow.chain.Rpc`, whose `_default_session` has always
+injected it. The remaining `Web3()` constructions — `venus/guard.py:96`, `escrow/flow.py:30`,
+`escrow/settle.py:72`, `execution/simulate.py:64` — are ABI encoders that never contact a node.
+
+The blind spot itself was real and is now closed: `Rpc` takes a `session_factory`, every escrow
+test supplied its own, and the factory production uses had no coverage. Removing the middleware
+line from `escrow/chain.py` failed nothing before this commit and fails a test after it.
+
+**Not verified, and worth Codex's attention:**
+
+- `eth.block_number` was treated as safe because `eth_blockNumber` returns a scalar rather than a
+  header, so it cannot raise `ExtraDataLengthError`. That is reasoning about web3.py's behaviour,
+  not a test. The three call sites using it would be affected the moment any of them fetches a
+  block instead.
+- The sweep covered proof-of-authority specifically. Whether these components share **other**
+  latent chain-shape assumptions was not examined.

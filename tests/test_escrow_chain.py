@@ -188,3 +188,56 @@ def test_failover_retries_an_outage_but_never_a_revert():
     with pytest.raises(ContractLogicError):
         rpc(revert)
     assert len(reverts) == 1
+
+
+def test_the_default_session_can_read_a_bsc_header():
+    """The escrow reader builds its own connection too, and nothing covered it.
+
+    `Rpc` takes a `session_factory`, so every test here supplies its own and the factory
+    production actually uses had no coverage at all. That is the same blind spot that let
+    the pancake reader ship without proof-of-authority handling and take the live hire
+    down: the seam that makes the tests fast is the seam that hides the real path. The line
+    was already correct here; this is what makes it stay correct.
+    """
+    from web3.providers.base import BaseProvider
+
+    from docket.escrow.chain import _default_session
+
+    header = {
+        "number": "0x6ebf9b5",
+        "hash": "0x" + "11" * 32,
+        "parentHash": "0x" + "22" * 32,
+        "nonce": "0x0000000000000000",
+        "sha3Uncles": "0x" + "33" * 32,
+        "logsBloom": "0x" + "00" * 256,
+        "transactionsRoot": "0x" + "44" * 32,
+        "stateRoot": "0x" + "55" * 32,
+        "receiptsRoot": "0x" + "66" * 32,
+        "miner": "0x" + "77" * 20,
+        "difficulty": "0x2",
+        "totalDifficulty": "0x2",
+        # BSC writes 280 bytes here where the spec allows 32.
+        "extraData": "0x" + "db" * 280,
+        "size": "0x100",
+        "gasLimit": "0x1c9c380",
+        "gasUsed": "0x5208",
+        "timestamp": "0x68bf0000",
+        "transactions": [],
+        "uncles": [],
+        "baseFeePerGas": "0x0",
+    }
+
+    class _BscHeaderProvider(BaseProvider):
+        def make_request(self, method, params):
+            return {"jsonrpc": "2.0", "id": 1, "result": header}
+
+        def is_connected(self, show_traceback=False):
+            return True
+
+    session = _default_session("https://bsc-dataseed.bnbchain.org")
+    session.provider = _BscHeaderProvider()
+
+    block = session.eth.get_block("latest")
+
+    assert block["number"] == 116128181
+    assert "proofOfAuthorityData" in block
