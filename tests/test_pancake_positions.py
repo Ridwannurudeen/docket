@@ -12,7 +12,10 @@ network.
 
 import pytest
 
+from web3.providers.base import BaseProvider
+
 from docket.agents.pancake.positions import (
+    default_session,
     MASTER_CHEF_V3,
     NPM,
     ZERO_ADDRESS,
@@ -394,3 +397,52 @@ def test_an_exact_token_the_wallet_does_not_own_is_not_returned(monkeypatch):
     )
     assert read["positions"] == []
     assert read["target_found"] is False
+
+
+def test_the_failover_connection_can_read_a_bsc_header(monkeypatch):
+    """The one path the injected-Web3 seam never covers, and the one production uses.
+
+    Every test above supplies its own `w3`, so nothing exercised the connection the
+    failover builds for itself. That connection lacked the proof-of-authority middleware,
+    and BSC headers carry 280 bytes of extraData where the spec allows 32 — so once the
+    observation block was pinned and every read began with a block fetch, all four
+    endpoints failed identically and the live hire returned no diagnosis at all.
+    """
+    extra_data_header = {
+        "number": "0x6ebf9b5",
+        "hash": "0x" + "11" * 32,
+        "parentHash": "0x" + "22" * 32,
+        "nonce": "0x0000000000000000",
+        "sha3Uncles": "0x" + "33" * 32,
+        "logsBloom": "0x" + "00" * 256,
+        "transactionsRoot": "0x" + "44" * 32,
+        "stateRoot": "0x" + "55" * 32,
+        "receiptsRoot": "0x" + "66" * 32,
+        "miner": "0x" + "77" * 20,
+        "difficulty": "0x2",
+        "totalDifficulty": "0x2",
+        "extraData": "0x" + "db" * 280,
+        "size": "0x100",
+        "gasLimit": "0x1c9c380",
+        "gasUsed": "0x5208",
+        "timestamp": "0x68bf0000",
+        "transactions": [],
+        "uncles": [],
+        "baseFeePerGas": "0x0",
+    }
+
+    class _BscHeaderProvider(BaseProvider):
+        def make_request(self, method, params):
+            return {"jsonrpc": "2.0", "id": 1, "result": extra_data_header}
+
+        def is_connected(self, show_traceback=False):
+            return True
+
+    session = default_session("https://bsc-dataseed.bnbchain.org")
+    session.provider = _BscHeaderProvider()
+
+    block = session.eth.get_block("latest")
+
+    assert block["number"] == 116128181
+    # The middleware moves the oversized field aside rather than rejecting the header.
+    assert "proofOfAuthorityData" in block

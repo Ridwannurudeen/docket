@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 
 from web3 import Web3
 from web3.exceptions import BadFunctionCallOutput, ContractLogicError
+from web3.middleware import ExtraDataToPOAMiddleware
 
 BSC_RPCS = (
     "https://bsc-dataseed.binance.org",
@@ -48,6 +49,22 @@ BSC_RPCS = (
 ATTEMPTS_PER_RPC = 2
 RPC_TIMEOUT_S = 20
 RETRY_PAUSE_S = 0.5
+
+
+def default_session(url: str) -> Web3:
+    """The connection the failover path builds for itself.
+
+    BSC is proof-of-authority and its headers carry 280 bytes of extraData where the
+    spec allows 32, so `get_block` rejects every one of them without this middleware.
+    Contract calls alone never touch a header, which is why this stayed invisible until
+    the observation block was pinned: from that commit every read fetches a block first,
+    and every endpoint began failing identically. `escrow/chain.py` already carried the
+    same line for the same reason.
+    """
+    w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": RPC_TIMEOUT_S}))
+    w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+    return w3
+
 
 # The ceiling on positions read in one call, which is what actually bounds cost: two
 # sequential RPC calls each, measured at roughly 0.4s per call against a public dataseed.
@@ -226,11 +243,7 @@ class PositionReader:
                 try:
                     session = self._sessions.get(url)
                     if session is None:
-                        session = Web3(
-                            Web3.HTTPProvider(
-                                url, request_kwargs={"timeout": RPC_TIMEOUT_S}
-                            )
-                        )
+                        session = default_session(url)
                         self._sessions[url] = session
                     return do(session)
                 except Exception as exc:
