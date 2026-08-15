@@ -49,7 +49,9 @@ def test_the_snapshot_carries_the_page_it_was_read_from():
 def test_every_published_code_actually_appears_in_the_captured_page():
     """The extraction is re-runnable from the bytes beside it, so a reader does not have to
     take the list on trust."""
-    text = (ROOT / BODY["source_page_ref"]).read_text(encoding="utf-8", errors="replace")
+    text = (ROOT / BODY["source_page_ref"]).read_text(
+        encoding="utf-8", errors="replace"
+    )
     for code in BODY["published_codes"]:
         assert code in text, f"{code} is not in the captured page"
 
@@ -68,5 +70,11 @@ def test_the_hashed_evidence_is_protected_from_line_ending_rewriting():
         for line in attributes.splitlines()
         if line.strip() and not line.startswith("#")
     ]
-    for path in ("docket/advantage/v3/sources/*", "docket/advantage/v3/specs/*.json"):
+    for path in (
+        "docket/advantage/v3/sources/*",
+        "docket/advantage/v3/specs/*.json",
+        # The input envelope is rehashed by assert_runnable immediately before either arm
+        # runs, on a machine that is not the one that wrote it. It had no rule at all.
+        "docket/advantage/v3/inputs/*.json",
+    ):
         assert f"{path} -text" in rules, f"{path} is not protected from eol rewriting"
