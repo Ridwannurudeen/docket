@@ -204,7 +204,7 @@ Three findings from the interim auditor, all reproduced here before being fixed:
   on trust that no sample index or drawn outcome was inspected. `inputs_sha256 == ""` is the only
   checkable half of that.
 
-## 7. `<pending>` — Stop calling the pool's rate this position's earnings
+## 7. `cd31b37` — Stop calling the pool's rate this position's earnings
 
 **Status: OPEN FOR CODEX.** Fable: not reviewed. **This closes a defect Codex raised itself**
 (LP ruling §5), so it is the first entry Codex can check against its own instruction.
@@ -233,3 +233,38 @@ registered v3 spec, so no protocol hash moved.
   **not** renamed, because they are inside the protocol hash. They carry the same proxy caveat
   and say so only via the limitation.
 - Prod still serves the old field names until the next deploy.
+
+## 8. `<pending>` — Start the controlled position's history while it is still happening
+
+**Status: OPEN FOR CODEX.** Fable: not reviewed. **Not yet installed on the VPS** — the units
+exist in source, which is not evidence that they run.
+
+Codex's LP ruling §3 asked for current ownership recorded at every daily observation and a
+"state → diagnosis → owner decision → later state" record, never claimed as causal alpha. This
+is that record. It begins now because a history cannot be backfilled: a position observed once
+on judging day is a screenshot.
+
+`docket/agents/pancake/lp_record.py` calls `doctor.report` — the same function the hire route
+calls at `catalogue.py:376`, not a second implementation, so the record cannot drift from what a
+buyer receives. One JSONL line per day, append-only.
+
+Verified here: a failed read still writes a line carrying the exception, because a gap in an
+append-only file is indistinguishable from nobody having run it; a closed or transferred
+position records `still_held: false` rather than vanishing; lines are canonical JSON; `main`
+returns non-zero on a day that produced no diagnosis even though the failure was recorded.
+
+Caught during the build and worth noting as the same class as entry 2: `observe` originally
+defaulted `reporter=doctor.report` in its signature. A default binds at import, so the seam was
+unpatchable and a test that believed it had substituted a reader silently hit the live chain —
+17s of real network in a unit test. Resolved at call time now.
+
+**Not verified, and worth Codex's attention:**
+
+- **The units are not installed.** No timer has fired; there is no record on disk. Until they
+  are installed the daily history does not exist, and the source is only an intention.
+- The declared value (50.55) and recenter cost (1.00) are baked into the unit's ExecStart. If
+  either is revised, the unit is the place that has to change, and nothing checks the two agree
+  with what any report or registration says.
+- `Persistent=true` deliberately differs from the v3 capture's `false`: a late observation is
+  still true of the position and is timestamped by when it ran. That reasoning was not audited.
+- No retention, rotation or size bound on the JSONL. One line a day is small, but nothing caps it.
