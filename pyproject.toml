@@ -2,6 +2,9 @@
 name = "docket"
 version = "0.1.0"
 description = "Docket — trust-first agent marketplace for BSC (Build the Era)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "web3==7.16.0",
@@ -17,7 +20,7 @@ dependencies = [
 dev = ["pytest==9.0.3"]
 
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
