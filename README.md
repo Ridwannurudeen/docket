@@ -80,11 +80,13 @@ curl http://127.0.0.1:8000/categories
 curl http://127.0.0.1:8000/services
 curl http://127.0.0.1:8000/hire
 curl http://127.0.0.1:8000/advantage/v2.json
+curl http://127.0.0.1:8000/advantage/v3.json
 ```
 
 The CI package job separately builds a wheel, installs it into a fresh environment outside
-the checkout, imports all four category packages, and posts all four hire routes with only
-their external network runners replaced by deterministic in-process responses.
+the checkout, imports all four category packages, posts all four hire routes with only
+their external network runners replaced by deterministic in-process responses, and checks
+the installed v3 JSON, HTML, and agent-facing documentation.
 
 ## Evidence status
 
@@ -92,9 +94,10 @@ their external network runners replaced by deterministic in-process responses.
   `docket/advantage/experiments/`. Every recorded payment status is `free_tier`.
 - V2 stores its corpora, registered specifications, completed runs, null baselines, and
   computed falsifiers under `docket/advantage/v2/`.
-- V3 stores only the three stage-one specifications under
-  `docket/advantage/v3/specs/`. There is no `inputs/` or `runs/` directory, every
-  `inputs_sha256` is empty, and v3 is not served by an API route.
+- V3 stores three stage-one specifications plus the append-only runner, prompt-blinded
+  scoring, report builder, and served page under `docket/advantage/v3/`. There is no
+  `inputs/` or `runs/` directory, every `inputs_sha256` is empty, and all three families at
+  `/advantage/v3.json` truthfully report `registered_waiting_for_inputs`.
 
 Do not describe the v3 Git sequence as externally preregistered. A checkable witness would
 require the exact registration commit to be anchored outside the owner's control before

@@ -183,7 +183,15 @@ def test_registry_text_is_wrapped_rather_than_left_to_break_the_layout():
 
 
 def test_pages_declare_viewport_and_language():
-    for name in ("index.html", "research.html", "agent.html", "advantage.html", "service.html"):
+    for name in (
+        "index.html",
+        "research.html",
+        "agent.html",
+        "advantage.html",
+        "advantage-v2.html",
+        "advantage-v3.html",
+        "service.html",
+    ):
         text = (WEB_DIR / name).read_text(encoding="utf-8")
         assert 'lang="en"' in text
         assert "width=device-width" in text

@@ -39,6 +39,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from ..advantage.harness import compare, load
 from ..advantage.v2.page import fill as fill_v2_page
 from ..advantage.v2.report import report as advantage_v2_report
+from ..advantage.v3.page import fill as fill_v3_page
+from ..advantage.v3.report import report as advantage_v3_report
 from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
 from ..escrow import constants as escrow_constants
 from ..escrow.chain import JobNotFound, JobReader
@@ -353,6 +355,12 @@ def create_app(
     advantage_v2_page = fill_v2_page(
         (WEB_DIR / "advantage-v2.html").read_text(encoding="utf-8"), advantage_v2
     )
+    # V3 follows the same one-object boundary. Its state is reconstructed once from the durable
+    # artifacts, then both representations stay pinned to that startup view until restart.
+    advantage_v3 = advantage_v3_report()
+    advantage_v3_page = fill_v3_page(
+        (WEB_DIR / "advantage-v3.html").read_text(encoding="utf-8"), advantage_v3
+    )
     # Unset means no recipient exists to name in a challenge, so the priced tier is
     # off and the free tier serves unmetered. Read once here rather than per
     # request: the terms a caller is quoted must not change under it mid-session.
@@ -483,6 +491,7 @@ def create_app(
             "escrow": "/escrow",
             "advantage": "/advantage.json",
             "advantage_v2": "/advantage/v2.json",
+            "advantage_v3": "/advantage/v3.json",
             "health": "/health",
         }
 
@@ -614,6 +623,22 @@ def create_app(
         """The v2 report as a page, rendered from the payload above rather than authored
         beside it. Reads no live data and needs no scripting, as v1's page does not."""
         return HTMLResponse(advantage_v2_page)
+
+    @app.get("/advantage/v3.json")
+    def advantage_v3_json() -> dict:
+        """The paired v3 evaluation reconstructed from its registered specifications and
+        whatever durable input, ledger, model-seat and mapping artifacts exist at startup.
+
+        Its state vocabulary is closed: registered_waiting_for_inputs, locked_not_run,
+        running, complete_unscored, refuted and not_refuted. The two terminal claim states
+        remain bounded to the registered falsifier and frozen inputs.
+        """
+        return advantage_v3
+
+    @app.get("/advantage/v3", include_in_schema=False)
+    def advantage_v3_page_route() -> HTMLResponse:
+        """The v3 page rendered from the exact object returned by the JSON route."""
+        return HTMLResponse(advantage_v3_page)
 
     @app.get("/stats", response_model=StatsResponse)
     def stats() -> StatsResponse:

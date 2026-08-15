@@ -107,14 +107,15 @@ The wheel includes:
 - API machine docs and browser assets under `docket/api/static/` and `docket/api/web/`.
 - V1 experiment JSON.
 - V2 corpora, specs, and runs.
-- V3 stage-one specs.
+- V3 stage-one specs, served report shell, and any JSONL ledgers, nested score sheets, or
+  mappings present in the source tree.
 - The MIT license in distribution metadata.
 - The README as Markdown package metadata.
 
-Setuptools currently warns that nine data-only directories look importable but are not in
+Setuptools currently warns that data-only directories look importable but are not in
 the explicit package list. The package-data globs include their files today, and the
-installed-wheel smoke loads the report and API from the built artifact. The warning remains
-a backend-maintenance risk; this build does not hide it.
+installed-wheel smoke loads the v3 report, page, machine docs, and API from the built
+artifact. The warning remains a backend-maintenance risk; this build does not hide it.
 
 ## Evidence artifact manifest
 

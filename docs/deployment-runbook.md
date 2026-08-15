@@ -13,7 +13,7 @@ Do not designate a release until all of these pass on the exact source tree:
 3. The wheel builds without an error.
 4. A fresh environment outside the checkout installs that wheel.
 5. `tests/smoke_installed.py` confirms its import path is outside the checkout and exercises
-   all four category hire routes.
+   all four category hire routes plus the v3 JSON, HTML, and agent-facing documents.
 6. The secret/history review reports file paths and secret kinds only, never values.
 7. The source commit and wheel SHA-256 are recorded before any deploy claim is made.
 
@@ -119,6 +119,7 @@ curl -fsS http://127.0.0.1:8090/health
 curl -fsS http://127.0.0.1:8090/categories
 curl -fsS http://127.0.0.1:8090/hire
 curl -fsS http://127.0.0.1:8090/advantage/v2.json
+curl -fsS http://127.0.0.1:8090/advantage/v3.json
 curl -fsS http://127.0.0.1:8090/canary
 ```
 
@@ -128,6 +129,8 @@ Expected shape, not expected changing numbers:
 - `/categories` has four rows and declares that category labels are Docket's.
 - `/hire` exposes `paid_stock`, `stock_status`, and the four admission booleans per service.
 - `/advantage/v2.json` builds from the artifacts included in the wheel.
+- `/advantage/v3.json` has three registered families, all `registered_waiting_for_inputs`
+  until an input is separately locked.
 - `/canary` exposes the latest durable result and bounded history rather than inferring uptime.
 
 Do not use a payment header in these manual checks. Only the governing runner may exercise

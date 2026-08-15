@@ -372,6 +372,27 @@ GET /advantage/v2
 
     curl -s "$DOCKET/advantage/v2"
 
+GET /advantage/v3.json
+    The third report: three pre-registered paired task families and the artifact-derived
+    execution state of each one. The closed state vocabulary is
+    registered_waiting_for_inputs, locked_not_run, running, complete_unscored, refuted,
+    and not_refuted. It never reports "proved".
+
+    Today all three families report registered_waiting_for_inputs because every registered
+    inputs_sha256 is empty and no input, ledger, score-sheet, or mapping artifact exists.
+    No input is locked and no arm has run. The response contains the registered specification,
+    any artifacts that actually exist, run progress, blinded scoring material, quality, speed,
+    costs, formula metrics, and a falsifier result only when those artifacts support it.
+
+    curl -s "$DOCKET/advantage/v3.json"
+
+GET /advantage/v3
+    The same v3 report as a page, for a human. text/html. One report object is built at
+    process startup and this page is rendered from that exact object before either route
+    is served, so its figures cannot drift from /advantage/v3.json during the process.
+
+    curl -s "$DOCKET/advantage/v3"
+
 GET /llms.txt
     This file. text/plain.
 
@@ -906,6 +927,24 @@ before the experiments, and the experiment behind it is served in full:
 
 Do not quote a v2 figure without the null it was read against — the nulls are in the
 same object, which is why they are there.
+
+### v3: registered paired evaluation, with state derived from artifacts
+
+A third report at GET /advantage/v3.json and GET /advantage/v3. The three reports are
+additive and none supersedes another: v1 is the original paired eligibility artifact at
+n=1; v2 is agent-versus-computed-null armour with no human arm; v3 is the pre-registered
+paired evaluation scored by two prompt-blinded model seats run by one operator.
+
+V3 currently reports three of three families as registered_waiting_for_inputs. Every
+registered inputs_sha256 is empty, the input and run directories do not exist, no input is
+locked, and no arm has run. Later state names are locked_not_run, running,
+complete_unscored, refuted, and not_refuted. That vocabulary is deliberately bounded: the
+report never turns a non-refutation into "proved".
+
+The JSON and page are one startup snapshot. The application constructs one report payload,
+renders the HTML from that same object, and serves both unchanged until restart. Future
+append-only ledgers, prompt-blinded score sheets, mappings, quality, speed, cost, formula,
+and falsifier artifacts appear only when they exist and pass the report's guards.
 
 
 ## Observations, not endorsements

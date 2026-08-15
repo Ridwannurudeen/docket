@@ -594,32 +594,19 @@ def test_the_page_reaches_no_verdict(page):
         assert word not in lowered, f"the v2 page reaches a verdict: {word!r}"
 
 
-def test_the_page_names_v1_as_the_prior_version_and_v1_does_not_know_about_v2(
-    page, body
-):
-    """Both ways, and the distinction that makes that safe.
-
-    This was one-way, on the reasoning that a v1 page which had learned about v2 would be a
-    v1 page that had been edited. That conflated two different things. v1's *evidence* is
-    immutable — its three experiments, every figure, and the JSON an evaluator's agent reads
-    are pinned by `test_v1_json_keeps_its_exact_shape` and the experiment files themselves.
-    v1's *navigation* is not evidence. Keeping the two apart mattered once the consequence
-    showed up: v2 was reachable only from itself, so the report carrying the repeated trials
-    and the null baselines could not be found by anyone who landed on v1 — which is where a
-    reader following the sponsor's own requirement lands.
-
-    A reader on v1 being told v2 exists is more honest, not less. What must never happen is
-    v1's numbers moving, and nothing here lets them.
-    """
+def test_the_page_keeps_v1_as_the_prior_version_and_links_the_additive_v3(page, body):
+    """Navigation may name later additive reports while v1's evidence stays unchanged."""
     assert body["prior_version"]["json"] == "/advantage.json"
     assert body["prior_version"]["page"] == "/advantage"
     assert 'href="/advantage.json"' in page and 'href="/advantage"' in page
+    assert 'href="/advantage/v3"' in page
 
     v1_page = (WEB / "advantage.html").read_text(encoding="utf-8")
     assert 'href="/advantage/v2"' in v1_page, "v1 has to be able to send a reader to v2"
+    assert 'href="/advantage/v3"' in v1_page, "v1 has to be able to send a reader to v3"
     # The link states which report holds the human arm, so neither reads as superseding
     # the other — v1 is the paired agent-versus-person report, v2 is agent-versus-null.
-    assert "holds no human arm" in v1_page
+    assert "agent-versus-computed-null armour with no human arm" in v1_page
 
 
 def test_v1_json_keeps_its_exact_shape(client):

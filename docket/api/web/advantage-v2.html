@@ -36,7 +36,7 @@
         <nav class="site-nav" aria-label="Primary">
           <a href="/">Services</a>
           <a href="/research">Research the registry</a>
-          <a href="/advantage/v2" aria-current="page">Advantage report v2</a>
+          <a href="/advantage">Advantage report</a>
           <a href="/llms.txt">API</a>
         </nav>
       </div>
@@ -67,35 +67,30 @@
         </section>
 
         <section aria-labelledby="prior">
-          <h2 id="prior">This does not replace v1</h2>
+          <h2 id="prior">Three additive reports; none supersedes another</h2>
           <div class="cards">
             <div class="panel">
-              <h3>v1 is still here, and its figures have not moved</h3>
+              <h3>v1: the paired eligibility record</h3>
               <p class="dim">
-                The first report — three tasks, each run once by hiring an agent and once by hand —
-                is served at <a href="/advantage">/advantage</a> and
-                <a href="/advantage.json">/advantage.json</a>. Its JSON is byte for byte as it was
-                and not one of its figures has changed. Its page has changed in exactly one way:
-                it now carries a link to this one, because a report nobody can reach from where
-                they landed is a report nobody reads. It is the prior version of this page and not
-                a superseded one, and nothing here rewrites it.
+                The original paired eligibility artifact at n=1 is served at
+                <a href="/advantage">/advantage</a> and
+                <a href="/advantage.json">/advantage.json</a>. It is the only report here that
+                compares one hired arm with one manual arm. Nothing on this page rewrites it.
               </p>
             </div>
             <div class="panel">
-              <h3>The human arm lives there, and it is n=1</h3>
+              <h3>v2: repeated computed-null comparisons</h3>
               <p class="dim">
-                v1 holds the only comparison against a person in this build, performed by hand,
-                once. Nothing on this page compares an agent to a human: the repeated trials here
-                are measured against computed null baselines, and no human arm was simulated to
-                stand in for one.
+                This page is agent-versus-computed-null armour with no human arm. Its repeated
+                trials are measured against computed null baselines, and no manual arm was
+                simulated to stand in for one.
               </p>
             </div>
             <div class="panel">
-              <h3>What each is for</h3>
+              <h3>v3: prompt-blinded paired scoring</h3>
               <p class="dim">
-                v1 answers what one hire and one person each did on one task. This page answers how
-                far a figure moves across many observations, what a null baseline gets for free,
-                and whether each registered claim survived contact with the data.
+                <a href="/advantage/v3">v3</a> is the pre-registered paired evaluation scored by two prompt-blinded model seats run by one operator. Its registered families and
+                execution state are separate from both reports above.
               </p>
             </div>
           </div>

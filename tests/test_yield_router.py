@@ -562,7 +562,9 @@ def test_no_string_in_the_output_implies_a_docket_recommendation():
         assert not any(word in text.lower() for text in _strings(out)), word
 
 
-def test_the_yield_answer_attests_which_universe_it_was_actually_computed_from(monkeypatch):
+def test_the_yield_answer_attests_which_universe_it_was_actually_computed_from(
+    monkeypatch,
+):
     """This endpoint reads a live universe that moves between calls.
 
     Two answers about two different universes look identical without this, and the
@@ -572,6 +574,7 @@ def test_the_yield_answer_attests_which_universe_it_was_actually_computed_from(m
     """
     from docket.hire.catalogue import SERVICES
 
+    monkeypatch.setattr("docket.agents.pancake.pools.PoolClient", _PoolClient)
     out = SERVICES["yield-router"].run({"position_size_usd": 10_000})
     attestation = out["snapshot_attestation"]
     assert attestation["observed_pool_snapshot_sha256"].startswith("0x")
@@ -580,12 +583,15 @@ def test_the_yield_answer_attests_which_universe_it_was_actually_computed_from(m
     assert attestation["matches_expected"] is None
 
 
-def test_a_declared_snapshot_that_does_not_match_is_reported_rather_than_resolved():
+def test_a_declared_snapshot_that_does_not_match_is_reported_rather_than_resolved(
+    monkeypatch,
+):
     """A service that quietly answers from a later universe than the one it was asked
     about looks exactly like one that honoured the request. That is the substitution the
     registered arm exists to catch, so the mismatch is stated on the response."""
     from docket.hire.catalogue import SERVICES
 
+    monkeypatch.setattr("docket.agents.pancake.pools.PoolClient", _PoolClient)
     out = SERVICES["yield-router"].run(
         {"position_size_usd": 10_000, "pool_snapshot_sha256": "0x" + "de" * 32}
     )

@@ -29,6 +29,13 @@ def _packages_declared() -> set[str]:
         return set(tomllib.load(fh)["tool"]["setuptools"]["packages"])
 
 
+def _advantage_package_data() -> set[str]:
+    with (ROOT / "pyproject.toml").open("rb") as fh:
+        return set(
+            tomllib.load(fh)["tool"]["setuptools"]["package-data"]["docket.advantage"]
+        )
+
+
 def test_every_package_in_the_tree_is_declared_for_the_build():
     """An undeclared package is absent from the wheel and present in every test run."""
     missing = _packages_on_disk() - _packages_declared()
@@ -58,3 +65,17 @@ def test_each_scored_marketplace_category_has_its_agent_package_declared():
         "docket.agents.venus",  # health factor — Health Guard
     ):
         assert package in declared, f"{package} would not ship in a built distribution"
+
+
+def test_every_v3_state_artifact_has_a_package_data_path():
+    """A wheel must not fall back to an earlier state because its evidence stayed in source."""
+    declared = _advantage_package_data()
+
+    assert {
+        "v3/specs/*.json",
+        "v3/inputs/*.json",
+        "v3/runs/*.jsonl",
+        "v3/sheets/*/*.json",
+        "v3/mappings/*.json",
+    } <= declared
+    assert "v3/runs/*.json" not in declared

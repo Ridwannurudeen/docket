@@ -59,6 +59,8 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/advantage` | The same report as a page for a human |
 | GET | `/advantage/v2.json` | Hashed experiments with per-experiment registration provenance: every run, the nulls beside every figure, each falsifier's computed result |
 | GET | `/advantage/v2` | The same v2 report as a page for a human |
+| GET | `/advantage/v3.json` | Three pre-registered paired families and each artifact-derived execution or scoring state |
+| GET | `/advantage/v3` | The same startup-bound v3 report as a page for a human |
 | GET | `/llms.txt` | Full plain-text reference |
 | GET | `/skill.md` | This file |
 | GET | `/openapi.json` | Generated OpenAPI 3.1 schema |
@@ -333,6 +335,28 @@ Never quote a v2 figure without the null it was read against — they are in the
 object for that reason. Never describe the replay as a trade, a return or a backtest
 result: nothing was sent, and the series is a centralised venue's while the plan
 addresses an on-chain pair.
+
+### The v3 report: registered paired work, with artifact-derived state
+
+```bash
+curl -s "$DOCKET/advantage/v3.json"
+```
+
+The reports are additive and none supersedes another. v1 is the original paired eligibility
+artifact at n=1. v2 is agent-versus-computed-null armour with no human arm. v3 is the
+pre-registered paired evaluation scored by two prompt-blinded model seats run by one
+operator.
+
+Read `summary.states` before describing v3. Today all three families are
+`registered_waiting_for_inputs`: every registered `inputs_sha256` is empty, no input or
+run artifact exists, no input is locked, and no arm has run. The only later state names are
+`locked_not_run`, `running`, `complete_unscored`, `refuted`, and `not_refuted`. Never turn
+`not_refuted` into "proved".
+
+The process builds one v3 payload at startup and renders `/advantage/v3` from that exact
+object. Use the JSON for machine work and the page for a reader; neither changes until the
+process restarts. Do not infer missing outputs, score sheets, mappings, costs, or falsifier
+results from a registration. They appear only when the corresponding artifacts exist.
 
 ## Workflow 6: quote the escrow rail without promising a fast settlement
 

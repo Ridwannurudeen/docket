@@ -30,6 +30,7 @@ PAGES = (
     "agent.html",
     "advantage.html",
     "advantage-v2.html",
+    "advantage-v3.html",
     "service.html",
 )
 
@@ -64,7 +65,15 @@ def _read(name: str) -> str:
 
 
 def test_every_page_of_the_journey_is_served_as_html(client):
-    for path in ("/", "/research", "/service", "/agent", "/advantage"):
+    for path in (
+        "/",
+        "/research",
+        "/service",
+        "/agent",
+        "/advantage",
+        "/advantage/v2",
+        "/advantage/v3",
+    ):
         resp = client.get(path, headers={"accept": "text/html"})
         assert resp.status_code == 200, path
         assert resp.headers["content-type"].startswith("text/html"), path
@@ -317,23 +326,15 @@ def test_the_research_page_says_docket_assigns_these_agents_no_category(client):
 
 
 def test_every_page_carries_exactly_one_primary_destination_per_section(client):
-    """The old presence-only check allowed v2 to add its own Advantage link beside v1.
-
-    A report version may make its own URL the Advantage destination, but it may not grow a
-    second top-level entry. Exact ordered hrefs keep every primary nav to the house's four
-    sections and reject extras rather than merely proving the expected links are somewhere.
-    """
+    """Report versions live inside one Advantage section, never as competing sections."""
     for name in PAGES:
         text = _read(name)
         nav = re.search(r'<nav class="site-nav"[^>]*>(.*?)</nav>', text, re.S)
         assert nav, f"{name} has no primary navigation"
-        advantage_href = (
-            "/advantage/v2" if name == "advantage-v2.html" else "/advantage"
-        )
         assert re.findall(r'href="([^"]+)"', nav.group(1)) == [
             "/",
             "/research",
-            advantage_href,
+            "/advantage",
             "/llms.txt",
         ], f"{name} has competing or out-of-order primary destinations"
 
@@ -415,12 +416,35 @@ def test_the_v1_report_points_at_v2_and_says_which_one_answers_the_sponsor(clien
     """
     v1 = _read("advantage.html")
     assert 'href="/advantage/v2"' in v1, "the v1 report does not link the v2 report"
-    assert "holds no human arm" in v1, (
+    assert "agent-versus-computed-null armour with no human arm" in v1, (
         "v1 links v2 without saying that v1 is the one with the human arm"
     )
     # And it has to survive being served, not merely sit in the file.
     served = client.get("/advantage").text
     assert "/advantage/v2" in served
+
+
+def test_each_report_body_links_the_other_two_and_keeps_all_three_additive(client):
+    roles = (
+        "original paired eligibility artifact at n=1",
+        "agent-versus-computed-null armour with no human arm",
+        "pre-registered paired evaluation scored by two prompt-blinded model seats run by one operator",
+    )
+    pages = {
+        "/advantage": _read("advantage.html"),
+        "/advantage/v2": _read("advantage-v2.html"),
+        "/advantage/v3": _read("advantage-v3.html"),
+    }
+
+    for path, body in pages.items():
+        for sibling in pages:
+            if sibling != path:
+                assert f'href="{sibling}"' in body, (path, sibling)
+        assert "additive" in body.lower(), path
+        assert "none supersedes another" in body.lower(), path
+        for role in roles:
+            assert role in body, (path, role)
+        assert client.get(path, headers={"accept": "text/html"}).status_code == 200
 
 
 # ------------------------------------------------------- the paid answer, as a person reads it

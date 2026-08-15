@@ -1,4 +1,4 @@
-"""Exercise the four category hires through an installed wheel, never the checkout."""
+"""Exercise category hires and evidence reports through an installed wheel, never source."""
 
 import os
 import tempfile
@@ -48,3 +48,22 @@ with tempfile.TemporaryDirectory(prefix="docket-installed-smoke-") as scratch:
         body = response.json()
         assert body["result"]["service_id"] == service_id
         assert body["receipt"]["service"] == service_id
+
+    report = client.get("/advantage/v3.json")
+    assert report.status_code == 200, report.text
+    families = report.json()["families"]
+    assert [family["spec_id"] for family in families] == [
+        "v3-01-range-doctor",
+        "v3-02-yield-router",
+        "v3-03-warden-security",
+    ]
+    assert {family["state"] for family in families} == {"registered_waiting_for_inputs"}
+
+    page = client.get("/advantage/v3")
+    assert page.status_code == 200, page.text
+    assert page.text.count("registered_waiting_for_inputs") >= 3
+    for path in ("/llms.txt", "/skill.md"):
+        document = client.get(path)
+        assert document.status_code == 200, path
+        assert "/advantage/v3.json" in document.text, path
+        assert "/advantage/v3" in document.text, path

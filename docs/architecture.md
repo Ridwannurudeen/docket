@@ -15,7 +15,7 @@ static service records --> category/service API --> hire runner --> hash-bound r
 
 action intent --> policy checks --> simulation --> authority/session checks --> submitter
 
-committed inputs/specs/runs --> v1/v2 report builders --> HTML + JSON evidence routes
+committed inputs/specs/runs --> v1/v2/v3 report builders --> HTML + JSON evidence routes
 ```
 
 ## Observation plane
@@ -86,17 +86,20 @@ V2 stores corpora, hash-bearing specifications, runs, null baselines, every tria
 computed falsifiers under `docket/advantage/v2/`. `docket.advantage.v2.report.report()` is
 the common builder for `/advantage/v2.json` and its HTML page.
 
-V3 stores three stage-one paired specifications under `docket/advantage/v3/specs/`. It has
-no input or run artifacts and no API route. Its registration fields identify a local Git
-sequence only; see [Evidence reproduction](evidence-reproduction.md#the-git-witness) for
-the external-anchor limitation.
+V3 stores three stage-one paired specifications plus its append-only runner, prompt-blinded
+scoring, and artifact-derived report under `docket/advantage/v3/`. It has no input or run
+artifacts today, so all three families serve `registered_waiting_for_inputs` at
+`/advantage/v3.json`. Its registration fields identify a local Git sequence only; see
+[Evidence reproduction](evidence-reproduction.md#the-git-witness) for the external-anchor
+limitation.
 
 ## Runtime and persistence
 
 The application factory is `docket.api:create_app`. At startup it opens a SQLite store,
-selects the newest complete chain-56 snapshot once, loads v1/v2 artifacts, and renders the
-v2 page from the same object returned by the JSON route. Observation reads stay bound to
-that startup snapshot. Hire payment lifecycle writes use the same SQLite file.
+selects the newest complete chain-56 snapshot once, and loads the v1, v2, and v3 artifacts.
+The v2 and v3 pages are each rendered from the same startup object returned by their JSON
+route. Observation reads stay bound to that startup snapshot. Hire payment lifecycle writes
+use the same SQLite file.
 
 The default database path is relative: `data/agents.sqlite3` under the process working
 directory. A clean installed-wheel smoke starts from a temporary directory and therefore

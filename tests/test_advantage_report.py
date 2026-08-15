@@ -223,6 +223,14 @@ def test_both_paths_are_documented_for_the_agents_told_not_to_invent_endpoints(c
 def test_the_report_is_reachable_from_every_page_of_the_site(client):
     # The real page set, walked after the browse-to-research move: /browse is a redirect
     # now, and a test that walks it is testing the redirect rather than the pages.
-    for path in ("/", "/research", "/agent", "/service", "/advantage"):
+    for path in (
+        "/",
+        "/research",
+        "/agent",
+        "/service",
+        "/advantage",
+        "/advantage/v2",
+        "/advantage/v3",
+    ):
         resp = client.get(path, headers={"accept": "text/html"})
         assert 'href="/advantage"' in resp.text, path

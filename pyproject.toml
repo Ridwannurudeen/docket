@@ -53,11 +53,13 @@ packages = [
     "v2/corpus/*/*.json",
     "v2/specs/*.json",
     "v2/runs/*.json",
-    # v3 registrations are the evidence that a question predates its answers, so an install
-    # that shipped the harness without them would carry the procedure and none of the proof.
+    # v3 registrations and artifacts let an installed report reconstruct the same state as
+    # the checkout instead of silently dropping a ledger or a prompt-blinded score sheet.
     "v3/specs/*.json",
     "v3/inputs/*.json",
-    "v3/runs/*.json",
+    "v3/runs/*.jsonl",
+    "v3/sheets/*/*.json",
+    "v3/mappings/*.json",
 ]
 
 [tool.pytest.ini_options]

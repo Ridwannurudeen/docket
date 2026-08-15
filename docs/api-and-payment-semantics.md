@@ -27,8 +27,14 @@ requesting JSON receives the endpoint index.
 | `GET /escrow/job/{job_id}` | Read one live ERC-8183 job from chain |
 | `GET /advantage.json` | V1 paired single-observation artifacts |
 | `GET /advantage/v2.json` | V2 registered experiments and computed report |
+| `GET /advantage/v3.json` | V3 registered paired families and artifact-derived state |
+| `GET /advantage/v3` | The same startup-bound V3 report rendered as HTML |
 
-There is no v3 API route because v3 has specifications only and no input/run/report.
+V3's closed states are `registered_waiting_for_inputs`, `locked_not_run`, `running`,
+`complete_unscored`, `refuted`, and `not_refuted`. All three families currently report the
+first state because every `inputs_sha256` is empty and no input or run artifact exists. The
+application builds one v3 report object at startup and renders its HTML from that exact
+object, so the JSON and page cannot drift within a process.
 
 `GET /health` returns `snapshot_captured_at`, the exact capture time of the snapshot
 bound at startup, and `snapshot_age_seconds`, its age in whole seconds when the response
