@@ -238,7 +238,7 @@ def _range_projection(body: dict) -> dict:
                 "annual_gross_usd",
                 "annual_net_usd",
                 "annual_overstatement_usd",
-                "position_annual_fee_usd",
+                "pool_rate_at_declared_value_usd",
             )
         },
         "action": {

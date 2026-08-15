@@ -97,8 +97,11 @@ def test_one_position_supplies_decision_facts_and_recomputable_economics():
     assert economics["annual_gross_usd"] == pytest.approx(value * gross)
     assert economics["annual_net_usd"] == pytest.approx(value * net)
     assert economics["annual_overstatement_usd"] == pytest.approx(value * gap)
-    assert economics["position_fee_apr"] == pytest.approx(net)
-    assert economics["position_annual_fee_usd"] == pytest.approx(value * net)
+    # Named for what they are: the pool's rate, and that rate applied to a declared
+    # notional. Neither is this position's earnings, which depend on its share of the
+    # liquidity active at the traded tick.
+    assert economics["pool_net_apr_if_in_range"] == pytest.approx(net)
+    assert economics["pool_rate_at_declared_value_usd"] == pytest.approx(value * net)
     assert economics["unavailable_reason"] is None
 
     conditional = d["conditional_actions"]
@@ -454,3 +457,27 @@ def test_every_report_carries_a_coverage_sentence_even_when_it_found_something()
     assert (
         "1 hold liquidity and are diagnosed below, and 2 are closed" in out["coverage"]
     )
+
+
+def test_no_field_claims_the_pool_rate_is_this_position_s_earnings():
+    """The report used to publish `position_fee_apr`, and that name was a claim it could
+    not support.
+
+    A v3 position earns in proportion to its share of the liquidity active at the traded
+    tick. This read never measures that, so a full-range position was being credited with
+    the pool-wide rate it demonstrably does not earn. The number is still worth showing —
+    it is what the pool paid, applied to a notional the caller declared — but only under a
+    name that says so, and beside a limitation that says why it is not the same thing.
+    """
+    from pathlib import Path
+
+    from docket.agents.pancake import doctor
+
+    source = Path(doctor.__file__).read_text(encoding="utf-8")
+    for retired in ("position_fee_apr", "position_annual_fee_usd"):
+        assert retired not in source, f"{retired} asserts earnings it does not measure"
+
+    limitation = doctor.RATE_LIMITATION.lower()
+    assert "not this position's rate" in limitation
+    assert "active at the traded tick" in limitation
+    assert "fixed-notional proxy" in limitation

@@ -158,7 +158,7 @@ line from `escrow/chain.py` failed nothing before this commit and fails a test a
 - The sweep covered proof-of-authority specifically. Whether these components share **other**
   latent chain-shape assumptions was not examined.
 
-## 6. `<pending>` — Close the exclusion's own gaps, and stop over-claiming in the registration
+## 6. `dd4fa8b` — Close the exclusion's own gaps, and stop over-claiming in the registration
 
 **Status: OPEN FOR CODEX.** Fable: **audited entries 3 and 4 and found real defects in both** —
 this entry is the response to that audit, so it has itself had no review.
@@ -203,3 +203,33 @@ Three findings from the interim auditor, all reproduced here before being fixed:
 - The auditor could not independently re-derive the four evidence-wallet inferences, and takes
   on trust that no sample index or drawn outcome was inspected. `inputs_sha256 == ""` is the only
   checkable half of that.
+
+## 7. `<pending>` — Stop calling the pool's rate this position's earnings
+
+**Status: OPEN FOR CODEX.** Fable: not reviewed. **This closes a defect Codex raised itself**
+(LP ruling §5), so it is the first entry Codex can check against its own instruction.
+
+`position_fee_apr` and `position_annual_fee_usd` were the pool-wide TVL-normalised net rate,
+published under names asserting they were the position's. A v3 position earns in proportion to
+its share of the liquidity active at the traded tick; nothing here measures that, so a
+full-range position was credited with a rate it demonstrably does not earn.
+
+Renamed to `pool_net_apr_if_in_range` and `pool_rate_at_declared_value_usd` across the API, the
+v3 scoring projection, the canary field check and the browser presenter ("Pool net rate while in
+range", "Pool rate at your declared value"). `RATE_LIMITATION` now states that the pool rate is
+not the position's rate, why, and that the dollar figures are a fixed-notional proxy. A test
+fails if either retired name reappears in `doctor.py` or if those clauses leave the limitation.
+
+Verified: renaming back to `position_fee_apr` fails the new test. Neither field appears in any
+registered v3 spec, so no protocol hash moved.
+
+**Not verified, and worth Codex's attention:**
+
+- This is a **labelling** fix, which is what Codex's ruling asked for. The **real** concentrated
+  earnings figure is still not computed. Doing so needs the pool's active liquidity at the tick
+  alongside the position's own, which is another chain read per position — not attempted.
+- The v3-01 registered truth fields (`annual_gross_usd`, `annual_net_usd`,
+  `annual_overstatement_usd`, `cost_only_break_even_days`) are all pool-rate-derived too and were
+  **not** renamed, because they are inside the protocol hash. They carry the same proxy caveat
+  and say so only via the limitation.
+- Prod still serves the old field names until the next deploy.

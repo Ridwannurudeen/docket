@@ -43,7 +43,12 @@ RANGE_STATUSES = ("in_range", "out_of_range_below", "out_of_range_above")
 EDGE_MARGIN = 0.15
 RATE_LIMITATION = (
     "The rates annualise one pool-wide 24-hour observation. They are not a forecast, "
-    "realized position profit, or a claim that the same rate will continue."
+    "realized position profit, or a claim that the same rate will continue. In "
+    "particular the pool rate is not this position's rate: a v3 position earns in "
+    "proportion to its share of the liquidity active at the traded tick, which this read "
+    "does not measure, so a wide range earns less than the pool rate and a tight one "
+    "earns more. The figures below apply the pool's rate to a declared notional and are "
+    "labelled that way; they are a fixed-notional proxy, not this position's earnings."
 )
 BREAK_EVEN_LIMITATION = (
     "Cost-only break-even assumes a recentered position earns the observed net pool rate. "
@@ -394,8 +399,8 @@ def _economic_consequence(
         "annual_gross_usd": None,
         "annual_net_usd": None,
         "annual_overstatement_usd": None,
-        "position_fee_apr": None,
-        "position_annual_fee_usd": None,
+        "pool_net_apr_if_in_range": None,
+        "pool_rate_at_declared_value_usd": None,
         "fee_usd_24h": None,
         "protocol_fee_usd_24h": None,
         "tvl_usd": None,
@@ -453,7 +458,7 @@ def _economic_consequence(
             "net_apr": net,
             "overstatement_relative": None if net == 0 else gap / net,
             "overstatement_percentage_points": gap * 100,
-            "position_fee_apr": net if status == "in_range" else 0.0,
+            "pool_net_apr_if_in_range": net if status == "in_range" else 0.0,
             "fee_usd_24h": fee,
             "protocol_fee_usd_24h": protocol_fee,
             "tvl_usd": tvl,
@@ -471,7 +476,7 @@ def _economic_consequence(
             "annual_gross_usd": declared_position_value_usd * gross,
             "annual_net_usd": declared_position_value_usd * net,
             "annual_overstatement_usd": declared_position_value_usd * gap,
-            "position_annual_fee_usd": (
+            "pool_rate_at_declared_value_usd": (
                 declared_position_value_usd * net if status == "in_range" else 0.0
             ),
         }

@@ -654,7 +654,7 @@ def _decision_grade(result: object, payload: dict) -> tuple[list[str], dict]:
             "annual_gross_usd",
             "annual_net_usd",
             "annual_overstatement_usd",
-            "position_annual_fee_usd",
+            "pool_rate_at_declared_value_usd",
         ):
             if not _is_number(economics.get(field)):
                 failures.append(f"{field}_missing")

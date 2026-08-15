@@ -137,7 +137,7 @@ def _decision_grade_result():
                         "annual_gross_usd": 4_200.0,
                         "annual_net_usd": 2_800.0,
                         "annual_overstatement_usd": 1_400.0,
-                        "position_annual_fee_usd": 2_800.0,
+                        "pool_rate_at_declared_value_usd": 2_800.0,
                         "unavailable_reason": None,
                     },
                     "conditional_actions": {

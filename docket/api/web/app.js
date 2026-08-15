@@ -953,7 +953,7 @@ function presentRangeDoctor(result, receipt, record) {
                   <dt>Gross APR</dt><dd class="num">${escapeHTML(pct(e.gross_apr))}</dd>
                   <dt>Protocol-adjusted net APR</dt><dd class="num">${escapeHTML(pct(e.net_apr))}</dd>
                   <dt>Gross overstatement</dt><dd><span class="num">${escapeHTML(e.overstatement_relative === null ? "not defined because net APR is zero" : pct(e.overstatement_relative))}</span> relative; <span class="num">${escapeHTML(e.overstatement_percentage_points === null ? DASH : `${Number(e.overstatement_percentage_points).toFixed(2)} percentage points`)}</span></dd>
-                  <dt>Current position fee APR</dt><dd class="num">${escapeHTML(pct(e.position_fee_apr))}</dd>
+                  <dt>Pool net rate while in range</dt><dd class="num">${escapeHTML(pct(e.pool_net_apr_if_in_range))}</dd>
                   <dt>Raw 24h inputs</dt><dd>${escapeHTML(usd(e.fee_usd_24h) || DASH)} fees − ${escapeHTML(usd(e.protocol_fee_usd_24h) || DASH)} protocol cut, over ${escapeHTML(usd(e.tvl_usd) || DASH)} TVL</dd>
                 </dl>`;
           const dollars =
@@ -965,7 +965,7 @@ function presentRangeDoctor(result, receipt, record) {
                   <dt>Annualised gross dollars</dt><dd class="num">${escapeHTML(usd(e.annual_gross_usd))}</dd>
                   <dt>Annualised net dollars</dt><dd class="num">${escapeHTML(usd(e.annual_net_usd))}</dd>
                   <dt>Annual overstatement</dt><dd class="num">${escapeHTML(usd(e.annual_overstatement_usd))}</dd>
-                  <dt>Current position annualised fees</dt><dd class="num">${escapeHTML(usd(e.position_annual_fee_usd))}</dd>
+                  <dt>Pool rate at your declared value</dt><dd class="num">${escapeHTML(usd(e.pool_rate_at_declared_value_usd))}</dd>
                 </dl>`;
           return `<article class="panel">
               <h4>Position ${escapeHTML((d.verifiable_facts || {}).position_id ?? DASH)}</h4>
