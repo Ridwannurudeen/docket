@@ -26,26 +26,59 @@ to freeze anything if it is run at the wrong time — the caller can be cron, a 
 a person, and none of them can move the registered moment.
 """
 
+import argparse
 import hashlib
 import json
+import re
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
 
+from .spec import load
+
 # The registered attempt policy. Read from the spec at run time rather than duplicated as
 # behaviour — these constants exist to name what the code is checking against, and a spec
 # that disagrees with them is the spec that wins.
 ATTEMPT_OFFSETS_S = (0, 60, 120)
-REQUEST_TIMEOUT_S = 45.0
-# How far past the scheduled moment a capture may still be attempted. A capture that ran an
-# hour late is not the registered attempt, and pretending otherwise would silently move the
-# observation window that the whole family is bounded by.
-LATE_TOLERANCE_S = 300
+# Shorter than one attempt window on purpose: a request still in flight when the next attempt
+# is due would land its observation in the wrong minute, and the validator rejects that.
+REQUEST_TIMEOUT_S = 25.0
+# The input validator requires each observation to fall inside its own attempt's ONE minute:
+# `attempt_start <= observed_at < attempt_start + 1 minute`. A tolerance wider than that lets
+# a capture succeed here and be refused at lock, which is the worst place to find out — the
+# bytes would already be frozen and the moment gone.
+LATE_TOLERANCE_S = 5
+# A transport failure has no HTTP status, but the validator requires a plain int and would
+# refuse `null` at lock — after the bytes were frozen and the moment had passed. Zero is
+# never a real status code, so it records "no response" without being mistaken for one.
+NO_RESPONSE = 0
+
+# The worst-case attempt must still finish inside its own minute: a late start plus two
+# sequential timeouts cannot exceed the window, or a 200/200 could land outside it — and the
+# validator has no way to accept that. Line 1799 of spec.py refuses to record a both-200
+# attempt as anything but the chosen one, so a single late success poisons the whole capture.
+assert LATE_TOLERANCE_S + 2 * REQUEST_TIMEOUT_S < 60, (
+    "the attempt budget must fit inside one registered minute"
+)
 
 
 class CaptureRefused(RuntimeError):
     """The capture cannot be performed as registered, so it is not performed at all."""
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _stamp_at(moment: datetime) -> str:
+    """A UTC instant in the exact spelling the validator compares against."""
+    return moment.isoformat().replace("+00:00", "Z")
+
+
+def _stamp() -> str:
+    return _stamp_at(_utc_now())
 
 
 def _fetch(client: httpx.Client, url: str) -> dict:
@@ -57,12 +90,21 @@ def _fetch(client: httpx.Client, url: str) -> dict:
     try:
         response = client.get(url, timeout=REQUEST_TIMEOUT_S)
     except httpx.HTTPError as exc:
-        return {"url": url, "status": None, "transport_error": str(exc), "body": None}
+        return {
+            "url": url,
+            "status": NO_RESPONSE,
+            "transport_error": str(exc),
+            "body": None,
+            # Stamped even on failure: the snapshot needs the moment each URL was observed,
+            # and a failed attempt still has to show it fell inside its registered minute.
+            "observed_at": _stamp(),
+        }
     return {
         "url": url,
         "status": response.status_code,
         "transport_error": None,
         "body": response.content,
+        "observed_at": _stamp(),
     }
 
 
@@ -72,11 +114,19 @@ def capture_attempt(urls: tuple[str, str], *, ordinal: int, scheduled_at: str) -
         first = _fetch(client, urls[0])
         second = _fetch(client, urls[1])
     both_ok = first["status"] == 200 and second["status"] == 200
+    # Field names are the validator's, not this module's. An attempt log that reads well here
+    # and fails `_required_fields` at lock would be discovered with the bytes already frozen
+    # and the registered moment gone — there is no second capture to fix it with.
     return {
-        "ordinal": ordinal,
+        "attempt_ordinal": ordinal,
         "scheduled_at": scheduled_at,
-        "observed_at": datetime.now(timezone.utc).isoformat(),
-        "statuses": [first["status"], second["status"]],
+        # One observation time per URL, not one per attempt. The snapshots are validated
+        # separately and must show pools observed no later than token_list — the registered
+        # order — which a single shared timestamp could not evidence.
+        "pools_observed_at": first["observed_at"],
+        "token_list_observed_at": second["observed_at"],
+        "pools_status": first["status"],
+        "token_list_status": second["status"],
         "transport_errors": [first["transport_error"], second["transport_error"]],
         "succeeded": both_ok,
         # Bodies are carried out of this function but never into the record: the record is
@@ -90,20 +140,27 @@ def run_registered_capture(
     spec,
     *,
     now: datetime | None = None,
-    sleep=None,
+    clock=None,
+    sleep=time.sleep,
     attempt=capture_attempt,
 ) -> dict:
     """Perform the capture the spec registered, at the moment it registered.
 
-    `now`, `sleep` and `attempt` are injected so the whole policy is testable without waiting
-    for a date to arrive or touching a network. That is the only reason they exist; nothing
-    here reads them to decide anything.
+    `now`, `clock`, `sleep` and `attempt` are injected so the whole policy is testable without
+    waiting for a date to arrive or touching a network. That is the only reason they exist;
+    nothing here reads them to decide anything.
+
+    Injecting `now` without a `clock` freezes time, which makes the sleeps deterministic —
+    each one becomes the attempt's full offset, because no time has passed.
     """
     schedule = registered_schedule(spec)
-    now = now or datetime.now(timezone.utc)
+    started = now or datetime.now(timezone.utc)
+    if clock is None:
+        clock = (lambda: started) if now is not None else _utc_now
     scheduled = datetime.fromisoformat(
         schedule["first_attempt_at"].replace("Z", "+00:00")
     )
+    now = started
 
     if now < scheduled:
         raise CaptureRefused(
@@ -121,12 +178,27 @@ def run_registered_capture(
 
     attempts, bodies = [], None
     for ordinal, offset in enumerate(ATTEMPT_OFFSETS_S, start=1):
-        if offset and sleep is not None:
-            sleep(offset - ATTEMPT_OFFSETS_S[ordinal - 2])
+        if offset:
+            # Wait until this attempt's own registered time, never a relative sixty seconds
+            # stacked after however long the last attempt took. Two timeouts make an attempt
+            # ~50s long, so relative spacing would push attempt three past the end of its
+            # window — and a 200/200 observed outside its minute is refused at lock with the
+            # bytes already frozen. A negative delay means we are already late; the window
+            # check below is what decides whether that is still usable.
+            delay = ((scheduled + timedelta(seconds=offset)) - clock()).total_seconds()
+            if delay > 0:
+                sleep(delay)
+        attempt_start = scheduled + timedelta(seconds=offset)
+        if clock() >= attempt_start + timedelta(minutes=1):
+            # The window closed while earlier attempts ran. Stopping is the honest outcome:
+            # a fetch now would observe a later universe than the one this attempt names.
+            break
         record = attempt(
             (schedule["pools_url"], schedule["token_list_url"]),
             ordinal=ordinal,
-            scheduled_at=(scheduled + timedelta(seconds=offset)).isoformat(),
+            scheduled_at=(scheduled + timedelta(seconds=offset))
+            .isoformat()
+            .replace("+00:00", "Z"),
         )
         bodies_this = record.pop("_bodies", None)
         attempts.append(record)
@@ -186,15 +258,11 @@ def registered_schedule(spec) -> dict:
 
 
 def _first(text: str, pattern: str) -> str | None:
-    import re
-
     found = re.search(pattern, text)
     return found.group(0) if found else None
 
 
 def _all(text: str, pattern: str) -> list[str]:
-    import re
-
     seen, out = set(), []
     for match in re.findall(pattern, text):
         if match not in seen:
@@ -224,3 +292,45 @@ def write_capture(result: dict, directory: Path) -> dict:
         newline="\n",
     )
     return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    """The production entry point, so the capture is something a timer can actually run.
+
+    Without this the module was reachable only from its own tests — which is the shape of code
+    that passes every check and then does not exist on the morning it was written for.
+    """
+
+    parser = argparse.ArgumentParser(
+        description="Perform a v3 family's registered capture, at its registered moment."
+    )
+    parser.add_argument("spec", help="path to the stage-one specification JSON")
+    parser.add_argument(
+        "out", help="directory to write the raw bodies and attempt log into"
+    )
+    args = parser.parse_args(argv)
+
+    spec = load(Path(args.spec))
+    try:
+        result = run_registered_capture(spec)
+    except CaptureRefused as refusal:
+        # Exit 2, not 1: this is the protocol declining, which a timer log should be able to
+        # tell apart from the capture crashing.
+        print(f"capture refused: {refusal}")
+        return 2
+
+    write_capture(result, Path(args.out))
+    if not result["captured"]:
+        print(result["why"])
+        return 3
+    print(
+        f"captured at attempt {result['attempts'][-1]['attempt_ordinal']}: "
+        f"pools {result['pools']['sha256'][:16]}… ({result['pools']['bytes']} bytes), "
+        f"token list {result['token_list']['sha256'][:16]}… "
+        f"({result['token_list']['bytes']} bytes)"
+    )
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised through main()
+    raise SystemExit(main())

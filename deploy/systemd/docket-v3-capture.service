@@ -1,0 +1,25 @@
+[Unit]
+Description=Docket v3 Yield capture — the registered 2026-08-21T12:00:00Z observation
+Documentation=https://github.com/Ridwannurudeen/docket
+# Deliberately not Wants=docket.service: this reads two public URLs and has nothing to do
+# with the API being up. Coupling them would let a Docket restart move a registered moment.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=docket
+Group=docket
+WorkingDirectory=/var/lib/docket
+# The capture refuses to run outside its registered minute, so the timer's job is only to
+# start it close enough. It cannot move the moment and neither can the operator.
+ExecStart=/opt/docket/.venv/bin/python -m docket.advantage.v3.capture \
+  /opt/docket/docket/advantage/v3/specs/v3-02-yield-router.json \
+  /var/lib/docket/v3-capture/yield
+Nice=0
+TimeoutStartSec=600
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/docket
