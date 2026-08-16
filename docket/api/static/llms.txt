@@ -279,6 +279,30 @@ POST /hire/{service_id}
     Returns {"result": {...}, "receipt": {...}}. Read "Hiring" below before quoting
     anything from the receipt.
 
+GET /compare
+    Every service side by side, for deciding between them rather than reading them one
+    at a time. No parameters, no snapshot, no network.
+    Returns {"rows": [...], "summary": {...}, "admission_max_age_seconds": N}.
+
+    Each row carries the catalogue facts — job, price, typical_seconds, stock_status,
+    and admission_failing, which NAMES the limbs that are not passing rather than
+    counting them — plus "measured".
+
+      measured.available true   agent_seconds, manual_seconds, seconds_saved,
+                                sample_size and source: the recorded paired run this
+                                came from.
+      measured.available false  reason: why there is no figure. Three of the six
+                                services have never been run against a human and say
+                                so; a service whose recorded run is missing from the
+                                build says that instead, because they are different
+                                facts.
+
+    Every sample_size here is 1. A single pair is evidence the work was done both
+    ways, not a rate, and the denominator travels with the saving so a reader cannot
+    mistake one for the other.
+
+    curl -s "$DOCKET/compare"
+
 GET /escrow
     The terms of the second hire rail: funds held on chain for a real job instead of
     paid per call. Carries the contract addresses, the payment token, the dispute

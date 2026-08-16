@@ -269,7 +269,7 @@ unpatchable and a test that believed it had substituted a reader silently hit th
   still true of the position and is timestamped by when it ran. That reasoning was not audited.
 - No retention, rotation or size bound on the JSONL. One line a day is small, but nothing caps it.
 
-## 9. `<pending>` — Make the Aug 21 capture something that will actually happen
+## 9. `b4f4e5c` — Make the Aug 21 capture something that will actually happen
 
 **Status: OPEN FOR CODEX.** Fable: not reviewed. **This closes Codex's own unanswered audit
 question** (`CODEX-AUDIT-CAPTURE-BRIDGE-2026-08-15.md` item 3), so it is checkable against the
@@ -309,3 +309,37 @@ it never uses.
   `docs/source-deploy-manifest.md` already states the GitHub push witnesses existence but not
   authorship, and names OpenTimestamps as what would close it. Owner-gated, still open.
 - Nothing tests the systemd unit's ExecStart arguments against the module's actual CLI.
+
+## 10. `<pending>` — A comparison surface, including the services with nothing to show
+
+**Status: OPEN FOR CODEX.** Fable: not reviewed.
+
+Codex's win spec (Marketplace quality, 20%) asked for one comparison table — "job, price,
+measured time saved, quality/sample size, freshness, limitation, evidence" — and noted the plan
+"still lacks an actual service-comparison surface".
+
+`docket/hire/comparison.py` + `GET /compare`, documented in `llms.txt`. Live output: **6
+services, 3 with a paired measurement** — range-doctor 485.2s saved, solvent-signal 219.9s,
+warden-scan 71.6s, each n=1 with its source file named — and grid-operator, yield-router and
+health-guard each carrying the sentence that no paired run against a human exists for them.
+
+The design rule is that a cell is a measurement with its source and denominator, or a stated
+reason there is none. Never blank, never zero, never a figure borrowed from another service. A
+missing recorded run reports differently from a service that was never measured, because those
+are different facts. Admission limbs are **named**, not counted.
+
+Verified: 9 tests, including that every entry in `MEASURED_BY` maps to a file that exists, that
+an arm without an elapsed time does not silently become a saving, and that unmeasured rows carry
+no `seconds_saved`/`sample_size` keys at all rather than nulls.
+
+**Not verified, and worth Codex's attention:**
+
+- 🔴 **The table is an API endpoint and is NOT on the page.** The criterion is a cold judge
+  comparing without instructions, and a judge does not curl. Until it is rendered this closes
+  the data half only.
+- Codex named seven columns. **Freshness and evidence are not implemented**, and "quality" is
+  represented only by sample size. Freshness needs a per-service data-recency notion that does
+  not exist yet; evidence needs a per-service link to the specific artifact.
+- `typical_seconds` is a catalogue declaration, not a measurement, and sits in the same table as
+  measured seconds. Nothing marks that difference to a reader.
+- The three savings come from v1 runs recorded 2026-08-08. Nothing reports their age.

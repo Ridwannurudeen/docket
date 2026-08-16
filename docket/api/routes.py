@@ -19,7 +19,7 @@ settlement configuration disables paid stock rather than preview access.
 import hmac
 import os
 import time
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,6 +47,7 @@ from ..escrow.chain import JobNotFound, JobReader
 from ..escrow.flow import hire_calls
 from ..hire.admission import CANARY_MAX_AGE_SECONDS, resolve_admission
 from ..hire.catalogue import SERVICES, PaidStockAdmission, get_service
+from ..hire.comparison import compare as compare_services_table
 from ..hire.receipts import (
     build_receipt,
     canonical_hash,
@@ -273,7 +274,9 @@ def _snapshot_age_seconds(captured_at: str | None) -> int | None:
         return None
     if captured.tzinfo is None:
         return None
-    age = (datetime.now(timezone.utc) - captured.astimezone(timezone.utc)).total_seconds()
+    age = (
+        datetime.now(timezone.utc) - captured.astimezone(timezone.utc)
+    ).total_seconds()
     return None if age < 0 else int(age)
 
 
@@ -333,8 +336,8 @@ def create_app(
         # still honoured, so an operator can inspect a partial capture on purpose.
         snapshot_id = store.latest_complete_snapshot_id(CHAIN_ID)
     served_snapshot = store.snapshot(snapshot_id) if snapshot_id is not None else {}
-    snapshot_captured_at = (
-        served_snapshot.get("finished_at") or served_snapshot.get("started_at")
+    snapshot_captured_at = served_snapshot.get("finished_at") or served_snapshot.get(
+        "started_at"
     )
     # Read once, at startup: a missing document should fail the app that ships it, not the one
     # request that happened to ask for it.
@@ -378,7 +381,9 @@ def create_app(
     if canary_token_file:
         canary_token = Path(canary_token_file).read_text(encoding="ascii").strip()
         if not canary_token:
-            raise RuntimeError("DOCKET_CANARY_TOKEN_FILE must contain a non-empty token")
+            raise RuntimeError(
+                "DOCKET_CANARY_TOKEN_FILE must contain a non-empty token"
+            )
     # Per app instance, so one process's allowances never outlive it. {ip: (window_start, used)}.
     hires: dict[str, tuple[float, int]] = {}
 
@@ -908,6 +913,25 @@ def create_app(
             ]
         )
 
+    @app.get("/compare", response_model=None)
+    def compare_services() -> dict:
+        """Every service side by side, including the ones with nothing to show.
+
+        `/hire` says what each service does and what it costs, which leaves a buyer to work
+        out for themselves which have ever been run against a human. Three have and three
+        have not, and a table where those look the same is worse than no table. Live
+        admission is read the same way `/hire` reads it, so the two cannot disagree about
+        which services are actually for sale.
+        """
+        table = compare_services_table(
+            [
+                replace(svc, admission=_effective_admission(svc.id))
+                for svc in SERVICES.values()
+            ]
+        )
+        table["admission_max_age_seconds"] = CANARY_MAX_AGE_SECONDS
+        return table
+
     @app.get("/escrow", response_model=None)
     def escrow_terms() -> dict:
         """The second hire rail: funds held in escrow for a real job, rather than paid
@@ -1341,7 +1365,9 @@ def create_app(
             return {"result": result, "receipt": receipt}
 
         client_ip = request.client.host if request.client else "unknown"
-        payment_available = paid_stock and pay_to is not None and facilitator is not None
+        payment_available = (
+            paid_stock and pay_to is not None and facilitator is not None
+        )
         resets_in = _spend_allowance(client_ip) if payment_available else None
         if resets_in is not None:
             return JSONResponse(
