@@ -17,16 +17,16 @@ here. What they could not easily do is stay consistent with the tree while doing
 
 ---
 
-## Collected 2026-08-16
+## Collected 2026-08-16 (refreshed after the 12:20Z deploy)
 
 ### Deployed identity
 
 | Field | Value |
 |---|---|
 | Host | `docket.gudman.xyz` |
-| `/opt/docket/.venv` resolves to | `/opt/docket-venvs/81addbb7796d` |
-| `RELEASE-commit.txt` | `81addbb7796d7d5acabef1b3e19d1b93956c6f59` |
-| Wheel sha256 | `1f8a86ea07c8a6d5b3b7efda076d485afc74a00c548f9b818264486e4b26cfd5` |
+| `/opt/docket/.venv` resolves to | `/opt/docket-venvs/534af826575a` |
+| `RELEASE-commit.txt` | `534af826575a3c316eaace03b5e41ab077d4c253` |
+| Wheel sha256 | `b8c9a257c9ab3acab111b87d2507153b7d0a7bd54a41ef9110a2a57c88758beb` |
 | Services active | `docket.service`, `docket-lp-record.timer`, `docket-v3-capture.timer` |
 
 **Checkable without leaving the repository:** `git cat-file -t 81addbb7796d7d5ac…` resolves to a
@@ -84,10 +84,14 @@ timer at 06:00Z without anyone starting it, which is the claim the first line al
 
 ## What this evidence does not establish
 
-- **Production is nine commits behind `HEAD`.** `81addbb` is deployed; `1f93844` is the tree. The
-  audit remediation — the capture writer's exclusive creation, the calibration digest check, the
-  `still_held` fix, the fifth registration correction — **is not deployed.** Entries 2 and 7 are
-  about code that *is* live; nothing here speaks for anything newer.
+- **Superseded 2026-08-16T12:20Z: the audit remediation is now deployed.** `534af826575a` is
+  live, and the four fixes were read back out of the running venv — exclusive capture writes,
+  per-attempt journalling, the calibration digest check, and `still_held`. The capture still
+  refuses to run early with its registered reason and has written nothing; the timer remains
+  armed for 12:00:00 UTC on Aug 21; the LP journal survived the swap at 2 lines.
+- ⚠️ **The service takes about eight seconds to accept connections after start.** A post-deploy
+  check at six seconds returns `000` on every endpoint and reads exactly like an outage. Both
+  deploys hit this. Wait, then re-check, before concluding anything.
 - The CI run covers `aaba01a`, not `HEAD`. Commits after it have not been checked by any runner.
 - Every figure here was gathered by the builder. It is consistent with the tree, which is the
   property a reader can actually test; it is not independent.
