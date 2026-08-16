@@ -578,3 +578,54 @@ deletion of the dead order enforcer is also justified: `spec.py:294` refuses any
   `open_run`/`recover_interrupted` semantics, and `assert_runnable`'s full scope.
 - No orchestrator has ever run against a real endpoint. This is machinery with no paired run
   through it.
+
+## 16. `<pending>` — The calibration run driver, and the eight-case key promoted to evidence
+
+**Status: OPEN FOR CODEX.** Grok built, Fable audited, verified here. Closes Codex's step 3 of six
+for the Warden lock and its step 4 (promote the authored key).
+
+**Part 1.** The eight-case calibration key existed only as a helper function inside
+`tests/test_advantage_v3_warden_heldout.py` — evidence living in the file whose job is to check
+evidence. Promoted to `docket/advantage/v3/sources/warden-calibration-set.json`; the test now
+reads it so the two cannot drift. **Verified unchanged**: I rebuilt the original helper from git
+HEAD, executed it, and diffed — 8 cases, same ids, zero differences. `sources/* -text` already
+covers the new file.
+
+**Part 2.** `docket/advantage/v3/calibration_driver.py` + CLI, 13 tests. **1210 pass.**
+
+Fable named four surviving mutations and one outright failure. All reproduced here, all now fail:
+
+| | before | after |
+|---|---|---|
+| `raw = seat(prompt) or b"{}"` | 0 failures | **1 fails** |
+| prompt replaced by `b"{}"` | 0 failures | **1 fails** |
+| `model_build` hardcoded | 0 failures | **1 fails** |
+| shared-session check always refuses | 0 failures | **11 fail** |
+
+🔴 **A live bug, reproduced not theorised:** a seat returning `str` instead of `bytes` — the
+`response.text` vs `.content` slip — wrote the request and **not** the response, because
+`sha256(str)` raised *inside the `finally`*. That seat was then permanently wedged: `attempts()`
+refuses and there is no recovery API. On 2026-08-21 that would have ended that seat under this
+registration. Now all three of `str`, `b""` and `None` persist a `no_response` record with no
+fabricated bytes — verified by running each.
+
+🔴 **`main()` could never drive a seat.** It hardcoded `call_seat=None`, so every CLI invocation
+refused. Now takes a `module:callable` reference; **proven by an actual run** — `seat seat-a
+attempt 1: captured`, both artifacts on disk.
+
+⚠️ **I overstated one finding and the builder corrected me.** I reported that a seat returning
+`None`/`b""` would bind fabricated bytes as CAPTURED. It would not: `calibration.py:277` has
+always done `captured = bool(raw_response)`. The mutation was genuinely unconstrained — a real
+test gap — but the live code was safe. **A surviving mutation proves a test gap, not a live
+vulnerability, and I conflated the two.**
+
+**Not verified, and worth Codex's attention:**
+
+- `calibration.record_response` still assumes callers pass `bytes | None`. The driver now
+  guards, but any *other* caller handing it a `str` wedges the same way. Defence in depth
+  deliberately not added; the builder said so plainly rather than quietly doing it.
+- The driver owns no timeout. A genuinely hanging seat client persists nothing until killed.
+  The builder argues that is the injected client's job; SIGKILL wedges regardless since no
+  `finally` runs. Unresolved by design, not by omission.
+- A TOCTOU race between two concurrent invocations of the shared-session check is unguarded.
+- **Zero real seat runs still.** This has been driven only by a synthetic callable.
