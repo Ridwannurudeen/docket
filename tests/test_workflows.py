@@ -14,6 +14,7 @@ is not a long command. It is a quoted scalar followed by text the parser cannot 
 looks exactly like a shell line that would work.
 """
 
+from fnmatch import fnmatch
 from pathlib import Path
 
 import pytest
@@ -65,4 +66,11 @@ def test_the_branch_this_work_happens_on_is_covered(path):
     triggers = document.get("on", document.get(True))
     branches = triggers["push"]["branches"]
     assert "main" in branches
-    assert any(pattern.startswith("docs/") for pattern in branches), branches
+    # The branch this repository is actually developed on, matched the way GitHub matches
+    # it. Asserting merely that *some* `docs/` pattern exists would pass on `docs/nothing`
+    # and leave the work uncovered while the test reported otherwise — which is the shape
+    # of the original defect, not a fix for it.
+    working_branch = "docs/deliberation-round2"
+    assert any(fnmatch(working_branch, pattern) for pattern in branches), (
+        f"{working_branch} is not matched by {branches}"
+    )
