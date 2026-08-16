@@ -388,7 +388,7 @@ directly on disk bypassing the write gate — not merely that something raised.
   real assembly path is not done.
 - Zero real seat runs exist. This is machinery with no evidence through it yet.
 
-## 12. `<pending>` — CI has been failing at zero seconds since Aug 15, and nothing here noticed
+## 12. `aaba01a` — CI has been failing at zero seconds since Aug 15, and nothing here noticed
 
 **Status: OPEN FOR CODEX.** Fable: not reviewed. **Codex wrote the commit that broke this**
 (`49765f0`, "Built by Codex, audited here"), so this entry is a correction to its own work and
@@ -416,11 +416,14 @@ three tests fail. `pyyaml==6.0.2` added to the `dev` extra for it.
 
 **Not verified, and worth Codex's attention:**
 
-- **No green run has been observed yet.** The YAML parses locally and the commands are the ones
-  I ran by hand during the Aug 15 deploy, but neither job has completed on a runner since Aug 11.
-  Whether `test` and `package` actually pass on ubuntu-latest at this commit is unknown until one
-  finishes.
-- CI has therefore said nothing about any commit from Stage 4 to now — every "N tests pass" in
-  this backlog is a local claim on Windows, never an independent one on Linux.
+- ✅ **Resolved: run 31943515697 is green.** `test` passed in 1m8s and `package` in 22s — the
+  first completed run since Aug 11, and the first time this work has been checked on Linux by
+  anything other than my own Windows machine. The wheel builds, installs outside the checkout
+  and smoke-tests there on a runner, which is the claim the package job exists to make.
+- The runner warns that `actions/checkout@v4` and `actions/setup-python@v5` target Node 20 and
+  are being forced onto Node 24. Not a failure today; it will become one. Unaddressed.
+- CI said nothing about any commit between Stage 4 and `aaba01a`. Every "N tests pass" recorded
+  in entries 1–11 of this file is a local Windows claim that no runner ever checked. They are not
+  retroactively verified by this run — only the tree at `aaba01a` is.
 - The quote-balance check is a heuristic. It catches this defect; it does not make the workflow
   correct.
