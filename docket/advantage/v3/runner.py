@@ -492,6 +492,7 @@ def claim_slot(
     *,
     slot: ScheduledSlot,
     repo_root: Path | None = None,
+    clock=None,
 ) -> dict:
     """Claim an attempt slot, or refuse because it was already claimed.
 
@@ -499,6 +500,7 @@ def claim_slot(
     `open_run`: a long run's inputs can move under it, and a check at the top of the run says
     nothing about the bytes this arm is about to see.
     """
+    tick = time.monotonic_ns if clock is None else clock
     registered = _registered_slot(spec, slot, repo_root)
     path = ledger_path(spec, runs_dir)
     with _ledger_lock(path):
@@ -527,7 +529,7 @@ def claim_slot(
                 "deadline_at": (
                     started_at + timedelta(seconds=spec.timing["timeout_seconds"])
                 ).isoformat(),
-                "started_monotonic_ns": time.monotonic_ns(),
+                "started_monotonic_ns": tick(),
                 "case_binding": {"case_sha256": registered.case_sha256},
                 **_lock_header(spec),
             },
@@ -544,6 +546,7 @@ def terminate_slot(
     failure: dict | None = None,
     cost: dict | None = None,
     receipt: dict | None = None,
+    clock=None,
 ) -> dict:
     return _terminate_slot(
         spec,
@@ -554,6 +557,7 @@ def terminate_slot(
         failure=failure,
         cost=cost,
         receipt=receipt,
+        clock=clock,
     )
 
 
@@ -568,6 +572,7 @@ def _terminate_slot(
     cost: dict | None = None,
     receipt: dict | None = None,
     forced_outcome: str | None = None,
+    clock=None,
 ) -> dict:
     """Close an attempt, recording what came back and whether it may count for speed.
 
@@ -612,7 +617,8 @@ def _terminate_slot(
             )
 
         started_ns = state.started.get("started_monotonic_ns")
-        now_ns = time.monotonic_ns()
+        tick = time.monotonic_ns if clock is None else clock
+        now_ns = tick()
         elapsed_ns = None if started_ns is None else now_ns - started_ns
         timeout_ns = spec.timing["timeout_seconds"] * 1_000_000_000
         if elapsed_ns is not None and elapsed_ns >= timeout_ns:

@@ -530,3 +530,51 @@ matches the actual working branch with `fnmatch`.
 - CI's green run covers `aaba01a`, not `HEAD`.
 - The evidence was collected by the builder. That is the limitation the file leads with rather
   than buries.
+
+## 15. `<pending>` — The v3 run orchestrator (built by Grok, audited by Fable, verified here)
+
+**Status: OPEN FOR CODEX.** First build under the owner's 2026-08-16 arrangement: **Grok builds →
+Fable 5 audits → I brief, verify and commit.** Grok never committed; Fable never edited.
+
+Closes the largest unbuilt item. `runner.py` had the ledger, slot claiming, recovery and state
+folding but **no entry point** — nothing drove "reveal the case → run the arm → persist the
+result", so the registered Sep 1–4 paired runs could not have happened.
+
+New `docket/advantage/v3/orchestrator.py` (`run_next`, `run_remaining`, `hire_agent`, `main`, CLI)
+plus 30 tests; an 8-line `clock=` injection on `runner.claim_slot`/`terminate_slot`. **1197 pass.**
+
+**Fable named three mutations it predicted would survive. I applied all three: all three
+survived.** After remediation I re-applied them and each now fails —
+
+| Mutation | before | after |
+|---|---|---|
+| `receipt_valid = True` | 0 failures | **6 fail** |
+| order enforcement removed | 0 failures | **1 fails** |
+| `assert_runnable` in `main` removed | 0 failures | **1 fails** |
+
+The first was the blocker: with receipt validation neutered a forged, mismatched or absent
+receipt bound into the ledger as SUCCEEDED on the paid, hash-bound arm — the one the whole
+registration exists to prove ran honestly. The suite only ever exercised a valid 200 and a 422.
+
+Also fixed: `_reveal` now runs **before** the claim and refuses rather than binding, so an
+infrastructure fault no longer consumes one of five preregistered paired cases; `assert_runnable`
+is now called on `run_next` and `run_remaining`, not only in the CLI.
+
+🔑 **Grok rejected two of the six findings and was right on both, verified here.**
+`runner._assert_locked` *is* `assert_runnable` (`runner.py:1032-1036`, called at four sites
+including inside `claim_slot`), so library callers never "skipped it entirely". And inputs moving
+under a run already yields `input_tamper`, a distinct registered outcome, not `invoke_error`. Its
+deletion of the dead order enforcer is also justified: `spec.py:294` refuses any
+`arm_block_order != MANUAL_FIRST` at construction, so the branch could not exist.
+
+**Not verified, and worth Codex's attention:**
+
+- `main()`'s **agent path is untestable as written** — no `hire`/`client` injection reaches the
+  CLI layer, and no test drives an agent slot through `main`. The `--payment-header` plumbing is
+  unverified end to end.
+- `hire_agent`'s 500 → `http_error`, `malformed_json` and `transport_error` branches are still
+  untested; only the receipt limbs were covered.
+- Fable read four files and named the rest as assumptions: `scheduled_slots` ordering,
+  `open_run`/`recover_interrupted` semantics, and `assert_runnable`'s full scope.
+- No orchestrator has ever run against a real endpoint. This is machinery with no paired run
+  through it.
