@@ -310,7 +310,7 @@ it never uses.
   authorship, and names OpenTimestamps as what would close it. Owner-gated, still open.
 - Nothing tests the systemd unit's ExecStart arguments against the module's actual CLI.
 
-## 10. `<pending>` — A comparison surface, including the services with nothing to show
+## 10. `a8ba05b` — A comparison surface, including the services with nothing to show
 
 **Status: OPEN FOR CODEX.** Fable: not reviewed.
 
@@ -334,9 +334,10 @@ no `seconds_saved`/`sample_size` keys at all rather than nulls.
 
 **Not verified, and worth Codex's attention:**
 
-- 🔴 **The table is an API endpoint and is NOT on the page.** The criterion is a cold judge
-  comparing without instructions, and a judge does not curl. Until it is rendered this closes
-  the data half only.
+- The table is now rendered on the home page (follow-up commit), using only stylesheet classes
+  that exist — an undefined wrapper would have let a five-column table run off a phone. What is
+  **not** verified is how it looks: no browser has opened it, and no cold reader has tried to
+  compare with it. That is what the Aug 27–31 uncoached sessions are for.
 - Codex named seven columns. **Freshness and evidence are not implemented**, and "quality" is
   represented only by sample size. Freshness needs a per-service data-recency notion that does
   not exist yet; evidence needs a per-service link to the specific artifact.

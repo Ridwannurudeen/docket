@@ -647,3 +647,36 @@ def test_the_yield_decision_leads_and_carries_the_pool_it_was_measured_against()
     assert "Compared against" in flat
     assert "was not read from any wallet" in flat
     assert "annualise one 24-hour observation" in flat
+
+
+def test_the_comparison_table_reaches_the_page_and_keeps_its_empty_cells():
+    """The criterion is a cold judge comparing without instructions, and a judge does not
+    curl. An endpoint nobody renders closes the data half and not the half being scored.
+
+    The empty cells are the part worth guarding. A row for a service with no paired run
+    has to show the sentence saying so — a painter that skipped falsy values, or printed a
+    zero, would produce a table where every service looks measured.
+    """
+    markup = _read("index.html")
+    assert 'data-region="compare"' in markup
+    assert "Compare them side by side" in markup
+
+    js = _read("app.js")
+    assert "paintCompare" in js
+    assert "await paintCompare();" in js
+    assert 'fetchJSON("/compare")' in js
+
+    painter = js.split("function comparisonRow", 1)[1].split("\nasync function", 1)[0]
+    # The unmeasured branch prints the reason rather than falling through to a blank.
+    assert "measured.reason" in painter
+    assert "measured.available" in painter
+    # The denominator travels with the saving wherever it is shown.
+    assert "sample_size" in painter
+    # Failing limbs are named on the page too, not reduced to a count.
+    assert "admission_failing.join" in painter
+
+    # Only classes the stylesheet actually defines: an undefined wrapper would let a
+    # five-column table run off the side of a phone with nothing to scroll it.
+    styles = _read("style.css")
+    for class_name in ("table-wrap", "metric-note", "section-note"):
+        assert f".{class_name}" in styles, class_name

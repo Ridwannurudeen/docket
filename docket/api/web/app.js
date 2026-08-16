@@ -1388,11 +1388,72 @@ function paintStats(stats) {
   paintNameFamilies(stats);
 }
 
+/* The comparison surface. A judge is asked to find, compare and hire without
+   instructions, and comparison was the part this page did worst: every service was
+   described on its own terms, so which of them had ever been measured against a person
+   was left for the reader to work out. The empty cells are the point of the table — a
+   row that says no paired run exists is doing more work than a row showing a zero. */
+function comparisonRow(row) {
+  const measured = row.measured || {};
+  const saving = measured.available
+    ? `<strong>${escapeHTML(seconds(measured.seconds_saved))}</strong> faster
+       <span class="metric-note">(agent ${escapeHTML(seconds(measured.agent_seconds))},
+       by hand ${escapeHTML(seconds(measured.manual_seconds))}, n=${escapeHTML(
+         String(measured.sample_size),
+       )})</span>`
+    : `<span class="metric-note">${escapeHTML(measured.reason || "not measured")}</span>`;
+  const gates = (row.admission_failing || []).length
+    ? `<span class="metric-note">not yet for sale — ${escapeHTML(
+        row.admission_failing.join(", "),
+      )}</span>`
+    : `<span class="metric-note">every admission limb passing</span>`;
+  return `<tr>
+      <th scope="row">${escapeHTML(row.name)}<br><span class="metric-note">${escapeHTML(
+        row.job,
+      )}</span></th>
+      <td class="num">${escapeHTML(row.price_display)}</td>
+      <td class="num">${escapeHTML(String(row.typical_seconds))}s</td>
+      <td>${escapeHTML(row.stock_status)}<br>${gates}</td>
+      <td>${saving}</td>
+    </tr>`;
+}
+
+function seconds(value) {
+  return `${Number(value).toFixed(1)}s`;
+}
+
+async function paintCompare() {
+  const target = region("compare");
+  if (!target) return;
+  let table;
+  try {
+    table = await fetchJSON("/compare");
+  } catch (err) {
+    renderError(target, err);
+    return;
+  }
+  target.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr>
+        <th scope="col">Service</th>
+        <th scope="col">Price</th>
+        <th scope="col">Typically</th>
+        <th scope="col">For sale?</th>
+        <th scope="col">Measured against a person</th>
+      </tr></thead>
+      <tbody>${table.rows.map(comparisonRow).join("")}</tbody>
+    </table></div>
+    <p class="section-note">${escapeHTML(table.summary.reading)}
+    ${escapeHTML(
+      String(table.summary.services_with_a_paired_measurement),
+    )} of ${escapeHTML(String(table.summary.services))} services have one.</p>`;
+}
+
 async function initIndex() {
   paintVocabulary();
   /* The jobs first, and awaited separately: a /stats that cannot be read must not leave
      the shop front empty, and an empty shelf must not be hidden by a failing statistic. */
   await paintJobs();
+  await paintCompare();
   try {
     paintStats(await fetchJSON("/stats"));
   } catch (err) {
