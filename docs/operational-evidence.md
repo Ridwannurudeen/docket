@@ -29,16 +29,17 @@ here. What they could not easily do is stay consistent with the tree while doing
 | Wheel sha256 | `b8c9a257c9ab3acab111b87d2507153b7d0a7bd54a41ef9110a2a57c88758beb` |
 | Services active | `docket.service`, `docket-lp-record.timer`, `docket-v3-capture.timer` |
 
-**Checkable without leaving the repository:** `git cat-file -t 81addbb7796d7d5ac…` resolves to a
-commit, and `git rev-parse 81addbb7796d` returns exactly that hash.
+**Checkable without leaving the repository:** `git cat-file -t 534af826575a3c31…` resolves to a
+commit, and `git rev-parse 534af826575a` returns exactly that hash. This record was written by
+`printf` from the client's `git rev-parse` and echoed back for comparison, not typed.
 
-⚠️ **This record was wrong until today, and the error was mine.** It read
-`81addbb7796d3e0b` — the correct twelve-character release id followed by four characters I
+⚠️ **The record this one replaced was wrong, and the error was mine.** The previous deploy's file
+read `81addbb7796d3e0b` — the correct twelve-character release id followed by four characters I
 invented while padding it out by hand. The first twelve matched a real commit, which is what made
-it look precise. A provenance file exists so the running code can be tied to a commit; a hash that
-resolves to nothing makes it un-tieable while appearing exact. Corrected by deriving it from
-`git rev-parse` rather than typing it. The earlier deploy's record (`3873e2c460da…`) was correct
-and was left alone.
+it look precise. A provenance file exists so running code can be tied to a commit; a hash that
+resolves to nothing makes it un-tieable while appearing exact. It was corrected in place before
+this deploy, and the rule the mistake earned is that a release records nothing it did not compute.
+The first deploy's record (`3873e2c460da…`) was always correct and was left alone.
 
 ### Entry 2 — BSC proof-of-authority middleware, in the deployed package
 
@@ -82,13 +83,18 @@ timer at 06:00Z without anyone starting it, which is the claim the first line al
 
 ---
 
+### The audit remediation is deployed (2026-08-16T12:20Z)
+
+`534af826575a` is live and the four fixes were read back out of the venv the service imports
+from — exclusive capture writes, per-attempt journalling, the calibration digest check, and
+`still_held`. The capture still refuses to run early with its registered reason and has written
+nothing; the timer remains armed for 12:00:00 UTC on Aug 21; the LP journal came through the
+swap at 2 lines.
+
+---
+
 ## What this evidence does not establish
 
-- **Superseded 2026-08-16T12:20Z: the audit remediation is now deployed.** `534af826575a` is
-  live, and the four fixes were read back out of the running venv — exclusive capture writes,
-  per-attempt journalling, the calibration digest check, and `still_held`. The capture still
-  refuses to run early with its registered reason and has written nothing; the timer remains
-  armed for 12:00:00 UTC on Aug 21; the LP journal survived the swap at 2 lines.
 - ⚠️ **The service takes about eight seconds to accept connections after start.** A post-deploy
   check at six seconds returns `000` on every endpoint and reads exactly like an outage. Both
   deploys hit this. Wait, then re-check, before concluding anything.
