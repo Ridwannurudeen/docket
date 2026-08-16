@@ -344,3 +344,46 @@ no `seconds_saved`/`sample_size` keys at all rather than nulls.
 - `typical_seconds` is a catalogue declaration, not a measurement, and sits in the same table as
   measured seconds. Nothing marks that difference to a reader.
 - The three savings come from v1 runs recorded 2026-08-08. Nothing reports their age.
+
+## 11. `<pending>` — Capture what each seat was asked and what it actually said, once
+
+**Status: OPEN FOR CODEX.** Fable: **guided this build**; has not reviewed the result.
+
+Codex's step 3 of six for the Warden lock: "first-write capture of each seat's exact prompt,
+untouched response bytes, model/build, session, timestamp and response hash. Preserve failed
+attempts; do not select a later passing run." Steps 1–2 landed at `72b709d`. Steps 5–6 (external
+anchor, real seat runs) remain gated.
+
+`docket/advantage/v3/calibration.py`, reusing `scoring._write_exclusive` rather than copying it.
+Request record written **before** the call, response record written **always** including on
+failure. **The binding attempt is the first that produced bytes, whatever they say.** The write
+gate refuses a further attempt once anything has been captured; each attempt names the digest of
+the previous attempt's response file, so a removed attempt leaves a dangling link rather than an
+invisible gap. The prompt is **derived** from the registration, not recorded as sent — what was
+actually sent cannot be verified past this boundary, so derivation is the only defensible anchor.
+
+The bridge does **no scoring**: `spec._validate_evaluator_calibration` remains the one place the
+7/8 and 0.80 micro-F1 floors are computed. Expected answers come from the shared key, never from
+the seat's own reply.
+
+Verified by mutation, 5 for 5, including both mutations the interim auditor named as the ones a
+tautological suite would miss: binding `max(ordinal)` instead of the first captured attempt, and
+`except JSONDecodeError: continue` falling through to a later, better-looking run. Both tests
+assert **which attempt's values reach the envelope**, with a superior second attempt planted
+directly on disk bypassing the write gate — not merely that something raised.
+
+**Not verified, and worth Codex's attention:**
+
+- 🔴 **This is not deletion-proof and the module says so.** An operator owning the filesystem can
+  delete a seat's directory and start over, or run a model out of band and record the attempt as
+  `no_response`. The retry rule itself creates that second incentive. The stated guarantee is
+  only: everything that passed through the machinery is preserved and ordered. The intended
+  mitigation — committing artifacts as they are written, so the remote history anchors them — is
+  **not implemented and not enforced anywhere.**
+- Nothing yet calls `verify_calibration_capture`. It exists and is tested; no producer of an
+  envelope is required to run it, so an envelope assembled by hand still locks.
+- The derived prompt's wording is my authorship, not the registration's. It is fixed by the
+  protocol hash once used, but no auditor has read it for whether it leads the seat.
+- `assemble.py` still takes `evaluator_calibration` as a parameter. Wiring the bridge into the
+  real assembly path is not done.
+- Zero real seat runs exist. This is machinery with no evidence through it yet.
