@@ -344,7 +344,16 @@ def _resolve_spec(reference: str) -> Path:
     package means the capture uses the registration the running Docket ships with.
     """
     candidate = Path(reference)
-    if candidate.is_file():
+    try:
+        looks_like_a_file = candidate.is_file()
+    except OSError:
+        # `is_file()` swallows a missing path but re-raises a permission error, so a family
+        # id resolved from a directory the service user cannot stat would crash here rather
+        # than falling through to the packaged spec — which is where a family id was always
+        # going to be found. The capture has one registered moment and no second attempt, so
+        # it does not get to fail on the readability of a working directory it never uses.
+        looks_like_a_file = False
+    if looks_like_a_file:
         return candidate
     packaged = (
         resources.files("docket.advantage") / "v3" / "specs" / f"{reference}.json"

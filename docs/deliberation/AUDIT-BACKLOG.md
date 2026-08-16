@@ -268,3 +268,44 @@ unpatchable and a test that believed it had substituted a reader silently hit th
 - `Persistent=true` deliberately differs from the v3 capture's `false`: a late observation is
   still true of the position and is timestamped by when it ran. That reasoning was not audited.
 - No retention, rotation or size bound on the JSONL. One line a day is small, but nothing caps it.
+
+## 9. `<pending>` — Make the Aug 21 capture something that will actually happen
+
+**Status: OPEN FOR CODEX.** Fable: not reviewed. **This closes Codex's own unanswered audit
+question** (`CODEX-AUDIT-CAPTURE-BRIDGE-2026-08-15.md` item 3), so it is checkable against the
+question that raised it.
+
+🔴 **The capture timer was never installed.** `docket-v3-capture.timer` did not exist on the VPS
+and `/var/lib/docket/v3-capture` did not exist either. The registered moment — 2026-08-21
+12:00:00Z, one shot, no recapture — would have passed with nothing running, and the protocol
+says a missed moment means recommitting the family. Installed, enabled, scheduled
+`Fri 2026-08-21 14:00:00 CEST` = 12:00:00 UTC, matching `YIELD_CAPTURE_ATTEMPTS[0]` exactly.
+NTP is synchronised on the box, so the registration's 5-second tolerance stands.
+
+**Codex's question 3 answered, against the real endpoints:** the live PancakeSwap bodies parse
+through `_pool_rows`, `_token_allowlist` and `_partition` unchanged — 25 rows, 973 BSC tokens,
+**21 pools clear the gates against `n_planned` 5** — and the full capture→assemble→lock sequence
+run over those exact bodies **locked against the real validator**. That also settles its
+question 1: the transcribed truth arithmetic in `_cases` agrees with `_validate_yield_inputs`'s
+independent recomputation within `math.isclose(rel_tol=1e-12)`, because the lock accepted it.
+
+Also verified: running the capture early is refused with the registered reason and exit 2, and
+writes nothing. Hardened `_resolve_spec`, which crashed with `PermissionError` rather than
+falling through to the packaged spec when the working directory could not be stat'd —
+reproduced on the VPS, and the capture does not get to fail on the readability of a directory
+it never uses.
+
+**Not verified, and worth Codex's attention:**
+
+- The rehearsal used bodies captured **2026-08-15**. It cannot detect a PancakeSwap shape change
+  between now and Aug 21. **Re-run it on Aug 20** — the procedure is the script at
+  `scratchpad/rehearse_yield.py`, which substitutes live bodies into
+  `tests/test_advantage_v3_assemble.py`'s fixture and asserts the lock. It is a scratch script,
+  not committed; a committed one nobody runs would be worse, but this is a real gap.
+- The rehearsal's `evaluator_calibration` is synthetic (`test-build`, perfect answers). The real
+  seat runs do not exist, so **the Yield family still cannot be locked for real** even after a
+  successful capture. Capture and lock are separable, and only capture is ready.
+- Codex required the registration be **externally anchored** before the capture. It is not.
+  `docs/source-deploy-manifest.md` already states the GitHub push witnesses existence but not
+  authorship, and names OpenTimestamps as what would close it. Owner-gated, still open.
+- Nothing tests the systemd unit's ExecStart arguments against the module's actual CLI.

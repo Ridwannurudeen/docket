@@ -360,7 +360,9 @@ def test_a_success_observed_outside_its_window_is_reported_not_frozen():
         start = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
         record = _attempt(1)(urls, ordinal=ordinal, scheduled_at=scheduled_at)
         # Both fetches returned 200, but the second landed after the minute closed.
-        record["token_list_observed_at"] = capture._stamp_at(start + timedelta(seconds=75))
+        record["token_list_observed_at"] = capture._stamp_at(
+            start + timedelta(seconds=75)
+        )
         return record
 
     result = capture.run_registered_capture(
@@ -376,3 +378,30 @@ def test_an_in_window_success_is_still_frozen_normally():
     """The new guard must not reject the ordinary case it exists to protect."""
     result = capture.run_registered_capture(SPEC, now=SCHEDULED, attempt=_attempt(1))
     assert result["captured"] is True
+
+
+def test_a_family_id_resolves_even_from_an_unreadable_directory(monkeypatch):
+    """The capture has one registered moment, so it does not get to fail on a cwd.
+
+    `Path.is_file()` returns False for a missing path but re-raises a permission error, and
+    the resolver tried the argument as a path before falling through to the packaged spec.
+    A family id is always going to be found in the package; a working directory the service
+    user cannot stat is not a reason to abandon the only observation this family gets.
+    Reproduced on the VPS by running the unit's own command from a directory the `docket`
+    user could not read.
+    """
+    from docket.advantage.v3 import capture
+
+    real_is_file = Path.is_file
+
+    def _refuse_to_stat(self, *args, **kwargs):
+        if str(self) == "v3-02-yield-router":
+            raise PermissionError(13, "Permission denied")
+        return real_is_file(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "is_file", _refuse_to_stat)
+
+    resolved = capture._resolve_spec("v3-02-yield-router")
+
+    assert resolved.name == "v3-02-yield-router.json"
+    assert load(resolved).spec_id == "v3-02-yield-router"
