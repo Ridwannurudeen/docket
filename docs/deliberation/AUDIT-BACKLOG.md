@@ -387,3 +387,40 @@ directly on disk bypassing the write gate — not merely that something raised.
 - `assemble.py` still takes `evaluator_calibration` as a parameter. Wiring the bridge into the
   real assembly path is not done.
 - Zero real seat runs exist. This is machinery with no evidence through it yet.
+
+## 12. `<pending>` — CI has been failing at zero seconds since Aug 15, and nothing here noticed
+
+**Status: OPEN FOR CODEX.** Fable: not reviewed. **Codex wrote the commit that broke this**
+(`49765f0`, "Built by Codex, audited here"), so this entry is a correction to its own work and
+to the audit of it — mine — that let it through.
+
+Every CI run since `49765f0` failed in **0 seconds with no job started**: eleven consecutive
+failures across two days. GitHub reports that as "this run likely failed because of a workflow
+file issue", which reads like infrastructure trouble rather than a syntax error in a tracked
+file, and nothing on this side ever parsed the workflow.
+
+The defect, at `.github/workflows/ci.yml` line 30 column 52: in YAML a value beginning with a
+quote **ends at its closing quote**, so `run: "$RUNNER_TEMP/venv/bin/python" -m pip install …`
+is a quoted scalar followed by text the parser cannot place. Two steps had it. It looks exactly
+like a shell line that would work. Fixed with block scalars.
+
+Second defect, independent and arguably worse: `on.push.branches` was `[main]` while every
+commit since Stage 4 has landed on `docs/deliberation-round2`. **Even with valid YAML, CI would
+have run nothing on the branch carrying the work** — and the package job it added exists
+precisely to catch the packaging defect that has now shipped three times. Trigger widened to
+`[main, "docs/**"]`.
+
+`tests/test_workflows.py` now parses every workflow, checks each `run:` command survives parsing
+whole, and asserts the working branch is covered. Verified by reintroducing the original line:
+three tests fail. `pyyaml==6.0.2` added to the `dev` extra for it.
+
+**Not verified, and worth Codex's attention:**
+
+- **No green run has been observed yet.** The YAML parses locally and the commands are the ones
+  I ran by hand during the Aug 15 deploy, but neither job has completed on a runner since Aug 11.
+  Whether `test` and `package` actually pass on ubuntu-latest at this commit is unknown until one
+  finishes.
+- CI has therefore said nothing about any commit from Stage 4 to now — every "N tests pass" in
+  this backlog is a local claim on Windows, never an independent one on Linux.
+- The quote-balance check is a heuristic. It catches this defect; it does not make the workflow
+  correct.
