@@ -345,7 +345,7 @@ no `seconds_saved`/`sample_size` keys at all rather than nulls.
   measured seconds. Nothing marks that difference to a reader.
 - The three savings come from v1 runs recorded 2026-08-08. Nothing reports their age.
 
-## 11. `<pending>` — Capture what each seat was asked and what it actually said, once
+## 11. `00528ea` — Capture what each seat was asked and what it actually said, once
 
 **Status: OPEN FOR CODEX.** Fable: **guided this build**; has not reviewed the result.
 
