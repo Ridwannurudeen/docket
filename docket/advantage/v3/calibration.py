@@ -339,6 +339,15 @@ def assemble_evaluator_calibration(
                 "than the one being assembled"
             )
         raw = b64decode(response["response_base64"])
+        # Against the hash recorded beside them, not merely decoded. Without this the module
+        # writes a digest of the seat's answer and then never reads it: edited bytes assemble
+        # cleanly under an unchanged `response_sha256`, and the one artifact built to make a
+        # response tamper-evident becomes the place tampering is invisible.
+        if hashlib.sha256(raw).hexdigest() != response["response_sha256"]:
+            raise ValueError(
+                f"calibration: seat {evaluator_id!r} has response bytes that do not match "
+                "the digest recorded with them"
+            )
         # No fall-through. Unparseable bytes from the binding attempt end this seat; the
         # tempting `except: continue` would silently promote a later, better-looking run
         # and reintroduce exactly the selection this module exists to prevent.

@@ -29,6 +29,7 @@ a person, and none of them can move the registered moment.
 import argparse
 import hashlib
 import json
+import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -157,6 +158,7 @@ def capture_attempt(urls: tuple[str, str], *, ordinal: int, scheduled_at: str) -
 def run_registered_capture(
     spec,
     *,
+    journal: Path | None = None,
     now: datetime | None = None,
     clock=None,
     sleep=time.sleep,
@@ -224,6 +226,11 @@ def run_registered_capture(
             scheduled_at=_stamp_at(attempt_start),
         )
         bodies_this = record.pop("_bodies", None)
+        # Persist before doing anything else with it. An attempt that exists only in this
+        # list is lost to a crash, and the registered minute in which it could be made again
+        # will already have passed.
+        if journal is not None:
+            write_attempt(record | {"_bodies": bodies_this}, journal)
         attempts.append(record)
         if record["succeeded"]:
             late = _observations_outside(record, attempt_start)
@@ -311,25 +318,70 @@ def _all(text: str, pattern: str) -> list[str]:
     return out
 
 
+def _create_exclusively(path: Path, payload: bytes) -> None:
+    """Create, never replace.
+
+    The registered moment admits three attempts inside three minutes, so a second run of
+    this unit can begin while the window is still open — a manual start, a systemd retry, an
+    operator checking whether it worked. Truncating writes meant that run would overwrite the
+    capture the first one had already made, and the overwrite would be silent and
+    unrecoverable: the window would have closed by the time anyone read the file.
+    """
+    try:
+        with path.open("xb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except FileExistsError as exc:
+        raise CaptureRefused(
+            f"{path.name} already exists. This registered moment has already been captured, "
+            "and a second run does not get to replace what the first one observed."
+        ) from exc
+
+
+def write_attempt(record: dict, directory: Path) -> Path:
+    """Persist one attempt the moment it finishes, before the next one is made.
+
+    Attempts previously accumulated in memory until the whole capture ended, so a crash
+    after a successful fetch lost the bytes *and* the history of how they were obtained —
+    after the one minute in which either could be obtained again.
+    """
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    ordinal = record["attempt_ordinal"]
+    body = {key: value for key, value in record.items() if key != "_bodies"}
+    path = directory / f"attempt-{ordinal:02d}.json"
+    _create_exclusively(
+        path, (json.dumps(body, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    )
+    bodies = record.get("_bodies")
+    if bodies:
+        _create_exclusively(
+            directory / f"attempt-{ordinal:02d}.pools.raw.json", bodies[0]
+        )
+        _create_exclusively(
+            directory / f"attempt-{ordinal:02d}.token-list.raw.json", bodies[1]
+        )
+    return path
+
+
 def write_capture(result: dict, directory: Path) -> dict:
     """Write the raw bodies and the attempt log, keeping the two apart."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     if not result.get("captured"):
-        (directory / "capture-attempts.json").write_text(
-            json.dumps(result, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-            newline="\n",
+        _create_exclusively(
+            directory / "capture-attempts.json",
+            (json.dumps(result, indent=2, sort_keys=True) + "\n").encode("utf-8"),
         )
         return result
 
     raw = result.pop("_raw")
-    (directory / "pools.raw.json").write_bytes(raw[0])
-    (directory / "token-list.raw.json").write_bytes(raw[1])
-    (directory / "capture-attempts.json").write_text(
-        json.dumps(result, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-        newline="\n",
+    _create_exclusively(directory / "pools.raw.json", raw[0])
+    _create_exclusively(directory / "token-list.raw.json", raw[1])
+    _create_exclusively(
+        directory / "capture-attempts.json",
+        (json.dumps(result, indent=2, sort_keys=True) + "\n").encode("utf-8"),
     )
     return result
 

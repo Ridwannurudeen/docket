@@ -128,3 +128,24 @@ def test_a_recorded_line_is_canonical_json(tmp_path):
     )
     line = path.read_text(encoding="utf-8").splitlines()[0]
     assert line == json.dumps(json.loads(line), sort_keys=True)
+
+
+def test_a_transferred_position_is_not_hidden_by_the_wallet_holding_others():
+    """The one day this record exists to catch, previously reported as a normal day.
+
+    `still_held` read the wallet's total position count, so a wallet that had moved the
+    tracked NFT away but still held any other one recorded `still_held: true`. The record
+    is about token 7141050, not about how busy its owner is.
+    """
+    record = lp_record.observe(
+        WALLET,
+        TOKEN,
+        reporter=lambda *a, **k: _report(
+            target_found=False, positions_held=3, positions=[]
+        ),
+        now=WHEN,
+    )
+    assert record["still_held"] is False
+    assert record["target_found"] is False
+    # The wallet's own count is kept, because it is a fact — just not this one.
+    assert record["wallet_positions_held"] == 3

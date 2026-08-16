@@ -311,3 +311,29 @@ def test_the_bridge_does_not_score(tmp_path):
     source = Path(calibration.__file__).read_text(encoding="utf-8")
     for arithmetic in ("micro_f1", "0.80", "< 7", "seven of eight"):
         assert arithmetic not in source.split('"""', 2)[2], arithmetic
+
+
+def test_edited_response_bytes_are_refused_against_their_own_digest(tmp_path):
+    """The module records a digest of what the seat said. It has to read it back.
+
+    Without this check the digest is decoration: an operator can rewrite `response_base64`
+    to a better answer, leave `response_sha256` untouched, and the envelope assembles
+    cleanly. The one artifact built to make a response tamper-evident becomes the place
+    tampering does not show.
+    """
+    # The seat actually answered badly; the tamper replaces that with a perfect sheet.
+    _capture(tmp_path, _answer(correct=False))
+    _capture(tmp_path, _answer(), seat="seat-b")
+
+    path = calibration.response_path(SPEC, tmp_path, SEAT, 1)
+    record = json.loads(path.read_text(encoding="utf-8"))
+    improved = _answer(correct=True)
+    assert b64encode(improved).decode("ascii") != record["response_base64"]
+    record["response_base64"] = b64encode(improved).decode("ascii")
+    # response_sha256 deliberately left as it was.
+    path.write_text(
+        json.dumps(record, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="do not match the digest recorded"):
+        calibration.assemble_evaluator_calibration(SPEC, tmp_path, _shared_set())

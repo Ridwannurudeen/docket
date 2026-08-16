@@ -1299,6 +1299,7 @@ def test_each_family_is_legibly_a_correction_before_input_lock():
             "6f72298498a43b840f82da1802fe2e5a44586d46e75c4ce5d7cf7fe249764cac",
             "dfbd387a3e7fc54e45aee6c437bffc5acab985a5d9e2be68b5fe5f0b95d39abf",
             "c49c7dd8bec5dcd7d625657e0c2ee0c2968b30aa1550092a25ba6598a0a60a1a",
+            "361f830f06518511dfc45c8ec9bd49474e6c370dd8d0c29a6f16becb6d22ef74",
         ],
         "v3-02-yield-router": [
             "49ad6b20381fb72ec20600b283203d5aee399406c6a7314eadac6eefe2b6c730",
@@ -1311,7 +1312,7 @@ def test_each_family_is_legibly_a_correction_before_input_lock():
     }
     # What each family's most recent correction was actually about.
     subject = {
-        "v3-01-range-doctor": "completeness claim",
+        "v3-01-range-doctor": "false statement",
         "v3-02-yield-router": "seat",
         "v3-03-warden-security": "seat",
     }

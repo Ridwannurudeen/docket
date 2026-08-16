@@ -73,8 +73,12 @@ def observe(
         return record
 
     record["observed"] = True
-    record["still_held"] = report.get("positions_held", 0) > 0
+    # About THIS token, not about the wallet. Reading `positions_held` meant a wallet that
+    # had transferred the tracked position away but still held any other NFT recorded
+    # `still_held: true` — the one day the record exists to catch, reported as a normal day.
     record["target_found"] = bool(report.get("target_found"))
+    record["still_held"] = record["target_found"]
+    record["wallet_positions_held"] = report.get("positions_held", 0)
     record["report"] = report
     return record
 

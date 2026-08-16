@@ -427,3 +427,64 @@ three tests fail. `pyyaml==6.0.2` added to the `dev` extra for it.
   retroactively verified by this run — only the tree at `aaba01a` is.
 - The quote-balance check is a heuristic. It catches this defect; it does not make the workflow
   correct.
+
+---
+
+# Codex catch-up, 2026-08-16 — audited through `68209b3`
+
+Codex returned and worked the list. **Cleared: 1, 2 (code), 4, 5, 7 (code), 12 (code).**
+**Not clear: 6, 8, 9, 10, 11.** Its ranking put 3+6 first, then 11, 9, 8, 10 — 3 is superseded by
+6 rather than independently clean. Every load-bearing claim below was reproduced here before
+being acted on; several of its file paths were wrong (`docket/pancake/…`, `docket/web/static/…`,
+`docket/advantage/scoring.py`) while the findings behind them were right.
+
+## 13. `<pending>` — What the returning auditor found, and what it cost
+
+**Status: OPEN FOR CODEX** (its own remediation, unreviewed).
+
+🔴 **The registration contained a false statement.** It said the evidence-wallet judgement
+rested partly on "the absence of any key generation in this repository". Tracked tests call
+`Account.create()` (`tests/test_hire_api.py`, `tests/test_hire_x402.py`) to sign x402
+authorisations. **My search for that was piped through `head -12` and truncated before `tests/`
+sorted into view; I read a partial result as an absence and wrote it into a hash-bound
+artifact.** Withdrawn rather than repaired — the conclusion still holds on its other three
+grounds, which concern that wallet's history rather than this repository. Stage-one hash
+`0x361f830f` → `0x5436fe80`, the fifth correction.
+
+Same commit: the registration demanded a "complete" party-controlled set while its own addendum
+said the lists were not exhaustive. A registration cannot require completeness and disclaim it
+in the same paragraph.
+
+**Three code defects, each reproduced then fixed and mutation-verified:**
+
+- `write_capture` used `exist_ok=True` and truncating writes, so a second run inside the Aug 21
+  window would overwrite the capture the first made — silently, after the only minute in which
+  the observation could be obtained. Now exclusive creation, and each attempt is persisted as it
+  completes rather than held in memory until the end.
+- The calibration assembler decoded `response_base64` without checking it against the
+  `response_sha256` recorded beside it. Edited bytes assembled cleanly under an unchanged
+  digest — the one artifact built to make a response tamper-evident was where tampering did not
+  show.
+- `lp_record.still_held` read the wallet's total `positions_held`, so a wallet that had
+  transferred the tracked NFT away while holding any other recorded `still_held: true` — the one
+  day that record exists to catch, reported as a normal day.
+
+**Still open from this audit, deliberately not attempted here:**
+
+- 🔴 **Entry 6's schema/producer mismatch.** The validator reconciles conflicted closed rows
+  against `closed_skipped`, but no real reader mode emits that shape: with `include_closed=False`
+  the row is omitted and counted, with `True` it is returned and not counted
+  (`positions.py:478`). Codex judged my "counting is not classifying" reasoning correct *inside
+  the validator* and the schema wrong against the real reader. Needs a decision on which side
+  moves, and another registration hash. **Not urgent only because Range is blocked on archive
+  access.**
+- Entry 11: nothing orchestrates request→call→response; the captured response is the chain tail
+  so deleting it is undetectable; the prompt names the vendor vocabulary without listing its nine
+  classes; the ordinary assembler still accepts caller-supplied rows; nothing calls
+  `verify_calibration_capture`.
+- Entry 10: freshness, evidence source and the declaration-versus-measurement distinction are
+  still absent from the rendered table.
+- Entry 8: no owner-decision field, so it is not yet the registered
+  `state → diagnosis → owner decision → later state`.
+- Entries 2 and 7 are code-clear but **operationally unverified** — Codex could not reach the
+  deployed host or GitHub from its session.

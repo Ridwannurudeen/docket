@@ -405,3 +405,54 @@ def test_a_family_id_resolves_even_from_an_unreadable_directory(monkeypatch):
 
     assert resolved.name == "v3-02-yield-router.json"
     assert load(resolved).spec_id == "v3-02-yield-router"
+
+
+def test_a_second_run_cannot_overwrite_a_capture_that_already_happened(tmp_path):
+    """The registered moment admits three attempts across three minutes, so a second run of
+    the unit can begin while the window is still open — a manual start, a systemd retry,
+    someone checking whether it worked.
+
+    Truncating writes meant that run would replace the bytes the first one froze, silently
+    and unrecoverably: by the time anyone read the file the window would have closed and
+    there would be no way to obtain the original observation again.
+    """
+    from docket.advantage.v3 import capture
+
+    directory = tmp_path / "yield"
+    result = {"captured": True, "attempts": [], "_raw": (b'{"a":1}', b'{"b":2}')}
+    capture.write_capture(dict(result) | {"_raw": result["_raw"]}, directory)
+    assert (directory / "pools.raw.json").read_bytes() == b'{"a":1}'
+
+    with pytest.raises(capture.CaptureRefused, match="already been captured"):
+        capture.write_capture(
+            {"captured": True, "attempts": [], "_raw": (b"different", b"bytes")},
+            directory,
+        )
+    # The first observation survives the second run untouched.
+    assert (directory / "pools.raw.json").read_bytes() == b'{"a":1}'
+
+
+def test_each_attempt_is_persisted_before_the_next_one_is_made(tmp_path):
+    """An attempt held only in memory is lost to a crash — after the one minute in which it
+    could have been made again."""
+    from docket.advantage.v3 import capture
+
+    journal = tmp_path / "journal"
+    record = {
+        "attempt_ordinal": 1,
+        "scheduled_at": "2026-08-21T12:00:00Z",
+        "pools_status": 200,
+        "token_list_status": 200,
+        "succeeded": True,
+        "_bodies": (b'{"pools":true}', b'{"tokens":true}'),
+    }
+    capture.write_attempt(record, journal)
+
+    written = json.loads((journal / "attempt-01.json").read_text(encoding="utf-8"))
+    # The log records what happened; the bodies live beside it rather than inside it.
+    assert written["attempt_ordinal"] == 1
+    assert "_bodies" not in written
+    assert (journal / "attempt-01.pools.raw.json").read_bytes() == b'{"pools":true}'
+
+    with pytest.raises(capture.CaptureRefused):
+        capture.write_attempt(record, journal)
