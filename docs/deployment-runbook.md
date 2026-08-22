@@ -208,3 +208,78 @@ hashes. On failed canaries:
 
 This runbook cannot name a current rollback artifact because no deployed artifact is bound
 to this source in the repository.
+
+## Register the four identities
+
+This is an owner transaction procedure. `docket.identity.register` only reads BSC state and
+prints an unsigned transaction. It accepts no key and has no submission command.
+
+At BSC block `117439816` (`2026-08-22T14:26:28Z`), `eth_gasPrice` returned `50000000`
+wei (0.05 gwei). The range-doctor plan estimated 163,316 gas, or 0.0000081658 BNB at
+that observation; four transactions at the same estimate and gas price would cost
+0.0000326632 BNB. Fund the registration wallet for four fresh estimates plus the
+owner's chosen margin, because each plan re-reads both values.
+
+The planned token URIs are:
+
+- `https://docket.gudman.xyz/registrations/range-doctor.json`
+- `https://docket.gudman.xyz/registrations/grid-operator.json`
+- `https://docket.gudman.xyz/registrations/yield-router.json`
+- `https://docket.gudman.xyz/registrations/health-guard.json`
+
+The integrator must serve those paths from the matching generated files under
+`docket/api/static/agents/`. The existing `/agents/{agent_id}` route must not serve them.
+Each pre-mint document has an empty `registrations` array, points its discovery endpoint at
+the GET-capable `/services/{service_id}` route, and keeps the POST hire URL in `hireUrl`.
+
+Do not mint while a URI is missing or stale. Before each transaction, the owner must confirm
+that an unauthenticated GET returns HTTP 200 and that its body is byte-for-byte identical to
+the matching committed file. The `plan` command performs that check before it reads BSC state
+or prints an unsigned transaction; a non-200 response or a different SHA-256 is a refusal.
+
+Process the services one at a time. A plan includes the wallet's pending nonce, so do not
+create all four plans first: wait for each transaction receipt before planning the next.
+
+```powershell
+$registrationWallet = Read-Host "Registration wallet address"
+./.venv/Scripts/python.exe -m docket.identity.register plan `
+  --service range-doctor --from $registrationWallet
+```
+
+For each plan:
+
+1. Check that `chainId` is 56, `to` is
+   `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`, and `data` begins with
+   `0xf2c298be`.
+2. Pass only `unsigned_transaction` to the owner's signing tooling. Do not pass a key to
+   Docket.
+3. Broadcast once with the owner's tooling and wait for a successful receipt.
+4. Save the receipt JSON and decode the minted ID:
+
+```powershell
+./.venv/Scripts/python.exe -c "import json,sys; from docket.identity.register import decode_registration; print(json.dumps(decode_registration(json.load(open(sys.argv[1]))), indent=2))" range-doctor.receipt.json
+```
+
+Repeat the plan, owner-sign, broadcast, receipt, and decode sequence for `grid-operator`,
+`yield-router`, and `health-guard`, changing the service and receipt filename each time.
+
+After each mint, regenerate that service's document with the minted integer ID and an
+explicit UTC update time. The generator receives the time through its `clock` argument; it
+does not read the current time, so the resulting bytes are reproducible.
+
+```powershell
+$serviceId = "range-doctor"
+$agentId = "136384"
+$updatedAt = "2026-08-22T14:57:44Z"
+./.venv/Scripts/python.exe -c 'import sys; from datetime import datetime; from pathlib import Path; from docket.hire.catalogue import SERVICES; from docket.identity.register import render_registration_document; service = SERVICES[sys.argv[1]]; clock = lambda: datetime.fromisoformat(sys.argv[3].replace("Z", "+00:00")); Path("docket/api/static/agents", f"{service.id}.registration.json").write_bytes(render_registration_document(service, clock=clock, agent_id=int(sys.argv[2])))' $serviceId $agentId $updatedAt
+```
+
+Use the actual decoded ID and the chosen explicit UTC regeneration time. Redeploy the changed
+file at the same URI, confirm HTTP 200 and exact-byte equality again, then request an
+8004scan re-parse. The token URI does not change, so no `setAgentURI` call is needed.
+
+Hand the four service-to-agent-ID pairs and receipts to the integrator. The integrator then
+sets each `agent_id` in `docket/marketplace/registry.py`, adds the four IDs to
+`DOCKET_OWNED_AGENT_IDS` for the refresh sweep, exposes the four token-URI paths above, runs
+the targeted sweep, and restarts the application. Those integration changes happen only
+after the owner transactions and are outside this registration workstream.
