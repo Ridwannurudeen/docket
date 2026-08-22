@@ -6,8 +6,10 @@ an append-only file reads exactly like nobody having run it, and a reader auditi
 history months later cannot tell those apart.
 """
 
+import hashlib
 import json
-from datetime import datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -30,6 +32,42 @@ def _report(**overrides):
         "positions": [{"position": {"token_id": TOKEN}}],
     }
     return body | overrides
+
+
+def _sha256(record):
+    body = json.dumps(
+        record, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return hashlib.sha256(body).hexdigest()
+
+
+def _history_with_decision(path):
+    observations = []
+    for day in range(8):
+        observation = lp_record.observe(
+            WALLET,
+            TOKEN,
+            reporter=lambda *a, **k: _report(),
+            now=WHEN + timedelta(days=day),
+        )
+        lp_record.append(observation, path)
+        observations.append(observation)
+    decision = lp_record.append_owner_decision(
+        path,
+        decision="WAIT",
+        rationale="Recenter cost exceeds the observed short-window fee opportunity.",
+        decided_at="2026-08-24T06:05:00+00:00",
+        prior_observation_sha256=_sha256(observations[-1]),
+        alternatives=["RECENTER"],
+    )
+    later = lp_record.observe(
+        WALLET,
+        TOKEN,
+        reporter=lambda *a, **k: _report(),
+        now=WHEN + timedelta(days=9),
+    )
+    lp_record.append(later, path)
+    return decision
 
 
 def test_a_successful_day_records_the_product_s_own_output():
@@ -98,6 +136,19 @@ def test_reading_a_history_that_does_not_exist_yet_is_not_an_error(tmp_path):
     assert lp_record.read(tmp_path / "never-written.jsonl") == []
 
 
+def test_read_history_returns_every_nonblank_line_in_order(tmp_path):
+    path = tmp_path / "controlled.jsonl"
+    records = [{"sequence": 1}, {"sequence": 2}, {"sequence": 3}]
+    path.write_text(
+        "\n".join(json.dumps(record) for record in records[:2])
+        + "\n\n"
+        + json.dumps(records[2])
+        + "\n",
+        encoding="utf-8",
+    )
+    assert lp_record.read_history(path) == records
+
+
 @pytest.mark.parametrize(
     "reporter, expected",
     [
@@ -127,7 +178,9 @@ def test_a_recorded_line_is_canonical_json(tmp_path):
         path,
     )
     line = path.read_text(encoding="utf-8").splitlines()[0]
-    assert line == json.dumps(json.loads(line), sort_keys=True)
+    assert line == json.dumps(
+        json.loads(line), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
 
 
 def test_a_transferred_position_is_not_hidden_by_the_wallet_holding_others():
@@ -149,3 +202,156 @@ def test_a_transferred_position_is_not_hidden_by_the_wallet_holding_others():
     assert record["target_found"] is False
     # The wallet's own count is kept, because it is a fact — just not this one.
     assert record["wallet_positions_held"] == 3
+
+
+def test_owner_decision_is_canonical_and_fsynced(tmp_path, monkeypatch):
+    path = tmp_path / "controlled.jsonl"
+    observation = lp_record.observe(
+        WALLET, TOKEN, reporter=lambda *a, **k: _report(), now=WHEN
+    )
+    lp_record.append(observation, path)
+    fsynced = []
+    monkeypatch.setattr(
+        os, "fsync", lambda file_descriptor: fsynced.append(file_descriptor)
+    )
+
+    decision = lp_record.append_owner_decision(
+        path,
+        decision="RECENTER",
+        rationale="The owner accepts the declared recenter cost.",
+        decided_at="2026-08-22T06:05:00Z",
+        prior_observation_sha256=_sha256(observation),
+        alternatives=["WAIT"],
+    )
+
+    assert decision == {
+        "record_version": "lp-record.v1",
+        "kind": "owner_decision",
+        "decision": "RECENTER",
+        "rationale": "The owner accepts the declared recenter cost.",
+        "decided_at": "2026-08-22T06:05:00Z",
+        "prior_observation_sha256": _sha256(observation),
+        "alternatives": ["WAIT"],
+        "token_id": TOKEN,
+    }
+    assert fsynced
+    line = path.read_text(encoding="utf-8").splitlines()[-1]
+    assert line == json.dumps(
+        decision, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+
+
+def test_later_observation_answers_latest_owner_decision(tmp_path):
+    path = tmp_path / "controlled.jsonl"
+    decision = _history_with_decision(path)
+    history = lp_record.read_history(path)
+
+    assert len(history) == 10
+    assert history[-1]["answers_decision_sha256"] == _sha256(decision)
+    lp_record.verify_history(path)
+
+
+@pytest.mark.parametrize(
+    "mutation, referenced_index",
+    [
+        ("alter", 7),
+        ("alter", 8),
+        ("remove", 7),
+        ("remove", 8),
+    ],
+    ids=[
+        "alter-observation",
+        "alter-decision",
+        "remove-observation",
+        "remove-decision",
+    ],
+)
+def test_verify_history_rejects_tampering_with_a_referenced_line(
+    tmp_path, mutation, referenced_index
+):
+    path = tmp_path / "controlled.jsonl"
+    _history_with_decision(path)
+    history = lp_record.read_history(path)
+    if mutation == "alter":
+        history[referenced_index]["altered"] = True
+    else:
+        del history[referenced_index]
+    path.write_text(
+        "".join(
+            json.dumps(
+                record, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            )
+            + "\n"
+            for record in history
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="hash"):
+        lp_record.verify_history(path)
+
+
+def test_verify_history_requires_later_observation_to_answer_latest_decision(tmp_path):
+    path = tmp_path / "controlled.jsonl"
+    _history_with_decision(path)
+    history = lp_record.read_history(path)
+    del history[-1]["answers_decision_sha256"]
+    path.write_text(
+        "".join(
+            json.dumps(
+                record, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            )
+            + "\n"
+            for record in history
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="latest owner decision"):
+        lp_record.verify_history(path)
+
+
+def test_decide_subcommand_records_only_the_owner_s_typed_decision(tmp_path):
+    path = tmp_path / "controlled.jsonl"
+    observation = lp_record.observe(
+        WALLET, TOKEN, reporter=lambda *a, **k: _report(), now=WHEN
+    )
+    lp_record.append(observation, path)
+
+    code = lp_record.main(
+        [
+            "decide",
+            "--path",
+            str(path),
+            "--decision",
+            "WAIT",
+            "--rationale",
+            "The owner chooses to wait for another observation.",
+        ]
+    )
+
+    assert code == 0
+    decision = lp_record.read_history(path)[-1]
+    assert decision["decision"] == "WAIT"
+    assert decision["rationale"] == "The owner chooses to wait for another observation."
+    assert decision["alternatives"] == []
+    assert decision["prior_observation_sha256"] == _sha256(observation)
+    assert datetime.fromisoformat(decision["decided_at"]).utcoffset() == timedelta(0)
+
+
+def test_owner_decision_rejects_a_value_outside_the_owner_choices(tmp_path):
+    path = tmp_path / "controlled.jsonl"
+    observation = lp_record.observe(
+        WALLET, TOKEN, reporter=lambda *a, **k: _report(), now=WHEN
+    )
+    lp_record.append(observation, path)
+
+    with pytest.raises(ValueError, match="WAIT or RECENTER"):
+        lp_record.append_owner_decision(
+            path,
+            decision="SELL",
+            rationale="Not an allowed decision.",
+            decided_at="2026-08-22T06:05:00+00:00",
+            prior_observation_sha256=_sha256(observation),
+            alternatives=[],
+        )
