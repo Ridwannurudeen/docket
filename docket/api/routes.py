@@ -1,21 +1,23 @@
-"""Read-only handlers over one stored snapshot.
+"""Evidence handlers over one stored snapshot.
 
-Nothing here writes, sweeps, or probes: a caller can hammer this API without
-changing what Docket has observed. Every figure is drawn from `coverage_report`
-so `/stats` and `/agents` can never disagree about what was measured, and every
-response that carries a count carries the snapshot it was counted in.
+Most handlers only read. Every figure is drawn from `coverage_report` so `/stats`
+and `/agents` can never disagree about what was measured, and every response that
+carries a count carries the snapshot it was counted in.
 
 Errors are `{"error": {"code", "message"}}` at every status. FastAPI's default
 `{"detail": ...}` is registered away deliberately — an agent that has been told
 one error shape should never receive two.
 
-The hire routes are the exception to "nothing here writes": they run work and
-persist payment state. Unadmitted services remain free previews/research/beta.
-An admitted service settles only after a facilitator verifies the authorization
-and Docket has durably bound a non-empty result to its input; missing owner
-settlement configuration disables paid stock rather than preview access.
+The hire routes run work and persist payment state. The agent re-probe route repeats
+the hardened pinned liveness probe and stores its observation outside the sweep table.
+Unadmitted services
+remain free previews/research/beta. An admitted service settles only after a
+facilitator verifies the authorization and Docket has durably bound a non-empty result
+to its input; missing owner settlement configuration disables paid stock rather than
+preview access.
 """
 
+import hashlib
 import hmac
 import json
 import os
@@ -26,6 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,6 +38,7 @@ from fastapi.responses import (
     JSONResponse,
     PlainTextResponse,
     RedirectResponse,
+    Response,
 )
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -65,6 +69,7 @@ from ..hire.x402 import (
     parse_payment_header,
     verify_payment,
 )
+from ..liveness import probe_one
 from ..marketplace.models import CATEGORIES, Category, ServiceRecord
 from ..marketplace.registry import (
     CATEGORY_DECLARATION,
@@ -104,6 +109,16 @@ STATIC_DIR = Path(__file__).parent / "static"
 # The human pages and their assets. Ships in the package too, so an installed Docket serves the
 # same web UI a checkout does. Everything here is authored as served: no build step, no bundler.
 WEB_DIR = Path(__file__).parent / "web"
+REGISTRATION_SERVICE_IDS = (
+    "range-doctor",
+    "grid-operator",
+    "yield-router",
+    "health-guard",
+)
+REGISTRATION_DOCUMENTS = {
+    service_id: (STATIC_DIR / "agents" / f"{service_id}.registration.json").read_bytes()
+    for service_id in REGISTRATION_SERVICE_IDS
+}
 # The recorded experiments behind /advantage. Ships in the package too, so the report an
 # installed Docket serves is the one committed to the repository.
 EXPERIMENTS_DIR = Path(__file__).parent.parent / "advantage" / "experiments"
@@ -320,6 +335,20 @@ def _summary(agent: dict, signals: dict) -> AgentSummary:
         x402=signals["x402"],
         name_family=signals["name_family"],
         placeholder_name=signals["placeholder_name"],
+    )
+
+
+def _endpoint_observation(
+    observation: dict, kinds: dict[str, str]
+) -> EndpointObservation:
+    return EndpointObservation(
+        url=observation["url"],
+        kind=kinds.get(observation["url"], "unknown"),
+        observed_at=observation["observed_at"],
+        outcome=observation["outcome"],
+        status_code=observation["status_code"],
+        elapsed_ms=observation["elapsed_ms"],
+        detail=observation["detail"],
     )
 
 
@@ -593,8 +622,55 @@ def create_app(
             "advantage_v2": "/advantage/v2.json",
             "advantage_v3": "/advantage/v3.json",
             "lp_record": "/lp-record",
+            "pancake": "/pancake",
+            "registrations": "/registrations/{service_id}.json",
+            "agent_probe": "/agents/{agent_id}/probe",
             "health": "/health",
         }
+
+    @app.get("/pancake", response_model=None)
+    def pancake(request: Request) -> FileResponse | JSONResponse:
+        """The controlled PancakeSwap position for humans and its source routes for agents."""
+        if "text/html" in request.headers.get("accept", ""):
+            return FileResponse(WEB_DIR / "pancake.html", headers={"Vary": "Accept"})
+        return JSONResponse(
+            headers={"Vary": "Accept"},
+            content={
+                "page": "/pancake",
+                "live_service": "/services/range-doctor",
+                "live_hire": "/hire/range-doctor",
+                "fixed_window_record": "/lp-record",
+                "decision_impact": "/advantage/v2.json",
+                "pancake_context": {
+                    "first_party_skills": (
+                        "PancakeSwap's first-party planner skills stop at generated deep "
+                        "links; Range Doctor keeps the same plan-only boundary."
+                    ),
+                    "subgraph_meta": {
+                        "query_observed_at": "2026-08-22",
+                        "indexed_at": "2026-04-28T15:23:43Z",
+                        "has_indexing_errors": True,
+                        "method": (
+                            "Read-only _meta { block { number timestamp } "
+                            "hasIndexingErrors } query. Docket instead reads "
+                            "PancakeSwap's Explorer API and SHA-pins the response bytes."
+                        ),
+                    },
+                },
+            },
+        )
+
+    @app.get("/registrations/{service_id}.json", response_model=None)
+    def registration_document(service_id: str) -> Response | JSONResponse:
+        body = REGISTRATION_DOCUMENTS.get(service_id)
+        if body is None:
+            return _error(
+                404,
+                "registration_not_found",
+                f"No registration document for {service_id!r}. "
+                "GET /services lists the four category services.",
+            )
+        return Response(content=body, media_type="application/json")
 
     # Kept out of the schema: /llms.txt and the OpenAPI document describe the machine contract,
     # and a page a human reads is not an endpoint an agent should be told to call.
@@ -861,11 +937,8 @@ def create_app(
     def get_agent(agent_id: str) -> AgentDetail:
         sid = _serving()
         store = Store(db_path)
-        # Drained into a dict rather than short-circuited: a suspended iter_agents generator
-        # holds its sqlite connection open for the rest of the request.
-        agents = {row["agent_id"]: row for row in store.iter_agents(sid)}
-        agent = agents.get(agent_id)
-        if agent is None:
+        agent = store.agent_by_id(sid, agent_id)
+        if not agent:
             raise HTTPException(
                 404,
                 detail={
@@ -887,22 +960,20 @@ def create_app(
             if kinds.get(row["url"]) not in _PROBE_KINDS:
                 kinds[row["url"]] = row["kind"]
         observations = [
-            EndpointObservation(
-                url=obs["url"],
-                kind=kinds.get(obs["url"], "unknown"),
-                observed_at=obs["observed_at"],
-                outcome=obs["outcome"],
-                status_code=obs["status_code"],
-                elapsed_ms=obs["elapsed_ms"],
-                detail=obs["detail"],
-            )
+            _endpoint_observation(obs, kinds)
             for obs in _latest_observations(store, sid)
             if obs["agent_id"] == agent_id
         ]
+        latest_on_demand = store.latest_on_demand_liveness(sid, agent_id)
         return AgentDetail(
             **_summary(agent, signals_for(agent)).model_dump(),
             endpoints=sorted(kinds),
             observations=observations,
+            latest_on_demand_observation=(
+                _endpoint_observation(latest_on_demand, kinds)
+                if latest_on_demand
+                else None
+            ),
             coverage=_coverage(coverage_report(store, sid)),
             associated_services=[
                 _card(record, _effective_admission(record.service_id))
@@ -911,6 +982,97 @@ def create_app(
                 and record.agent_id.lower() == agent["agent_id"].lower()
             ],
         )
+
+    @app.post("/agents/{agent_id:path}/probe", response_model=None)
+    async def probe_agent(agent_id: str, request: Request) -> JSONResponse | dict:
+        """Repeat the most recently answered A2A/MCP endpoint with the pinned probe."""
+        sid = _serving()
+        probe_store = Store(db_path)
+        agent = probe_store.agent_by_id(sid, agent_id)
+        if not agent:
+            return _error(
+                404,
+                "agent_not_found",
+                f"No agent {agent_id!r} in snapshot {sid}. "
+                "List the ids this snapshot holds at GET /agents.",
+            )
+
+        targets = {
+            row["url"]: row
+            for row in probe_store.iter_endpoints(sid)
+            if row["agent_id"] == agent_id and row["kind"] in _PROBE_KINDS
+        }
+        latest_sweep = None
+        for row in probe_store.iter_liveness(sid):
+            if row["agent_id"] == agent_id and row["url"] in targets:
+                latest_sweep = row
+        latest_on_demand = probe_store.latest_on_demand_liveness(sid, agent_id)
+        latest = latest_on_demand or latest_sweep
+        if (
+            not signals_for(agent)["callable"]
+            or latest is None
+            or latest["outcome"] != "responded"
+        ):
+            return _error(
+                409,
+                "probe_not_available",
+                "Re-probe is available only when this agent declares an A2A or MCP "
+                "endpoint and its last recorded probe answered.",
+            )
+
+        client_ip = request.client.host if request.client else "unknown"
+        requested_from_ip_hash = hashlib.sha256(client_ip.encode("utf-8")).hexdigest()
+        resets_in = _spend_window(
+            hires,
+            client_ip,
+            attempts=FREE_TIER_HIRES,
+            window_seconds=FREE_TIER_WINDOW_S,
+        )
+        if resets_in is not None:
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(resets_in)},
+                content={
+                    "error": {
+                        "code": "probe_rate_limited",
+                        "message": (
+                            f"This caller has used its shared free-work allowance of "
+                            f"{FREE_TIER_HIRES} attempts per {FREE_TIER_WINDOW_S} seconds; "
+                            f"retry in {resets_in}s."
+                        ),
+                    }
+                },
+            )
+
+        target = targets[latest["url"]]
+
+        def run_probe() -> dict:
+            with httpx.Client(trust_env=False) as client:
+                observation = probe_one(
+                    client,
+                    target,
+                    now=datetime.now(timezone.utc).isoformat(),
+                )
+            Store(db_path).record_on_demand_liveness(
+                observation, requested_from_ip_hash=requested_from_ip_hash
+            )
+            return observation
+
+        observation = await run_in_threadpool(run_probe)
+        return {
+            "agent_id": agent_id,
+            "observation": {**observation, "kind": target["kind"]},
+            "probe_method": PROBE_METHOD,
+            "coverage_note": (
+                f"Re-probed on request at {observation['observed_at']}; "
+                "not part of the snapshot's coverage figures."
+            ),
+            "allowance": {
+                "attempts": FREE_TIER_HIRES,
+                "window_seconds": FREE_TIER_WINDOW_S,
+                "shared_with": "free service hires from the same peer address",
+            },
+        }
 
     def _identity_link(record: ServiceRecord) -> tuple[str | None, str]:
         """Where this service's bound identity can be inspected, and why it cannot be when

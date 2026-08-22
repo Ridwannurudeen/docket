@@ -32,6 +32,7 @@ PAGES = (
     "advantage-v2.html",
     "advantage-v3.html",
     "service.html",
+    "pancake.html",
 )
 
 
@@ -419,6 +420,7 @@ def test_every_page_carries_exactly_one_primary_destination_per_section(client):
         assert nav, f"{name} has no primary navigation"
         assert re.findall(r'href="([^"]+)"', nav.group(1)) == [
             "/",
+            "/pancake",
             "/research",
             "/advantage",
             "/llms.txt",

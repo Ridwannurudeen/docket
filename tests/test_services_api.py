@@ -404,10 +404,12 @@ def test_agent_listings_stay_raw_while_detail_carries_the_reverse_marketplace_li
     assert set(detail) == set(item) | {
         "endpoints",
         "observations",
+        "latest_on_demand_observation",
         "coverage",
         "associated_services",
     }
     assert detail["associated_services"] == []
+    assert detail["latest_on_demand_observation"] is None
 
 
 def test_a_bound_agent_exposes_the_service_page_and_hire_action(

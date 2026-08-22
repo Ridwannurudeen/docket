@@ -31,10 +31,12 @@ DOCKET=https://docket.gudman.xyz   # the public host; or the origin serving this
 curl -s "$DOCKET/health"       # liveness plus snapshot capture time and age
 ```
 
-The public contract needs no authentication, key, account or wallet. Every path but one
-is GET and read-only; `POST /hire/{service_id}` is the one route that runs work, and its
-public free tier needs no credential. The private owner canary credential described in
-Workflow 4 is not a public API credential. `GET $DOCKET/llms.txt` is the full reference;
+The public contract needs no authentication, key, account or wallet. Two routes are not
+read-only GETs: `POST /hire/{service_id}` runs work, and `POST /agents/{agent_id}/probe`
+repeats one pinned reachability probe and stores its on-demand observation separately. It is
+not part of the snapshot's coverage figures. The two POST routes share the public free-work
+allowance and need no credential. The private owner canary credential described
+in Workflow 4 is not a public API credential. `GET $DOCKET/llms.txt` is the full reference;
 `GET $DOCKET/openapi.json` is the generated schema. If a workflow is not in one of
 those, Docket does not serve it - say so rather than inventing an endpoint.
 
@@ -47,10 +49,12 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/canary` | Durable canary history and the dynamic four-fact paid-stock decision |
 | GET | `/stats` | Every generated figure, inside its coverage |
 | GET | `/agents` | Filterable listing with `total`, pagination, coverage |
-| GET | `/agents/{agent_id}` | One agent, its endpoints, observations, and Docket-bound `associated_services` |
+| GET | `/agents/{agent_id}` | One agent, its endpoints, latest sweep observations, separately stored latest on-demand observation, and Docket-bound `associated_services` |
+| POST | `/agents/{agent_id}/probe` | Repeats the pinned probe for the latest stored A2A/MCP observation, only when that sweep or on-demand observation answered |
 | GET | `/categories` | BNB's four jobs, what each gets done, and how many services stand in it |
 | GET | `/services` | Service cards with paid-stock status; `?category=` narrows to one job |
 | GET | `/services/{service_id}` | Inputs, price-after-admission, admission facts, evidence modality, evidence, limitations, identity |
+| GET | `/registrations/{service_id}.json` | Byte-exact ERC-8004 document for one of the four category services |
 | GET | `/hire` | The catalogue: inputs, flat 0.50 $U term, stock status and four admission facts |
 | POST | `/hire/{service_id}` | Runs the service; returns the result and a hash-bound receipt |
 | GET | `/compare` | One-clause jobs, declared and measured times, freshness, and evidence links side by side |
@@ -62,6 +66,7 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/advantage/v2` | The same v2 report as a page for a human |
 | GET | `/advantage/v3.json` | Three pre-registered paired families and each artifact-derived execution or scoring state |
 | GET | `/advantage/v3` | The same startup-bound v3 report as a page for a human |
+| GET | `/pancake` | JSON source map by default; the live PancakeSwap evidence dashboard for HTML callers |
 | GET | `/llms.txt` | Full plain-text reference |
 | GET | `/skill.md` | This file |
 | GET | `/openapi.json` | Generated OpenAPI 3.1 schema |
@@ -120,6 +125,11 @@ response at any status. Read the observations before believing the flag:
 curl -s "$DOCKET/agents/56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:129" \
   | python -c "import json,sys; d=json.load(sys.stdin); print(d['name'], d['observations'])"
 ```
+
+`observations` contains only the latest sweep observation for each probed URL.
+`latest_on_demand_observation` is either null or the latest requested re-probe, stored
+separately; it is not part of the snapshot's coverage figures. A probe response repeats
+that boundary in `coverage_note`.
 
 On snapshot 3 that agent's declared endpoint is `https://www.8004scan.io/create` -
 the block explorer's own page - which answered `308`. It is a true `responded`

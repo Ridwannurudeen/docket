@@ -21,10 +21,12 @@ Running a local copy instead? Point DOCKET at it; nothing below changes.
     DOCKET=http://127.0.0.1:8099
 
 The public contract needs no authentication, API key, account or wallet. Every path
-but one is GET and read-only, so a caller cannot change what Docket has observed by
-calling it. The exception is POST /hire/{service_id}, which runs work; its public free
-tier needs no credential. A private owner-operated canary uses a separate bootstrap
-credential described under "Hiring". It is not a public API credential.
+but two are GET and read-only. POST /hire/{service_id} runs work. POST
+/agents/{agent_id}/probe repeats one pinned reachability probe and stores the on-demand
+observation separately; it is not part of the snapshot's coverage figures. Both POST routes
+share the public free-work allowance and need no credential. A private owner-operated
+canary uses a separate bootstrap credential described under "Hiring". It is not a public
+API credential.
 
 Responses are JSON except /llms.txt (text/plain) and /skill.md (text/markdown). CORS
 is GET-only from any origin, no credentials, so a cross-origin browser page cannot
@@ -50,6 +52,15 @@ GET /health
     snapshot fields when no sweep has been ingested yet. No parameters.
 
     curl -s "$DOCKET/health"
+
+GET /pancake
+    With Accept: text/html, the PancakeSwap evidence dashboard. JSON/default callers get
+    the same-origin source paths for its live Range Doctor hire, fixed-window LP record,
+    v2 decision-impact object, and the dated method behind its PancakeSwap context. The
+    page runs the worked-example body from GET /services/range-doctor; its figures come
+    from the response rather than from the HTML shell.
+
+    curl -s "$DOCKET/pancake"
 
 GET /canary
     Durable service-canary history and the admission decision it currently produces.
@@ -156,14 +167,19 @@ GET /agents
     curl -s "$DOCKET/agents?responded=true&limit=5"
 
 GET /agents/{agent_id}
-    One agent, with its resolved endpoint URLs and every timestamped observation of
-    them. agent_id is "{chain_id}:{registry_address}:{token_id}" and contains colons;
+    One agent, with its resolved endpoint URLs, latest sweep observations, and latest
+    separately stored on-demand observation. agent_id is
+    "{chain_id}:{registry_address}:{token_id}" and contains colons;
     send it literally, do not URL-encode the colons. Adds to the listing fields:
 
       endpoints      distinct URLs resolved from this agent's card, sorted
-      observations   one entry per probed URL: url, kind (the probeable kind the URL
-                     was registered under), observed_at, outcome, status_code,
-                     elapsed_ms, detail
+      observations   latest sweep entry per probed URL: url, kind (the probeable kind
+                     the URL was registered under), observed_at, outcome, status_code,
+                     elapsed_ms, detail. These are the only rows /stats reads
+      latest_on_demand_observation
+                     null before a requested probe; otherwise the latest requested
+                     observation in the same public shape. Stored separately and not
+                     part of the snapshot's coverage figures
       coverage       the snapshot this agent was read from
       associated_services
                      Docket service cards explicitly bound to this identity, including
@@ -174,6 +190,22 @@ GET /agents/{agent_id}
     Docket's coverage, not about the agent.
 
     curl -s "$DOCKET/agents/56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:49637"
+
+POST /agents/{agent_id}/probe
+    Repeats the same DNS-pinned, SSRF-guarded, no-redirect GET used by the sweep, for
+    exactly one stored A2A or MCP endpoint: the endpoint behind this agent's latest
+    sweep or on-demand observation. Available only when that latest observation returned
+    `responded`; otherwise 409 `probe_not_available`. No URL is accepted from the caller.
+
+    Returns `agent_id`, the append-only on-demand `observation` (including its outcome
+    from the six-outcome vocabulary), `probe_method`, `coverage_note`, and the allowance
+    method. `coverage_note` states that the requested observation is not part of the
+    snapshot's coverage figures. It shares the 20-attempt fixed 3,600-second peer-address
+    window with free service hires; exhaustion returns 429 `probe_rate_limited` with
+    `Retry-After`. Any HTTP status is `responded`. This measures whether a host answered
+    one request, not what the agent does behind it.
+
+    curl -s -X POST "$DOCKET/agents/56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:49637/probe"
 
 GET /categories
     BNB's four job categories: the job each one gets done, what an agent doing that job
@@ -254,6 +286,14 @@ GET /services/{service_id}
     Anything else is 404 service_not_found.
 
     curl -s "$DOCKET/services/range-doctor"
+
+GET /registrations/{service_id}.json
+    The committed ERC-8004 registration document for one of the four category services:
+    range-doctor, grid-operator, yield-router or health-guard. Served byte-for-byte as
+    application/json so the public URI hashes to the same bytes registration preflight
+    checked. Any other id returns 404 `registration_not_found` in the standard error shape.
+
+    curl -s "$DOCKET/registrations/range-doctor.json"
 
 GET /hire
     The catalogue: every service Docket runs or may admit to paid stock. No parameters,
