@@ -136,11 +136,17 @@ host command without running it. The test suite supplies a fake `curl` to exerci
 
 The release installs `deploy/journald-docket.conf` at
 `/etc/systemd/journald.conf.d/docket.conf` only when the target is absent. The file sets
-`Storage=persistent` and `SystemMaxUse=512M`, then the release restarts `systemd-journald`.
-That first restart has a one-time, unavoidable cost: the current volatile journal is lost.
-Afterward, capture refusals and service diagnostics survive normal volatile rotation during
-the judging window. If the target already exists with different bytes, the release refuses
-before stopping Docket rather than overwriting host policy.
+`Storage=persistent` and `SystemMaxUse=512M`. The release creates `/var/log/journal` with
+`install -d -m 2755 -o root -g systemd-journal`, runs
+`systemd-tmpfiles --create --prefix /var/log/journal`, restarts `systemd-journald`, and runs
+`journalctl --flush`. It then requires `journalctl --header` to report at least one
+`/var/log/journal/` file; otherwise the release exits fatally. On the Ubuntu 24.04 host running
+systemd 255, the drop-in was read but did not create `/var/log/journal`, so logging remained
+volatile until the directory was created and the journal flushed. That first restart has a
+one-time, unavoidable cost: the current volatile journal is lost. Afterward, capture refusals
+and service diagnostics survive normal volatile rotation during the judging window. If the
+target already exists with different bytes, the release refuses before stopping Docket rather
+than overwriting host policy.
 
 ## Configuration
 
