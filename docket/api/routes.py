@@ -1,19 +1,19 @@
-"""Read-only handlers over one stored snapshot.
+"""Evidence handlers over one stored snapshot.
 
-Nothing here writes, sweeps, or probes: a caller can hammer this API without
-changing what Docket has observed. Every figure is drawn from `coverage_report`
-so `/stats` and `/agents` can never disagree about what was measured, and every
-response that carries a count carries the snapshot it was counted in.
+Most handlers only read. Every figure is drawn from `coverage_report` so `/stats`
+and `/agents` can never disagree about what was measured, and every response that
+carries a count carries the snapshot it was counted in.
 
 Errors are `{"error": {"code", "message"}}` at every status. FastAPI's default
 `{"detail": ...}` is registered away deliberately — an agent that has been told
 one error shape should never receive two.
 
-The hire routes are the exception to "nothing here writes": they run work and
-persist payment state. Unadmitted services remain free previews/research/beta.
-An admitted service settles only after a facilitator verifies the authorization
-and Docket has durably bound a non-empty result to its input; missing owner
-settlement configuration disables paid stock rather than preview access.
+The hire routes run work and persist payment state. The agent re-probe route repeats
+the hardened pinned liveness probe and appends its observation. Unadmitted services
+remain free previews/research/beta. An admitted service settles only after a
+facilitator verifies the authorization and Docket has durably bound a non-empty result
+to its input; missing owner settlement configuration disables paid stock rather than
+preview access.
 """
 
 import hmac
@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,6 +36,7 @@ from fastapi.responses import (
     JSONResponse,
     PlainTextResponse,
     RedirectResponse,
+    Response,
 )
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -65,6 +67,7 @@ from ..hire.x402 import (
     parse_payment_header,
     verify_payment,
 )
+from ..liveness import probe_one
 from ..marketplace.models import CATEGORIES, Category, ServiceRecord
 from ..marketplace.registry import (
     CATEGORY_DECLARATION,
@@ -104,6 +107,16 @@ STATIC_DIR = Path(__file__).parent / "static"
 # The human pages and their assets. Ships in the package too, so an installed Docket serves the
 # same web UI a checkout does. Everything here is authored as served: no build step, no bundler.
 WEB_DIR = Path(__file__).parent / "web"
+REGISTRATION_SERVICE_IDS = (
+    "range-doctor",
+    "grid-operator",
+    "yield-router",
+    "health-guard",
+)
+REGISTRATION_DOCUMENTS = {
+    service_id: (STATIC_DIR / "agents" / f"{service_id}.registration.json").read_bytes()
+    for service_id in REGISTRATION_SERVICE_IDS
+}
 # The recorded experiments behind /advantage. Ships in the package too, so the report an
 # installed Docket serves is the one committed to the repository.
 EXPERIMENTS_DIR = Path(__file__).parent.parent / "advantage" / "experiments"
@@ -593,8 +606,55 @@ def create_app(
             "advantage_v2": "/advantage/v2.json",
             "advantage_v3": "/advantage/v3.json",
             "lp_record": "/lp-record",
+            "pancake": "/pancake",
+            "registrations": "/registrations/{service_id}.json",
+            "agent_probe": "/agents/{agent_id}/probe",
             "health": "/health",
         }
+
+    @app.get("/pancake", response_model=None)
+    def pancake(request: Request) -> FileResponse | JSONResponse:
+        """The controlled PancakeSwap position for humans and its source routes for agents."""
+        if "text/html" in request.headers.get("accept", ""):
+            return FileResponse(WEB_DIR / "pancake.html", headers={"Vary": "Accept"})
+        return JSONResponse(
+            headers={"Vary": "Accept"},
+            content={
+                "page": "/pancake",
+                "live_service": "/services/range-doctor",
+                "live_hire": "/hire/range-doctor",
+                "fixed_window_record": "/lp-record",
+                "decision_impact": "/advantage/v2.json",
+                "pancake_context": {
+                    "first_party_skills": (
+                        "PancakeSwap's first-party planner skills stop at generated deep "
+                        "links; Range Doctor keeps the same plan-only boundary."
+                    ),
+                    "subgraph_meta": {
+                        "query_observed_at": "2026-08-22",
+                        "indexed_at": "2026-04-28T15:23:43Z",
+                        "has_indexing_errors": True,
+                        "method": (
+                            "Read-only _meta { block { number timestamp } "
+                            "hasIndexingErrors } query. Docket instead reads "
+                            "PancakeSwap's Explorer API and SHA-pins the response bytes."
+                        ),
+                    },
+                },
+            },
+        )
+
+    @app.get("/registrations/{service_id}.json", response_model=None)
+    def registration_document(service_id: str) -> Response | JSONResponse:
+        body = REGISTRATION_DOCUMENTS.get(service_id)
+        if body is None:
+            return _error(
+                404,
+                "registration_not_found",
+                f"No registration document for {service_id!r}. "
+                "GET /services lists the four category services.",
+            )
+        return Response(content=body, media_type="application/json")
 
     # Kept out of the schema: /llms.txt and the OpenAPI document describe the machine contract,
     # and a page a human reads is not an endpoint an agent should be told to call.
@@ -911,6 +971,89 @@ def create_app(
                 and record.agent_id.lower() == agent["agent_id"].lower()
             ],
         )
+
+    @app.post("/agents/{agent_id:path}/probe", response_model=None)
+    async def probe_agent(agent_id: str, request: Request) -> JSONResponse | dict:
+        """Repeat the most recently answered A2A/MCP endpoint with the pinned probe."""
+        sid = _serving()
+        probe_store = Store(db_path)
+        agents = {row["agent_id"]: row for row in probe_store.iter_agents(sid)}
+        agent = agents.get(agent_id)
+        if agent is None:
+            return _error(
+                404,
+                "agent_not_found",
+                f"No agent {agent_id!r} in snapshot {sid}. "
+                "List the ids this snapshot holds at GET /agents.",
+            )
+
+        targets = {
+            row["url"]: row
+            for row in probe_store.iter_endpoints(sid)
+            if row["agent_id"] == agent_id and row["kind"] in _PROBE_KINDS
+        }
+        latest = None
+        for row in probe_store.iter_liveness(sid):
+            if row["agent_id"] == agent_id and row["url"] in targets:
+                latest = row
+        if (
+            not signals_for(agent)["callable"]
+            or latest is None
+            or latest["outcome"] != "responded"
+        ):
+            return _error(
+                409,
+                "probe_not_available",
+                "Re-probe is available only when this agent declares an A2A or MCP "
+                "endpoint and its last recorded probe answered.",
+            )
+
+        client_ip = request.client.host if request.client else "unknown"
+        resets_in = _spend_window(
+            hires,
+            client_ip,
+            attempts=FREE_TIER_HIRES,
+            window_seconds=FREE_TIER_WINDOW_S,
+        )
+        if resets_in is not None:
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(resets_in)},
+                content={
+                    "error": {
+                        "code": "probe_rate_limited",
+                        "message": (
+                            f"This caller has used its shared free-work allowance of "
+                            f"{FREE_TIER_HIRES} attempts per {FREE_TIER_WINDOW_S} seconds; "
+                            f"retry in {resets_in}s."
+                        ),
+                    }
+                },
+            )
+
+        target = targets[latest["url"]]
+
+        def run_probe() -> dict:
+            with httpx.Client(trust_env=False) as client:
+                observation = probe_one(
+                    client,
+                    target,
+                    now=datetime.now(timezone.utc).isoformat(),
+                )
+            Store(db_path).record_liveness([observation])
+            return observation
+
+        observation = await run_in_threadpool(run_probe)
+        return {
+            "agent_id": agent_id,
+            "observation": {**observation, "kind": target["kind"]},
+            "probe_method": PROBE_METHOD,
+            "allowance": {
+                "attempts": FREE_TIER_HIRES,
+                "window_seconds": FREE_TIER_WINDOW_S,
+                "shared_with": "free service hires from the same peer address",
+            },
+        }
 
     def _identity_link(record: ServiceRecord) -> tuple[str | None, str]:
         """Where this service's bound identity can be inspected, and why it cannot be when

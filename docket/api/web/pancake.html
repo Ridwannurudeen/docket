@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PancakeSwap position decision — Docket</title>
+    <meta
+      name="description"
+      content="The live Range Doctor decision, fixed-window observation chain, economics, conditional PancakeSwap actions, and post-hoc decision-impact record for Docket's controlled position."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='4' fill='%230b1220'/%3E%3Cpath d='M6 8h12M6 12h8' stroke='%2322c55e' stroke-width='2'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/static/style.css?v=7" />
+    <script type="module" src="/static/app.js?v=7"></script>
+  </head>
+  <body data-page="pancake">
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+            <path d="M7 9h10"></path>
+            <path d="M7 13h6"></path>
+            <circle cx="16.5" cy="15.5" r="1.4" fill="currentColor" stroke="none"></circle>
+          </svg>
+          Docket <span class="brand-sub">BSC / ERC-8004</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/">Services</a>
+          <a href="/pancake" aria-current="page">PancakeSwap</a>
+          <a href="/research">Browse agents</a>
+          <a href="/advantage">Advantage report</a>
+          <a href="/llms.txt">API</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" class="pancake-page">
+      <div class="wrap">
+        <section class="pancake-hero" aria-labelledby="live-decision-heading">
+          <p class="eyebrow">Controlled PancakeSwap V3 position · read-only BSC observation</p>
+          <h1 id="live-decision-heading">Live decision</h1>
+          <div class="decision-display" data-region="pancake-decision" aria-live="polite">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
+          <p class="section-note">
+            This page runs the worked Range Doctor request when it opens. The result is a fresh
+            read, not a sentence stored in this page.
+          </p>
+        </section>
+
+        <section aria-labelledby="fixed-window-heading">
+          <h2 id="fixed-window-heading">Fixed-window record</h2>
+          <p class="section-note">
+            Observations and owner decisions stay in their stored sequence. Every row below comes
+            from <a href="/lp-record">/lp-record</a>.
+          </p>
+          <div data-region="pancake-record">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
+        </section>
+
+        <section aria-labelledby="economics-heading">
+          <h2 id="economics-heading">Economics</h2>
+          <p class="section-note">
+            Gross and protocol-adjusted rates, fixed-notional dollar effects, and payback timing
+            are shown with the window and method returned by the live hire.
+          </p>
+          <div data-region="pancake-economics">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
+        </section>
+
+        <section aria-labelledby="conditional-actions-heading">
+          <h2 id="conditional-actions-heading">Conditional actions</h2>
+          <p class="section-note">
+            These are wait-versus-recenter conditions. The links open PancakeSwap; they do not
+            submit an action.
+          </p>
+          <div data-region="pancake-actions">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
+        </section>
+
+        <section aria-labelledby="structural-safety-heading">
+          <h2 id="structural-safety-heading">Structural safety</h2>
+          <div class="safety-statement">
+            <p>
+              Range Doctor holds no key, requests no approval, and has no code path that sends a transaction.
+            </p>
+            <p class="dim">
+              The served <a href="/skill.md">skill document</a> describes the read-only boundary
+              and the evidence returned to a caller.
+            </p>
+          </div>
+        </section>
+
+        <section aria-labelledby="decision-impact-heading">
+          <h2 id="decision-impact-heading">Decision impact</h2>
+          <p class="section-note">
+            A frozen, post-hoc v2 analysis. It measures arithmetic changes on its stated corpus;
+            it is not realized return or a forecast.
+          </p>
+          <div data-region="pancake-impact">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
+        </section>
+
+        <section aria-labelledby="pancake-context-heading">
+          <h2 id="pancake-context-heading">PancakeSwap context</h2>
+          <div class="panel" data-region="pancake-context">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
+        </section>
+
+        <noscript>
+          <div class="notice notice-warn">
+            <h2>This record reads live data with JavaScript</h2>
+            <p>
+              With JavaScript off, Docket will not substitute stored figures. The source routes are
+              <a href="/lp-record">/lp-record</a>,
+              <a href="/advantage/v2.json">/advantage/v2.json</a>, and
+              <a href="/services/range-doctor">/services/range-doctor</a>.
+            </p>
+          </div>
+        </noscript>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <p class="footer-links">
+          <a href="/pancake">/pancake</a>
+          <a href="/lp-record">/lp-record (JSON)</a>
+          <a href="/advantage/v2.json">/advantage/v2.json (JSON)</a>
+          <a href="/services/range-doctor">/services/range-doctor (JSON)</a>
+          <a href="/llms.txt">/llms.txt</a>
+          <a href="/skill.md">/skill.md</a>
+        </p>
+        <p>
+          Docket publishes observations, not verdicts. The wait-versus-recenter choice remains
+          with the position owner.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

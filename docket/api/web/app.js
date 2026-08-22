@@ -1911,6 +1911,258 @@ async function initBrowse() {
   goToBrowse(state, false);
 }
 
+/* ---------------------------------------------------------- Pancake record */
+
+function rangeLabel(status) {
+  return {
+    in_range: "in range",
+    out_of_range_below: "below range",
+    out_of_range_above: "above range",
+    closed: "closed",
+    unknown_pool: "range unavailable",
+  }[status] || "range unavailable";
+}
+
+function recordReference(line) {
+  const references = [];
+  if (line.prior_observation_sha256) {
+    references.push(
+      `prior observation <code>${escapeHTML(line.prior_observation_sha256)}</code>`,
+    );
+  }
+  if (line.supersedes_decision_sha256) {
+    references.push(
+      `supersedes decision <code>${escapeHTML(line.supersedes_decision_sha256)}</code>`,
+    );
+  }
+  if (line.answers_decision_sha256) {
+    references.push(
+      `answers decision <code>${escapeHTML(line.answers_decision_sha256)}</code>`,
+    );
+  }
+  return references.length
+    ? references.join("; ")
+    : '<span class="dim">No digest reference on this row</span>';
+}
+
+function recordRow(line) {
+  if (line.kind === "owner_decision") {
+    const rationale = line.rationale ? ` — ${escapeHTML(line.rationale)}` : "";
+    return `<tr class="owner-decision-row">
+        <td>${escapeHTML(line.decided_at || DASH)}</td>
+        <td class="num">${DASH}</td>
+        <td><strong>Owner decision: ${escapeHTML(line.decision || DASH)}</strong>${rationale}</td>
+        <td><span class="badge">owner decision</span></td>
+        <td class="record-link">${recordReference(line)}</td>
+      </tr>`;
+  }
+  const report = line.report || {};
+  const entry = (report.positions || [])[0] || {};
+  const diagnosis = entry.diagnosis || {};
+  const facts = diagnosis.verifiable_facts || {};
+  const decision =
+    diagnosis.decision ||
+    report.decision ||
+    line.error ||
+    "No position decision was recorded on this observation.";
+  return `<tr>
+      <td>${escapeHTML(line.observed_at || DASH)}</td>
+      <td class="num mono">${escapeHTML(facts.bsc_block ?? (report.observation || {}).bsc_block ?? DASH)}</td>
+      <td>${escapeHTML(decision)}</td>
+      <td>${escapeHTML(rangeLabel(diagnosis.status))}</td>
+      <td class="record-link">${recordReference(line)}</td>
+    </tr>`;
+}
+
+export function paintPancakeRecord(history) {
+  const target = region("pancake-record");
+  const lines = Array.isArray(history.lines) ? history.lines : [];
+  const dates = lines
+    .map((line) => line.decided_at || line.observed_at)
+    .filter(Boolean)
+    .sort();
+  const window = dates.length
+    ? `${dates[0]} to ${dates[dates.length - 1]}`
+    : "no stored observation dates";
+  const completeness = history.truncated
+    ? "The response was truncated; later stored rows may be absent."
+    : "The response was not truncated.";
+  const parseNote = history.skipped_unparsable
+    ? `${fmtInt(history.skipped_unparsable)} stored lines could not be parsed and are not in the table.`
+    : "No stored lines were skipped as unparsable.";
+  const table = lines.length
+    ? `<div class="table-wrap">
+        <table class="record-table">
+          <caption>
+            ${escapeHTML(fmtInt(lines.length))} parsed rows returned by /lp-record for ${escapeHTML(window)}.
+            ${escapeHTML(completeness)} ${escapeHTML(parseNote)}
+          </caption>
+          <thead><tr>
+            <th scope="col">Date</th>
+            <th scope="col" class="num">BSC block</th>
+            <th scope="col">Decision sentence</th>
+            <th scope="col">Range state</th>
+            <th scope="col">Digest link</th>
+          </tr></thead>
+          <tbody>${lines.map((line) => recordRow(line)).join("")}</tbody>
+        </table>
+      </div>`
+    : `<div class="panel"><p>No rows are stored in the fixed-window record served by /lp-record.</p></div>`;
+  target.innerHTML = `${table}
+    <div class="notice">
+      <h3>What the digest chain anchors</h3>
+      <p>
+        A surviving digest reference can expose removal or editing of the observation or owner
+        decision it names. The intended sequence is observation, owner decision, optional
+        superseding decisions, then a later observation that answers the decision.
+      </p>
+      <p class="dim">
+        This is not a running hash. It does not anchor an unreferenced observation or the final
+        row, authenticate who typed a decision, supply an external timestamp, establish causality
+        or returns, or stop the file's controller rewriting the entire chain. /lp-record publishes
+        parsed rows; it does not run verify_history on this response.
+      </p>
+    </div>`;
+}
+
+export function paintPancakeLive(record, answer) {
+  const result = answer.result || {};
+  const entry = (result.positions || [])[0] || {};
+  const diagnosis = entry.diagnosis || {};
+  const facts = diagnosis.verifiable_facts || {};
+  const economics = diagnosis.economic_consequence || {};
+  const conditional = diagnosis.conditional_actions || {};
+  const headline = result.pancake_headline || {};
+  const decision =
+    diagnosis.decision || result.decision || "No position decision was returned.";
+
+  region("pancake-decision").innerHTML = `<p class="decision-sentence">${escapeHTML(decision)}</p>
+    <dl class="decision-facts">
+      <div><dt>Position</dt><dd class="mono">${escapeHTML(facts.position_id ?? DASH)}</dd></div>
+      <div><dt>Range state</dt><dd>${escapeHTML(rangeLabel(diagnosis.status))}</dd></div>
+      <div><dt>BSC block</dt><dd class="mono">${escapeHTML(facts.bsc_block ?? (result.observation || {}).bsc_block ?? DASH)}</dd></div>
+      <div><dt>Observed</dt><dd>${escapeHTML(facts.observation_time || (result.observation || {}).observation_time || DASH)}</dd></div>
+    </dl>`;
+
+  const ratesAvailable = economics.gross_apr !== null && economics.gross_apr !== undefined;
+  const rates = ratesAvailable
+    ? `<dl class="deflist">
+        <dt>Gross pool APR</dt><dd class="num">${escapeHTML(pct(economics.gross_apr))}</dd>
+        <dt>Protocol-adjusted net pool APR</dt><dd class="num">${escapeHTML(pct(economics.net_apr))}</dd>
+        <dt>Gross-to-net overstatement</dt><dd class="num">${escapeHTML(economics.overstatement_relative === null ? "not defined because net APR is zero" : pct(economics.overstatement_relative))}</dd>
+        <dt>Declared fixed notional</dt><dd class="num">${escapeHTML(usd(economics.declared_position_value_usd) || DASH)} — caller-declared</dd>
+        <dt>Annual gross dollars at that notional</dt><dd class="num">${escapeHTML(usd(economics.annual_gross_usd) || DASH)}</dd>
+        <dt>Annual net dollars at that notional</dt><dd class="num">${escapeHTML(usd(economics.annual_net_usd) || DASH)}</dd>
+        <dt>Annual overstatement at that notional</dt><dd class="num">${escapeHTML(usd(economics.annual_overstatement_usd) || DASH)}</dd>
+        <dt>Cost-only recenter payback</dt><dd class="num">${conditional.cost_only_break_even_days === null || conditional.cost_only_break_even_days === undefined ? escapeHTML(conditional.unavailable_reason || DASH) : `${escapeHTML(Number(conditional.cost_only_break_even_days).toFixed(2))} days`}</dd>
+        <dt>Post-hoc median payback delay</dt><dd class="num">${headline.median_payback_delay_days === null || headline.median_payback_delay_days === undefined ? DASH : `${escapeHTML(Number(headline.median_payback_delay_days).toFixed(2))} days across ${escapeHTML(fmtInt(headline.n_candidate_moves))} candidate moves`}</dd>
+      </dl>`
+    : `<p>Rate figures are unavailable: ${escapeHTML(economics.unavailable_reason || "the required pool evidence is missing")}</p>`;
+  region("pancake-economics").innerHTML = `<div class="panel">${rates}
+      <p class="dim">Fixed-notional proxy, not this position's earnings. ${escapeHTML(economics.limitation || "The live response supplied no further rate limitation.")}</p>
+      <p class="dim">${escapeHTML(conditional.limitation || "Future rates and unmeasured costs remain outside this calculation.")}</p>
+    </div>`;
+
+  const actions = (conditional.actions || [])
+    .map(
+      (action) => `<article class="action-card">
+        <p class="eyebrow">${escapeHTML(action.kind || "conditional")}</p>
+        <p>${escapeHTML(action.text || "No action sentence was returned.")}</p>
+        ${action.link ? `<p><a class="btn" href="${escapeHTML(action.link)}" rel="noopener">Open position in PancakeSwap</a></p>` : ""}
+      </article>`,
+    )
+    .join("");
+  region("pancake-actions").innerHTML = actions
+    ? `<div class="action-grid">${actions}</div>`
+    : `<div class="panel"><p>No position-specific wait-versus-recenter actions were returned.</p></div>`;
+}
+
+export function paintPancakeDecisionImpact(report) {
+  const impact = report.decision_impact || {};
+  const payback = impact.break_even_shift || {};
+  const reversal = impact.ranking_reversals || {};
+  const notionals = ((impact.dollars_at_notionals || {}).notionals || []);
+  const fixed = notionals.find(
+    (item) => item.notional_usd === payback.notional_usd,
+  ) || notionals[0] || {};
+  region("pancake-impact").innerHTML = `<div class="impact-grid">
+      <article class="impact-stat">
+        <p class="metric-label">Annual overstatement</p>
+        <p class="metric-value">${escapeHTML(usd(fixed.median_annual_overstatement_usd) || DASH)}</p>
+        <p class="metric-note">Median at ${escapeHTML(usd(fixed.notional_usd) || DASH)} fixed notional across ${escapeHTML(fmtInt(fixed.n_pools))} eligible pools.</p>
+      </article>
+      <article class="impact-stat">
+        <p class="metric-label">Payback delay</p>
+        <p class="metric-value">${payback.median_days_later_than_gross_implies === null || payback.median_days_later_than_gross_implies === undefined ? DASH : `${escapeHTML(Number(payback.median_days_later_than_gross_implies).toFixed(2))} days`}</p>
+        <p class="metric-note">Median across ${escapeHTML(fmtInt(payback.n_moves))} candidate moves; net rather than gross pool rates.</p>
+      </article>
+      <article class="impact-stat">
+        <p class="metric-label">Ranking reversals</p>
+        <p class="metric-value">${escapeHTML(fmtInt(reversal.numerator))}/${escapeHTML(fmtInt(reversal.denominator))}</p>
+        <p class="metric-note">Ordered eligible-pool pairs in the frozen corpus.</p>
+      </article>
+    </div>
+    <div class="notice">
+      <p><strong>${escapeHTML(impact.registration_state || "registration state unavailable")}</strong> — ${escapeHTML(impact.registration_note || "No registration note was returned.")}</p>
+      <p class="dim">${escapeHTML(reversal.what_this_measures || "The response supplied no further reversal method.")}</p>
+      <p class="dim">${escapeHTML(payback.what_it_does_not_measure || "The response supplied no further payback limitation.")}</p>
+    </div>`;
+}
+
+function paintPancakeContext(orientation) {
+  const context = orientation.pancake_context || {};
+  const meta = context.subgraph_meta || {};
+  region("pancake-context").innerHTML = `<p>${escapeHTML(context.first_party_skills || "First-party skill context is unavailable.")}</p>
+    <p>
+      On ${escapeHTML(meta.query_observed_at || DASH)}, the read-only PancakeSwap BSC V3
+      subgraph query returned an indexed time of ${escapeHTML(meta.indexed_at || DASH)} and
+      <code>hasIndexingErrors: ${escapeHTML(String(meta.has_indexing_errors))}</code>.
+    </p>
+    <p class="dim">${escapeHTML(meta.method || "The source method is unavailable.")}</p>`;
+}
+
+async function initPancake() {
+  const [recordResult, historyResult, advantageResult, orientationResult] =
+    await Promise.allSettled([
+      fetchJSON("/services/range-doctor"),
+      fetchJSON("/lp-record"),
+      fetchJSON("/advantage/v2.json"),
+      fetchJSON("/pancake"),
+    ]);
+
+  if (historyResult.status === "fulfilled") {
+    paintPancakeRecord(historyResult.value);
+  } else {
+    renderError(region("pancake-record"), historyResult.reason);
+  }
+  if (advantageResult.status === "fulfilled") {
+    paintPancakeDecisionImpact(advantageResult.value);
+  } else {
+    renderError(region("pancake-impact"), advantageResult.reason);
+  }
+  if (orientationResult.status === "fulfilled") {
+    paintPancakeContext(orientationResult.value);
+  } else {
+    renderError(region("pancake-context"), orientationResult.reason);
+  }
+
+  if (recordResult.status !== "fulfilled") {
+    for (const name of ["pancake-decision", "pancake-economics", "pancake-actions"]) {
+      renderError(region(name), recordResult.reason);
+    }
+    return;
+  }
+  const record = recordResult.value;
+  try {
+    const answer = await postJSON(record.hire_path, exampleBody(record));
+    paintPancakeLive(record, answer);
+  } catch (err) {
+    for (const name of ["pancake-decision", "pancake-economics", "pancake-actions"]) {
+      renderError(region(name), err);
+    }
+  }
+}
+
 /* ------------------------------------------------------------ agent detail */
 
 /* A pointer to one agent, not a figure: every number in the note below is read
@@ -2003,6 +2255,123 @@ function observationSection(detail) {
   return `<div class="panel"><h3>No observations</h3><p class="dim">${escapeHTML(why)}</p></div>`;
 }
 
+function lastAgentProbe(detail) {
+  return detail.observations
+    .filter((observation) => observation.kind === "a2a" || observation.kind === "mcp")
+    .reduce((latest, observation) => {
+      if (!latest) return observation;
+      return String(observation.observed_at || "") >= String(latest.observed_at || "")
+        ? observation
+        : latest;
+    }, null);
+}
+
+export function agentActionBlock(detail, associatedServices) {
+  const latest = lastAgentProbe(detail);
+  const canReprobe =
+    detail.declares_callable && latest && latest.outcome === "responded";
+  const observedProbeable = new Set(
+    detail.observations
+      .filter((row) => row.kind === "a2a" || row.kind === "mcp")
+      .map((row) => row.url),
+  );
+  const actionEndpoints = detail.endpoints.filter((url) =>
+    observedProbeable.has(url),
+  );
+  const endpoints = actionEndpoints.length
+    ? actionEndpoints
+        .map((url) => {
+          const observation = detail.observations.find((row) => row.url === url);
+          const outcome = outcomeLabel(observation && observation.outcome);
+          const recorded = observation
+            ? `<p>
+                <span class="outcome ${outcome.className}">${escapeHTML(outcome.label)}</span>
+                ${observation.status_code === null ? "No HTTP status was returned." : `HTTP status ${escapeHTML(observation.status_code)}.`}
+                Observed <time datetime="${escapeHTML(observation.observed_at || "")}">${escapeHTML(observation.observed_at || DASH)}</time>.
+              </p>
+              <p class="dim">${escapeHTML(outcome.means)}</p>`
+            : `<p class="dim">Docket has no probe outcome for this declared URL in the served snapshot.</p>`;
+          return `<li class="endpoint-action">
+              <div class="endpoint-copy">
+                <code>${escapeHTML(url)}</code>
+                <button type="button" class="btn" data-copy-endpoint="${escapeHTML(url)}">Copy endpoint</button>
+              </div>
+              ${recorded}
+            </li>`;
+        })
+        .join("")
+    : `<li><p class="dim">No A2A or MCP endpoint has a recorded probe outcome in the served snapshot.</p></li>`;
+  const control = canReprobe
+    ? `<p class="btn-row">
+        <button type="button" class="btn btn-primary" data-reprobe>Re-probe now</button>
+        <span class="dim">Repeats one pinned GET to the last endpoint that answered. Any HTTP status counts as an answer; it does not show what the agent does behind it.</span>
+      </p>`
+    : `<p class="dim">Re-probe is available only when this agent declares a callable protocol and its last recorded probe answered.</p>`;
+  return `<section aria-labelledby="agent-actions-heading">
+      <h2 id="agent-actions-heading">What you can do with this agent</h2>
+      <p class="section-note">
+        Copy the endpoints the publisher declared, inspect Docket's dated probe outcome, and see
+        whether Docket binds a service action to this identity. A probe reads reachability only.
+      </p>
+      <div class="panel">
+        <dl class="deflist">
+          <dt>Declares x402 payments</dt><dd>${detail.x402 ? "yes" : "no"}</dd>
+        </dl>
+        <ul class="endpoint-actions">${endpoints}</ul>
+        ${control}
+        <div data-region="agent-probe-result" aria-live="polite"></div>
+      </div>
+      <div class="panel agent-services">
+        <h3>Docket-run services associated with this identity</h3>
+        <p class="dim">These are Docket's own bindings. The ERC-8004 registration does not declare them.</p>
+        ${associatedServices}
+      </div>
+    </section>`;
+}
+
+function bindAgentActions(detail) {
+  for (const button of document.querySelectorAll("[data-copy-endpoint]")) {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copyEndpoint);
+        button.textContent = "Copied";
+      } catch (err) {
+        button.textContent = "Select the endpoint text to copy";
+      }
+    });
+  }
+  const reprobe = document.querySelector("[data-reprobe]");
+  if (!reprobe) return;
+  reprobe.addEventListener("click", async () => {
+    reprobe.disabled = true;
+    reprobe.textContent = "Re-probing…";
+    const target = region("agent-probe-result");
+    try {
+      const response = await postJSON(`/agents/${detail.agent_id}/probe`, {});
+      const observation = response.observation || {};
+      const outcome = outcomeLabel(observation.outcome);
+      target.innerHTML = `<div class="notice">
+          <p><strong>New observation:</strong>
+            <span class="outcome ${outcome.className}">${escapeHTML(outcome.label)}</span>
+            ${observation.status_code === null || observation.status_code === undefined ? "No HTTP status was returned." : `HTTP status ${escapeHTML(observation.status_code)}.`}
+            Recorded <time datetime="${escapeHTML(observation.observed_at || "")}">${escapeHTML(observation.observed_at || DASH)}</time>.
+          </p>
+          <p class="dim">${escapeHTML(outcome.means)}</p>
+        </div>`;
+      if (observation.outcome === "responded") {
+        reprobe.disabled = false;
+        reprobe.textContent = "Re-probe now";
+      } else {
+        reprobe.textContent = "Re-probe recorded";
+      }
+    } catch (err) {
+      renderError(target, err);
+      reprobe.disabled = false;
+      reprobe.textContent = "Re-probe now";
+    }
+  });
+}
+
 function paintAgent(detail, example) {
   const name = displayName(detail);
   const placeholder = detail.placeholder_name
@@ -2020,6 +2389,7 @@ function paintAgent(detail, example) {
   const associatedServices = detail.associated_services.length
     ? detail.associated_services.map((service) => serviceCard(service)).join("")
     : `<p class="dim">Docket binds no service in its own marketplace to this identity.</p>`;
+  const actions = agentActionBlock(detail, associatedServices);
 
   region("agent").innerHTML = `<h1>${escapeHTML(name)}</h1>
     ${placeholder}
@@ -2041,11 +2411,7 @@ function paintAgent(detail, example) {
         </dl>
       </div>
     </section>
-    <section aria-labelledby="services-heading">
-      <h2 id="services-heading">Services Docket associates with this identity</h2>
-      <p class="section-note">These are Docket's own bindings. The ERC-8004 registration does not declare them.</p>
-      <div class="panel">${associatedServices}</div>
-    </section>
+    ${actions}
     <section aria-labelledby="observed-heading">
       <h2 id="observed-heading">What Docket observed</h2>
       <div class="notice">
@@ -2074,6 +2440,7 @@ function paintAgent(detail, example) {
         </dl>
       </div>
     </section>`;
+  bindAgentActions(detail);
 }
 
 async function initAgent() {
@@ -2109,6 +2476,7 @@ const PAGES = {
   research: initBrowse,
   agent: initAgent,
   service: initService,
+  pancake: initPancake,
 };
 
 const page = document.body.dataset.page;
