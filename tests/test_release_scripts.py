@@ -120,6 +120,13 @@ printf '%s\n' 'Archived and active journals take up 64.0M in the file system.'
 exit "${FAKE_JOURNAL_EXIT:-0}"
 """,
     )
+    _write_executable(
+        fake_bin / "runuser",
+        """#!/usr/bin/env bash
+set -euo pipefail
+exit "${FAKE_RUNUSER_EXIT:-0}"
+""",
+    )
     return fake_bin
 
 
@@ -136,6 +143,7 @@ def _environment(root: Path, fake_bin: Path, **values: str) -> dict[str, str]:
         fake_bin / "systemd-analyze"
     ).as_posix()
     environment["DOCKET_PREFLIGHT_JOURNALCTL"] = (fake_bin / "journalctl").as_posix()
+    environment["DOCKET_RELEASE_RUNUSER"] = (fake_bin / "runuser").as_posix()
     environment.update(values)
     return environment
 
@@ -249,6 +257,54 @@ def test_release_refuses_when_pip_show_disagrees_with_the_wheel(tmp_path):
 
     assert result.returncode != 0
     assert "pip show docket version 9.9.9 does not match wheel 0.1.0" in result.stderr
+
+
+def test_release_creates_and_installs_a_new_venv_under_umask_022(tmp_path):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        wheel.as_posix(),
+        COMMIT,
+        digest,
+        environment=_environment(root, fake_bin),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    lower_umask = result.stdout.index("+ umask 022")
+    create_venv = result.stdout.index("python3 -m venv")
+    install_wheel = result.stdout.index("/bin/python -m pip install")
+    pip_check = result.stdout.index("/bin/python -m pip check")
+    assert lower_umask < create_venv < install_wheel < pip_check
+
+
+def test_release_refuses_an_unusable_venv_before_stopping_services(tmp_path):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        wheel.as_posix(),
+        COMMIT,
+        digest,
+        environment=_environment(root, fake_bin, FAKE_RUNUSER_EXIT="1"),
+    )
+
+    assert result.returncode != 0
+    assert "docket service user cannot import the installed release" in result.stderr
+    assert " -u docket -- " in result.stdout
+    assert "import\\ docket\\,\\ docket.api\\,\\ docket.canary" in result.stdout
+    assert "systemctl stop docket-canary.timer" not in result.stdout
+    assert f"mv -- {root.as_posix()}/opt/docket " not in result.stdout
 
 
 @pytest.mark.parametrize(

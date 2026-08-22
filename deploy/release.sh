@@ -143,11 +143,13 @@ readonly CANARY_TOKEN="$(root_path /etc/docket/docket-canary.token)"
 if (( DRY_RUN )); then
     JSON_PYTHON=python3
     CURL_COMMAND=${DOCKET_RELEASE_CURL:-curl}
+    RUNUSER_COMMAND=${DOCKET_RELEASE_RUNUSER:-runuser}
 else
     JSON_PYTHON="${OPT_DOCKET}/.venv/bin/python"
     CURL_COMMAND=curl
+    RUNUSER_COMMAND=runuser
 fi
-readonly JSON_PYTHON CURL_COMMAND
+readonly JSON_PYTHON CURL_COMMAND RUNUSER_COMMAND
 
 run_fs install -d -m 0755 "${OPT_ROOT}" "${VENV_ROOT}"
 if [[ -e "${VENV}" ]]; then
@@ -168,21 +170,32 @@ if [[ -e "${VENV}" ]]; then
     fi
     printf 'Reusing matching venv: %s\n' "${VENV}"
 else
-    trace_command python3 -m venv "${VENV}"
-    if (( DRY_RUN )); then
-        install -d -m 0755 "${VENV}/bin"
-    else
-        python3 -m venv "${VENV}"
-    fi
-    trace_command "${VENV}/bin/python" -m pip install -- "${WHEEL}"
-    if (( ! DRY_RUN )); then
-        "${VENV}/bin/python" -m pip install -- "${WHEEL}"
-    fi
+    (
+        run_fs umask 022
+        trace_command python3 -m venv "${VENV}"
+        if (( DRY_RUN )); then
+            install -d -m 0755 "${VENV}/bin"
+        else
+            python3 -m venv "${VENV}"
+        fi
+        trace_command "${VENV}/bin/python" -m pip install -- "${WHEEL}"
+        if (( ! DRY_RUN )); then
+            "${VENV}/bin/python" -m pip install -- "${WHEEL}"
+        fi
+    )
 fi
 
 trace_command "${VENV}/bin/python" -m pip check
 if (( ! DRY_RUN )); then
     "${VENV}/bin/python" -m pip check
+fi
+trace_command "${RUNUSER_COMMAND}" -u docket -- "${VENV}/bin/python" -c \
+    'import docket, docket.api, docket.canary'
+if (( ! DRY_RUN )) || [[ -n "${DOCKET_RELEASE_RUNUSER:-}" ]]; then
+    if ! "${RUNUSER_COMMAND}" -u docket -- "${VENV}/bin/python" -c \
+        'import docket, docket.api, docket.canary'; then
+        fatal 'docket service user cannot import the installed release'
+    fi
 fi
 trace_command "${VENV}/bin/python" -m pip show docket
 if (( DRY_RUN )); then

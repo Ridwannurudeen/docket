@@ -94,11 +94,13 @@ ssh root@gudman.xyz \
 ```
 
 `release.sh` verifies the wheel digest and metadata, installs it into
-`/opt/docket-venvs/<commit12>`, runs `pip check`, and compares `pip show docket` with the
-wheel metadata. A pre-existing commit-named environment is reused only when its full commit,
-wheel digest, and package-version records all match. The script writes the full computed
-commit to `RELEASE-commit.txt`, stages the deploy assets, stops the canary timer, proves no
-canary service is active, and then performs the back-up-then-replace swap. The old release is
+`/opt/docket-venvs/<commit12>` under `umask 022`, runs `pip check`, and requires the `docket`
+service user to import `docket`, `docket.api`, and `docket.canary` before comparing
+`pip show docket` with the wheel metadata. The rest of the release retains `umask 027`. A
+pre-existing commit-named environment is reused only when its full commit, wheel digest, and
+package-version records all match. The script writes the full computed commit to
+`RELEASE-commit.txt`, stages the deploy assets, stops the canary timer, proves no canary
+service is active, and then performs the back-up-then-replace swap. The old release is
 retained as `/opt/docket.bak-<UTC timestamp>`; it is never deleted by the release.
 
 The `.venv` link is flipped with a temporary symlink and `mv -T`. Unit files are installed
@@ -325,6 +327,11 @@ commit-named environment, restore the prior unit contents, reload systemd, and r
 read-only health and response-shape checks. Restore the database only to a separate runtime
 path when a migration prevents the prior source from reading the live schema; do not overwrite
 the live database while diagnosing it. Record the source commit and wheel digest restored.
+
+Rollback deliberately restores the prior unit contents and their enabled and active states.
+If it follows retirement of the Aug-21 capture timer, `systemctl list-timers` can therefore
+show that elapsed timer again. This is expected: the restored one-shot used
+`Persistent=false`, so it will not catch up after its registered moment.
 
 ## Register the four identities
 
