@@ -251,6 +251,92 @@ if (encoded !== '{"lower":9007199254740993123456789,"filled":[2,9007199254740993
     assert completed.returncode == 0, completed.stderr
 
 
+def test_the_worked_example_replaces_edited_regular_and_advanced_fields(tmp_path):
+    """The example action submits schema defaults, never values left in the form."""
+    module = tmp_path / "app.mjs"
+    module.write_text(_read("app.js"), encoding="utf-8")
+    script = tmp_path / "worked-example.mjs"
+    script.write_text(
+        """
+globalThis.document = {
+  body: { dataset: {} },
+  querySelector: () => null,
+  querySelectorAll: () => [],
+};
+globalThis.window = {};
+const { encodeJSON, submissionBody } = await import("./app.mjs");
+
+const controls = {
+  wallet: { value: "edited-wallet" },
+  declared_position_value_usd: { value: "999.99" },
+  observation_block: { value: "117443373" },
+  decision_horizon_days: { value: "365" },
+};
+const arrayItems = {
+  innerHTML: "",
+  querySelectorAll: () => [{ value: "7" }, { value: "8" }],
+};
+const arrayControl = {
+  dataset: { nextIndex: "9" },
+  querySelector: (selector) => selector === "[data-array-items]" ? arrayItems : null,
+  querySelectorAll: (selector) => selector === "input" ? arrayItems.querySelectorAll() : [],
+};
+const form = {
+  elements: { namedItem: (name) => controls[name] || null },
+  querySelector: (selector) => selector.includes("filled") ? arrayControl : null,
+};
+const record = {
+  input_schema: {
+    wallet: { type: "string", required: true, default: "controlled-wallet" },
+    declared_position_value_usd: { type: "number", required: false, default: 50.55 },
+    observation_block: { type: "integer", required: false, advanced: true },
+    decision_horizon_days: { type: "integer", required: false, default: 30, advanced: true },
+    filled: {
+      type: "array",
+      items: { type: "integer" },
+      required: false,
+      default: [2, "9007199254740993"],
+      advanced: true,
+    },
+  },
+};
+
+const runButton = { matches: () => false };
+const edited = encodeJSON(submissionBody(record, form, runButton));
+if (edited !== '{"wallet":"edited-wallet","declared_position_value_usd":999.99,"observation_block":117443373,"decision_horizon_days":365,"filled":[7,8]}') {
+  throw new Error(`ordinary submission stopped reading the form: ${edited}`);
+}
+
+const exampleButton = { matches: (selector) => selector === "[data-example]" };
+const example = encodeJSON(submissionBody(record, form, exampleButton));
+if (example !== '{"wallet":"controlled-wallet","declared_position_value_usd":50.55,"decision_horizon_days":30,"filled":[2,9007199254740993]}') {
+  throw new Error(`worked example used edited fields: ${example}`);
+}
+if (controls.wallet.value !== "controlled-wallet" ||
+    controls.declared_position_value_usd.value !== "50.55" ||
+    controls.observation_block.value !== "" ||
+    controls.decision_horizon_days.value !== "30") {
+  throw new Error("worked example did not reset every scalar control");
+}
+if (!arrayItems.innerHTML.includes('value="2"') ||
+    !arrayItems.innerHTML.includes('value="9007199254740993"') ||
+    arrayControl.dataset.nextIndex !== "2") {
+  throw new Error("worked example did not reset the advanced array control");
+}
+""",
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        ["node", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "submissionBody(record, form, event.submitter)" in _read("app.js")
+
+
 def test_the_agent_page_exposes_dockets_bound_service_with_the_same_hire_gating(client):
     app_js = _read("app.js")
     assert "detail.associated_services" in app_js

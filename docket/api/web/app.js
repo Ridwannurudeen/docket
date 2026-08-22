@@ -673,6 +673,20 @@ function integerValue(raw, name) {
   return BigInt(raw);
 }
 
+function typedFieldValue(raw, name, field) {
+  if (field.type === "integer") return integerValue(raw, name);
+  if (field.type === "number") {
+    const number = Number(raw);
+    if (!Number.isFinite(number)) {
+      const err = new Error(`${name} must be a finite number.`);
+      err.code = "invalid_field";
+      throw err;
+    }
+    return number;
+  }
+  return raw;
+}
+
 export function readForm(record, form) {
   const body = {};
   for (const [name, field] of Object.entries(record.input_schema)) {
@@ -685,9 +699,7 @@ export function readForm(record, form) {
         : [];
       if (!values.length && !field.required) continue;
       body[name] = values.map((raw) =>
-        field.items && field.items.type === "integer"
-          ? integerValue(raw, name)
-          : raw,
+        typedFieldValue(raw, name, field.items || {}),
       );
       continue;
     }
@@ -698,21 +710,61 @@ export function readForm(record, form) {
        `limit` explicitly so that an explicit 0 stays 0, and a blank sent as one would
        turn "use the default" into "read nothing". */
     if (!raw && !field.required) continue;
-    if (field.type === "integer") {
-      body[name] = integerValue(raw, name);
-    } else if (field.type === "number") {
-      const number = Number(raw);
-      if (!Number.isFinite(number)) {
-        const err = new Error(`${name} must be a finite number.`);
-        err.code = "invalid_field";
-        throw err;
-      }
-      body[name] = number;
-    } else {
-      body[name] = raw;
-    }
+    body[name] = typedFieldValue(raw, name, field);
   }
   return body;
+}
+
+export function exampleBody(record) {
+  const body = {};
+  for (const [name, field] of Object.entries(record.input_schema)) {
+    if (field.type === "array") {
+      const values = Array.isArray(field.default) ? field.default : [];
+      if (!values.length) continue;
+      body[name] = values.map((value) =>
+        typedFieldValue(String(value), name, field.items || {}),
+      );
+      continue;
+    }
+    if (
+      field.default === undefined ||
+      field.default === null ||
+      field.default === ""
+    ) {
+      continue;
+    }
+    body[name] = typedFieldValue(String(field.default), name, field);
+  }
+  return body;
+}
+
+function resetFormToExample(record, form) {
+  for (const [name, field] of Object.entries(record.input_schema)) {
+    if (field.type === "array") {
+      const control = form.querySelector(`[data-array-control="${name}"]`);
+      const values =
+        Array.isArray(field.default) && field.default.length
+          ? field.default
+          : [""];
+      control.querySelector("[data-array-items]").innerHTML = values
+        .map((value, index) => arrayItemControl(name, value, index))
+        .join("");
+      control.dataset.nextIndex = String(values.length);
+      continue;
+    }
+    form.elements.namedItem(name).value =
+      field.default === undefined || field.default === null
+        ? ""
+        : String(field.default);
+  }
+}
+
+export function submissionBody(record, form, submitter) {
+  if (!submitter || !submitter.matches("[data-example]")) {
+    return readForm(record, form);
+  }
+  resetFormToExample(record, form);
+  return exampleBody(record);
 }
 
 /* A buyer paid for an answer, not for a payload. Dumping the response into a <pre> made
@@ -1225,6 +1277,13 @@ function wireActivation(record) {
   const outcome = region("outcome");
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    let body;
+    try {
+      body = submissionBody(record, form, event.submitter);
+    } catch (err) {
+      paintRunFailure(outcome, err);
+      return;
+    }
     const missing = Object.entries(record.input_schema)
       .filter(([name, field]) => {
         if (field.type === "array") {
@@ -1260,7 +1319,7 @@ function wireActivation(record) {
     try {
       paintOutcome(
         record,
-        await postJSON(record.hire_path, readForm(record, form)),
+        await postJSON(record.hire_path, body),
       );
     } catch (err) {
       paintRunFailure(outcome, err);
