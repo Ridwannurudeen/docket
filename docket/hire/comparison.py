@@ -33,6 +33,9 @@ NO_MEASUREMENT = "No paired run against a human exists for this service, so no t
 LIVE_READ_FRESHNESS = {
     "grid-operator": "Live BSC read at hire time.",
     "health-guard": "Live BSC read at hire time.",
+    "warden-scan": (
+        "Live upstream call at hire time; the recorded run is evidence, not freshness."
+    ),
     "yield-router": "Live PancakeSwap explorer and BSC reads at hire time.",
 }
 
@@ -141,13 +144,11 @@ def compare(services, *, experiments: Path = EXPERIMENTS) -> dict:
                 "paid_stock": bool(getattr(service, "paid_stock", False)),
                 "admission_failing": _failing_limbs(admission) if admission else [],
                 "measured": measured,
-                "freshness": (
+                "freshness": LIVE_READ_FRESHNESS.get(
+                    service.id,
                     measured["freshness"]
                     if measured["available"]
-                    else LIVE_READ_FRESHNESS.get(
-                        service.id,
-                        "No data-recency statement is recorded for this service.",
-                    )
+                    else "No data-recency statement is recorded for this service.",
                 ),
                 "evidence": evidence,
             }

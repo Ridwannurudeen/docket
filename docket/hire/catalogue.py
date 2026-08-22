@@ -788,6 +788,9 @@ SERVICES: dict[str, Service] = {
                 "type": "string",
                 "required": True,
                 "default": CONTROLLED_EXAMPLE_WALLET,
+                "example_note": (
+                    "Docket's own controlled wallet — replace with your address"
+                ),
                 "description": (
                     "the 0x-prefixed BSC address the previewed swaps name as recipient; it is "
                     "read and never touched"
@@ -896,6 +899,10 @@ SERVICES: dict[str, Service] = {
                 "type": "string",
                 "required": True,
                 "default": CONTROLLED_EXAMPLE_WALLET,
+                "example_note": (
+                    "Docket's controlled wallet has no Venus position, so the honest result "
+                    "is no position — replace with your address"
+                ),
                 "description": (
                     "the 0x-prefixed BSC address whose Venus position to read; it is read "
                     "and never touched"
@@ -1084,6 +1091,7 @@ SERVICES: dict[str, Service] = {
         name="Warden Payload Scan",
         job_summary="Scans one untrusted payload and returns Warden's live telemetry.",
         what_you_get=(
+            "This hire makes a live upstream call; the recorded run is evidence, not freshness. "
             "Warden's verdict on one piece of untrusted text — ALLOW, SANITIZE or BLOCK — with "
             "the threat classes it matched, the individual detections and confidences behind "
             "them, its sanitized rendering of the text, and the per-layer checks that produced "

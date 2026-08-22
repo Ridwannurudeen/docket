@@ -100,6 +100,22 @@ def test_the_controlled_examples_are_prefilled_without_weakening_required_inputs
         assert schema["wallet"]["required"] is True
         assert schema["wallet"]["default"] == wallet
 
+    assert (
+        get_service("grid-operator").input_schema["wallet"]["example_note"]
+        == "Docket's own controlled wallet — replace with your address"
+    )
+    assert (
+        get_service("health-guard").input_schema["wallet"]["example_note"]
+        == "Docket's controlled wallet has no Venus position, so the honest result is no position — replace with your address"
+    )
+
+
+def test_warden_card_distinguishes_live_freshness_from_recorded_evidence():
+    assert (
+        "live upstream call; the recorded run is evidence, not freshness"
+        in get_service("warden-scan").what_you_get.lower()
+    )
+
 
 def test_range_reproducibility_inputs_are_marked_for_the_advanced_disclosure():
     schema = get_service("range-doctor").input_schema

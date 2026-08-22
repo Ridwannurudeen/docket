@@ -168,3 +168,13 @@ def test_freshness_and_evidence_are_present_or_state_why_they_are_not():
         "available": False,
         "reason": comparison.NO_MEASUREMENT,
     }
+
+    warden = _row(comparison.compare([_Service("warden-scan")]), "warden-scan")
+    assert warden["freshness"] == (
+        "Live upstream call at hire time; the recorded run is evidence, not freshness."
+    )
+    assert warden["evidence"] == {
+        "available": True,
+        "url": "/advantage#03-security",
+        "label": "Paired run, n=1",
+    }
