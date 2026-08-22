@@ -55,41 +55,91 @@ and validates result/receipt service IDs. Live RPC, explorer, and owner-gated se
 behavior belongs in the separate operational canary; it must not make package CI
 nondeterministic.
 
-## Stage and replace the copied release
+## Ship and release the copied deployment
 
-The VPS deployment is a copied release under `/opt/docket`, not a Git checkout. Build and
-audit the wheel before transfer, then stage the exact release in a separate directory such
-as `/opt/docket.stage-<release-id>`. The staged tree must contain its `.venv`, the deployment
-assets under `deploy/`, and the exact wheel/source identity recorded at the release gate.
-
-Before changing the service, resolve all three paths and confirm that the stage and backup
-are distinct children of `/opt`; never compute either from an empty variable. If the canary
-timer is installed, stop the timer and confirm `docket-canary.service` is inactive so a run
-cannot cross the replacement. Then stop `docket.service`, move the current `/opt/docket` to
-a new timestamped `/opt/docket.bak-<UTC timestamp>`, and only then move the verified stage to
-`/opt/docket`.
-Do not delete the backup during the release. This is back-up-then-replace; neither the
-canary installer nor the application service performs an in-place Git operation or copies
-application code.
-
-The live application service uses:
+The VPS release is a copied tree under `/opt/docket`, not a Git checkout. Build the wheel
+outside the checkout, then run the following from Git Bash at the exact tested commit. Every
+release identifier and digest below is computed; none is typed. The tar stream carries the
+wheel plus the complete `deploy/` directory, including all eight unit files.
 
 ```bash
-User=docket
-WorkingDirectory=/var/lib/docket
-Environment=DOCKET_DB=/var/lib/docket/data/agents.sqlite3
-ExecStart=/opt/docket/.venv/bin/uvicorn --factory docket.api:create_app \
-  --host 127.0.0.1 --port 8090
+repo_root=$(pwd -P)
+source_commit=$(git rev-parse HEAD)
+wheel=$(realpath /path/outside/checkout/dist/docket-0.1.0-py3-none-any.whl)
+wheel_name=$(basename "$wheel")
+wheel_sha=$(sha256sum "$wheel" | awk '{print $1}')
+remote_bundle="/var/tmp/docket-release-${source_commit:0:12}"
+
+ssh root@gudman.xyz "install -d -o root -g root -m 0700 '$remote_bundle'"
+tar -cf - -C "$repo_root" deploy -C "$(dirname "$wheel")" "$wheel_name" | \
+  ssh root@gudman.xyz "tar -xf - -C '$remote_bundle'"
+ssh root@gudman.xyz \
+  "bash '$remote_bundle/deploy/preflight.sh' 22"
 ```
 
-The package defines no console script. `docket.api:create_app` is the verified application
-factory. The working directory makes its relative default database path resolve to the same
-live file named by `DOCKET_DB`; the database stays under `/var/lib/docket` across replacement
-of `/opt/docket`.
+`preflight.sh` requires `nginx -t` to exit successfully, print `test is successful`, and
+emit exactly the operator-supplied warning baseline. It also requires at least 2 GiB free
+under `/opt`, verifies all eight tracked units with `systemd-analyze verify`, and prints the
+current journal disk use. It never edits or reloads nginx. The tracked rate-limit example is
+still an owner-reviewed, separately applied nginx change.
 
-The application unit and nginx site remain host-managed. This repository tracks operational
-unit examples for the daily canary and targeted registry refresh; their presence in source is
-not evidence that they were installed.
+After preflight, make a SQLite-consistent backup without copying the live database into the
+shipped tree, then invoke the release with the computed values:
+
+```bash
+ssh root@gudman.xyz \
+  'stamp=$(date -u +%Y%m%dT%H%M%SZ); install -d -o root -g root -m 0700 /var/backups/docket; /opt/docket/.venv/bin/python -c '\''import sqlite3,sys; source=sqlite3.connect("/var/lib/docket/data/agents.sqlite3"); destination=sqlite3.connect(sys.argv[1]); source.backup(destination); destination.close(); source.close()'\'' "/var/backups/docket/agents-${stamp}.sqlite3"'
+ssh root@gudman.xyz \
+  "bash '$remote_bundle/deploy/release.sh' '$remote_bundle/$wheel_name' '$source_commit' '$wheel_sha'"
+```
+
+`release.sh` verifies the wheel digest and metadata, installs it into
+`/opt/docket-venvs/<commit12>` under `umask 022`, runs `pip check`, and requires the `docket`
+service user to import `docket`, `docket.api`, and `docket.canary` before comparing
+`pip show docket` with the wheel metadata. The rest of the release retains `umask 027`. A
+pre-existing commit-named environment is reused only when its full commit, wheel digest, and
+package-version records all match. The script writes the full computed commit to
+`RELEASE-commit.txt`, stages the deploy assets, stops the canary timer, proves no canary
+service is active, and then performs the back-up-then-replace swap. The old release is
+retained as `/opt/docket.bak-<UTC timestamp>`; it is never deleted by the release.
+
+The `.venv` link is flipped with a temporary symlink and `mv -T`. Unit files are installed
+only when their bytes differ, with a unified diff printed before each replacement. The old
+Aug-21 capture timer is retired and the Aug-26 pre-arm timer replaces it. The release reloads
+systemd, enables and starts the host-managed `docket.service`, and enables these four timers:
+
+- `docket-canary.timer`
+- `docket-lp-record.timer`
+- `docket-refresh.timer`
+- `docket-v3-capture.timer`
+
+The live application service remains host-managed and uses `User=docket`,
+`WorkingDirectory=/var/lib/docket`, `DOCKET_DB=/var/lib/docket/data/agents.sqlite3`, and
+`/opt/docket/.venv/bin/uvicorn --factory docket.api:create_app --host 127.0.0.1 --port 8090`.
+The database and LP journal remain under `/var/lib/docket`; neither is copied into `/opt`.
+
+The release polls `/health` for up to 30 seconds because startup normally takes 8-10 seconds.
+It then checks the documented `/stats` coverage/refresh fields and the `/services`
+identity, stock-status, and four-limb admission fields. A failure after service stop triggers
+automatic rollback: the failed new tree is retained as `/opt/docket.failed-<timestamp>-<commit12>`,
+the backup tree and prior `.venv` target are restored, changed units and prior timer states are
+restored, the prior service is started, and `/health` is checked again. A database backup is
+not automatically restored; if an additive migration is incompatible with the prior source,
+keep the service stopped and investigate against the saved SQLite backup.
+
+For local regression tests, `--dry-run` requires `DOCKET_RELEASE_ROOT` and maps every managed
+path into that fake root. It executes the filesystem state machine there and prints every
+host command without running it. The test suite supplies a fake `curl` to exercise rollback.
+
+## Persistent journal for the judging window
+
+The release installs `deploy/journald-docket.conf` at
+`/etc/systemd/journald.conf.d/docket.conf` only when the target is absent. The file sets
+`Storage=persistent` and `SystemMaxUse=512M`, then the release restarts `systemd-journald`.
+That first restart has a one-time, unavoidable cost: the current volatile journal is lost.
+Afterward, capture refusals and service diagnostics survive normal volatile rotation during
+the judging window. If the target already exists with different bytes, the release refuses
+before stopping Docket rather than overwriting host policy.
 
 ## Configuration
 
@@ -106,8 +156,10 @@ Do not enable these until a service passes all four admission limbs and the chos
 facilitator/$U flow has a real preflight. Configuration alone does not change
 `paid_stock`; the service admission must also pass.
 
-Before paid stock opens, install the tracked nginx `limit_req` example in the live `http` and
-`/hire/` contexts, run `nginx -t`, and reload nginx. Paid authorizations bypass the application
+Before paid stock opens, the owner may merge the tracked nginx `limit_req` example into the
+live `http` and `/hire/` contexts. Run `deploy/preflight.sh 22` afterward and reload nginx only
+when `nginx -t` still reports `test is successful` with exactly the same 22-warning baseline.
+The release scripts never edit or reload nginx. Paid authorizations bypass the application
 free allowance so shared-egress free usage cannot make payment impossible; nginx's
 peer-address `30r/m` limit is the separate paid-path bound.
 
@@ -115,27 +167,28 @@ The ERC-8183 broadcaster is separate and refuses to start without `DOCKET_SETTLE
 This repository contains no key and this runbook does not direct an operator to create or
 fund a job.
 
-## Manual release checks
+## Post-release evidence collection
 
-After a release candidate starts, check:
+The release checks response shape. Collect the deployed identity and exact response evidence
+separately after it returns success:
 
 ```bash
-curl -fsS http://127.0.0.1:8090/health
-curl -fsS http://127.0.0.1:8090/categories
-curl -fsS http://127.0.0.1:8090/hire
-curl -fsS http://127.0.0.1:8090/advantage/v2.json
-curl -fsS http://127.0.0.1:8090/advantage/v3.json
-curl -fsS http://127.0.0.1:8090/canary
+ssh root@gudman.xyz \
+  'readlink -f /opt/docket/.venv; cat /opt/docket/RELEASE-commit.txt /opt/docket/WHEEL-sha256.txt; /opt/docket/.venv/bin/python -c '\''import importlib.metadata as metadata; print(metadata.version("docket"))'\''; /opt/docket/.venv/bin/python -m pip check'
+ssh root@gudman.xyz \
+  'curl -fsS http://127.0.0.1:8090/services | sha256sum; curl -fsS http://127.0.0.1:8090/stats; systemctl list-timers docket-canary.timer docket-lp-record.timer docket-refresh.timer docket-v3-capture.timer'
 ```
 
 Expected shape, not expected changing numbers:
 
 - `/health` returns `status`, `snapshot_id`, the served snapshot's capture time, and its age.
+- `/stats` returns `coverage` with its snapshot, time, age, sampled/expected/dropped counts,
+  completeness, and population, plus `refresh_status`, `registry_total`, and `probe_method`.
+- `/services` returns `services`, `total`, `category`, `ordering`, and `declaration`; every
+  service carries `service_id`, `paid_stock`, `stock_status`, and all four admission booleans.
 - `/categories` has four rows and declares that category labels are Docket's.
-- `/hire` exposes `paid_stock`, `stock_status`, and the four admission booleans per service.
 - `/advantage/v2.json` builds from the artifacts included in the wheel.
-- `/advantage/v3.json` has three registered families, all `registered_waiting_for_inputs`
-  until an input is separately locked.
+- `/advantage/v3.json` has three registered families and reports their current artifact state.
 - `/canary` exposes the latest durable result and bounded history rather than inferring uptime.
 
 Do not use a payment header in these manual checks. Only the governing runner may exercise
@@ -178,7 +231,6 @@ The tracked deployment units are:
 - `deploy/systemd/docket-canary.service`
 - `deploy/systemd/docket-canary.timer`
 - `deploy/docket-canary.conf.example`
-- `deploy/install-canary.sh`
 
 The timer runs once daily at 04:17 UTC with up to 30 minutes of randomized delay and catches
 one missed run after downtime. A oneshot cannot overlap another activation of the same unit,
@@ -203,24 +255,14 @@ economics, or private-key file are absent, the LP and paid legs remain in that s
 paid admission gate remains closed. A failed or stale governing run removes paid admission;
 the free verified example and free preview remain available.
 
-The non-secret config is installed at `/etc/docket/docket-canary.conf`. The installer creates
-a 32-byte shared token at `/etc/docket/docket-canary.token` without printing it and adds a
-`docket.service` drop-in that points `DOCKET_CANARY_TOKEN_FILE` at that path. It does not
-create `/etc/docket/docket-canary-payment.key`, fund an LP, or populate any controlled-LP
-value. Those are owner actions. The owner-supplied key file must be readable by `docket`
-without being public (for example, `root:docket` mode `0640`). Never put a private key value
-in the config or a unit.
-
-The installer assumes application code has already been staged and replaced separately. It
-backs up every existing unit/config/token target under a UTC-named directory in
-`/var/backups/docket-canary`, preserves existing operator config and token contents, installs
-the unit files, reloads systemd, and enables the timer. It deliberately starts nothing and
-does not restart `docket.service`; it prints the explicit restart/start commands for the
-operator to run after review. Run it only after the copied release is in place:
-
-```bash
-bash /opt/docket/deploy/install-canary.sh
-```
+The release requires the existing non-secret config at `/etc/docket/docket-canary.conf` and
+the existing shared token at `/etc/docket/docket-canary.token`, both `root:docket` mode
+`0640`; it never prints, replaces, or copies either one. `deploy/install-canary.sh` remains
+the one-time bootstrap for a new host, not a release step. Neither script creates
+`/etc/docket/docket-canary-payment.key`, funds an LP, or populates controlled-LP values. Those
+are owner actions. The owner-supplied key file must be readable by `docket` without being
+public (for example, `root:docket` mode `0640`). Never put a private key value in the config
+or a unit.
 
 ## Six-hour targeted registry refresh
 
@@ -243,11 +285,9 @@ never promoted. The application resolves the latest promoted snapshot on each fa
 so a successful refresh becomes visible without a process restart; a failed refresh leaves the
 previous promoted snapshot in service.
 
-Installation and configuration are owner actions and must happen only after the exact tested
-release is under `/opt/docket`, the database has a SQLite-consistent backup, and the pinned-address
-liveness guard is in that release. Install the two unit files under `/etc/systemd/system`, run
-`systemctl daemon-reload`, then run `systemctl enable --now docket-refresh.timer`. Verify the
-schedule with `systemctl list-timers docket-refresh.timer` and inspect the first completed run with
+`release.sh` installs these two unit files with the other tracked units, reloads systemd, and
+enables the refresh timer only after the exact tested wheel is under `/opt/docket` and the
+SQLite-consistent backup has been made. Inspect the first completed run with
 `systemctl status docket-refresh.service` plus `journalctl -u docket-refresh.service` before
 treating freshness as operational.
 
@@ -278,19 +318,20 @@ The store applies additive schema migrations at startup. A rollback must retain 
 database only if the previous source understands its schema; otherwise restore the backup
 to a separate runtime path and investigate before serving it.
 
-## Rollback
+## Rollback after a later operational failure
 
-Retain the previous wheel, previous process definition, database backup, and static-asset
-hashes. On failed canaries:
+The release performs its own rollback for any failure after service stop. For a failure found
+later by a canary, retain the timestamped release backup, failed/new tree, unit backup, SQLite
+backup, and both wheel records. Stop the new process, restore the retained release and its
+commit-named environment, restore the prior unit contents, reload systemd, and re-run the
+read-only health and response-shape checks. Restore the database only to a separate runtime
+path when a migration prevents the prior source from reading the live schema; do not overwrite
+the live database while diagnosing it. Record the source commit and wheel digest restored.
 
-1. Stop the new process.
-2. Restore the previous wheel/environment and its verified process definition.
-3. Restore the database only when the failure or migration changed it.
-4. Re-run the read-only canaries.
-5. Record which source commit and wheel digest were restored.
-
-This runbook cannot name a current rollback artifact because no deployed artifact is bound
-to this source in the repository.
+Rollback deliberately restores the prior unit contents and their enabled and active states.
+If it follows retirement of the Aug-21 capture timer, `systemctl list-timers` can therefore
+show that elapsed timer again. This is expected: the restored one-shot used
+`Persistent=false`, so it will not catch up after its registered moment.
 
 ## Register the four identities
 
