@@ -156,3 +156,71 @@ Follow [the runbook](deployment-runbook.md#clean-installation). The proof is val
 - all four POST routes return 200 with their own result/receipt service IDs;
 - the smoke uses a temporary database outside the checkout;
 - no live RPC, explorer, payment, or transaction is required.
+
+## Recorded category runs
+
+The three files under `docket/advantage/recorded_runs/` are each a single recorded read;
+no paired run against a person exists for them. They are separate from
+`docket/advantage/experiments/` because that directory is the paired V1 report and every
+file there is loaded as a two-arm experiment.
+
+The Health Guard wallet was selected read-only from a recent vUSDT `Borrow` event and then
+read through the catalogue runner. The address is an observation of chain activity, not a
+claim about the borrower. Grid uses Docket's controlled worked-example wallet. Yield takes
+an empty payload and compares the eligible set from the live explorer snapshot.
+
+From a POSIX shell, re-run the same catalogue call path with:
+
+```bash
+python -m docket.advantage.record_run health-guard \
+  --payload '{"wallet":"0x41eE916D25C38fED953098525Ea3A74d2148A32a"}' \
+  --out docket/advantage/recorded_runs/05-health-guard-read.json
+
+python -m docket.advantage.record_run grid-operator \
+  --payload '{"wallet":"0xe55816904796341bf8535e25f6c8b647927fc946"}' \
+  --out docket/advantage/recorded_runs/06-grid-preview-read.json
+
+python -m docket.advantage.record_run yield-router \
+  --payload '{}' \
+  --out docket/advantage/recorded_runs/07-yield-router-read.json
+```
+
+Each command resolves `docket.hire.catalogue.get_service()` and invokes that service's
+`Service.run` callable, which is the callable the hire route invokes. It does not call the
+public hire endpoint, settle a payment, sign, or submit anything. A successful record keeps
+the full response, monotonic elapsed time, observation block where the service reports one,
+source time, population, method, limits, and a receipt-shaped hash pair.
+
+These are live reads, so a re-run is expected to differ. Health balances and the account's
+entered markets can change; Grid quotes, calldata hashes, deadlines, and blocks move; Yield's
+top list, eligible count, rates, source time, and hashes can move. A difference is new state,
+not a reproduction failure. Preserve the committed files before re-running if the purpose is
+inspection rather than replacement.
+
+The exact committed request and result make the receipt hashes independently checkable:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+from docket.hire.receipts import canonical_hash
+
+for path in sorted(Path("docket/advantage/recorded_runs").glob("*.json")):
+    body = json.loads(path.read_text(encoding="utf-8"))
+    arm = body["agent_arm"]
+    output = arm["output"]
+    receipt = output["receipt"]
+    assert receipt["input_hash"] == canonical_hash(output["request"])
+    assert receipt["output_hash"] == canonical_hash(output["result"])
+    assert arm["output_hash"] == canonical_hash(output)
+    print(path.name, receipt["input_hash"], receipt["output_hash"])
+PY
+```
+
+Those checks establish byte-equivalent canonical JSON inputs and outputs. They do not prove
+that an old public node can still answer the recorded state. Public BSC endpoints can prune
+historical state soon after a read. `DOCKET_ARCHIVE_RPC` is the existing archive-first setting
+for Docket's caller-pinned Pancake position reads; these Health and Grid catalogue paths do not
+accept an old observation block, and the comparison-only Yield path reports no chain block.
+Checking their old state therefore requires separate archive-capable read tooling configured
+by the reader. Running the recorder again checks current state instead.
