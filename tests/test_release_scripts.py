@@ -116,7 +116,17 @@ exit "${FAKE_SYSTEMD_VERIFY_EXIT:-0}"
         fake_bin / "journalctl",
         """#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' 'Archived and active journals take up 64.0M in the file system.'
+case "${1:-}" in
+    --disk-usage)
+        printf '%s\n' 'Archived and active journals take up 64.0M in the file system.'
+        ;;
+    --header)
+        printf '%s\n' "${FAKE_JOURNAL_HEADER:-File path: /var/log/journal/0123456789abcdef/system.journal}"
+        ;;
+    *)
+        exit 64
+        ;;
+esac
 exit "${FAKE_JOURNAL_EXIT:-0}"
 """,
     )
@@ -143,6 +153,7 @@ def _environment(root: Path, fake_bin: Path, **values: str) -> dict[str, str]:
         fake_bin / "systemd-analyze"
     ).as_posix()
     environment["DOCKET_PREFLIGHT_JOURNALCTL"] = (fake_bin / "journalctl").as_posix()
+    environment["DOCKET_RELEASE_JOURNALCTL"] = (fake_bin / "journalctl").as_posix()
     environment["DOCKET_RELEASE_RUNUSER"] = (fake_bin / "runuser").as_posix()
     environment.update(values)
     return environment
@@ -534,7 +545,90 @@ def test_release_installs_journald_config_only_once(tmp_path):
     assert preserved.returncode == 0, preserved.stdout + preserved.stderr
     assert existing.read_bytes() == (DEPLOY / "journald-docket.conf").read_bytes()
     assert "Journald config already exists; preserving it." in preserved.stdout
-    assert "systemctl restart systemd-journald" not in preserved.stdout
+    assert "systemctl restart systemd-journald" in preserved.stdout
+
+
+def test_release_prepares_and_flushes_persistent_journal_in_order(tmp_path):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        wheel.as_posix(),
+        COMMIT,
+        digest,
+        environment=_environment(root, fake_bin),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    create_directory = result.stdout.index(
+        "install -d -m 2755 -o root -g systemd-journal /var/log/journal"
+    )
+    create_tmpfiles = result.stdout.index(
+        "systemd-tmpfiles --create --prefix /var/log/journal"
+    )
+    restart = result.stdout.index("systemctl restart systemd-journald")
+    flush = result.stdout.index("journalctl --flush")
+    assert create_directory < create_tmpfiles < restart < flush
+
+
+def test_release_refuses_when_journal_remains_volatile(tmp_path):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        wheel.as_posix(),
+        COMMIT,
+        digest,
+        environment=_environment(
+            root,
+            fake_bin,
+            FAKE_JOURNAL_HEADER=(
+                "File path: /run/log/journal/0123456789abcdef/system.journal"
+            ),
+        ),
+    )
+
+    assert result.returncode != 0
+    assert (
+        "persistent journald verification failed: no /var/log/journal file was found"
+        in result.stderr
+    )
+
+
+def test_release_accepts_a_persistent_journal_header(tmp_path):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        wheel.as_posix(),
+        COMMIT,
+        digest,
+        environment=_environment(
+            root,
+            fake_bin,
+            FAKE_JOURNAL_HEADER=(
+                "File path: /var/log/journal/0123456789abcdef/system.journal"
+            ),
+        ),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"{(fake_bin / 'journalctl').as_posix()} --header" in result.stdout
 
 
 def test_release_refuses_a_different_existing_journald_config(tmp_path):

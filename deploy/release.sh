@@ -143,13 +143,15 @@ readonly CANARY_TOKEN="$(root_path /etc/docket/docket-canary.token)"
 if (( DRY_RUN )); then
     JSON_PYTHON=python3
     CURL_COMMAND=${DOCKET_RELEASE_CURL:-curl}
+    JOURNALCTL_COMMAND=${DOCKET_RELEASE_JOURNALCTL:-journalctl}
     RUNUSER_COMMAND=${DOCKET_RELEASE_RUNUSER:-runuser}
 else
     JSON_PYTHON="${OPT_DOCKET}/.venv/bin/python"
     CURL_COMMAND=curl
+    JOURNALCTL_COMMAND=journalctl
     RUNUSER_COMMAND=runuser
 fi
-readonly JSON_PYTHON CURL_COMMAND RUNUSER_COMMAND
+readonly JSON_PYTHON CURL_COMMAND JOURNALCTL_COMMAND RUNUSER_COMMAND
 
 run_fs install -d -m 0755 "${OPT_ROOT}" "${VENV_ROOT}"
 if [[ -e "${VENV}" ]]; then
@@ -483,11 +485,23 @@ run_host systemctl daemon-reload
 if [[ ! -e "${JOURNALD_TARGET}" ]]; then
     run_fs install -d -m 0755 "${JOURNALD_ROOT}"
     install_file "${OPT_DOCKET}/deploy/journald-docket.conf" "${JOURNALD_TARGET}"
-    run_host systemctl restart systemd-journald
-    printf '%s\n' \
-        'Persistent journald configured; the former volatile journal was lost at this restart.'
 else
     printf '%s\n' 'Journald config already exists; preserving it.'
+fi
+run_host install -d -m 2755 -o root -g systemd-journal /var/log/journal
+run_host systemd-tmpfiles --create --prefix /var/log/journal
+run_host systemctl restart systemd-journald
+run_host "${JOURNALCTL_COMMAND}" --flush
+printf '%s\n' \
+    'Persistent journald configured; the former volatile journal was lost at this restart.'
+trace_command "${JOURNALCTL_COMMAND}" --header
+if (( ! DRY_RUN )) || [[ -n "${DOCKET_RELEASE_JOURNALCTL:-}" ]]; then
+    if ! journal_header="$("${JOURNALCTL_COMMAND}" --header 2>&1)"; then
+        fatal 'persistent journald verification failed: journalctl --header failed'
+    fi
+    printf '%s\n' "${journal_header}"
+    grep -Fq '/var/log/journal/' <<<"${journal_header}" || fatal \
+        'persistent journald verification failed: no /var/log/journal file was found'
 fi
 
 run_host systemctl enable --now docket.service
