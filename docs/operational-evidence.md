@@ -106,3 +106,123 @@ refusal text could be recovered. Before any input lock, Yield was recommitted on
 - The CI run covers `aaba01a`, not `HEAD`. Commits after it have not been checked by any runner.
 - Every figure here was gathered by the builder. It is consistent with the tree, which is the
   property a reader can actually test; it is not independent.
+
+---
+
+## Collected 2026-08-22 (after the `d9f1351` release)
+
+This release shipped the nine reviewed workstreams behind `JOINT-AUDIT-2026-08-22.md`. It was the
+first release performed by `deploy/release.sh` rather than by hand, and the first time any of this
+code had run on Linux — CI run `32587545388` on `d9f1351` is the other half of that statement.
+
+### Deployed identity
+
+| Field | Value |
+|---|---|
+| Host | `docket.gudman.xyz` |
+| Release commit | `d9f1351705acdce480a15806f0d5d0f92f60cb73` |
+| `/opt/docket/.venv` resolves to | `/opt/docket-venvs/d9f1351705ac` |
+| Runtime `docket.__file__` | `/opt/docket/.venv/lib/python3.12/site-packages/docket/__init__.py` |
+| Wheel sha256 | `819c468cde7517eddd28fd9a6e1fe05c5c4573fd4f02c80fb2c80a9aae58dacf` |
+| Previous release retained at | `/opt/docket.bak-20260822T172841Z` |
+| Database backup | `/var/backups/docket/agents-20260822T172707Z.sqlite3`, `PRAGMA integrity_check` = ok, taken with the app running via the SQLite backup API |
+| Health | accepted on poll attempt 1 of 30 |
+
+Read from the installed package inside the running venv, not from a checkout:
+`docket.agents.pancake.positions` contains `ExtraDataToPOAMiddleware`: `True`;
+`docket.advantage.v3.seats.codex_cli` imports; `docket.identity.register.REGISTRATION_BASE_URL`
+is `https://docket.gudman.xyz/registrations`.
+
+### The registry snapshot is no longer stale, and it moved without a restart
+
+The first `docket-refresh.service` run promoted **snapshot 5** at `2026-08-22T17:41:38Z`
+(`Docket refresh: promoted snapshot 5`, exit 0, 85 s wall, 5.9 s CPU). The serving process was
+**not restarted** — `systemctl show docket.service` reported `NRestarts=0` and an
+`ActiveEnterTimestamp` from the release itself — and `GET /stats` immediately answered:
+
+```
+snapshot_id 5 · captured_at 2026-08-22T17:40:29Z · snapshot_age_seconds 99
+sampled 510 / expected 510 · complete true · population "min_feedbacks>=1"
+endpoints_responded 20 / endpoints_attempted 23 · registry_total 247146
+refresh_status {"status": "ok", "timestamp": "2026-08-22T17:41:38.713181+00:00"}
+```
+
+The snapshot it replaced was captured `2026-08-07T17:51:02Z` and was 15 days old. `population`
+now states the filter instead of reading `unspecified`.
+
+### The capture rehearsal, on this host, with the installed code
+
+The 2026-08-21 capture failed because the process was started *at* its registered moment and spent
+its five-second tolerance importing on a loaded host. The redesigned unit pre-arms. Rehearsed here
+against a scratch specification whose `spec_id` is `v3-02-yield-router-REHEARSAL-NOT-REGISTERED`,
+written to `/var/tmp/docket-rehearsal/` — never to `/var/lib/docket/v3-capture/`, which remains
+empty, and never against the registered protocol hash:
+
+- `armed.json` was written at `17:33:24.915366Z` for a registered moment of `17:39:00Z` — five and
+  a half minutes early — carrying the three-attempt schedule, the host identity, the spec hash, and
+  a preflight recording a timezone-aware clock, a writable directory and 933 GB free.
+- The process then waited, and captured on attempt 1: both URLs returned 200, observed at
+  `17:39:02.458871Z` and `17:39:02.879275Z`, inside the attempt's own minute.
+- Bodies were persisted with their digests (`pools` 38,926 bytes `5797b062…`, `token-list`
+  216,263 bytes `703da7f5…`), per-attempt files were written as the attempt finished, and
+  `capture-complete.json` was written last.
+
+The registered timer is armed for `Wed 2026-08-26 11:50:00 UTC`, ten minutes ahead of the
+recommitted `2026-08-26T12:00:00Z` moment. The retired 2026-08-21 timer was removed by the release.
+
+### Persistent journal — configured, then found not to have taken effect
+
+The release installed `/etc/systemd/journald.conf.d/docket.conf` (`Storage=persistent`,
+`SystemMaxUse=512M`) and restarted `systemd-journald`, and `systemd-analyze cat-config` confirmed
+the drop-in was read. **It was still writing only to `/run/log/journal`, and `/var/log/journal` did
+not exist** — the volatile condition that destroyed the Aug-21 refusal text. On this systemd the
+drop-in alone does not create the directory. Repaired by hand at `17:30Z`:
+`install -d -m 2755 -o root -g systemd-journal /var/log/journal`, `systemd-tmpfiles --create
+--prefix /var/log/journal`, `journalctl --flush`. `journalctl --header` then listed five
+`/var/log/journal` paths and `journalctl --disk-usage` reported 256.3M. The release script's own
+failure to verify this is recorded as a defect and fixed separately; a release that reports success
+while leaving logging volatile is the exact class of silence this project exists to remove.
+
+### The canary now exercises the controlled position, and fails honestly
+
+`/etc/docket/docket-canary.conf` previously carried only a base URL, service id and token path, so
+the LP and settlement legs recorded `controlled_live_lp_absent, configured: false`. The four
+controlled-position values are not secrets — they are committed defaults
+(`docket/hire/catalogue.py` worked example, and the `docket-lp-record.service` ExecStart) — so they
+were set: wallet `0xe558…c946`, token id `7141050`, declared value `50.55`, recenter cost `1.00`.
+`DOCKET_CANARY_PRIVATE_KEY_FILE` remains unset and owner-supplied.
+
+Run 9 (`17:43:29Z` → `17:43:34Z`) verdict `failed`:
+
+| Leg | Result |
+|---|---|
+| `fresh_browser_surface` | passed — HTML over HTTPS, one same-origin script, no cookies |
+| `snapshot_age_surface` | passed — snapshot 5, age 181 s |
+| `free_verified_example` | passed |
+| `controlled_live_lp` | **failed — `measured_value_incomplete`** |
+| `exact_0_50_settlement`, `complete_human_result`, `proof_binding`, `rejected_replay` | `not_yet_exercised` — `decision_grade_free_preflight_failed` |
+
+This is the canary working, not a regression. The hire returns HTTP 200 with a real diagnosis; what
+is incomplete is the measured-value block, which is empty because the preregistered v3 paired report
+has not run. The canary therefore refuses to call the service decision-grade, and Range Doctor
+cannot enter paid stock until v3-01 produces a paired benchmark. That coupling is deliberate.
+
+### Live surfaces, checked from outside the host
+
+`/health`, `/stats`, `/services`, `/compare`, `/lp-record`, `/pancake`,
+`/registrations/range-doctor.json`, `/advantage/v3.json` all returned 200 over HTTPS.
+`/lp-record` served the real journal — 8 lines, `2026-08-15T21:41:39Z` through
+`2026-08-22T06:03:14Z`, `skipped_unparsable` 0, `truncated` false. Body digests at collection time:
+`/stats` `6328b104097752cc…`, `/services` `f86f736e8793f360…`, `/pancake` `c2d89e9a67f5ccde…`,
+`/lp-record` `42a17f56122a3d06…`. All four category services report a non-empty `metrics` list and
+an `evidence_modality`. Neighbouring vhosts (`warden`, `tilla`, `beacon`, `solvent`) answered 200
+before and after; nginx was never reloaded.
+
+### What this evidence does not establish
+
+- The v3 families remain `registered_waiting_for_inputs`. Nothing here is a paired result.
+- No settlement has occurred and no service is in paid stock.
+- The rehearsal proves the mechanism on this host at a scratch moment. It does not guarantee the
+  registered 2026-08-26 capture, which depends on two public endpoints answering in one minute.
+- Every figure above was collected by the builder. It is consistent with the tree and the running
+  process, which is the property a reader can test; it is not independent.
