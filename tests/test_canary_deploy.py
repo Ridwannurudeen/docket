@@ -72,6 +72,7 @@ def test_the_v3_capture_prearms_and_has_bounded_failure_restarts():
     )
     assert "Restart=on-failure" in service
     assert "RestartSec=30s" in service
+    assert "RestartPreventExitStatus=2 3" in service
     assert "StartLimitIntervalSec=15min" in service
     assert "StartLimitBurst=3" in service
     assert "Restart=no" not in service

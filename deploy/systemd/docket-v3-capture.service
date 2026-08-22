@@ -24,6 +24,7 @@ Nice=-5
 TimeoutStartSec=15min
 Restart=on-failure
 RestartSec=30s
+RestartPreventExitStatus=2 3
 UMask=0027
 
 NoNewPrivileges=true
