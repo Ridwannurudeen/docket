@@ -30,6 +30,12 @@ MEASURED_BY = {
 
 NO_MEASUREMENT = "No paired run against a human exists for this service, so no time saving is claimed."
 
+LIVE_READ_FRESHNESS = {
+    "grid-operator": "Live BSC read at hire time.",
+    "health-guard": "Live BSC read at hire time.",
+    "yield-router": "Live PancakeSwap explorer and BSC reads at hire time.",
+}
+
 
 def _measurement(service_id: str, experiments: Path) -> dict:
     filename = MEASURED_BY.get(service_id)
@@ -53,6 +59,33 @@ def _measurement(service_id: str, experiments: Path) -> dict:
             "available": False,
             "reason": f"{filename!r} records no elapsed time for one of its two arms",
         }
+    output = agent.get("output") or {}
+    receipt = output.get("receipt") or {}
+    result = output.get("result") or {}
+    delivered_at = receipt.get("delivered_at")
+    recorded_at = delivered_at
+    observation_block = None
+    if service_id == "range-doctor":
+        recorded_at = result.get("computed_at") or recorded_at
+        positions = result.get("positions") or []
+        if positions:
+            observation_block = (positions[0].get("diagnosis") or {}).get("as_of_block")
+    elif service_id == "solvent-signal":
+        recorded_at = result.get("generated_at") or recorded_at
+    measured_date = (
+        str(delivered_at)[:10] if isinstance(delivered_at, str) else "date not recorded"
+    )
+    if observation_block is not None:
+        freshness = f"Recorded BSC block {observation_block} at {recorded_at}."
+    elif recorded_at is not None:
+        prefix = (
+            "Historical source generated"
+            if service_id == "solvent-signal"
+            else "Recorded run delivered"
+        )
+        freshness = f"{prefix} at {recorded_at}."
+    else:
+        freshness = "Recorded run; time not recorded."
     return {
         "available": True,
         "agent_seconds": float(agent_seconds),
@@ -61,6 +94,8 @@ def _measurement(service_id: str, experiments: Path) -> dict:
         "sample_size": 1,
         "source": f"docket/advantage/experiments/{filename}",
         "task_id": body.get("task_id"),
+        "basis": f"measured, n=1, {measured_date}",
+        "freshness": freshness,
         # The manual arm's own cost, which is usually zero and usually the more honest
         # comparison: the alternative to hiring is often free, just slow.
         "manual_cost": (manual.get("cost") or {}).get("amount"),
@@ -83,18 +118,38 @@ def compare(services, *, experiments: Path = EXPERIMENTS) -> dict:
     rows = []
     for service in services:
         admission = getattr(service, "admission", None)
+        measured = _measurement(service.id, experiments)
+        evidence = (
+            {
+                "available": True,
+                "url": f"/advantage#{measured['task_id']}",
+                "label": "Paired run, n=1",
+            }
+            if measured["available"]
+            else {"available": False, "reason": measured["reason"]}
+        )
         rows.append(
             {
                 "service_id": service.id,
                 "name": service.name,
-                "job": service.what_you_get,
+                "job": service.job_summary,
                 "price_display": service.price_display,
                 "asset": service.asset,
                 "typical_seconds": service.typical_seconds,
+                "typical_seconds_basis": "declared",
                 "stock_status": service.stock_status,
                 "paid_stock": bool(getattr(service, "paid_stock", False)),
                 "admission_failing": _failing_limbs(admission) if admission else [],
-                "measured": _measurement(service.id, experiments),
+                "measured": measured,
+                "freshness": (
+                    measured["freshness"]
+                    if measured["available"]
+                    else LIVE_READ_FRESHNESS.get(
+                        service.id,
+                        "No data-recency statement is recorded for this service.",
+                    )
+                ),
+                "evidence": evidence,
             }
         )
     measured = [row for row in rows if row["measured"]["available"]]

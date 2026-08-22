@@ -215,10 +215,16 @@ GET /services
     Each card carries: service_id, name, category, category_job, what_you_get,
     price_display, price_atomic, asset, paid_stock, stock_status, admission,
     typical_seconds, activation (one_shot, monitor or policy_action), activation_means,
-    metrics, agent_id, identity, hire_method and hire_path — the last two being exactly
+    evidence_modality, metrics, agent_id, identity, hire_method and hire_path — the last
+    two being exactly
     how to run it, POST /hire/{service_id}. `paid_stock` is recomputed from the latest
     durable canary verdict on every request and becomes true only when every admission
     fact is true. See GET /canary for that verdict and its 36-hour freshness limit.
+
+    `evidence_modality` comes from a closed vocabulary: live_read, preview, historical,
+    paired_benchmark or replay. Range and Warden are live_read; Grid, Health and Yield
+    are preview; SOLVENT is historical. The other two values remain part of the response
+    contract for a service whose card is backed by that kind of record.
 
     Every entry in "metrics" carries name, unit, window, observed_at, method, value,
     numerator, denominator and display. A share cannot exist here without the population
@@ -253,8 +259,11 @@ GET /hire
       id                the value to put in the POST path
       name              human label
       what_you_get      what the service does, stated as work performed
-      input_schema      {field: {type, required, description, default?, items?}} — the
-                        whole contract for the request body; arrays declare their items
+      input_schema      {field: {type, required, description, default?, items?,
+                        advanced?, example_note?}} — the whole contract for the request
+                        body; arrays declare their items. `advanced: true` marks a
+                        reproducibility input the page groups under its disclosure;
+                        `example_note` is the sentence shown beside a controlled default
       typical_seconds   how long one run usually takes
       price_display     the flat price after admission, "0.50 $U"
       price_atomic      the same price in the asset's smallest unit
@@ -270,11 +279,12 @@ GET /hire
 POST /hire/{service_id}
     Runs the service and returns the result bound to a receipt. The body is JSON,
     with the fields that service's input_schema marks required. No account, key or
-    wallet is needed.
+    connected wallet is needed. A required wallet field is the address to read, not a
+    wallet connection or signature.
 
     curl -s -X POST "$DOCKET/hire/range-doctor" \
       -H 'content-type: application/json' \
-      -d '{"wallet":"0x451871A1753903FB8fdd64a6B838E95aB8D5B80f","limit":5}'
+      -d '{"wallet":"0xe55816904796341bf8535e25f6c8b647927fc946","token_id":7141050,"declared_position_value_usd":50.55,"estimated_recenter_cost_usd":1.00,"decision_horizon_days":30}'
 
     Returns {"result": {...}, "receipt": {...}}. Read "Hiring" below before quoting
     anything from the receipt.
@@ -284,13 +294,18 @@ GET /compare
     at a time. No parameters, no snapshot, no network.
     Returns {"rows": [...], "summary": {...}, "admission_max_age_seconds": N}.
 
-    Each row carries the catalogue facts — job, price, typical_seconds, stock_status,
-    and admission_failing, which NAMES the limbs that are not passing rather than
-    counting them — plus "measured".
+    Each row carries the catalogue facts — job (the one-clause job_summary), price,
+    typical_seconds, typical_seconds_basis ("declared"), stock_status, freshness,
+    evidence, and admission_failing, which NAMES the limbs that are not passing rather
+    than counting them — plus "measured". `freshness` states the observation time and
+    block of a recorded run where one exists, or that the service reads live at hire
+    time. `evidence` is {available: true, url, label} or {available: false, reason}; the
+    column is never silently blank.
 
       measured.available true   agent_seconds, manual_seconds, seconds_saved,
-                                sample_size and source: the recorded paired run this
-                                came from.
+                                sample_size, source and basis. basis says
+                                "measured, n=1, YYYY-MM-DD" so these timings cannot be
+                                mistaken for the declared typical_seconds.
       measured.available false  reason: why there is no figure. Three of the six
                                 services have never been run against a human and say
                                 so; a service whose recorded run is missing from the
