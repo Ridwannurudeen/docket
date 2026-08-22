@@ -18,6 +18,8 @@ authored, not observed, so it must be supplied; there is no default and no place
 import base64
 import hashlib
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from .calibration import assemble_evaluator_calibration, verify_calibration_capture
@@ -26,6 +28,7 @@ from .spec import (
     PairedSpec,
     YIELD_SOURCE_URLS,
     _token_allowlist,
+    _validate_inputs,
     _yield_first_failed_gate,
     _yield_number,
     lock_inputs,
@@ -41,6 +44,10 @@ DECISION_HORIZON_DAYS = 30
 
 class AssemblyRefused(RuntimeError):
     """The capture cannot produce a lockable envelope, so no envelope is produced."""
+
+
+def _envelope_bytes(envelope: dict) -> bytes:
+    return (json.dumps(envelope, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
 def assemble_warden_envelope(
@@ -323,17 +330,27 @@ def write_envelope(
     the digest and cannot be left to chance.
     """
     path = Path(repo_root) / spec.inputs_ref
-    if path.exists():
-        raise AssemblyRefused(
-            f"{spec.inputs_ref} already exists. Overwriting frozen inputs is how a second "
-            "capture quietly replaces the registered one."
-        )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(envelope, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    raw = _envelope_bytes(envelope)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(raw)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        try:
+            os.link(temporary_path, path)
+        except FileExistsError as exc:
+            raise AssemblyRefused(
+                f"{spec.inputs_ref} already exists. Overwriting frozen inputs is how a "
+                "second capture quietly replaces the registered one."
+            ) from exc
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
     return path
 
 
@@ -366,7 +383,6 @@ def main(argv: list[str] | None = None) -> int:
             "calibration_dir", help="directory holding both seat capture artifacts"
         )
         args = parser.parse_args(arguments)
-        input_path = None
         try:
             spec = load(Path(args.spec), repo_root=REPO_ROOT)
             envelope = assemble_warden_envelope(
@@ -376,12 +392,34 @@ def main(argv: list[str] | None = None) -> int:
                 calibration_dir=Path(args.calibration_dir),
                 calibration_set=Path(args.calibration_set).read_bytes(),
             )
-            input_path = write_envelope(spec, envelope, repo_root=REPO_ROOT)
+            raw = _envelope_bytes(envelope)
+            _validate_inputs(spec, raw, REPO_ROOT)
+            input_path = Path(REPO_ROOT) / spec.inputs_ref
+            try:
+                write_envelope(spec, envelope, repo_root=REPO_ROOT)
+            except AssemblyRefused:
+                if not input_path.is_file() or input_path.read_bytes() != raw:
+                    raise
             locked = lock_inputs(spec, repo_root=REPO_ROOT)
-            save(locked, Path(args.spec), repo_root=REPO_ROOT)
+            spec_path = Path(args.spec)
+            temporary_spec = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    dir=spec_path.parent,
+                    prefix=f".{spec_path.name}.",
+                    suffix=".tmp",
+                    delete=False,
+                ) as temporary:
+                    temporary_spec = Path(temporary.name)
+                    temporary.write(spec_path.read_bytes())
+                    temporary.flush()
+                    os.fsync(temporary.fileno())
+                save(locked, temporary_spec, repo_root=REPO_ROOT)
+                temporary_spec.replace(spec_path)
+            finally:
+                if temporary_spec is not None:
+                    temporary_spec.unlink(missing_ok=True)
         except (AssemblyRefused, OSError, ValueError) as refusal:
-            if input_path is not None and input_path.exists():
-                input_path.unlink()
             print(f"assembly refused: {refusal}")
             return 2
         print(

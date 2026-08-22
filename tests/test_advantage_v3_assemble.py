@@ -474,3 +474,31 @@ def test_lock_warden_refuses_before_writing_when_capture_verification_fails(
     assert code == 2
     assert not (repo_root / WARDEN_SPEC.inputs_ref).exists()
     assert load(spec_path, repo_root=repo_root).inputs_sha256 == ""
+
+
+def test_lock_warden_recovers_after_atomic_spec_save_failure(tmp_path, monkeypatch):
+    repo_root, spec_path, calibration_dir = _stage_warden_lock(tmp_path, monkeypatch)
+    original_spec = spec_path.read_bytes()
+    real_save = assemble.save
+
+    def fail_after_partial_write(_spec, path, *, repo_root):
+        Path(path).write_bytes(b"partial")
+        raise OSError("save failure sentinel")
+
+    monkeypatch.setattr(assemble, "save", fail_after_partial_write)
+
+    first = assemble.main(_warden_lock_args(repo_root, spec_path, calibration_dir))
+
+    input_path = repo_root / WARDEN_SPEC.inputs_ref
+    assert first == 2
+    assert input_path.is_file()
+    assert spec_path.read_bytes() == original_spec
+    assert not list(spec_path.parent.glob(f".{spec_path.name}.*.tmp"))
+
+    monkeypatch.setattr(assemble, "save", real_save)
+    second = assemble.main(_warden_lock_args(repo_root, spec_path, calibration_dir))
+
+    assert second == 0
+    locked = load(spec_path, repo_root=repo_root)
+    assert locked.inputs_sha256 == hashlib.sha256(input_path.read_bytes()).hexdigest()
+    assert_runnable(locked, repo_root=repo_root)
