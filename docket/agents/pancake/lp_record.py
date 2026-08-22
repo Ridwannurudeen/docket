@@ -38,13 +38,22 @@ OWNER_DECISIONS = ("WAIT", "RECENTER")
 
 
 def _canonical_json(record: dict) -> str:
-    return json.dumps(
-        record, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    )
+    return json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def _record_sha256(record: dict) -> str:
     return hashlib.sha256(_canonical_json(record).encode("utf-8")).hexdigest()
+
+
+def _latest_owner_decision(records: list[dict]) -> dict | None:
+    return next(
+        (
+            record
+            for record in reversed(records)
+            if isinstance(record, dict) and record.get("kind") == "owner_decision"
+        ),
+        None,
+    )
 
 
 def _validate_decided_at(decided_at: str) -> None:
@@ -53,7 +62,9 @@ def _validate_decided_at(decided_at: str) -> None:
     try:
         parsed = datetime.fromisoformat(decided_at)
     except ValueError as exc:
-        raise ValueError("lp record: decided_at must be an ISO-8601 UTC string") from exc
+        raise ValueError(
+            "lp record: decided_at must be an ISO-8601 UTC string"
+        ) from exc
     if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
         raise ValueError("lp record: decided_at must be an ISO-8601 UTC string")
 
@@ -65,7 +76,9 @@ def _validate_owner_decision(record: dict, observation_hashes: set[str]) -> None
         raise ValueError("lp record: rationale must be a non-empty string")
     _validate_decided_at(record.get("decided_at"))
     if record.get("token_id") != CONTROLLED_TOKEN_ID:
-        raise ValueError(f"lp record: owner decision token_id must be {CONTROLLED_TOKEN_ID}")
+        raise ValueError(
+            f"lp record: owner decision token_id must be {CONTROLLED_TOKEN_ID}"
+        )
     if not isinstance(record.get("alternatives"), list):
         raise ValueError("lp record: alternatives must be a list")
     if record.get("prior_observation_sha256") not in observation_hashes:
@@ -87,6 +100,14 @@ def _verify_records(records: list[dict]) -> None:
 
         kind = record.get("kind")
         if kind == "owner_decision":
+            if (
+                "supersedes_decision_sha256" not in record
+                or record["supersedes_decision_sha256"] != latest_decision_sha256
+            ):
+                raise ValueError(
+                    f"lp record: line {line_number} supersedes decision hash does not "
+                    "match the previous owner decision"
+                )
             _validate_owner_decision(record, observation_hashes)
             latest_decision_sha256 = _record_sha256(record)
             continue
@@ -159,37 +180,57 @@ def observe(
 def append(record: dict, path: Path) -> Path:
     """Append one line. The file is the history; nothing rewrites an earlier day."""
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    history = read_history(path)
     candidate = dict(record)
     if candidate.get("kind") is None:
-        latest_decision = next(
-            (
-                earlier
-                for earlier in reversed(history)
-                if earlier.get("kind") == "owner_decision"
-            ),
-            None,
-        )
+        history = _read_history(path, tolerate_invalid=True)
+        latest_decision = _latest_owner_decision(history)
         if latest_decision is not None:
             candidate["answers_decision_sha256"] = _record_sha256(latest_decision)
-    _verify_records([*history, candidate])
+        else:
+            candidate.pop("answers_decision_sha256", None)
+        if candidate.get("record_version") != RECORD_VERSION:
+            raise ValueError("lp record: observation has an unknown record version")
+        serialized = json.dumps(candidate, sort_keys=True)
+    else:
+        history = read_history(path)
+        _verify_records([*history, candidate])
+        serialized = _canonical_json(candidate)
+    return _append_line(path, serialized)
+
+
+def _append_line(path: Path, serialized: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8", newline="\n") as handle:
-        handle.write(_canonical_json(candidate) + "\n")
+        handle.write(serialized + "\n")
         handle.flush()
         os.fsync(handle.fileno())
     return path
 
 
-def read_history(path: Path) -> list[dict]:
+def _read_history(path: Path, *, tolerate_invalid: bool) -> list[dict]:
     path = Path(path)
     if not path.exists():
         return []
-    return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    records = []
+    for line_number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        if not line.strip():
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError as exc:
+            if tolerate_invalid:
+                continue
+            raise ValueError(
+                f"lp record: line {line_number} is not valid JSON"
+            ) from exc
+        records.append(parsed)
+    return records
+
+
+def read_history(path: Path) -> list[dict]:
+    return _read_history(path, tolerate_invalid=False)
 
 
 read = read_history
@@ -204,6 +245,29 @@ def append_owner_decision(
     prior_observation_sha256: str,
     alternatives: list,
 ) -> dict:
+    return _append_owner_decision(
+        path,
+        read_history(path),
+        decision=decision,
+        rationale=rationale,
+        decided_at=decided_at,
+        prior_observation_sha256=prior_observation_sha256,
+        alternatives=alternatives,
+    )
+
+
+def _append_owner_decision(
+    path: Path,
+    history: list[dict],
+    *,
+    decision: str,
+    rationale: str,
+    decided_at: str,
+    prior_observation_sha256: str,
+    alternatives: list,
+) -> dict:
+    path = Path(path)
+    previous_decision = _latest_owner_decision(history)
     record = {
         "record_version": RECORD_VERSION,
         "kind": "owner_decision",
@@ -211,12 +275,14 @@ def append_owner_decision(
         "rationale": rationale,
         "decided_at": decided_at,
         "prior_observation_sha256": prior_observation_sha256,
-        "alternatives": list(alternatives)
-        if isinstance(alternatives, list)
-        else alternatives,
+        "supersedes_decision_sha256": (
+            _record_sha256(previous_decision) if previous_decision is not None else None
+        ),
+        "alternatives": alternatives,
         "token_id": CONTROLLED_TOKEN_ID,
     }
-    append(record, path)
+    _verify_records([*history, record])
+    _append_line(path, _canonical_json(record))
     return record
 
 
@@ -249,26 +315,35 @@ def main(argv: list[str] | None = None) -> int:
     decide_parser.add_argument("--alternative", action="append", default=[])
 
     raw_args = list(sys.argv[1:] if argv is None else argv)
-    if raw_args and raw_args[0] not in {"observe", "decide"}:
+    if raw_args and raw_args[0] not in {"observe", "decide", "-h", "--help"}:
         raw_args.insert(0, "observe")
     args = parser.parse_args(raw_args)
 
     if args.command == "decide":
         path = Path(args.path)
-        verify_history(path)
+        history = read_history(path)
+        _verify_records(history)
         prior_observation = next(
-            (
-                record
-                for record in reversed(read_history(path))
-                if record.get("kind") is None
-            ),
+            (record for record in reversed(history) if record.get("kind") is None),
             None,
         )
         if prior_observation is None:
             parser.error("decide requires an earlier observation in the record")
+        if prior_observation.get("observed") is not True:
+            parser.error("decide requires the latest observation to have observed true")
+        report = prior_observation.get("report")
+        if (
+            not isinstance(report, dict)
+            or not isinstance(report.get("decision"), str)
+            or not report["decision"].strip()
+        ):
+            parser.error(
+                "decide requires the latest observation report to have a decision sentence"
+            )
         decided_at = args.decided_at or datetime.now(timezone.utc).isoformat()
-        decision = append_owner_decision(
+        decision = _append_owner_decision(
             path,
+            history,
             decision=args.decision,
             rationale=args.rationale,
             decided_at=decided_at,

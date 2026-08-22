@@ -29,6 +29,7 @@ def _report(**overrides):
         "positions_examined": 1,
         "closed_skipped": 0,
         "scan_complete": True,
+        "decision": f"Position {TOKEN} is inside its range and can earn fees.",
         "positions": [{"position": {"token_id": TOKEN}}],
     }
     return body | overrides
@@ -170,17 +171,23 @@ def test_the_timer_learns_whether_the_day_produced_a_diagnosis(
     assert len(lp_record.read(path)) == 1
 
 
-def test_a_recorded_line_is_canonical_json(tmp_path):
-    """The history is evidence, so its bytes have to be stable across writers."""
+def test_an_observation_keeps_the_original_jsonl_byte_format(tmp_path):
+    """Observation bytes stay compatible while hashes use their own canonical form."""
     path = tmp_path / "controlled.jsonl"
     lp_record.append(
-        lp_record.observe(WALLET, TOKEN, reporter=lambda *a, **k: _report(), now=WHEN),
+        lp_record.observe(
+            WALLET,
+            TOKEN,
+            reporter=lambda *a, **k: _report(
+                decision=f"Position {TOKEN} earns caf\u00e9 fees."
+            ),
+            now=WHEN,
+        ),
         path,
     )
     line = path.read_text(encoding="utf-8").splitlines()[0]
-    assert line == json.dumps(
-        json.loads(line), sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    )
+    assert line == json.dumps(json.loads(line), sort_keys=True)
+    assert "caf\\u00e9" in line
 
 
 def test_a_transferred_position_is_not_hidden_by_the_wallet_holding_others():
@@ -231,6 +238,7 @@ def test_owner_decision_is_canonical_and_fsynced(tmp_path, monkeypatch):
         "rationale": "The owner accepts the declared recenter cost.",
         "decided_at": "2026-08-22T06:05:00Z",
         "prior_observation_sha256": _sha256(observation),
+        "supersedes_decision_sha256": None,
         "alternatives": ["WAIT"],
         "token_id": TOKEN,
     }
@@ -311,10 +319,131 @@ def test_verify_history_requires_later_observation_to_answer_latest_decision(tmp
         lp_record.verify_history(path)
 
 
-def test_decide_subcommand_records_only_the_owner_s_typed_decision(tmp_path):
+@pytest.mark.parametrize("mutation", ["alter", "remove"])
+def test_back_to_back_decisions_chain_and_detect_tampering(tmp_path, mutation):
     path = tmp_path / "controlled.jsonl"
     observation = lp_record.observe(
         WALLET, TOKEN, reporter=lambda *a, **k: _report(), now=WHEN
+    )
+    lp_record.append(observation, path)
+    first = lp_record.append_owner_decision(
+        path,
+        decision="WAIT",
+        rationale="The fee opportunity does not yet repay the recenter cost.",
+        decided_at="2026-08-22T06:05:00+00:00",
+        prior_observation_sha256=_sha256(observation),
+        alternatives=["RECENTER"],
+    )
+    second = lp_record.append_owner_decision(
+        path,
+        decision="RECENTER",
+        rationale="The owner now accepts the measured recenter cost.",
+        decided_at="2026-08-22T07:05:00+00:00",
+        prior_observation_sha256=_sha256(observation),
+        alternatives=["WAIT"],
+    )
+
+    assert first["supersedes_decision_sha256"] is None
+    assert second["supersedes_decision_sha256"] == _sha256(first)
+    lp_record.verify_history(path)
+
+    history = lp_record.read_history(path)
+    if mutation == "alter":
+        history[1]["rationale"] = "Hand-edited after the later decision."
+    else:
+        del history[1]
+    path.write_text(
+        "".join(json.dumps(record, sort_keys=True) + "\n" for record in history),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="supersedes.*hash"):
+        lp_record.verify_history(path)
+
+
+@pytest.mark.parametrize("corruption", ["valid-json", "invalid-json"])
+def test_a_broken_history_does_not_stop_the_next_observation(tmp_path, corruption):
+    path = tmp_path / "controlled.jsonl"
+    observations = []
+    for day in range(7):
+        observation = lp_record.observe(
+            WALLET,
+            TOKEN,
+            reporter=lambda *a, **k: _report(),
+            now=WHEN + timedelta(days=day),
+        )
+        lp_record.append(observation, path)
+        observations.append(observation)
+    decision = lp_record.append_owner_decision(
+        path,
+        decision="WAIT",
+        rationale="The measured fee opportunity does not yet repay the recenter cost.",
+        decided_at="2026-08-23T06:05:00+00:00",
+        prior_observation_sha256=_sha256(observations[-1]),
+        alternatives=["RECENTER"],
+    )
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if corruption == "valid-json":
+        third = json.loads(lines[2])
+        third["record_version"] = "hand-edited"
+        lines[2] = json.dumps(third, sort_keys=True)
+    else:
+        lines[2] = "{hand-edited"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    ninth = lp_record.observe(
+        WALLET,
+        TOKEN,
+        reporter=lambda *a, **k: _report(),
+        now=WHEN + timedelta(days=8),
+    )
+    lp_record.append(ninth, path)
+
+    written_lines = path.read_text(encoding="utf-8").splitlines()
+    assert len(written_lines) == 9
+    written_ninth = json.loads(written_lines[-1])
+    assert written_ninth["observed_at"] == ninth["observed_at"]
+    assert written_ninth["answers_decision_sha256"] == _sha256(decision)
+    with pytest.raises(ValueError, match="line 3"):
+        lp_record.verify_history(path)
+    with pytest.raises(ValueError, match="line 3"):
+        lp_record.main(
+            [
+                "decide",
+                "--path",
+                str(path),
+                "--decision",
+                "WAIT",
+                "--rationale",
+                "A decision must not bind across a damaged history.",
+            ]
+        )
+
+
+def test_altering_an_unreferenced_observation_is_not_detected_by_design(tmp_path):
+    path = tmp_path / "controlled.jsonl"
+    _history_with_decision(path)
+    history = lp_record.read_history(path)
+    history[0]["altered"] = True
+    path.write_text(
+        "".join(json.dumps(record, sort_keys=True) + "\n" for record in history),
+        encoding="utf-8",
+    )
+
+    lp_record.verify_history(path)
+
+
+def test_decide_subcommand_records_only_the_owner_s_typed_decision(tmp_path):
+    path = tmp_path / "controlled.jsonl"
+    earlier = lp_record.observe(
+        WALLET, TOKEN, reporter=lambda *a, **k: _report(), now=WHEN
+    )
+    lp_record.append(earlier, path)
+    observation = lp_record.observe(
+        WALLET,
+        TOKEN,
+        reporter=lambda *a, **k: _report(),
+        now=WHEN + timedelta(days=1),
     )
     lp_record.append(observation, path)
 
@@ -337,6 +466,136 @@ def test_decide_subcommand_records_only_the_owner_s_typed_decision(tmp_path):
     assert decision["alternatives"] == []
     assert decision["prior_observation_sha256"] == _sha256(observation)
     assert datetime.fromisoformat(decision["decided_at"]).utcoffset() == timedelta(0)
+
+
+def test_decide_refuses_a_failed_latest_observation(tmp_path, capsys):
+    path = tmp_path / "controlled.jsonl"
+    lp_record.append(
+        lp_record.observe(WALLET, TOKEN, reporter=lambda *a, **k: _report(), now=WHEN),
+        path,
+    )
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("endpoints down")
+
+    lp_record.append(
+        lp_record.observe(WALLET, TOKEN, reporter=_raise, now=WHEN + timedelta(days=1)),
+        path,
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        lp_record.main(
+            [
+                "decide",
+                "--path",
+                str(path),
+                "--decision",
+                "WAIT",
+                "--rationale",
+                "This must not bind to a failed day.",
+            ]
+        )
+    assert "latest observation to have observed true" in capsys.readouterr().err
+    assert len(lp_record.read_history(path)) == 2
+
+
+def test_decide_requires_a_report_decision_sentence(tmp_path, capsys):
+    path = tmp_path / "controlled.jsonl"
+    lp_record.append(
+        lp_record.observe(
+            WALLET,
+            TOKEN,
+            reporter=lambda *a, **k: _report(decision="  "),
+            now=WHEN,
+        ),
+        path,
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        lp_record.main(
+            [
+                "decide",
+                "--path",
+                str(path),
+                "--decision",
+                "WAIT",
+                "--rationale",
+                "This must bind to a diagnosis.",
+            ]
+        )
+    assert "report to have a decision sentence" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "decided_at", ["2026-08-22T06:05:00", "2026-08-22T07:05:00+01:00"]
+)
+def test_owner_decision_rejects_a_non_utc_decided_at(tmp_path, decided_at):
+    path = tmp_path / "controlled.jsonl"
+    observation = lp_record.observe(
+        WALLET, TOKEN, reporter=lambda *a, **k: _report(), now=WHEN
+    )
+    lp_record.append(observation, path)
+
+    with pytest.raises(ValueError, match="ISO-8601 UTC"):
+        lp_record.append_owner_decision(
+            path,
+            decision="WAIT",
+            rationale="A timestamp with an explicit UTC offset is required.",
+            decided_at=decided_at,
+            prior_observation_sha256=_sha256(observation),
+            alternatives=["RECENTER"],
+        )
+
+
+def test_owner_decision_rejects_an_empty_rationale(tmp_path):
+    path = tmp_path / "controlled.jsonl"
+    observation = lp_record.observe(
+        WALLET, TOKEN, reporter=lambda *a, **k: _report(), now=WHEN
+    )
+    lp_record.append(observation, path)
+
+    with pytest.raises(ValueError, match="rationale must be a non-empty string"):
+        lp_record.append_owner_decision(
+            path,
+            decision="WAIT",
+            rationale="  ",
+            decided_at="2026-08-22T06:05:00+00:00",
+            prior_observation_sha256=_sha256(observation),
+            alternatives=["RECENTER"],
+        )
+
+
+def test_owner_decision_rejects_the_wrong_token_id(tmp_path):
+    path = tmp_path / "controlled.jsonl"
+    observation = lp_record.observe(
+        WALLET, TOKEN, reporter=lambda *a, **k: _report(), now=WHEN
+    )
+    lp_record.append(observation, path)
+
+    with pytest.raises(ValueError, match=f"token_id must be {TOKEN}"):
+        lp_record.append(
+            {
+                "record_version": "lp-record.v1",
+                "kind": "owner_decision",
+                "decision": "WAIT",
+                "rationale": "This record names a different position.",
+                "decided_at": "2026-08-22T06:05:00+00:00",
+                "prior_observation_sha256": _sha256(observation),
+                "supersedes_decision_sha256": None,
+                "alternatives": ["RECENTER"],
+                "token_id": TOKEN + 1,
+            },
+            path,
+        )
+
+
+def test_top_level_help_lists_both_subcommands(capsys):
+    with pytest.raises(SystemExit, match="0"):
+        lp_record.main(["--help"])
+
+    help_text = capsys.readouterr().out
+    assert "observe" in help_text
+    assert "decide" in help_text
 
 
 def test_owner_decision_rejects_a_value_outside_the_owner_choices(tmp_path):
