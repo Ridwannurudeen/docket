@@ -1,6 +1,7 @@
 import ast
 import json
 import tomllib
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -11,11 +12,17 @@ from web3 import Web3
 
 from docket.hire.catalogue import SERVICES
 from docket.identity import register
+from docket.marketplace.registry import get_record
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "docket" / "api" / "static" / "agents"
 SERVICE_IDS = ("range-doctor", "grid-operator", "yield-router", "health-guard")
 SENDER = "0xE4fe23FB57dbb9AC2f685ea29B6b9A1409A0d359"
+DOCUMENT_TIME = datetime(2026, 8, 22, 14, 57, 44, tzinfo=timezone.utc)
+
+
+def _document_clock() -> datetime:
+    return DOCUMENT_TIME
 
 
 def _signature(entry: dict) -> str:
@@ -83,26 +90,83 @@ class _ExplodingW3:
 def test_registration_documents_are_generated_from_the_catalogue():
     for service_id in SERVICE_IDS:
         service = SERVICES[service_id]
-        expected = {
-            "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
-            "name": service.name,
-            "description": service.what_you_get,
-            "services": [
-                {
-                    "name": service.id,
-                    "description": service.what_you_get,
-                    "protocol": "Web",
-                    "endpoint": f"https://docket.gudman.xyz/hire/{service.id}",
-                }
-            ],
-            "x402Support": True,
+        record = get_record(service_id)
+        generated = register.build_registration_json(service, clock=_document_clock)
+        assert record is not None
+        assert set(generated) == {
+            "type",
+            "name",
+            "description",
+            "url",
+            "image",
+            "active",
+            "version",
+            "agent_type",
+            "categories",
+            "tags",
+            "skills",
+            "services",
+            "hireUrl",
+            "x402Support",
+            "supportedTrust",
+            "registrations",
+            "documentation",
+            "limitations",
+            "updatedAt",
         }
-        generated = register.build_registration_json(service)
-        committed = json.loads(
-            (STATIC / f"{service_id}.registration.json").read_text(encoding="utf-8")
+        assert generated["name"] == service.name
+        assert generated["description"] == service.what_you_get
+        assert generated["url"] == f"https://docket.gudman.xyz/services/{service.id}"
+        assert generated["image"].startswith("data:image/svg+xml;base64,")
+        assert generated["active"] is True
+        assert generated["version"] == "0.1.0"
+        assert generated["agent_type"] == record.category.value
+        assert generated["categories"] == [record.category.value]
+        assert generated["tags"] == [service.id, "bsc", "erc-8004"]
+        assert generated["skills"] == [
+            {
+                "id": service.id,
+                "name": service.name,
+                "description": service.what_you_get,
+            }
+        ]
+        assert generated["services"] == [
+            {
+                "name": service.id,
+                "description": service.what_you_get,
+                "protocol": "Web",
+                "endpoint": f"https://docket.gudman.xyz/services/{service.id}",
+            }
+        ]
+        assert generated["hireUrl"] == f"https://docket.gudman.xyz/hire/{service.id}"
+        assert generated["x402Support"] is True
+        assert generated["supportedTrust"] == ["reputation"]
+        assert generated["registrations"] == []
+        assert generated["documentation"] == "https://docket.gudman.xyz/llms.txt"
+        assert generated["limitations"] == record.limitations
+        assert generated["updatedAt"] == "2026-08-22T14:57:44Z"
+
+        document = register.render_registration_document(service, clock=_document_clock)
+        assert document == register.render_registration_document(
+            service, clock=_document_clock
         )
-        assert generated == expected
-        assert committed == generated
+        assert (
+            STATIC.joinpath(f"{service_id}.registration.json").read_bytes() == document
+        )
+
+
+def test_registration_document_adds_the_minted_identity_without_changing_its_url():
+    service = SERVICES["range-doctor"]
+    generated = register.build_registration_json(
+        service, clock=_document_clock, agent_id=136_384
+    )
+    assert generated["url"] == "https://docket.gudman.xyz/services/range-doctor"
+    assert generated["registrations"] == [
+        {
+            "agentId": 136_384,
+            "agentRegistry": ("eip155:56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432"),
+        }
+    ]
 
 
 def test_identity_abi_matches_the_observed_contract_surface():
@@ -123,7 +187,7 @@ def test_identity_abi_matches_the_observed_contract_surface():
 
 def test_build_register_tx_estimates_and_builds_an_unsigned_bsc_transaction():
     w3 = _W3()
-    token_uri = "https://docket.gudman.xyz/agents/range-doctor.registration.json"
+    token_uri = "https://docket.gudman.xyz/registrations/range-doctor.json"
     tx = register.build_register_tx(w3, token_uri=token_uri, from_address=SENDER)
 
     call = w3.eth.functions.call
@@ -192,10 +256,10 @@ def test_plan_cli_prints_an_unsigned_costed_plan_and_refuses_other_actions(capsy
     assert result == 0
     output = json.loads(capsys.readouterr().out)
     assert output["registration"] == register.build_registration_json(
-        SERVICES["range-doctor"]
+        SERVICES["range-doctor"], clock=_document_clock
     )
     assert output["token_uri"] == (
-        "https://docket.gudman.xyz/agents/range-doctor.registration.json"
+        "https://docket.gudman.xyz/registrations/range-doctor.json"
     )
     assert output["unsigned_transaction"]["data"].startswith("0xf2c298be")
     assert output["gas_estimate"] == 163_334

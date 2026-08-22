@@ -6,13 +6,18 @@ and prints the transaction fields for the owner. It has no transaction-submissio
 
 import argparse
 import json
+from collections.abc import Callable
+from datetime import datetime, timezone
 from decimal import Decimal
+from importlib.metadata import version
+from pathlib import Path
 
 from eth_abi import decode
 from hexbytes import HexBytes
 from web3 import HTTPProvider, Web3
 
 from ..hire.catalogue import Service, get_service
+from ..marketplace.registry import get_record
 
 CHAIN_ID = 56
 RPC_URL = "https://bsc-dataseed.bnbchain.org"
@@ -20,7 +25,19 @@ IDENTITY_REGISTRY = Web3.to_checksum_address(
     "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
 )
 IDENTITY_REGISTRY_ID = IDENTITY_REGISTRY.lower()
-REGISTRATION_BASE_URL = "https://docket.gudman.xyz/agents"
+REGISTRATION_BASE_URL = "https://docket.gudman.xyz/registrations"
+REGISTRATION_DOCUMENT_DIR = (
+    Path(__file__).resolve().parents[1] / "api" / "static" / "agents"
+)
+REGISTRATION_IMAGE = (
+    "data:image/svg+xml;base64,"
+    "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjAgMTIw"
+    "Ij48cmVjdCB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgcng9IjE4IiBmaWxsPSIjMGIxMjIwIi8+PHJl"
+    "Y3QgeD0iMjQiIHk9IjI0IiB3aWR0aD0iNzIiIGhlaWdodD0iNzIiIHJ4PSIxMiIgZmlsbD0ibm9uZSIg"
+    "c3Ryb2tlPSIjZjRmMWU4IiBzdHJva2Utd2lkdGg9IjgiLz48cGF0aCBkPSJNNDAgNDhoNDBNNDAgNjRo"
+    "MjQiIHN0cm9rZT0iI2Y0ZjFlOCIgc3Ryb2tlLXdpZHRoPSI4IiBzdHJva2UtbGluZWNhcD0icm91bmQi"
+    "Lz48Y2lyY2xlIGN4PSI3NiIgY3k9Ijc0IiByPSI3IiBmaWxsPSIjZjRiODYwIi8+PC9zdmc+"
+)
 CATEGORY_SERVICE_IDS = (
     "range-doctor",
     "grid-operator",
@@ -151,24 +168,82 @@ IDENTITY_ABI = [
 REGISTERED_TOPIC = Web3.keccak(text="Registered(uint256,string,address)")
 
 
-def build_registration_json(service: Service) -> dict:
+def build_registration_json(
+    service: Service,
+    *,
+    clock: Callable[[], datetime],
+    agent_id: int | None = None,
+) -> dict:
     if service.id not in CATEGORY_SERVICE_IDS:
         raise ValueError(f"{service.id!r} is not a category service")
-    endpoint = f"https://docket.gudman.xyz/hire/{service.id}"
+    record = get_record(service.id)
+    if record is None or record.category is None:
+        raise ValueError(f"{service.id!r} has no marketplace category record")
+    updated_at = clock()
+    if updated_at.tzinfo is None or updated_at.utcoffset() is None:
+        raise ValueError(
+            "registration document clock must return a timezone-aware datetime"
+        )
+    registrations = []
+    if agent_id is not None:
+        bind_agent_id(service.id, agent_id)
+        registrations.append(
+            {
+                "agentId": agent_id,
+                "agentRegistry": f"eip155:{CHAIN_ID}:{IDENTITY_REGISTRY_ID}",
+            }
+        )
+    service_url = f"https://docket.gudman.xyz/services/{service.id}"
     return {
         "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
         "name": service.name,
         "description": service.what_you_get,
+        "url": service_url,
+        "image": REGISTRATION_IMAGE,
+        "active": True,
+        "version": version("docket"),
+        "agent_type": record.category.value,
+        "categories": [record.category.value],
+        "tags": [service.id, "bsc", "erc-8004"],
+        "skills": [
+            {
+                "id": service.id,
+                "name": service.name,
+                "description": service.what_you_get,
+            }
+        ],
         "services": [
             {
                 "name": service.id,
                 "description": service.what_you_get,
                 "protocol": "Web",
-                "endpoint": endpoint,
+                "endpoint": service_url,
             }
         ],
+        "hireUrl": f"https://docket.gudman.xyz/hire/{service.id}",
         "x402Support": True,
+        "supportedTrust": ["reputation"],
+        "registrations": registrations,
+        "documentation": "https://docket.gudman.xyz/llms.txt",
+        "limitations": record.limitations,
+        "updatedAt": (
+            updated_at.astimezone(timezone.utc)
+            .isoformat(timespec="seconds")
+            .replace("+00:00", "Z")
+        ),
     }
+
+
+def render_registration_document(
+    service: Service,
+    *,
+    clock: Callable[[], datetime],
+    agent_id: int | None = None,
+) -> bytes:
+    document = build_registration_json(service, clock=clock, agent_id=agent_id)
+    return (
+        json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode()
 
 
 def build_register_tx(w3, *, token_uri: str, from_address: str) -> dict:
@@ -228,7 +303,10 @@ def main(argv: list[str] | None = None, *, w3=None) -> int:
     service = get_service(args.service)
     if service is None:
         raise ValueError(f"unknown service {args.service!r}")
-    token_uri = f"{REGISTRATION_BASE_URL}/{service.id}.registration.json"
+    token_uri = f"{REGISTRATION_BASE_URL}/{service.id}.json"
+    document = REGISTRATION_DOCUMENT_DIR.joinpath(
+        f"{service.id}.registration.json"
+    ).read_bytes()
     session = (
         w3
         if w3 is not None
@@ -253,7 +331,7 @@ def main(argv: list[str] | None = None, *, w3=None) -> int:
         json.dumps(
             {
                 "service_id": service.id,
-                "registration": build_registration_json(service),
+                "registration": json.loads(document),
                 "token_uri": token_uri,
                 "unsigned_transaction": unsigned,
                 "gas_estimate": gas,
