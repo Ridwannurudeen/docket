@@ -144,10 +144,9 @@ def test_the_capture_timer_names_a_family_the_installed_package_can_resolve():
     assert _resolve_spec(family).is_file()
 
 
-def test_the_capture_timer_does_not_jitter_or_catch_up():
-    """Both are correct for the daily canary and fatal here: the capture has a one-minute
-    window, and a catch-up run would file a later universe under the registered time."""
+def test_the_capture_timer_prearms_without_jitter_and_persists():
+    """A catch-up activation is safe because the capture refuses late before any HTTP."""
     timer = _unit_directives("docket-v3-capture.timer")
     assert "RandomizedDelaySec" not in timer
-    assert timer["Persistent"] == "false"
+    assert timer["Persistent"] == "true"
     assert timer["AccuracySec"] == "1s"

@@ -14,6 +14,7 @@ import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -26,10 +27,10 @@ SPEC_PATH = (
     / "docket/advantage/v3/specs/v3-02-yield-router.json"
 )
 SPEC = load(SPEC_PATH)
-SCHEDULED = datetime(2026, 8, 21, 12, 0, 0, tzinfo=timezone.utc)
+SCHEDULED = datetime(2026, 8, 26, 12, 0, 0, tzinfo=timezone.utc)
 
 # The exact keys spec.py demands of every capture-log entry. Restating them here is the point:
-# if either side moves, the shape test below fails instead of the Aug 21 input lock.
+# if either side moves, the shape test below fails instead of the Aug 26 input lock.
 VALIDATOR_ATTEMPT_FIELDS = {
     "attempt_ordinal",
     "scheduled_at",
@@ -61,7 +62,7 @@ def _attempt(succeed_on: int, *, pools_status: int = 503):
 
 def test_the_registered_moment_and_urls_are_read_from_the_spec_not_from_the_code():
     schedule = capture.registered_schedule(SPEC)
-    assert schedule["first_attempt_at"] == "2026-08-21T12:00:00Z"
+    assert schedule["first_attempt_at"] == "2026-08-26T12:00:00Z"
     assert "explorer.pancakeswap.com" in schedule["pools_url"]
     assert "tokens.pancakeswap.finance" in schedule["token_list_url"]
 
@@ -76,13 +77,106 @@ def test_the_scraped_urls_are_the_registered_constants():
     assert schedule["token_list_url"] == YIELD_SOURCE_URLS["token_list"]
 
 
-def test_capturing_early_is_refused():
-    """An early capture freezes a different observation window than the registered one, and
-    nothing in the resulting bytes would show it."""
-    with pytest.raises(capture.CaptureRefused, match="Capturing early"):
-        capture.run_registered_capture(
-            SPEC, now=SCHEDULED - timedelta(seconds=1), attempt=_attempt(1)
+def test_an_early_start_arms_then_waits_for_the_registered_moment(tmp_path):
+    elapsed = {"seconds": -600.0}
+    slept: list[float] = []
+
+    def clock():
+        return SCHEDULED + timedelta(seconds=elapsed["seconds"])
+
+    def sleep(seconds):
+        slept.append(seconds)
+        elapsed["seconds"] += seconds
+
+    result = capture.run_registered_capture(
+        SPEC,
+        journal=tmp_path,
+        now=clock(),
+        clock=clock,
+        sleep=sleep,
+        attempt=_attempt(1),
+    )
+
+    armed = json.loads((tmp_path / "armed.json").read_text(encoding="utf-8"))
+    assert slept == [600.0]
+    assert armed["attempt_schedule"] == [
+        "2026-08-26T12:00:00Z",
+        "2026-08-26T12:01:00Z",
+        "2026-08-26T12:02:00Z",
+    ]
+    assert armed["process_started_at"] == "2026-08-26T11:50:00Z"
+    assert armed["registered_moment"] == "2026-08-26T12:00:00Z"
+    assert armed["spec_hash"] == SPEC.spec_hash
+    assert armed["host_identity"]
+    assert armed["preflight"]["clock_checked_at"] == "2026-08-26T11:50:00Z"
+    assert armed["preflight"]["clock_timezone_aware"] is True
+    assert armed["preflight"]["directory_writable"] is True
+    assert armed["preflight"]["disk_free_bytes"] > 0
+    assert result["captured"] is True
+
+
+def test_arming_refuses_a_directory_without_free_disk_space(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        capture.shutil, "disk_usage", lambda path: SimpleNamespace(free=0)
+    )
+
+    with pytest.raises(capture.CaptureRefused, match="no free disk space"):
+        capture.write_armed(
+            SPEC,
+            {"first_attempt_at": "2026-08-26T12:00:00Z"},
+            tmp_path,
+            started=SCHEDULED - timedelta(minutes=10),
         )
+    assert not (tmp_path / "armed.json").exists()
+
+
+def test_arming_refuses_a_directory_without_write_access(monkeypatch, tmp_path):
+    monkeypatch.setattr(capture.os, "access", lambda path, mode: False)
+
+    with pytest.raises(capture.CaptureRefused, match="is not writable"):
+        capture.write_armed(
+            SPEC,
+            {"first_attempt_at": "2026-08-26T12:00:00Z"},
+            tmp_path,
+            started=SCHEDULED - timedelta(minutes=10),
+        )
+    assert not (tmp_path / "armed.json").exists()
+
+
+def test_arming_refuses_a_blank_host_identity(monkeypatch, tmp_path):
+    monkeypatch.setattr(capture.platform, "node", lambda: "  ")
+
+    with pytest.raises(capture.CaptureRefused, match="host identity is blank"):
+        capture.write_armed(
+            SPEC,
+            {"first_attempt_at": "2026-08-26T12:00:00Z"},
+            tmp_path,
+            started=SCHEDULED - timedelta(minutes=10),
+        )
+    assert not (tmp_path / "armed.json").exists()
+
+
+def test_arming_refuses_a_timezone_naive_clock_before_writing(tmp_path):
+    stub = SimpleNamespace(
+        case_selection={
+            "chosen_by": (
+                "Capture at 2026-08-26T12:00:00Z from https://a.example/p then "
+                "https://b.example/t."
+            ),
+            "population": "two sources",
+        },
+        spec_hash="0x" + "a" * 64,
+    )
+
+    with pytest.raises(capture.CaptureRefused, match="timezone-aware"):
+        capture.run_registered_capture(
+            stub,
+            journal=tmp_path,
+            now=SCHEDULED - timedelta(minutes=10),
+            clock=lambda: datetime(2026, 8, 26, 11, 50),
+            attempt=_attempt(1),
+        )
+    assert not (tmp_path / "armed.json").exists()
 
 
 def test_capturing_late_is_refused_rather_than_quietly_accepted():
@@ -140,7 +234,7 @@ def test_each_attempt_is_anchored_to_its_registered_time_not_to_the_previous_one
     )
     assert [a["attempt_ordinal"] for a in result["attempts"]] == [1, 2, 3]
     # Attempt three still begins at its registered 12:02:00, despite 100s of slow fetching.
-    assert result["attempts"][2]["scheduled_at"] == "2026-08-21T12:02:00Z"
+    assert result["attempts"][2]["scheduled_at"] == "2026-08-26T12:02:00Z"
     # Each attempt began exactly on its registered second, so the clock reads the third
     # attempt's start plus its own duration. Relative spacing would have started attempt
     # three at 12:03:40 — after its window had closed.
@@ -228,7 +322,7 @@ def test_the_real_attempt_record_carries_the_fields_the_validator_requires(monke
     record = capture.capture_attempt(
         ("https://a.example/p", "https://b.example/t"),
         ordinal=1,
-        scheduled_at="2026-08-21T12:00:00Z",
+        scheduled_at="2026-08-26T12:00:00Z",
     )
     assert VALIDATOR_ATTEMPT_FIELDS <= set(record)
     assert record["pools_status"] == 200 and record["token_list_status"] == 200
@@ -248,7 +342,7 @@ def test_a_transport_failure_records_an_integer_status_not_null(monkeypatch):
     record = capture.capture_attempt(
         ("https://a.example/p", "https://b.example/t"),
         ordinal=1,
-        scheduled_at="2026-08-21T12:00:00Z",
+        scheduled_at="2026-08-26T12:00:00Z",
     )
     assert record["pools_status"] == capture.NO_RESPONSE == 0
     assert isinstance(record["pools_status"], int)
@@ -268,7 +362,7 @@ def test_the_two_urls_are_fetched_in_the_registered_order(monkeypatch):
     capture.capture_attempt(
         ("https://a.example/p", "https://b.example/t"),
         ordinal=1,
-        scheduled_at="2026-08-21T12:00:00Z",
+        scheduled_at="2026-08-26T12:00:00Z",
     )
     assert seen == ["https://a.example/p", "https://b.example/t"]
 
@@ -276,17 +370,32 @@ def test_the_two_urls_are_fetched_in_the_registered_order(monkeypatch):
 # --- the production entry point --------------------------------------------------------
 
 
-def test_running_the_capture_before_its_moment_exits_refused(tmp_path, capsys):
-    """Exit 2 is the protocol declining, which a timer log must be able to tell apart from
-    the capture crashing."""
-    code = capture.main([str(SPEC_PATH), str(tmp_path)])
+def test_running_the_capture_after_its_window_exits_refused_without_http(
+    tmp_path, capsys
+):
+    """A persistent timer may catch up late; it must record the refusal without fetching."""
+
+    def forbidden_attempt(*args, **kwargs):
+        raise AssertionError("a late activation must perform zero HTTP")
+
+    code = capture.main(
+        [str(SPEC_PATH), str(tmp_path)],
+        now=SCHEDULED + timedelta(minutes=3),
+        attempt=forbidden_attempt,
+    )
     assert code == 2
-    assert "Capturing early" in capsys.readouterr().out
+    assert "not the registered attempt" in capsys.readouterr().out
+    refusal = json.loads(
+        (tmp_path / "capture-refused.json").read_text(encoding="utf-8")
+    )
+    assert refusal["outcome"] == "refused"
+    assert "not the registered attempt" in refusal["reason"]
+    assert not (tmp_path / "armed.json").exists()
 
 
 def test_the_entry_point_writes_the_evidence_on_success(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(
-        capture, "run_registered_capture", lambda spec: _captured_result()
+        capture, "run_registered_capture", lambda spec, **kwargs: _captured_result()
     )
     code = capture.main([str(SPEC_PATH), str(tmp_path)])
     assert code == 0
@@ -294,20 +403,51 @@ def test_the_entry_point_writes_the_evidence_on_success(monkeypatch, tmp_path, c
     assert "captured at attempt 1" in capsys.readouterr().out
 
 
-def test_the_entry_point_reports_a_failed_capture_distinctly(
-    monkeypatch, tmp_path, capsys
-):
+def test_the_entry_point_reports_a_failed_capture_distinctly(tmp_path, capsys):
     """Exit 3, not 0: three failed attempts is a real outcome the operator must see, and a
     timer that logged success would hide the one thing worth waking up for."""
-    monkeypatch.setattr(
-        capture,
-        "run_registered_capture",
-        lambda spec: {"captured": False, "attempts": [], "why": "three failures"},
+    elapsed = {"seconds": 0.0}
+
+    def clock():
+        return SCHEDULED + timedelta(seconds=elapsed["seconds"])
+
+    code = capture.main(
+        [str(SPEC_PATH), str(tmp_path)],
+        now=clock(),
+        clock=clock,
+        sleep=lambda seconds: elapsed.__setitem__(
+            "seconds", elapsed["seconds"] + seconds
+        ),
+        attempt=_attempt(99),
     )
-    code = capture.main([str(SPEC_PATH), str(tmp_path)])
     assert code == 3
-    assert "three failures" in capsys.readouterr().out
+    assert "None of the three registered attempts" in capsys.readouterr().out
     assert json.loads((tmp_path / "capture-attempts.json").read_text())["why"]
+    assert json.loads((tmp_path / "capture-failed.json").read_text())["outcome"] == (
+        "failed"
+    )
+    assert sorted(path.name for path in tmp_path.glob("attempt-*.json")) == [
+        "attempt-01.json",
+        "attempt-02.json",
+        "attempt-03.json",
+    ]
+
+
+def test_the_entry_point_persists_an_unexpected_runtime_failure(
+    monkeypatch, tmp_path, capsys
+):
+    def fail_after_load(spec, **kwargs):
+        raise OSError("journal device unavailable")
+
+    monkeypatch.setattr(capture, "run_registered_capture", fail_after_load)
+
+    code = capture.main([str(SPEC_PATH), str(tmp_path)])
+
+    assert code == 1
+    assert "capture failed: OSError" in capsys.readouterr().out
+    failure = json.loads((tmp_path / "capture-failed.json").read_text())
+    assert failure["outcome"] == "failed"
+    assert failure["reason"] == "OSError: journal device unavailable"
 
 
 def _captured_result() -> dict:
@@ -315,7 +455,7 @@ def _captured_result() -> dict:
     return {
         "captured": True,
         "attempts": [
-            _attempt(1)(("a", "b"), ordinal=1, scheduled_at="2026-08-21T12:00:00Z")
+            _attempt(1)(("a", "b"), ordinal=1, scheduled_at="2026-08-26T12:00:00Z")
             | {"_bodies": None}
         ],
         "pools": {
@@ -419,13 +559,14 @@ def test_a_second_run_cannot_overwrite_a_capture_that_already_happened(tmp_path)
     from docket.advantage.v3 import capture
 
     directory = tmp_path / "yield"
-    result = {"captured": True, "attempts": [], "_raw": (b'{"a":1}', b'{"b":2}')}
+    result = _captured_result()
+    result["_raw"] = (b'{"a":1}', b'{"b":2}')
     capture.write_capture(dict(result) | {"_raw": result["_raw"]}, directory)
     assert (directory / "pools.raw.json").read_bytes() == b'{"a":1}'
 
     with pytest.raises(capture.CaptureRefused, match="already been captured"):
         capture.write_capture(
-            {"captured": True, "attempts": [], "_raw": (b"different", b"bytes")},
+            dict(result) | {"_raw": (b"different", b"bytes")},
             directory,
         )
     # The first observation survives the second run untouched.
@@ -440,7 +581,7 @@ def test_each_attempt_is_persisted_before_the_next_one_is_made(tmp_path):
     journal = tmp_path / "journal"
     record = {
         "attempt_ordinal": 1,
-        "scheduled_at": "2026-08-21T12:00:00Z",
+        "scheduled_at": "2026-08-26T12:00:00Z",
         "pools_status": 200,
         "token_list_status": 200,
         "succeeded": True,
@@ -456,3 +597,121 @@ def test_each_attempt_is_persisted_before_the_next_one_is_made(tmp_path):
 
     with pytest.raises(capture.CaptureRefused):
         capture.write_attempt(record, journal)
+
+
+def test_duplicate_activation_is_refused_before_another_attempt(tmp_path):
+    calls: list[int] = []
+
+    def first_attempt(urls, *, ordinal, scheduled_at):
+        calls.append(ordinal)
+        return _attempt(1)(urls, ordinal=ordinal, scheduled_at=scheduled_at)
+
+    capture.run_registered_capture(
+        SPEC,
+        journal=tmp_path,
+        now=SCHEDULED,
+        attempt=first_attempt,
+    )
+
+    with pytest.raises(capture.CaptureRefused, match="armed.json already exists"):
+        capture.run_registered_capture(
+            SPEC,
+            journal=tmp_path,
+            now=SCHEDULED,
+            attempt=first_attempt,
+        )
+    assert calls == [1]
+
+
+def test_packaged_cli_arms_and_waits_for_the_recommitted_moment(tmp_path):
+    elapsed = {"seconds": -600.0}
+    slept: list[float] = []
+
+    def clock():
+        return SCHEDULED + timedelta(seconds=elapsed["seconds"])
+
+    def sleep(seconds):
+        slept.append(seconds)
+        elapsed["seconds"] += seconds
+
+    code = capture.main(
+        ["v3-02-yield-router", str(tmp_path)],
+        now=clock(),
+        clock=clock,
+        sleep=sleep,
+        attempt=_attempt(1),
+    )
+
+    assert code == 0
+    assert slept == [600.0]
+    armed = json.loads((tmp_path / "armed.json").read_text())
+    assert armed["registered_moment"] == "2026-08-26T12:00:00Z"
+    assert (tmp_path / "capture-complete.json").exists()
+
+
+def test_main_arms_then_persists_raw_bytes_before_the_success_manifests(
+    monkeypatch, tmp_path
+):
+    moment = datetime(2030, 1, 2, 12, 0, tzinfo=timezone.utc)
+    elapsed = {"seconds": -600.0}
+
+    def clock():
+        return moment + timedelta(seconds=elapsed["seconds"])
+
+    def sleep(seconds):
+        elapsed["seconds"] += seconds
+
+    stub_spec = SimpleNamespace(
+        case_selection={
+            "chosen_by": (
+                "Capture at 2030-01-02T12:00:00Z from "
+                "https://pools.example.test/list then "
+                "https://tokens.example.test/list."
+            ),
+            "population": "The two registered public sources.",
+        },
+        spec_hash="0x" + "a" * 64,
+    )
+    spec_path = tmp_path / "future-spec.json"
+    spec_path.write_text("{}\n", encoding="utf-8")
+    output = tmp_path / "capture"
+    monkeypatch.setattr(capture, "load", lambda path: stub_spec)
+    monkeypatch.setattr(capture, "_utc_now", clock)
+    _stub_client(
+        monkeypatch, lambda request: httpx.Response(200, content=b'{"ok":true}')
+    )
+
+    created: list[str] = []
+    create_exclusively = capture._create_exclusively
+
+    def record_create(path, payload):
+        created.append(path.name)
+        create_exclusively(path, payload)
+
+    monkeypatch.setattr(capture, "_create_exclusively", record_create)
+
+    code = capture.main(
+        [str(spec_path), str(output)],
+        now=clock(),
+        clock=clock,
+        sleep=sleep,
+    )
+
+    assert code == 0
+    assert created == [
+        "armed.json",
+        "attempt-01.pools.raw.json",
+        "attempt-01.token-list.raw.json",
+        "attempt-01.json",
+        "pools.raw.json",
+        "token-list.raw.json",
+        "capture-attempts.json",
+        "capture-complete.json",
+    ]
+    assert json.loads((output / "armed.json").read_text())["process_started_at"] == (
+        "2030-01-02T11:50:00Z"
+    )
+    assert (output / "pools.raw.json").read_bytes() == b'{"ok":true}'
+    assert json.loads((output / "capture-complete.json").read_text())["outcome"] == (
+        "captured"
+    )

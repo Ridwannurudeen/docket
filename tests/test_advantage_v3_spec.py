@@ -640,7 +640,22 @@ def test_a_late_source_snapshot_cannot_slide_under_a_registered_attempt():
         spec_module._validate_source_snapshot(
             {
                 "url": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
-                "observed_at": "2026-08-21T13:00:00Z",
+                "observed_at": "2026-08-26T13:00:00Z",
+                "attempt_ordinal": 1,
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "body_base64": b64encode(raw).decode(),
+            },
+            "pools",
+        )
+
+
+def test_a_snapshot_from_the_superseded_yield_moment_is_refused():
+    raw = b"[]"
+    with pytest.raises(ValueError, match="outside its registered capture attempt"):
+        spec_module._validate_source_snapshot(
+            {
+                "url": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
+                "observed_at": "2026-08-21T12:00:01Z",
                 "attempt_ordinal": 1,
                 "sha256": hashlib.sha256(raw).hexdigest(),
                 "body_base64": b64encode(raw).decode(),
@@ -986,7 +1001,7 @@ def test_each_family_schema_accepts_only_a_complete_synthetic_input_artifact(tmp
         "capture_log": [
             {
                 "attempt_ordinal": 1,
-                "scheduled_at": "2026-08-21T12:00:00Z",
+                "scheduled_at": "2026-08-26T12:00:00Z",
                 "pools_status": 200,
                 "token_list_status": 200,
             }
@@ -994,14 +1009,14 @@ def test_each_family_schema_accepts_only_a_complete_synthetic_input_artifact(tmp
         "source_snapshots": {
             "pools": {
                 "url": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
-                "observed_at": "2026-08-21T12:00:01Z",
+                "observed_at": "2026-08-26T12:00:01Z",
                 "attempt_ordinal": 1,
                 "sha256": hashlib.sha256(pools_source).hexdigest(),
                 "body_base64": b64encode(pools_source).decode(),
             },
             "token_list": {
                 "url": "https://tokens.pancakeswap.finance/pancakeswap-extended.json",
-                "observed_at": "2026-08-21T12:00:02Z",
+                "observed_at": "2026-08-26T12:00:02Z",
                 "attempt_ordinal": 1,
                 "sha256": hashlib.sha256(tokens_source).hexdigest(),
                 "body_base64": b64encode(tokens_source).decode(),
@@ -1281,9 +1296,9 @@ def test_each_family_is_legibly_a_correction_before_input_lock():
     First correction: the bundles withheld truth despite exact anchors, and the runner did
     not own scheduling. Second: the evaluator seats were named after specific models, the
     working assignment changed, and a seat id asserting a build that did not answer in it
-    is a false record. Range has a third, which the other two do not: the experiment party
-    funded a live position, and a population that enumerates every position on chain would
-    otherwise be able to draw it.
+    is a false record. Range later excluded the experiment party's live position from its
+    on-chain population, and Yield later recommitted its registered moment after the first
+    capture failed without locking inputs.
 
     The digests below are written without their `0x` prefix and joined in code. They are
     SHA-256 protocol identities, but bare `0x`-plus-64-hex is also the shape of a private
@@ -1304,6 +1319,7 @@ def test_each_family_is_legibly_a_correction_before_input_lock():
         "v3-02-yield-router": [
             "49ad6b20381fb72ec20600b283203d5aee399406c6a7314eadac6eefe2b6c730",
             "a90a364ed2e8df21e189b292c49b53294bbd653ec7b56e02457c663286d2825f",
+            "52930b5854db990fbde1fe2f66e63b1f1ab0b396b07f6f0a07eab9833840d7a7",
         ],
         "v3-03-warden-security": [
             "ed5bbe50edb9ff8675f5d6e11a82a41f6019e94b8f75f6813932f1ba792a5bda",
@@ -1313,7 +1329,7 @@ def test_each_family_is_legibly_a_correction_before_input_lock():
     # What each family's most recent correction was actually about.
     subject = {
         "v3-01-range-doctor": "false statement",
-        "v3-02-yield-router": "seat",
+        "v3-02-yield-router": "registered source capture",
         "v3-03-warden-security": "seat",
     }
     for spec in map(load, REGISTERED):
@@ -1386,7 +1402,7 @@ def test_yield_uses_a_complete_frozen_universe_and_probability_sample():
     assert "SHA-256" in selection["truth_source"]
     assert "take the first five" in selection["rule"]
     assert "stage_one_protocol_hash" in selection["rule"]
-    assert "2026-08-21T12:00:00Z" in selection["chosen_by"]
+    assert "2026-08-26T12:00:00Z" in selection["chosen_by"]
     assert any(
         row["name"] == "universe_complete_and_correct"
         for row in spec.quality_rubric["criteria"]

@@ -47,6 +47,7 @@ import httpx
 
 from ...hire.receipts import canonical_hash
 from .spec import (
+    RANGE_CAPTURE_NOT_BEFORE,
     YIELD_CAPTURE_ATTEMPTS,
     YIELD_SOURCE_URLS,
     PairedSpec,
@@ -208,7 +209,7 @@ class CaptureSlot:
 def registered_capture_schedule(spec: PairedSpec) -> tuple[CaptureSlot, ...]:
     """Return the source-capture times registered before any input is frozen."""
     if spec.spec_id == "v3-01-range-doctor":
-        attempts = YIELD_CAPTURE_ATTEMPTS[:1]
+        attempts = (RANGE_CAPTURE_NOT_BEFORE,)
     elif spec.spec_id == "v3-02-yield-router":
         attempts = YIELD_CAPTURE_ATTEMPTS
     else:

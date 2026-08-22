@@ -1,6 +1,6 @@
 """The scheduled capture that turns two live URLs into frozen evidence.
 
-The Yield family's registration names a moment — 2026-08-21T12:00:00Z — two URLs, an order,
+The Yield family's registration names a moment — 2026-08-26T12:00:00Z — two URLs, an order,
 and exactly three attempts sixty seconds apart. That precision is not fussiness. A capture
 whose time or retry policy is chosen while it runs can be repeated until it produces a
 convenient universe, and nothing in the resulting bytes would show that it had been.
@@ -21,16 +21,18 @@ ordinal, the scheduled time and both HTTP statuses for each attempt. A capture t
 only its success would leave a reader unable to tell one clean fetch from three tries, and the
 difference is exactly the thing retry policies are written to bound.
 
-This module makes no attempt to be a scheduler. It runs when something runs it, and it refuses
-to freeze anything if it is run at the wrong time — the caller can be cron, a systemd timer or
-a person, and none of them can move the registered moment.
+This module does not choose a schedule. It pre-arms when something starts it, then waits inside
+that process for the registered attempts. The caller can be cron, a systemd timer or a person,
+and none of them can move the registered moment.
 """
 
 import argparse
 import hashlib
 import json
 import os
+import platform
 import re
+import shutil
 import time
 from datetime import datetime, timedelta, timezone
 from importlib import resources
@@ -180,20 +182,41 @@ def run_registered_capture(
     scheduled = datetime.fromisoformat(
         schedule["first_attempt_at"].replace("Z", "+00:00")
     )
-    now = started
-
-    if now < scheduled:
-        raise CaptureRefused(
-            f"the registered capture opens at {schedule['first_attempt_at']} and it is now "
-            f"{now.isoformat()}. Capturing early would freeze a different observation window "
-            "than the one this family is registered against."
-        )
-    if now > scheduled + timedelta(seconds=LATE_TOLERANCE_S):
+    if started.tzinfo is None or started.utcoffset() is None:
+        raise CaptureRefused("the capture clock must report a timezone-aware instant")
+    if started > scheduled + timedelta(seconds=LATE_TOLERANCE_S):
         raise CaptureRefused(
             f"the registered capture opened at {schedule['first_attempt_at']} and it is now "
-            f"{now.isoformat()}, past the {LATE_TOLERANCE_S}s tolerance. A late capture is "
+            f"{started.isoformat()}, past the {LATE_TOLERANCE_S}s tolerance. A late capture is "
             "not the registered attempt; the protocol must be recommitted for a new time "
             "rather than quietly answering with a later universe."
+        )
+
+    checked_at = clock()
+    if checked_at.tzinfo is None or checked_at.utcoffset() is None:
+        raise CaptureRefused("the capture clock must report a timezone-aware instant")
+    if checked_at > scheduled + timedelta(seconds=LATE_TOLERANCE_S):
+        raise CaptureRefused(
+            f"the registered capture opened at {schedule['first_attempt_at']} but the "
+            f"preflight clock reads {checked_at.isoformat()}, past the "
+            f"{LATE_TOLERANCE_S}s tolerance. A late capture is not the registered attempt; "
+            "the protocol must be recommitted for a new time rather than quietly answering "
+            "with a later universe."
+        )
+
+    if journal is not None:
+        write_armed(spec, schedule, journal, started=started, checked_at=checked_at)
+
+    delay = (scheduled - clock()).total_seconds()
+    if delay > 0:
+        sleep(delay)
+    ready_at = clock()
+    if ready_at > scheduled + timedelta(seconds=LATE_TOLERANCE_S):
+        raise CaptureRefused(
+            f"the registered capture opened at {schedule['first_attempt_at']} but the armed "
+            f"process woke at {ready_at.isoformat()}, past the {LATE_TOLERANCE_S}s tolerance. "
+            "A late capture is not the registered attempt; the protocol must be recommitted "
+            "for a new time rather than quietly answering with a later universe."
         )
 
     attempts, bodies = [], None
@@ -339,6 +362,96 @@ def _create_exclusively(path: Path, payload: bytes) -> None:
         ) from exc
 
 
+def _json_bytes(record: dict) -> bytes:
+    return (json.dumps(record, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def write_armed(
+    spec,
+    schedule: dict,
+    directory: Path,
+    *,
+    started: datetime,
+    checked_at: datetime | None = None,
+    host_identity: str | None = None,
+) -> Path:
+    """Prove the process and its output path were ready before the moment."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    if not os.access(directory, os.W_OK):
+        raise CaptureRefused(f"the capture directory {directory} is not writable")
+    disk_free_bytes = shutil.disk_usage(directory).free
+    if disk_free_bytes <= 0:
+        raise CaptureRefused(
+            f"the capture directory {directory} has no free disk space"
+        )
+    identity = (host_identity if host_identity is not None else platform.node()).strip()
+    if not identity:
+        raise CaptureRefused("the capture host identity is blank")
+    path = directory / "armed.json"
+    try:
+        _create_exclusively(
+            path,
+            _json_bytes(
+                {
+                    "registered_moment": schedule["first_attempt_at"],
+                    "attempt_schedule": [
+                        _stamp_at(
+                            datetime.fromisoformat(
+                                schedule["first_attempt_at"].replace("Z", "+00:00")
+                            )
+                            + timedelta(seconds=offset)
+                        )
+                        for offset in ATTEMPT_OFFSETS_S
+                    ],
+                    "process_started_at": _stamp_at(started.astimezone(timezone.utc)),
+                    "spec_hash": spec.spec_hash,
+                    "host_identity": identity,
+                    "preflight": {
+                        "clock_checked_at": _stamp_at(
+                            (checked_at or started).astimezone(timezone.utc)
+                        ),
+                        "clock_timezone_aware": True,
+                        "directory_writable": True,
+                        "disk_free_bytes": disk_free_bytes,
+                    },
+                }
+            ),
+        )
+    except CaptureRefused as exc:
+        raise CaptureRefused(
+            "armed.json already exists. Another activation already armed this registered "
+            "moment, so this process must not make an HTTP attempt."
+        ) from exc
+    return path
+
+
+def write_terminal(
+    outcome: str, reason: str, directory: Path, *, recorded_at: datetime
+) -> Path:
+    """Persist a refusal or runtime failure without replacing an earlier event."""
+    if outcome not in {"refused", "failed"}:
+        raise ValueError(f"unsupported capture terminal outcome {outcome!r}")
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = _json_bytes(
+        {
+            "outcome": outcome,
+            "recorded_at": _stamp_at(recorded_at.astimezone(timezone.utc)),
+            "reason": reason,
+        }
+    )
+    ordinal = 1
+    while True:
+        suffix = "" if ordinal == 1 else f"-{ordinal:02d}"
+        path = directory / f"capture-{outcome}{suffix}.json"
+        try:
+            _create_exclusively(path, payload)
+            return path
+        except CaptureRefused:
+            ordinal += 1
+
+
 def write_attempt(record: dict, directory: Path) -> Path:
     """Persist one attempt the moment it finishes, before the next one is made.
 
@@ -351,9 +464,6 @@ def write_attempt(record: dict, directory: Path) -> Path:
     ordinal = record["attempt_ordinal"]
     body = {key: value for key, value in record.items() if key != "_bodies"}
     path = directory / f"attempt-{ordinal:02d}.json"
-    _create_exclusively(
-        path, (json.dumps(body, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    )
     bodies = record.get("_bodies")
     if bodies:
         _create_exclusively(
@@ -362,6 +472,7 @@ def write_attempt(record: dict, directory: Path) -> Path:
         _create_exclusively(
             directory / f"attempt-{ordinal:02d}.token-list.raw.json", bodies[1]
         )
+    _create_exclusively(path, _json_bytes(body))
     return path
 
 
@@ -370,18 +481,26 @@ def write_capture(result: dict, directory: Path) -> dict:
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     if not result.get("captured"):
+        _create_exclusively(directory / "capture-attempts.json", _json_bytes(result))
         _create_exclusively(
-            directory / "capture-attempts.json",
-            (json.dumps(result, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+            directory / "capture-failed.json",
+            _json_bytes({"outcome": "failed", "why": result["why"]}),
         )
         return result
 
     raw = result.pop("_raw")
     _create_exclusively(directory / "pools.raw.json", raw[0])
     _create_exclusively(directory / "token-list.raw.json", raw[1])
+    _create_exclusively(directory / "capture-attempts.json", _json_bytes(result))
     _create_exclusively(
-        directory / "capture-attempts.json",
-        (json.dumps(result, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        directory / "capture-complete.json",
+        _json_bytes(
+            {
+                "outcome": "captured",
+                "pools_sha256": result["pools"]["sha256"],
+                "token_list_sha256": result["token_list"]["sha256"],
+            }
+        ),
     )
     return result
 
@@ -418,13 +537,24 @@ def _resolve_spec(reference: str) -> Path:
     )
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+    *,
+    now: datetime | None = None,
+    clock=None,
+    sleep=time.sleep,
+    attempt=capture_attempt,
+) -> int:
     """The production entry point, so the capture is something a timer can actually run.
 
     Without this the module was reachable only from its own tests — which is the shape of code
     that passes every check and then does not exist on the morning it was written for.
     """
 
+    process_started = now or _utc_now()
+    runtime_clock = clock or (
+        (lambda: process_started) if now is not None else _utc_now
+    )
     parser = argparse.ArgumentParser(
         description="Perform a v3 family's registered capture, at its registered moment."
     )
@@ -435,22 +565,67 @@ def main(argv: list[str] | None = None) -> int:
         "out", help="directory to write the raw bodies and attempt log into"
     )
     args = parser.parse_args(argv)
+    output = Path(args.out)
+
+    def event_time() -> datetime:
+        return runtime_clock()
 
     try:
         spec = load(_resolve_spec(args.spec))
     except CaptureRefused as refusal:
+        write_terminal("refused", str(refusal), output, recorded_at=event_time())
         print(f"capture refused: {refusal}")
         return 2
+    except Exception as failure:
+        write_terminal(
+            "failed",
+            f"{type(failure).__name__}: {failure}",
+            output,
+            recorded_at=event_time(),
+        )
+        print(f"capture failed: {type(failure).__name__}: {failure}")
+        return 1
 
     try:
-        result = run_registered_capture(spec)
+        result = run_registered_capture(
+            spec,
+            journal=output,
+            now=process_started,
+            clock=runtime_clock,
+            sleep=sleep,
+            attempt=attempt,
+        )
     except CaptureRefused as refusal:
         # Exit 2, not 1: this is the protocol declining, which a timer log should be able to
         # tell apart from the capture crashing.
+        write_terminal("refused", str(refusal), output, recorded_at=event_time())
         print(f"capture refused: {refusal}")
         return 2
+    except Exception as failure:
+        write_terminal(
+            "failed",
+            f"{type(failure).__name__}: {failure}",
+            output,
+            recorded_at=event_time(),
+        )
+        print(f"capture failed: {type(failure).__name__}: {failure}")
+        return 1
 
-    write_capture(result, Path(args.out))
+    try:
+        write_capture(result, output)
+    except CaptureRefused as refusal:
+        write_terminal("refused", str(refusal), output, recorded_at=event_time())
+        print(f"capture refused: {refusal}")
+        return 2
+    except Exception as failure:
+        write_terminal(
+            "failed",
+            f"{type(failure).__name__}: {failure}",
+            output,
+            recorded_at=event_time(),
+        )
+        print(f"capture failed: {type(failure).__name__}: {failure}")
+        return 1
     if not result["captured"]:
         print(result["why"])
         return 3
