@@ -238,6 +238,38 @@ def test_recorded_runs_are_declared_as_package_data():
     assert '"recorded_runs/*.json"' in pyproject
 
 
+def test_cli_parses_the_payload_and_calls_the_recorder(tmp_path, monkeypatch):
+    calls = []
+    out = tmp_path / "record.json"
+
+    def fake_record(service_id, payload, *, out_path, clock):
+        calls.append((service_id, payload, out_path, clock().tzinfo))
+        return {}
+
+    monkeypatch.setattr(record_run, "record", fake_record)
+
+    assert (
+        record_run.main(
+            [
+                "health-guard",
+                "--payload",
+                '{"wallet":"0x0000000000000000000000000000000000000001"}',
+                "--out",
+                str(out),
+            ]
+        )
+        == 0
+    )
+    assert calls == [
+        (
+            "health-guard",
+            {"wallet": "0x0000000000000000000000000000000000000001"},
+            out,
+            timezone.utc,
+        )
+    ]
+
+
 def test_reproduction_docs_name_all_three_commands_hashes_and_archive_boundary():
     docs = (
         Path(__file__).resolve().parents[1] / "docs" / "evidence-reproduction.md"
