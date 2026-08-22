@@ -251,6 +251,57 @@ def test_release_refuses_when_pip_show_disagrees_with_the_wheel(tmp_path):
     assert "pip show docket version 9.9.9 does not match wheel 0.1.0" in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("filename", "message"),
+    [
+        ("docket-canary.conf", "canary config is missing"),
+        ("docket-canary.token", "canary token is missing"),
+    ],
+)
+def test_release_requires_the_existing_canary_files(tmp_path, filename, message):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    (root / "etc" / "docket" / filename).unlink()
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        wheel.as_posix(),
+        COMMIT,
+        digest,
+        environment=_environment(root, fake_bin),
+    )
+
+    assert result.returncode != 0
+    assert message in result.stderr
+    assert (root / "opt" / "docket" / "old-release.txt").is_file()
+
+
+def test_release_pins_canary_ownership_and_stops_it_before_the_app():
+    script = (DEPLOY / "release.sh").read_text(encoding="utf-8")
+
+    assert script.count("640:root:docket") == 2
+    stop_timer = script.index("run_host systemctl stop docket-canary.timer")
+    check_canary = script.index(
+        "systemctl is-active --quiet docket-canary.service", stop_timer
+    )
+    stop_app = script.index("run_host systemctl stop docket.service", check_canary)
+    move_live = script.index('run_fs mv -- "${OPT_DOCKET}" "${BACKUP}"', stop_app)
+    assert stop_timer < check_canary < stop_app < move_live
+
+
+def test_release_tooling_never_changes_or_reloads_nginx():
+    release = (DEPLOY / "release.sh").read_text(encoding="utf-8")
+    preflight = (DEPLOY / "preflight.sh").read_text(encoding="utf-8")
+
+    assert "nginx" not in release
+    assert "systemctl reload nginx" not in preflight
+    assert "install /etc/nginx" not in preflight
+
+
 def test_post_swap_health_failure_restores_the_old_release_and_symlink(tmp_path):
     root = tmp_path / "root"
     _prepare_live_release(root)
