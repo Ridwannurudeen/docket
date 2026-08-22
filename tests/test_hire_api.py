@@ -1,6 +1,8 @@
+import asyncio
 import base64
 import hashlib
 import json
+import threading
 import time
 from dataclasses import replace
 
@@ -12,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from docket.agents.pancake import doctor
 from docket.api import create_app
+from docket.api import routes
 from docket.api.routes import FREE_TIER_HIRES
 from docket.hire.catalogue import SERVICES, U_TOKEN, PaidStockAdmission, get_service
 from docket.hire.x402 import EIP3009_TYPES, build_challenge
@@ -260,15 +263,22 @@ def test_an_unknown_service_is_a_structured_404(tmp_path, monkeypatch):
     assert "/hire" in err["message"]
 
 
-def test_the_allowance_exists_only_where_a_payment_route_does(tmp_path, monkeypatch):
-    """With no DOCKET_PAY_TO there is nothing a 402 could ask for, so the free tier serves
-    unmetered: a missing configuration must never be what stops a cold caller."""
-    unmetered = _client(tmp_path, monkeypatch, name="unmetered")
-    for _ in range(FREE_TIER_HIRES + 5):
+def test_the_allowance_applies_even_without_a_payment_route(tmp_path, monkeypatch):
+    free = _client(tmp_path, monkeypatch, name="free-limited")
+    for _ in range(FREE_TIER_HIRES):
         assert (
-            unmetered.post("/hire/range-doctor", json={"wallet": WALLET}).status_code
-            == 200
+            free.post("/hire/range-doctor", json={"wallet": WALLET}).status_code == 200
         )
+
+    exhausted = free.post("/hire/range-doctor", json={"wallet": WALLET})
+
+    assert exhausted.status_code == 429
+    assert exhausted.json()["error"]["code"] == "hire_rate_limited"
+
+
+def test_an_available_payment_route_still_returns_its_challenge_at_the_limit(
+    tmp_path, monkeypatch
+):
 
     metered = _client(
         tmp_path,
@@ -292,6 +302,46 @@ def test_the_allowance_exists_only_where_a_payment_route_does(tmp_path, monkeypa
     assert body["error"]["code"] == "free_tier_exhausted"
 
 
+def test_the_allowance_map_evicts_its_oldest_window_at_the_hard_cap(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(routes, "MAX_ALLOWANCE_CLIENTS", 2)
+    monkeypatch.delenv("DOCKET_PAY_TO", raising=False)
+    app = create_app(tmp_path / "bounded-allowances.sqlite3")
+    first = TestClient(app, client=("198.51.100.1", 50000))
+    second = TestClient(app, client=("198.51.100.2", 50000))
+    third = TestClient(app, client=("198.51.100.3", 50000))
+
+    for _ in range(FREE_TIER_HIRES):
+        assert (
+            first.post("/hire/range-doctor", json={"wallet": WALLET}).status_code == 200
+        )
+    assert first.post("/hire/range-doctor", json={"wallet": WALLET}).status_code == 429
+
+    assert second.post("/hire/range-doctor", json={"wallet": WALLET}).status_code == 200
+    assert third.post("/hire/range-doctor", json={"wallet": WALLET}).status_code == 200
+
+    assert first.post("/hire/range-doctor", json={"wallet": WALLET}).status_code == 200
+
+
+def test_expired_allowance_windows_are_evicted_on_the_next_hire(tmp_path, monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr(routes.time, "monotonic", lambda: clock[0])
+    monkeypatch.delenv("DOCKET_PAY_TO", raising=False)
+    app = create_app(tmp_path / "expired-allowances.sqlite3")
+    first = TestClient(app, client=("198.51.100.1", 50000))
+    second = TestClient(app, client=("198.51.100.2", 50000))
+    third = TestClient(app, client=("198.51.100.3", 50000))
+    assert first.post("/hire/range-doctor", json={"wallet": WALLET}).status_code == 200
+    assert second.post("/hire/range-doctor", json={"wallet": WALLET}).status_code == 200
+    assert set(app.state.hire_allowances) == {"198.51.100.1", "198.51.100.2"}
+
+    clock[0] += routes.FREE_TIER_WINDOW_S + 1
+    assert third.post("/hire/range-doctor", json={"wallet": WALLET}).status_code == 200
+
+    assert list(app.state.hire_allowances) == ["198.51.100.3"]
+
+
 def test_a_request_docket_could_not_read_never_spends_the_allowance(
     tmp_path, monkeypatch
 ):
@@ -311,6 +361,44 @@ def test_a_request_docket_could_not_read_never_spends_the_allowance(
     served = client.post("/hire/range-doctor", json={"wallet": WALLET})
     assert served.status_code == 200
     assert served.json()["receipt"]["payment"]["status"] == "free_tier"
+
+
+def test_a_slow_hire_does_not_delay_concurrent_health(tmp_path, monkeypatch):
+    observed = {}
+    started = threading.Event()
+
+    def slow_work(_payload):
+        observed["started_at"] = time.monotonic()
+        started.set()
+        time.sleep(0.8)
+        return {"decision": "slow fixture completed"}
+
+    monkeypatch.setitem(
+        SERVICES,
+        "range-doctor",
+        replace(get_service("range-doctor"), run=slow_work),
+    )
+    monkeypatch.delenv("DOCKET_PAY_TO", raising=False)
+    app = create_app(tmp_path / "concurrent-health.sqlite3")
+
+    async def exercise():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            hire = asyncio.create_task(
+                client.post("/hire/range-doctor", json={"wallet": WALLET})
+            )
+            assert await asyncio.to_thread(started.wait, 1)
+            health = await client.get("/health")
+            health_completed_after = time.monotonic() - observed["started_at"]
+            return await hire, health, health_completed_after
+
+    hire, health, health_completed_after = asyncio.run(exercise())
+
+    assert health.status_code == 200
+    assert health_completed_after < 0.5
+    assert hire.status_code == 200
 
 
 def test_a_paid_preflight_settles_once_and_rejects_the_exact_replay(
@@ -497,11 +585,18 @@ def test_an_empty_result_is_never_settled(tmp_path, monkeypatch):
         json={"wallet": WALLET},
         headers={"X-PAYMENT": header},
     )
+    recovery = client.post(
+        "/hire/range-doctor/recover",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": header},
+    )
 
     assert empty.status_code == 502
     assert empty.json()["error"]["code"] == "empty_result"
     assert replay.status_code == 409
     assert replay.json()["error"]["code"] == "authorization_spent"
+    assert recovery.status_code == 409
+    assert recovery.json()["error"]["code"] == "payment_not_recoverable"
     assert [name for name, _ in facilitator.calls] == ["verify"]
 
 
@@ -538,6 +633,207 @@ def test_an_unknown_settlement_outcome_is_never_retried_automatically(
     assert first.json()["error"]["code"] == "settlement_unknown"
     assert replay.status_code == 409
     assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+
+
+def test_a_settled_result_can_be_recovered_without_repeating_work_or_settlement(
+    tmp_path, monkeypatch
+):
+    work_calls = []
+
+    def counted_report(address, **kwargs):
+        work_calls.append(address)
+        return _stub_report(address, **kwargs)
+
+    monkeypatch.setattr(doctor, "report", counted_report)
+    facilitator = FixtureFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="recover-settled",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+    request = {"wallet": WALLET}
+    header = _authorization(Account.create(), nonce="0x" + "09" * 32)
+    first = client.post(
+        "/hire/range-doctor", json=request, headers={"X-PAYMENT": header}
+    )
+
+    recovered = client.post(
+        "/hire/range-doctor/recover",
+        json=request,
+        headers={"X-PAYMENT": header},
+    )
+
+    assert recovered.status_code == 200
+    assert recovered.json() == first.json()
+    assert work_calls == [WALLET]
+    assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+
+
+def test_payment_recovery_rejects_a_tampered_signature(tmp_path, monkeypatch):
+    work_calls = []
+
+    def counted_report(address, **kwargs):
+        work_calls.append(address)
+        return _stub_report(address, **kwargs)
+
+    monkeypatch.setattr(doctor, "report", counted_report)
+    facilitator = FixtureFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="recover-tampered-signature",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+    request = {"wallet": WALLET}
+    header = _authorization(Account.create(), nonce="0x" + "0d" * 32)
+    assert (
+        client.post(
+            "/hire/range-doctor",
+            json=request,
+            headers={"X-PAYMENT": header},
+        ).status_code
+        == 200
+    )
+    payment = json.loads(base64.b64decode(header))
+    signature = payment["payload"]["signature"]
+    payment["payload"]["signature"] = signature[:-1] + (
+        "0" if signature[-1] != "0" else "1"
+    )
+    tampered_header = base64.b64encode(json.dumps(payment).encode()).decode()
+
+    response = client.post(
+        "/hire/range-doctor/recover",
+        json=request,
+        headers={"X-PAYMENT": tampered_header},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "payment_invalid"
+    assert work_calls == [WALLET]
+    assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+
+
+def test_payment_recovery_refuses_a_different_request_body(tmp_path, monkeypatch):
+    facilitator = FixtureFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="recover-mismatch",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+    header = _authorization(Account.create(), nonce="0x" + "0c" * 32)
+    assert (
+        client.post(
+            "/hire/range-doctor",
+            json={"wallet": WALLET},
+            headers={"X-PAYMENT": header},
+        ).status_code
+        == 200
+    )
+
+    response = client.post(
+        "/hire/range-doctor/recover",
+        json={"wallet": WALLET, "limit": 1},
+        headers={"X-PAYMENT": header},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "authorization_mismatch"
+    assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+
+
+def test_an_unknown_settlement_result_can_be_recovered_without_retry(
+    tmp_path, monkeypatch
+):
+    work_calls = []
+
+    def counted_report(address, **kwargs):
+        work_calls.append(address)
+        return _stub_report(address, **kwargs)
+
+    monkeypatch.setattr(doctor, "report", counted_report)
+    facilitator = FixtureFacilitator(
+        settle_error=httpx.ReadTimeout("fixture lost the settle response")
+    )
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="recover-unknown",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+    request = {"wallet": WALLET}
+    header = _authorization(Account.create(), nonce="0x" + "0a" * 32)
+    first = client.post(
+        "/hire/range-doctor", json=request, headers={"X-PAYMENT": header}
+    )
+
+    recovered = client.post(
+        "/hire/range-doctor/recover",
+        json=request,
+        headers={"PAYMENT-SIGNATURE": header},
+    )
+    recovered_again = client.post(
+        "/hire/range-doctor/recover",
+        json=request,
+        headers={"X-PAYMENT": header},
+    )
+
+    assert first.status_code == 502
+    assert recovered.status_code == 200
+    body = recovered.json()
+    assert body["result"]["address"] == WALLET
+    assert body["receipt"]["payment"]["status"] == "settlement_unknown"
+    assert body["receipt"]["input_hash"] == _sha256_of_canonical_json(request)
+    assert body["receipt"]["output_hash"] == _sha256_of_canonical_json(body["result"])
+    assert recovered_again.json() == body
+    stored = Store(tmp_path / "recover-unknown.sqlite3").payment_by_nonce(
+        "0x" + "0a" * 32
+    )
+    assert stored["receipt"] == body["receipt"]
+    assert work_calls == [WALLET]
+    assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+
+
+def test_payment_recovery_refuses_an_unknown_nonce_without_running_work(
+    tmp_path, monkeypatch
+):
+    work_calls = []
+
+    def counted_report(address, **kwargs):
+        work_calls.append(address)
+        return _stub_report(address, **kwargs)
+
+    monkeypatch.setattr(doctor, "report", counted_report)
+    facilitator = FixtureFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="recover-missing",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+    header = _authorization(Account.create(), nonce="0x" + "0b" * 32)
+
+    response = client.post(
+        "/hire/range-doctor/recover",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": header},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "payment_not_found"
+    assert work_calls == []
+    assert facilitator.calls == []
 
 
 def test_de_admission_after_verification_prevents_settlement(tmp_path, monkeypatch):

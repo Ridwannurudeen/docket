@@ -299,18 +299,35 @@ class Store:
         if cursor.rowcount != 1:
             raise ValueError("payment was not finalized from settling state")
 
-    def fail_payment(self, payment_id: str, *, status: str, error: str) -> None:
+    def fail_payment(
+        self,
+        payment_id: str,
+        *,
+        status: str,
+        error: str,
+        receipt: dict | None = None,
+    ) -> None:
         if status not in {
             "failed_no_charge",
             "settlement_failed",
             "settlement_unknown",
         }:
             raise ValueError(f"unsupported terminal payment status {status!r}")
+        if status == "settlement_unknown" and not isinstance(receipt, dict):
+            raise ValueError("settlement_unknown requires a recovery receipt")
+        if status != "settlement_unknown" and receipt is not None:
+            raise ValueError(f"{status} does not accept a recovery receipt")
+        receipt_json = (
+            json.dumps(receipt, sort_keys=True, ensure_ascii=False)
+            if receipt is not None
+            else None
+        )
         with self._conn() as conn:
             conn.execute(
-                """UPDATE hire_payments SET status = ?, error = ?, updated_at = ?
+                """UPDATE hire_payments
+                   SET status = ?, error = ?, receipt_json = ?, updated_at = ?
                    WHERE payment_id = ? AND status != 'settled'""",
-                (status, error, _now(), payment_id),
+                (status, error, receipt_json, _now(), payment_id),
             )
 
     def begin_canary_run(
@@ -498,7 +515,9 @@ class Store:
                 "SELECT * FROM snapshots WHERE id = ?", (snapshot_id,)
             ).fetchone()
             if row is None:
-                raise ValueError(f"snapshot {snapshot_id} cannot be promoted: it does not exist")
+                raise ValueError(
+                    f"snapshot {snapshot_id} cannot be promoted: it does not exist"
+                )
             if (
                 row["finished_at"] is None
                 or row["sampled"] is None

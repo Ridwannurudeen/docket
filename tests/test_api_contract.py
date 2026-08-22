@@ -53,7 +53,14 @@ def test_no_model_exposes_a_verdict_field():
 
 
 def test_banned_names_cover_the_obvious_temptations():
-    for name in ("safe", "trusted", "verified_by_docket", "recommended", "rank", "trust_score"):
+    for name in (
+        "safe",
+        "trusted",
+        "verified_by_docket",
+        "recommended",
+        "rank",
+        "trust_score",
+    ):
         assert name in BANNED_FIELD_NAMES
 
 
@@ -138,9 +145,7 @@ def test_service_detail_redirects_html_callers_without_changing_json(tmp_path):
     page = client.get(
         "/services/range-doctor", headers={"Accept": "text/html,application/xhtml+xml"}
     )
-    data = client.get(
-        "/services/range-doctor", headers={"Accept": "application/json"}
-    )
+    data = client.get("/services/range-doctor", headers={"Accept": "application/json"})
 
     assert page.status_code == 302
     assert page.headers["location"] == "/service?id=range-doctor"
@@ -165,6 +170,7 @@ def test_lp_record_returns_every_stored_observation(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"history": history, "total": 2}
+    assert "/lp-record" in client.get("/openapi.json").json()["paths"]
 
 
 def test_unpinned_app_adopts_only_a_newly_promoted_snapshot(tmp_path):

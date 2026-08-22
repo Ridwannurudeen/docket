@@ -19,6 +19,7 @@ settlement configuration disables paid stock rather than preview access.
 import hmac
 import os
 import time
+from collections import OrderedDict
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +37,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.concurrency import run_in_threadpool
 
 from ..advantage.harness import compare, load
 from ..advantage.v2.page import fill as fill_v2_page
@@ -134,6 +136,7 @@ MAX_LIMIT = 100
 # durable database state; unadmitted stock never shows a payment challenge.
 FREE_TIER_HIRES = 20
 FREE_TIER_WINDOW_S = 3600
+MAX_ALLOWANCE_CLIENTS = 10_000
 # Stated on every /stats response: a number about liveness is unreadable without it.
 PROBE_METHOD = (
     "One GET per declared A2A or MCP endpoint, single attempt, 8s timeout, redirects not "
@@ -385,8 +388,9 @@ def create_app(
             raise RuntimeError(
                 "DOCKET_CANARY_TOKEN_FILE must contain a non-empty token"
             )
-    # Per app instance, so one process's allowances never outlive it. {ip: (window_start, used)}.
-    hires: dict[str, tuple[float, int]] = {}
+    # Per app instance, so one process's allowances never outlive it. Ordered by window
+    # start, which makes expired-window eviction bounded to the expired prefix.
+    hires: OrderedDict[str, tuple[float, int]] = OrderedDict()
 
     app = FastAPI(
         title="Docket",
@@ -397,6 +401,7 @@ def create_app(
             "endorse, or vouch for any agent."
         ),
     )
+    app.state.hire_allowances = hires
     # GET only. `HEAD` was advertised here while no route served it, so a preflight promised a
     # method that 405s — the wrong inconsistency for a project whose claim is honest description.
     app.add_middleware(
@@ -436,14 +441,21 @@ def create_app(
         Keyed on the peer address only. `X-Forwarded-For` is caller-controlled, and reading
         it here would turn the allowance into a header anyone can rewrite.
         """
-        if pay_to is None:
-            return None
         now = time.monotonic()
-        started, used = hires.get(client_ip, (now, 0))
-        if now - started >= FREE_TIER_WINDOW_S:
+        while hires:
+            _, (oldest_started, _) = next(iter(hires.items()))
+            if now - oldest_started < FREE_TIER_WINDOW_S:
+                break
+            hires.popitem(last=False)
+        current = hires.get(client_ip)
+        if current is None:
+            if len(hires) >= MAX_ALLOWANCE_CLIENTS:
+                hires.popitem(last=False)
             started, used = now, 0
-        if used >= FREE_TIER_HIRES:
             hires[client_ip] = (started, used)
+        else:
+            started, used = current
+        if used >= FREE_TIER_HIRES:
             return int(FREE_TIER_WINDOW_S - (now - started)) + 1
         hires[client_ip] = (started, used + 1)
         return None
@@ -568,7 +580,7 @@ def create_app(
             "snapshot_age_seconds": _snapshot_age_seconds(snapshot_captured_at),
         }
 
-    @app.get("/lp-record", response_model=None, include_in_schema=False)
+    @app.get("/lp-record", response_model=None)
     def lp_record() -> dict:
         history = read_lp_record(lp_record_path)
         return {"history": history, "total": len(history)}
@@ -1071,6 +1083,110 @@ def create_app(
                 "well exist; Docket could not reach a node to check. Retry.",
             )
 
+    @app.post("/hire/{service_id}/recover", response_model=None)
+    async def recover_hire(service_id: str, request: Request) -> JSONResponse | dict:
+        """Deliver a stored terminal result after the caller proves the original payment."""
+        service = get_service(service_id)
+        if service is None:
+            return _error(
+                404,
+                "service_not_found",
+                f"No service {service_id!r}. GET /hire lists every service Docket offers.",
+            )
+        try:
+            payload = await request.json()
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict):
+            return _error(
+                400,
+                "invalid_json",
+                "Recovery requires the exact original JSON request object.",
+            )
+        payment_payload = parse_payment_header(request.headers)
+        if payment_payload is None:
+            return _error(
+                400,
+                "payment_invalid",
+                "Recovery requires the original signed payment header.",
+            )
+        try:
+            nonce = payment_payload["payload"]["authorization"]["nonce"]
+        except (KeyError, TypeError):
+            return _error(
+                400,
+                "payment_invalid",
+                "The payment header does not carry a canonical authorization nonce.",
+            )
+        if not isinstance(nonce, str):
+            return _error(
+                400,
+                "payment_invalid",
+                "The payment header does not carry a canonical authorization nonce.",
+            )
+        existing = await run_in_threadpool(store.payment_by_nonce, nonce.lower())
+        if not existing:
+            return _error(
+                404,
+                "payment_not_found",
+                "No stored payment has that authorization nonce.",
+            )
+
+        challenge = build_challenge(
+            service, existing["recipient"], resource=existing["resource"]
+        )
+        verified, reason = await run_in_threadpool(
+            verify_payment,
+            payment_payload,
+            expected_requirements=challenge["accepts"][0],
+            expected_resource=challenge["resource"],
+        )
+        if verified is None:
+            return _error(
+                400,
+                "payment_invalid",
+                f"The signed payment was not accepted for recovery: {reason}.",
+            )
+        same_binding = (
+            existing["payment_id"] == verified.payment_id
+            and existing["service_id"] == service.id
+            and existing["payer"].lower() == verified.payer.lower()
+            and existing["recipient"].lower()
+            == challenge["accepts"][0]["payTo"].lower()
+            and existing["asset"].lower() == service.asset.lower()
+            and existing["amount"] == str(service.price_atomic)
+            and existing["input_hash"] == canonical_hash(payload)
+        )
+        if not same_binding:
+            return _error(
+                409,
+                "authorization_mismatch",
+                "That signed authorization is not bound to this service and request body.",
+            )
+        if existing["status"] not in {"settled", "settlement_unknown"}:
+            return _error(
+                409,
+                "payment_not_recoverable",
+                "That payment has no terminal deliverable result.",
+            )
+        result = existing.get("result")
+        if not isinstance(result, dict) or existing.get(
+            "output_hash"
+        ) != canonical_hash(result):
+            return _error(
+                500,
+                "payment_record_incomplete",
+                "The stored payment result is incomplete and cannot be delivered.",
+            )
+        receipt = existing.get("receipt")
+        if not isinstance(receipt, dict):
+            return _error(
+                500,
+                "payment_record_incomplete",
+                "The stored payment receipt is incomplete and cannot be delivered.",
+            )
+        return {"result": result, "receipt": receipt}
+
     @app.post("/hire/{service_id}", response_model=None)
     async def hire(service_id: str, request: Request) -> JSONResponse | dict:
         """Run one service and return the result bound to a receipt.
@@ -1118,19 +1234,56 @@ def create_app(
         canary_header_present, canary_authorized = _canary_authorized(
             request, service.id
         )
+        payment_payload = parse_payment_header(request.headers)
+        input_hash = canonical_hash(payload)
+        resource_url = str(request.url)
+        paid_stock = (await run_in_threadpool(_effective_admission, service.id)).passes
+        client_ip = request.client.host if request.client else "unknown"
+        payment_available = (
+            paid_stock and pay_to is not None and facilitator is not None
+        )
+        resets_in = _spend_allowance(client_ip)
+        if resets_in is not None:
+            if payment_available:
+                return JSONResponse(
+                    status_code=402,
+                    content={
+                        **build_challenge(service, pay_to, resource=resource_url),
+                        "error": {
+                            "code": "free_tier_exhausted",
+                            "message": (
+                                f"This caller has used its allowance of {FREE_TIER_HIRES} hires "
+                                f"per hour; it resets in {resets_in}s. Present the exact x402 "
+                                "authorization above to request a settled personalized result."
+                            ),
+                        },
+                    },
+                )
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(resets_in)},
+                content={
+                    "error": {
+                        "code": "hire_rate_limited",
+                        "message": (
+                            f"This caller has used its allowance of {FREE_TIER_HIRES} hires "
+                            f"per hour; it resets in {resets_in}s."
+                        ),
+                    }
+                },
+            )
+
         if canary_header_present and not canary_authorized:
+            _refund_allowance(client_ip)
             return _error(
                 403,
                 "canary_unauthorized",
                 "The canary credential was not accepted. No work ran and no charge was attempted.",
             )
-        payment_payload = parse_payment_header(request.headers)
-        input_hash = canonical_hash(payload)
-        resource_url = str(request.url)
-        paid_stock = _effective_admission(service.id).passes
 
         if payment_header_present and (paid_stock or canary_authorized):
             if pay_to is None or facilitator is None:
+                _refund_allowance(client_ip)
                 return _error(
                     503,
                     "settlement_unavailable",
@@ -1139,6 +1292,7 @@ def create_app(
                 )
             challenge = build_challenge(service, pay_to, resource=resource_url)
             if payment_payload is None:
+                _refund_allowance(client_ip)
                 return JSONResponse(
                     status_code=402,
                     content={
@@ -1153,12 +1307,14 @@ def create_app(
                     },
                 )
             requirements = challenge["accepts"][0]
-            verified, reason = verify_payment(
+            verified, reason = await run_in_threadpool(
+                verify_payment,
                 payment_payload,
                 expected_requirements=requirements,
                 expected_resource=challenge["resource"],
             )
             if verified is None:
+                _refund_allowance(client_ip)
                 return JSONResponse(
                     status_code=402,
                     content={
@@ -1170,7 +1326,7 @@ def create_app(
                     },
                 )
 
-            existing = store.payment_by_nonce(verified.nonce)
+            existing = await run_in_threadpool(store.payment_by_nonce, verified.nonce)
             if existing:
                 same_binding = (
                     existing["payment_id"] == verified.payment_id
@@ -1182,18 +1338,21 @@ def create_app(
                     and existing["resource"] == resource_url
                 )
                 if not same_binding:
+                    _refund_allowance(client_ip)
                     return _error(
                         409,
                         "authorization_replay",
                         "That authorization nonce is already bound to different work.",
                     )
                 if existing["status"] == "settled":
+                    _refund_allowance(client_ip)
                     return _error(
                         409,
                         "authorization_replay",
                         "That authorization already settled and cannot be replayed.",
                     )
                 if existing["status"] == "settlement_unknown":
+                    _refund_allowance(client_ip)
                     return _error(
                         409,
                         "settlement_pending_reconciliation",
@@ -1201,11 +1360,13 @@ def create_app(
                         "Docket will not retry it automatically.",
                     )
                 if existing["status"] in {"failed_no_charge", "settlement_failed"}:
+                    _refund_allowance(client_ip)
                     return _error(
                         409,
                         "authorization_spent",
                         "That authorization already reached a terminal no-replay state.",
                     )
+                _refund_allowance(client_ip)
                 return _error(
                     409,
                     "payment_in_progress",
@@ -1214,8 +1375,9 @@ def create_app(
 
             envelope = facilitator_envelope(payment_payload, requirements)
             try:
-                verification = facilitator.verify(envelope)
+                verification = await run_in_threadpool(facilitator.verify, envelope)
             except Exception as exc:
+                _refund_allowance(client_ip)
                 return _error(
                     502,
                     "payment_verification_unavailable",
@@ -1226,6 +1388,7 @@ def create_app(
                 verification.get("isValid") is not True
                 or str(verification.get("payer", "")).lower() != verified.payer.lower()
             ):
+                _refund_allowance(client_ip)
                 invalid_reason = verification.get("invalidReason") or (
                     "payer or validity mismatch"
                 )
@@ -1242,7 +1405,8 @@ def create_app(
                     },
                 )
 
-            reserved, existing = store.reserve_payment(
+            reserved, existing = await run_in_threadpool(
+                store.reserve_payment,
                 nonce=verified.nonce,
                 payment_id=verified.payment_id,
                 service_id=service.id,
@@ -1254,6 +1418,7 @@ def create_app(
                 input_hash=input_hash,
             )
             if not reserved:
+                _refund_allowance(client_ip)
                 return _error(
                     409,
                     (
@@ -1265,18 +1430,23 @@ def create_app(
                 )
 
             try:
-                result = service.run(payload)
+                result = await run_in_threadpool(service.run, payload)
             except ValueError as exc:
-                store.fail_payment(
-                    verified.payment_id, status="failed_no_charge", error=str(exc)
+                await run_in_threadpool(
+                    store.fail_payment,
+                    verified.payment_id,
+                    status="failed_no_charge",
+                    error=str(exc),
                 )
+                _refund_allowance(client_ip)
                 return _error(
                     422,
                     "invalid_field",
                     f"{service.id} could not read that request: {exc}. No settlement ran.",
                 )
             except Exception as exc:
-                store.fail_payment(
+                await run_in_threadpool(
+                    store.fail_payment,
                     verified.payment_id,
                     status="failed_no_charge",
                     error=f"{type(exc).__name__}: {exc}",
@@ -1289,7 +1459,8 @@ def create_app(
                 )
 
             if not is_human_readable_result(result):
-                store.fail_payment(
+                await run_in_threadpool(
+                    store.fail_payment,
                     verified.payment_id,
                     status="failed_no_charge",
                     error="empty or non-readable result",
@@ -1301,11 +1472,18 @@ def create_app(
                 )
 
             output_hash = canonical_hash(result)
-            store.record_payment_output(
-                verified.payment_id, output_hash=output_hash, result=result
+            await run_in_threadpool(
+                store.record_payment_output,
+                verified.payment_id,
+                output_hash=output_hash,
+                result=result,
             )
-            if not canary_authorized and not _effective_admission(service.id).passes:
-                store.fail_payment(
+            current_admission = await run_in_threadpool(
+                _effective_admission, service.id
+            )
+            if not canary_authorized and not current_admission.passes:
+                await run_in_threadpool(
+                    store.fail_payment,
                     verified.payment_id,
                     status="failed_no_charge",
                     error="paid admission closed before settlement",
@@ -1316,19 +1494,39 @@ def create_app(
                     "The service left paid admission before settlement. The result was not "
                     "delivered and no settlement ran.",
                 )
-            if not store.begin_payment_settlement(verified.payment_id):
+            if not await run_in_threadpool(
+                store.begin_payment_settlement, verified.payment_id
+            ):
                 return _error(
                     409,
                     "payment_in_progress",
                     "The authorization did not enter settlement from its bound output state.",
                 )
+            settlement_unknown_payment = {
+                "status": "settlement_unknown",
+                "asset": service.asset,
+                "amount": str(service.price_atomic),
+                "payer": verified.payer,
+                "recipient": pay_to,
+                "nonce": verified.nonce,
+                "payment_id": verified.payment_id,
+                "evidence": "stored state after one settlement attempt",
+            }
             try:
-                settlement = facilitator.settle(envelope)
+                settlement = await run_in_threadpool(facilitator.settle, envelope)
             except Exception as exc:
-                store.fail_payment(
+                unknown_receipt = build_receipt(
+                    service.id,
+                    payload,
+                    result,
+                    payment=settlement_unknown_payment,
+                )
+                await run_in_threadpool(
+                    store.fail_payment,
                     verified.payment_id,
                     status="settlement_unknown",
                     error=f"{type(exc).__name__}: {exc}",
+                    receipt=unknown_receipt,
                 )
                 return _error(
                     502,
@@ -1341,7 +1539,8 @@ def create_app(
                 settlement_error = str(
                     settlement.get("errorReason") or "facilitator refused settlement"
                 )
-                store.fail_payment(
+                await run_in_threadpool(
+                    store.fail_payment,
                     verified.payment_id,
                     status="settlement_failed",
                     error=settlement_error,
@@ -1360,10 +1559,18 @@ def create_app(
                 or network != requirements["network"]
                 or settlement_payer.lower() != verified.payer.lower()
             ):
-                store.fail_payment(
+                unknown_receipt = build_receipt(
+                    service.id,
+                    payload,
+                    result,
+                    payment=settlement_unknown_payment,
+                )
+                await run_in_threadpool(
+                    store.fail_payment,
                     verified.payment_id,
                     status="settlement_unknown",
                     error="successful response omitted or contradicted transaction binding",
+                    receipt=unknown_receipt,
                 )
                 return _error(
                     502,
@@ -1385,7 +1592,8 @@ def create_app(
                 "evidence": "configured facilitator x402 v2 settlement response",
             }
             receipt = build_receipt(service.id, payload, result, payment=payment)
-            store.finish_payment(
+            await run_in_threadpool(
+                store.finish_payment,
                 verified.payment_id,
                 transaction_id=transaction_id,
                 network=network,
@@ -1393,29 +1601,8 @@ def create_app(
             )
             return {"result": result, "receipt": receipt}
 
-        client_ip = request.client.host if request.client else "unknown"
-        payment_available = (
-            paid_stock and pay_to is not None and facilitator is not None
-        )
-        resets_in = _spend_allowance(client_ip) if payment_available else None
-        if resets_in is not None:
-            return JSONResponse(
-                status_code=402,
-                content={
-                    **build_challenge(service, pay_to, resource=resource_url),
-                    "error": {
-                        "code": "free_tier_exhausted",
-                        "message": (
-                            f"This caller has used its allowance of {FREE_TIER_HIRES} hires "
-                            f"per hour; it resets in {resets_in}s. Present the exact x402 "
-                            "authorization above to request a settled personalized result."
-                        ),
-                    },
-                },
-            )
-
         try:
-            result = service.run(payload)
+            result = await run_in_threadpool(service.run, payload)
         # The wallet in the payload reaches an address parser and an RPC, so both a caller's
         # typo and an upstream outage surface here. Reported as the contract shape at a
         # status that says whose problem it is, never as an untyped 500 — and the two
@@ -1427,8 +1614,7 @@ def create_app(
         # is Docket's own cost, not work done on this caller's behalf, and billing an
         # allowance for it would charge for work never performed.
         except ValueError as exc:
-            if payment_available:
-                _refund_allowance(client_ip)
+            _refund_allowance(client_ip)
             return _error(
                 422, "invalid_field", f"{service.id} could not read that request: {exc}"
             )
