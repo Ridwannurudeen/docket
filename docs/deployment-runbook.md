@@ -208,3 +208,56 @@ hashes. On failed canaries:
 
 This runbook cannot name a current rollback artifact because no deployed artifact is bound
 to this source in the repository.
+
+## Register the four identities
+
+This is an owner transaction procedure. `docket.identity.register` only reads BSC state and
+prints an unsigned transaction. It accepts no key and has no submission command.
+
+At BSC block `117439816` (`2026-08-22T14:26:28Z`), `eth_gasPrice` returned `50000000`
+wei (0.05 gwei). The range-doctor plan estimated 163,316 gas, or 0.0000081658 BNB at
+that observation; four transactions at the same estimate and gas price would cost
+0.0000326632 BNB. Fund the registration wallet for four fresh estimates plus the
+owner's chosen margin, because each plan re-reads both values.
+
+The planned token URIs are:
+
+- `https://docket.gudman.xyz/agents/range-doctor.registration.json`
+- `https://docket.gudman.xyz/agents/grid-operator.registration.json`
+- `https://docket.gudman.xyz/agents/yield-router.registration.json`
+- `https://docket.gudman.xyz/agents/health-guard.registration.json`
+
+The integrator must expose the four packaged documents at those exact paths. Until that
+route lands, the files exist in the wheel but the public URIs do not resolve.
+
+Process the services one at a time. A plan includes the wallet's pending nonce, so do not
+create all four plans first: wait for each transaction receipt before planning the next.
+
+```powershell
+$registrationWallet = Read-Host "Registration wallet address"
+./.venv/Scripts/python.exe -m docket.identity.register plan `
+  --service range-doctor --from $registrationWallet
+```
+
+For each plan:
+
+1. Check that `chainId` is 56, `to` is
+   `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`, and `data` begins with
+   `0xf2c298be`.
+2. Pass only `unsigned_transaction` to the owner's signing tooling. Do not pass a key to
+   Docket.
+3. Broadcast once with the owner's tooling and wait for a successful receipt.
+4. Save the receipt JSON and decode the minted ID:
+
+```powershell
+./.venv/Scripts/python.exe -c "import json,sys; from docket.identity.register import decode_registration; print(json.dumps(decode_registration(json.load(open(sys.argv[1]))), indent=2))" range-doctor.receipt.json
+```
+
+Repeat the plan, owner-sign, broadcast, receipt, and decode sequence for `grid-operator`,
+`yield-router`, and `health-guard`, changing the service and receipt filename each time.
+
+Hand the four service-to-agent-ID pairs and receipts to the integrator. The integrator then
+sets each `agent_id` in `docket/marketplace/registry.py`, adds the four IDs to
+`DOCKET_OWNED_AGENT_IDS` for the refresh sweep, exposes the four token-URI paths above, runs
+the targeted sweep, and restarts the application. Those integration changes happen only
+after the owner transactions and are outside this registration workstream.
