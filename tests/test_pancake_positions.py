@@ -167,6 +167,19 @@ class _EndpointSession:
         self.url = url
 
 
+def _read_wallet(reader, observation_block):
+    reader.wallet_positions(WALLET, observation_block=observation_block)
+
+
+def _read_pool(reader, observation_block):
+    reader.pool_state(
+        "0x205812CdBed920aFf76C6580abD681a46D11efc7",
+        "0x55d398326f99059fF775485246999027B3197955",
+        100,
+        observation_block=observation_block,
+    )
+
+
 def test_closed_positions_are_skipped_but_stay_countable():
     reader, log = _reader()
     read = reader.wallet_positions(WALLET)
@@ -338,15 +351,76 @@ def test_historical_pool_provenance_uses_the_requested_block_header():
     assert state["block_number"] == BLOCK
 
 
-def test_default_reader_prepends_archive_rpc_and_explicit_urls_stay_explicit(
-    monkeypatch,
-):
+@pytest.mark.parametrize(
+    ("session_type", "read"),
+    ((_FakeW3, _read_wallet), (_PoolW3, _read_pool)),
+    ids=("wallet", "pool"),
+)
+def test_latest_reads_keep_the_public_rpc_order(monkeypatch, session_type, read):
     monkeypatch.setenv("DOCKET_ARCHIVE_RPC", "https://archive.example")
+    attempted = []
 
-    assert PositionReader()._rpc_urls == ("https://archive.example", *BSC_RPCS)
-    assert PositionReader(rpc_urls=("https://explicit.example",))._rpc_urls == (
-        "https://explicit.example",
+    def session(url):
+        attempted.append(url)
+        return session_type([])
+
+    monkeypatch.setattr("docket.agents.pancake.positions.default_session", session)
+    read(PositionReader(), None)
+    assert attempted == [BSC_RPCS[0]]
+
+
+@pytest.mark.parametrize(
+    ("session_type", "read"),
+    ((_FakeW3, _read_wallet), (_PoolW3, _read_pool)),
+    ids=("wallet", "pool"),
+)
+def test_pinned_reads_try_the_archive_rpc_first(monkeypatch, session_type, read):
+    archive = "https://archive.example"
+    monkeypatch.setenv("DOCKET_ARCHIVE_RPC", archive)
+    attempted = []
+
+    def session(url):
+        attempted.append(url)
+        return session_type([])
+
+    monkeypatch.setattr("docket.agents.pancake.positions.default_session", session)
+    read(PositionReader(), BLOCK)
+    assert attempted == [archive]
+
+
+def test_a_block_derived_from_latest_keeps_the_public_rpc_order(monkeypatch):
+    monkeypatch.setenv("DOCKET_ARCHIVE_RPC", "https://archive.example")
+    attempted = []
+
+    def session(url):
+        attempted.append(url)
+        return _PoolW3([])
+
+    monkeypatch.setattr("docket.agents.pancake.positions.default_session", session)
+    PositionReader().pool_state(
+        "0x205812CdBed920aFf76C6580abD681a46D11efc7",
+        "0x55d398326f99059fF775485246999027B3197955",
+        100,
+        observation_block=BLOCK,
+        archive_first=False,
     )
+    assert attempted == [BSC_RPCS[0]]
+
+
+def test_explicit_rpc_urls_do_not_gain_the_archive_rpc(monkeypatch):
+    monkeypatch.setenv("DOCKET_ARCHIVE_RPC", "https://archive.example")
+    attempted = []
+    monkeypatch.setattr(
+        "docket.agents.pancake.positions.default_session", _EndpointSession
+    )
+    reader = PositionReader(rpc_urls=("https://explicit.example",))
+
+    def read(session):
+        attempted.append(session.url)
+        return session.url
+
+    assert reader._call(read, observation_block=BLOCK) == "https://explicit.example"
+    assert attempted == ["https://explicit.example"]
 
 
 def test_a_pruned_endpoint_fails_over_to_archive(monkeypatch):
@@ -401,6 +475,32 @@ def test_mixed_pruned_and_ordinary_failures_raise_ordinary_aggregate(monkeypatch
         reader._call(fail)
     assert not isinstance(caught.value, PrunedStateError)
     assert "pruned endpoint" in str(caught.value)
+    assert "connection reset by peer" in str(caught.value)
+
+
+def test_pruned_public_endpoints_and_unreachable_archive_keep_archive_remedy(
+    monkeypatch,
+):
+    archive = "https://archive.example"
+    monkeypatch.setenv("DOCKET_ARCHIVE_RPC", archive)
+    attempted = []
+    monkeypatch.setattr(
+        "docket.agents.pancake.positions.default_session", _EndpointSession
+    )
+    monkeypatch.setattr("docket.agents.pancake.positions.time.sleep", lambda _: None)
+    reader = PositionReader()
+
+    def fail(session):
+        attempted.append(session.url)
+        if session.url == archive:
+            raise ValueError("connection reset by peer")
+        raise ValueError("missing trie node 0xabc (path ) state 0xdef")
+
+    with pytest.raises(
+        PrunedStateError, match="reachable archive node is required"
+    ) as caught:
+        reader._call(fail, observation_block=BLOCK)
+    assert attempted == [archive, archive, *BSC_RPCS]
     assert "connection reset by peer" in str(caught.value)
 
 

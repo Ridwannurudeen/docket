@@ -220,6 +220,7 @@ class _StubReader:
         self._read = read
         self.calls: list[tuple] = []
         self.observation_blocks: list[int | None] = []
+        self.pool_archive_first: list[bool | None] = []
 
     def wallet_positions(
         self,
@@ -243,7 +244,16 @@ class _StubReader:
             **self._read,
         }
 
-    def pool_state(self, token0, token1, fee, *, observation_block=None):
+    def pool_state(
+        self,
+        token0,
+        token1,
+        fee,
+        *,
+        observation_block=None,
+        archive_first=None,
+    ):
+        self.pool_archive_first.append(archive_first)
         return POOL
 
 
@@ -330,6 +340,35 @@ def test_report_passes_the_bounds_through_to_the_reader():
     # `include_closed` reaches the diagnosis: the closed position is reported, not dropped.
     assert out["positions"][0]["diagnosis"]["status"] == "closed"
     assert out["positions"][0]["pool"] is None
+
+
+@pytest.mark.parametrize(
+    ("observation_block", "expected_archive_first"),
+    ((None, False), (114_000_000, True)),
+    ids=("latest", "historical"),
+)
+def test_report_only_prefers_archive_for_caller_pinned_history(
+    observation_block, expected_archive_first
+):
+    reader = _StubReader(
+        {
+            "positions": [POSITION],
+            "positions_held": 1,
+            "positions_examined": 1,
+            "closed_skipped": 0,
+        }
+    )
+
+    report(
+        "0xwallet",
+        reader=reader,
+        observation_block=observation_block,
+        pool_rows=[ROW],
+        token_allowlist={ROW["token0"]["id"], ROW["token1"]["id"]},
+        source_evidence={},
+    )
+
+    assert reader.pool_archive_first == [expected_archive_first]
 
 
 def test_an_empty_result_says_which_empty_it_is():
@@ -481,9 +520,7 @@ def test_pancake_headline_leads_with_generated_dollars_and_payback(monkeypatch):
         "docket.advantage.v2.report.decision_impact_section",
         lambda: decision_impact,
     )
-    monkeypatch.setattr(
-        "docket.agents.pancake.doctor._DECISION_IMPACT_SECTION", None
-    )
+    monkeypatch.setattr("docket.agents.pancake.doctor._DECISION_IMPACT_SECTION", None)
     reader = _StubReader(
         {
             "positions": [POSITION],
@@ -535,9 +572,7 @@ def test_reports_reuse_the_unchanged_frozen_decision_impact_headline(monkeypatch
         "docket.advantage.v2.report.decision_impact_section",
         counted_decision_impact_section,
     )
-    monkeypatch.setattr(
-        "docket.agents.pancake.doctor._DECISION_IMPACT_SECTION", None
-    )
+    monkeypatch.setattr("docket.agents.pancake.doctor._DECISION_IMPACT_SECTION", None)
     reader = _StubReader(
         {
             "positions": [],

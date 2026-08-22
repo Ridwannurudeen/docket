@@ -81,9 +81,7 @@ def pancake_headline(decision_impact: dict) -> dict:
             "median_annual_overstatement_usd"
         ],
         "n_candidate_moves": payback["n_moves"],
-        "median_payback_delay_days": payback[
-            "median_days_later_than_gross_implies"
-        ],
+        "median_payback_delay_days": payback["median_days_later_than_gross_implies"],
         "ranking_reversals": {
             "numerator": reversals["numerator"],
             "denominator": reversals["denominator"],
@@ -363,7 +361,11 @@ def report(
             continue
         key = (position["token0"], position["token1"], position["fee"])
         if key not in pool_cache:
-            pool_cache[key] = reader.pool_state(*key, observation_block=read_at_block)
+            pool_cache[key] = reader.pool_state(
+                *key,
+                observation_block=read_at_block,
+                archive_first=observation_block is not None,
+            )
         pool = pool_cache[key]
         entries.append(
             {
