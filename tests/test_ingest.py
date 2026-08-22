@@ -10,7 +10,9 @@ from docket.ingest import ingest_bsc, ingest_targeted
 from docket.scan8004 import Scan8004Client
 from docket.store import Store
 
-REGISTRY_TOTAL = 247_278  # what an unfiltered query reports; the filtered one must not say this
+REGISTRY_TOTAL = (
+    247_278  # what an unfiltered query reports; the filtered one must not say this
+)
 REGISTRY_ADDRESS = "0x8004a169fb4a3325136eb29fa0ceb6d2e539a432"
 OWNED_AGENT_ID = f"56:{REGISTRY_ADDRESS}:2"
 
@@ -45,7 +47,9 @@ def _paged_handler(total: int, page_size: int, grow_by: int = 0):
 
 def test_ingests_every_page_and_records_coverage(tmp_path):
     store = Store(tmp_path / "d.sqlite3")
-    client = Scan8004Client(transport=httpx.MockTransport(_paged_handler(250, 100)), pace=False)
+    client = Scan8004Client(
+        transport=httpx.MockTransport(_paged_handler(250, 100)), pace=False
+    )
     result = ingest_bsc(store, client)
     assert result["sampled"] == 250
     assert result["expected"] == 250
@@ -126,11 +130,17 @@ def test_unbounded_sweep_terminates_when_the_paginator_never_advances(tmp_path):
         # The API ignores `offset` and serves the same non-empty page forever.
         state["calls"] += 1
         if state["calls"] > 5:
-            raise AssertionError("sweep did not terminate: the stuck paginator was polled 6 times")
-        return httpx.Response(200, json={"items": [_row(t) for t in range(10)], "total": 30})
+            raise AssertionError(
+                "sweep did not terminate: the stuck paginator was polled 6 times"
+            )
+        return httpx.Response(
+            200, json={"items": [_row(t) for t in range(10)], "total": 30}
+        )
 
     client = Scan8004Client(transport=httpx.MockTransport(handler), pace=False)
-    result = ingest_bsc(store, client)  # no max_pages — liveness must come from the guard
+    result = ingest_bsc(
+        store, client
+    )  # no max_pages — liveness must come from the guard
     assert result["pages"] == 1
     assert result["sampled"] == 10
     assert result["dropped"] == 20
@@ -140,7 +150,9 @@ def test_unbounded_sweep_terminates_when_the_paginator_never_advances(tmp_path):
 
 def test_max_pages_bounds_the_sweep(tmp_path):
     store = Store(tmp_path / "d.sqlite3")
-    client = Scan8004Client(transport=httpx.MockTransport(_paged_handler(1000, 100)), pace=False)
+    client = Scan8004Client(
+        transport=httpx.MockTransport(_paged_handler(1000, 100)), pace=False
+    )
     result = ingest_bsc(store, client, max_pages=2)
     assert result["pages"] == 2
     assert result["sampled"] == 200
@@ -155,7 +167,9 @@ def test_duplicate_rows_across_pages_do_not_inflate_the_count(tmp_path):
 
     def handler(request: httpx.Request) -> httpx.Response:
         # Every page returns the same 10 rows — a pathological paginator.
-        return httpx.Response(200, json={"items": [_row(t) for t in range(10)], "total": 30})
+        return httpx.Response(
+            200, json={"items": [_row(t) for t in range(10)], "total": 30}
+        )
 
     client = Scan8004Client(transport=httpx.MockTransport(handler), pace=False)
     result = ingest_bsc(store, client, max_pages=3)
@@ -197,43 +211,57 @@ def test_targeted_sweep_sends_the_filter_on_every_page(tmp_path):
 
 def test_targeted_sweep_accounts_against_the_filtered_total(tmp_path):
     store = Store(tmp_path / "d.sqlite3")
-    client = Scan8004Client(transport=httpx.MockTransport(_filtered_handler(250)), pace=False)
+    client = Scan8004Client(
+        transport=httpx.MockTransport(_filtered_handler(250)), pace=False
+    )
     result = ingest_targeted(store, client)
     assert result["sampled"] == 250
     assert result["expected"] == 250  # the filtered query's total
     assert result["expected"] != REGISTRY_TOTAL  # never the registry's
     assert result["dropped"] == 0
-    assert result["min_feedbacks"] == 1  # so the total can never be read as registry-wide
+    assert (
+        result["min_feedbacks"] == 1
+    )  # so the total can never be read as registry-wide
 
 
 def test_targeted_sweep_surfaces_dropped_when_bounded(tmp_path):
     store = Store(tmp_path / "d.sqlite3")
-    client = Scan8004Client(transport=httpx.MockTransport(_filtered_handler(250)), pace=False)
+    client = Scan8004Client(
+        transport=httpx.MockTransport(_filtered_handler(250)), pace=False
+    )
     result = ingest_targeted(store, client, max_pages=1)
     assert result["sampled"] == 100
     assert result["expected"] == 250
-    assert result["dropped"] == 150  # a bounded filtered sweep states its own incompleteness
+    assert (
+        result["dropped"] == 150
+    )  # a bounded filtered sweep states its own incompleteness
 
 
 def test_targeted_sweep_persists_the_predicate_that_narrowed_it(tmp_path):
     """`min_feedbacks` was returned to the caller and then forgotten. Stored, it travels with
     every figure drawn from the snapshot, so a filtered total can never be read as a census."""
     store = Store(tmp_path / "d.sqlite3")
-    client = Scan8004Client(transport=httpx.MockTransport(_filtered_handler(150)), pace=False)
+    client = Scan8004Client(
+        transport=httpx.MockTransport(_filtered_handler(150)), pace=False
+    )
     result = ingest_targeted(store, client, min_feedbacks=3)
     assert store.snapshot(result["snapshot_id"])["population"] == "min_feedbacks>=3"
 
 
 def test_unfiltered_sweep_says_so_rather_than_leaving_it_blank(tmp_path):
     store = Store(tmp_path / "d.sqlite3")
-    client = Scan8004Client(transport=httpx.MockTransport(_paged_handler(250, 100)), pace=False)
+    client = Scan8004Client(
+        transport=httpx.MockTransport(_paged_handler(250, 100)), pace=False
+    )
     result = ingest_bsc(store, client)
     assert store.snapshot(result["snapshot_id"])["population"] == "all"
 
 
 def test_targeted_sweep_records_its_own_snapshot(tmp_path):
     store = Store(tmp_path / "d.sqlite3")
-    client = Scan8004Client(transport=httpx.MockTransport(_filtered_handler(150)), pace=False)
+    client = Scan8004Client(
+        transport=httpx.MockTransport(_filtered_handler(150)), pace=False
+    )
     result = ingest_targeted(store, client)
     row = store.snapshot(result["snapshot_id"])
     assert row["chain_id"] == 56
@@ -270,7 +298,9 @@ def test_targeted_sweep_adds_a_zero_feedback_owned_agent_to_its_population(tmp_p
 
 def test_targeted_candidate_can_finish_without_becoming_current(tmp_path):
     store = Store(tmp_path / "d.sqlite3")
-    client = Scan8004Client(transport=httpx.MockTransport(_filtered_handler(1)), pace=False)
+    client = Scan8004Client(
+        transport=httpx.MockTransport(_filtered_handler(1)), pace=False
+    )
 
     result = ingest_targeted(store, client, promote=False)
 
@@ -280,7 +310,9 @@ def test_targeted_candidate_can_finish_without_becoming_current(tmp_path):
     assert store.latest_complete_snapshot_id() is None
 
 
-def test_targeted_sweep_rejects_a_malformed_owned_agent_id_before_calling_the_api(tmp_path):
+def test_targeted_sweep_rejects_a_malformed_owned_agent_id_before_calling_the_api(
+    tmp_path,
+):
     store = Store(tmp_path / "d.sqlite3")
     calls = {"n": 0}
 

@@ -74,9 +74,7 @@ def refresh_once(
         )
 
     targets = sum(
-        1
-        for kind in PROBE_KINDS
-        for _ in store.iter_endpoints(snapshot_id, kind=kind)
+        1 for kind in PROBE_KINDS for _ in store.iter_endpoints(snapshot_id, kind=kind)
     )
     liveness = probe_snapshot(
         store,
@@ -108,7 +106,9 @@ def owned_agent_ids_from_environment(environment: Mapping[str, str]) -> tuple[st
         return ()
     agent_ids = tuple(part.strip() for part in value.split(","))
     if any(not agent_id for agent_id in agent_ids):
-        raise ValueError("DOCKET_OWNED_AGENT_IDS must be a comma-separated list of agent ids")
+        raise ValueError(
+            "DOCKET_OWNED_AGENT_IDS must be a comma-separated list of agent ids"
+        )
     return agent_ids
 
 

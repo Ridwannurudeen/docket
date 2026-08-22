@@ -9,7 +9,11 @@ def _seed(tmp_path, urls):
     store = Store(tmp_path / "d.sqlite3")
     sid = store.begin_snapshot(chain_id=56, expected=None)
     store.upsert_endpoints(
-        [{"agent_id": f"56:r:{i}", "kind": "a2a", "url": u} for i, u in enumerate(urls)], sid
+        [
+            {"agent_id": f"56:r:{i}", "kind": "a2a", "url": u}
+            for i, u in enumerate(urls)
+        ],
+        sid,
     )
     return store, sid
 

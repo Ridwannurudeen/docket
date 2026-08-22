@@ -25,7 +25,9 @@ from .store import Store
 # `blocked` means one thing only: we refused this target on policy grounds. A host that would
 # not resolve is `unresolved` — filing it as blocked would credit the guard with a refusal it
 # never made, and on the first real run that was 8 points of the headline figure.
-OUTCOMES = frozenset({"responded", "timeout", "refused", "blocked", "unresolved", "error"})
+OUTCOMES = frozenset(
+    {"responded", "timeout", "refused", "blocked", "unresolved", "error"}
+)
 TIMEOUT_S = 8.0
 HEADERS = {
     "user-agent": "Docket/0.1 (+https://github.com/Ridwannurudeen/docket)",
@@ -124,7 +126,9 @@ def probe_one(
         observation.update(outcome="timeout", detail=type(exc).__name__)
     except httpx.ConnectError as exc:
         observation.update(outcome="refused", detail=type(exc).__name__)
-    except Exception as exc:  # a registry-supplied URL can break httpx outside HTTPError
+    except (
+        Exception
+    ) as exc:  # a registry-supplied URL can break httpx outside HTTPError
         observation.update(outcome="error", detail=type(exc).__name__)
     observation["elapsed_ms"] = int((time.monotonic() - started) * 1000)
     return observation
@@ -156,7 +160,9 @@ def probe_snapshot(
             # A fresh direct client per target prevents a connection pinned for one hostname
             # from being pooled for another hostname that happens to share its address.
             with httpx.Client(trust_env=False) as owned_client:
-                rows.append(probe_one(owned_client, endpoint, now=_now(), resolver=resolver))
+                rows.append(
+                    probe_one(owned_client, endpoint, now=_now(), resolver=resolver)
+                )
         else:
             rows.append(probe_one(client, endpoint, now=_now(), resolver=resolver))
 
@@ -167,5 +173,7 @@ def probe_snapshot(
         "responded": outcomes.count("responded"),
         "blocked": outcomes.count("blocked"),
         "unresolved": outcomes.count("unresolved"),
-        "failed": sum(1 for outcome in outcomes if outcome in ("timeout", "refused", "error")),
+        "failed": sum(
+            1 for outcome in outcomes if outcome in ("timeout", "refused", "error")
+        ),
     }

@@ -46,16 +46,16 @@ def _owned_targets(agent_ids: tuple[str, ...], chain_id: int) -> list[tuple[str,
                 f"owned agent id {value!r} must be "
                 f"{chain_id}:<20-byte registry address>:<token id>"
             )
-        normalized = (
-            f"{chain_id}:{match['registry'].lower()}:{int(match['token_id'])}"
-        )
+        normalized = f"{chain_id}:{match['registry'].lower()}:{int(match['token_id'])}"
         if normalized not in seen:
             targets.append((normalized, match["token_id"]))
             seen.add(normalized)
     return targets
 
 
-def _owned_detail(detail: dict, expected_agent_id: str, token_id: str, chain_id: int) -> int:
+def _owned_detail(
+    detail: dict, expected_agent_id: str, token_id: str, chain_id: int
+) -> int:
     actual_agent_id = detail.get("agent_id")
     if (
         not isinstance(actual_agent_id, str)
@@ -156,15 +156,11 @@ def _sweep(
     if stop_reason is None:
         raise RuntimeError("ingest sweep stopped without a classified reason")
 
-    stored_agent_ids = {
-        agent["agent_id"].lower() for agent in store.iter_agents(sid)
-    }
+    stored_agent_ids = {agent["agent_id"].lower() for agent in store.iter_agents(sid)}
     owned_agents_added = 0
     for expected_agent_id, token_id in owned_targets:
         detail = client.get_agent(chain_id, token_id)
-        total_feedbacks = _owned_detail(
-            detail, expected_agent_id, token_id, chain_id
-        )
+        total_feedbacks = _owned_detail(detail, expected_agent_id, token_id, chain_id)
         if expected_agent_id not in stored_agent_ids:
             if min_feedbacks is not None and total_feedbacks < min_feedbacks:
                 expected += 1
