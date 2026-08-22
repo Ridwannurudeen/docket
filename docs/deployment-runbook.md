@@ -93,8 +93,8 @@ not evidence that they were installed.
 
 ## Configuration
 
-With no settlement environment variables, all current services remain free and
-unmetered because none is paid stock.
+With no settlement environment variables, all current services remain free and subject to
+the 20-per-hour peer-address allowance because none is paid stock.
 
 The x402 path is owner-gated by all three of:
 
@@ -105,6 +105,11 @@ The x402 path is owner-gated by all three of:
 Do not enable these until a service passes all four admission limbs and the chosen
 facilitator/$U flow has a real preflight. Configuration alone does not change
 `paid_stock`; the service admission must also pass.
+
+Before paid stock opens, install the tracked nginx `limit_req` example in the live `http` and
+`/hire/` contexts, run `nginx -t`, and reload nginx. Paid authorizations bypass the application
+free allowance so shared-egress free usage cannot make payment impossible; nginx's
+peer-address `30r/m` limit is the separate paid-path bound.
 
 The ERC-8183 broadcaster is separate and refuses to start without `DOCKET_SETTLE_KEY`.
 This repository contains no key and this runbook does not direct an operator to create or
@@ -156,6 +161,15 @@ terms do not bind to the stored payment; and `payment_not_recoverable` (`409`) m
 not reached either recoverable state. None of those responses authorizes another settlement
 attempt. Confirm the request reached the release using the intended `DOCKET_DB`, then investigate
 the durable row before any owner-approved next action.
+
+After the signed window closes, use the operator path on the same route. Send
+`Authorization: Bearer` from `DOCKET_CANARY_TOKEN_FILE` without printing or logging the token,
+and send `{"nonce":"<the stored authorization nonce>"}` as the JSON body. A successful call
+returns the same stored envelope and writes `operator_recovered_at` on the payment row. It does
+not recheck the expired signature, change payment status, or call the service or facilitator.
+A wrong or unavailable token returns `401 operator_unauthorized`. Both buyer and operator
+recovery share a 10-attempt-per-minute peer-address bound and return
+`429 recovery_rate_limited` with `Retry-After` when it is exhausted.
 
 ## Daily governing canary
 
@@ -236,6 +250,15 @@ liveness guard is in that release. Install the two unit files under `/etc/system
 schedule with `systemctl list-timers docket-refresh.timer` and inspect the first completed run with
 `systemctl status docket-refresh.service` plus `journalctl -u docket-refresh.service` before
 treating freshness as operational.
+
+Every refresh that enters the pipeline writes `/var/lib/docket/data/last-refresh.json` atomically
+with `status`
+(`ok`, `refused`, or `error`) and a UTC `timestamp`; `/stats.refresh_status` reads the same file
+on every request. Check both after every installation or allowlist change. `Restart=no` means a
+failed oneshot has no automatic retry, and this unit has no automatic alert, so the operator's
+monitoring must inspect `systemctl status docket-refresh.service`,
+`journalctl -u docket-refresh.service`, and the status file. A refusal or error keeps the prior
+promoted snapshot online.
 
 Until Docket's new ERC-8004 registrations exist, leave `/etc/docket/docket-refresh.conf` absent;
 the targeted feedback sweep still runs. Once the identities exist, create that root-managed file
