@@ -263,23 +263,51 @@ function populationLabel(coverage) {
 function paintCoverage(coverage) {
   const target = region("snapshot");
   if (!target) return;
-  const partial = coverage.complete !== true || coverage.dropped > 0;
+  const incomplete = coverage.complete !== true || coverage.dropped > 0;
+  const ageSeconds = Number(coverage.snapshot_age_seconds);
+  const ageUnavailable =
+    coverage.snapshot_age_seconds === null || !Number.isFinite(ageSeconds);
+  const ageDays = ageUnavailable ? null : ageSeconds / 86400;
+  const stale = ageDays !== null && ageDays >= 7;
+  const status = incomplete
+    ? "Partial snapshot"
+    : ageUnavailable
+      ? "Snapshot freshness unavailable"
+      : stale
+        ? "Stale snapshot"
+        : "Complete snapshot";
+  const age = ageDays === null ? "unavailable" : `${ageDays.toFixed(1)} days`;
   const captured = coverage.captured_at;
-  target.innerHTML = `<span class="status-dot" data-state="${partial ? "partial" : "complete"}" aria-hidden="true"></span>
-    <span>${partial ? "Partial snapshot" : "Complete snapshot"}</span>
+  target.innerHTML = `<span class="status-dot" data-state="${incomplete || stale || ageUnavailable ? "partial" : "complete"}" aria-hidden="true"></span>
+    <span>${status}</span>
     <span><span class="status-key">id</span> <strong class="num">${escapeHTML(coverage.snapshot_id)}</strong></span>
     <span><span class="status-key">captured</span> <strong title="${escapeHTML(captured || "")}">${escapeHTML(relativeTime(captured))}</strong></span>
-    <span><span class="status-key">age</span> <strong class="num">${escapeHTML(fmtInt(coverage.snapshot_age_seconds))} seconds</strong></span>
+    <span><span class="status-key">age</span> <strong class="num">${escapeHTML(age)}</strong></span>
     <span><span class="status-key">sampled</span> <strong class="num">${escapeHTML(fmtInt(coverage.sampled))} of ${escapeHTML(fmtInt(coverage.expected))}</strong></span>
     <span><span class="status-key">dropped</span> <strong class="num">${escapeHTML(fmtInt(coverage.dropped))}</strong></span>
     <span><span class="status-key">population</span> <strong class="mono">${escapeHTML(populationLabel(coverage))}</strong></span>`;
 
   const banner = region("partial");
   if (!banner) return;
-  if (partial) {
+  if (incomplete || stale || ageUnavailable) {
+    const completeness = incomplete
+      ? `${escapeHTML(fmtInt(coverage.sampled))} of ${escapeHTML(fmtInt(coverage.expected))} expected agents were stored and ${escapeHTML(fmtInt(coverage.dropped))} were dropped. Every count on this page therefore understates its population.`
+      : "All agents returned by this snapshot's query were stored.";
+    const freshness = ageUnavailable
+      ? "Its age is unavailable, so this page does not present it as current."
+      : stale
+        ? `This snapshot is ${escapeHTML(age)} old, at or beyond the seven-day freshness boundary.`
+        : `Its age is ${escapeHTML(age)}.`;
+    const heading = incomplete
+      ? stale || ageUnavailable
+        ? "This snapshot is partial and its freshness needs attention"
+        : "This snapshot is partial"
+      : ageUnavailable
+        ? "This snapshot's freshness is unavailable"
+        : "This snapshot is stale";
     banner.innerHTML = `<div class="notice notice-warn">
-        <h3>This snapshot is partial</h3>
-        <p>${escapeHTML(fmtInt(coverage.sampled))} of ${escapeHTML(fmtInt(coverage.expected))} expected agents were stored and ${escapeHTML(fmtInt(coverage.dropped))} were dropped. Every count on this page therefore understates its population.</p>
+        <h3>${heading}</h3>
+        <p>${completeness} ${freshness}</p>
       </div>`;
     banner.hidden = false;
   } else {
@@ -306,7 +334,8 @@ function summarise(text, limit = 260) {
 }
 
 function metricLines(metrics) {
-  if (!metrics.length) return "";
+  if (!metrics.length)
+    return `<p class="metric-note">No run recorded yet.</p>`;
   /* `display` is the figure with its denominator already inside the string. The page
      never touches the numerator on its own, so no template here can print a share
      stripped of the population it was measured against. */
@@ -332,22 +361,31 @@ function serviceCard(card) {
   const identity = card.agent_id
     ? `${card.identity} Whether Docket's snapshot holds that agent is stated on the service page.`
     : card.identity;
-  const priceLabel = card.paid_stock ? "Price" : "Price after admission";
   const action = card.paid_stock
     ? `Pay ${escapeHTML(card.price_display)} and hire`
-    : `Open ${escapeHTML(card.stock_status)}`;
+    : "Run it free";
+  const admission = card.paid_stock
+    ? ""
+    : `<details class="admission">
+        <summary>Why this isn't for sale yet</summary>
+        <ul class="facts">
+          <li><span class="fact-key">Price after admission</span> <span class="num">${escapeHTML(card.price_display)}</span></li>
+          <li><span class="fact-key">Paid-stock status</span> ${escapeHTML(card.stock_status)}</li>
+        </ul>
+      </details>`;
   return `<div class="service">
       <h4><a href="${href}">${escapeHTML(card.name)}</a></h4>
       <p>${escapeHTML(summary.text)}${more}</p>
       <ul class="facts">
-        <li><span class="fact-key">${priceLabel}</span> <span class="num">${escapeHTML(card.price_display)}</span></li>
-        <li><span class="fact-key">Paid-stock status</span> ${escapeHTML(card.stock_status)}</li>
-        <li><span class="fact-key">Typical run</span> <span class="num">${escapeHTML(fmtInt(card.typical_seconds))} seconds</span></li>
+        ${card.paid_stock ? `<li><span class="fact-key">Price</span> <span class="num">${escapeHTML(card.price_display)}</span></li>` : ""}
+        <li><span class="fact-key">Typical run, declared</span> <span class="num">${escapeHTML(fmtInt(card.typical_seconds))} seconds</span></li>
+        <li><span class="fact-key">Evidence modality</span> ${escapeHTML(card.evidence_modality.replaceAll("_", " "))}</li>
         <li><span class="fact-key">What activating does</span> ${escapeHTML(card.activation_means)}</li>
       </ul>
       ${metricLines(card.metrics)}
       <p class="dim">${escapeHTML(identity)}</p>
       <p class="btn-row"><a class="btn btn-primary" href="${href}">${action}</a></p>
+      ${admission}
     </div>`;
 }
 
@@ -461,43 +499,59 @@ export function inputControl(name, field) {
 
 function activationForm(record) {
   const fields = Object.entries(record.input_schema);
-  const controls = fields.length
-    ? fields
-        .map(
-          ([name, field]) => `<div class="field">
+  const fieldMarkup = ([name, field]) => `<div class="field">
             <label for="field-${escapeHTML(name)}">
               ${escapeHTML(name)}${field.required ? "" : " (optional)"}
             </label>
             ${inputControl(name, field)}
             <p class="dim">${escapeHTML(field.description || "")}</p>
-          </div>`,
-        )
-        .join("")
+            ${field.example_note ? `<p class="example-note">${escapeHTML(field.example_note)}</p>` : ""}
+          </div>`;
+  const regular = fields.filter(([, field]) => field.advanced !== true);
+  const advanced = fields.filter(([, field]) => field.advanced === true);
+  const controls = regular.length
+    ? regular.map(fieldMarkup).join("")
     : `<p class="dim">This service takes no arguments: what arrives is whatever was last
          published, so there is nothing for you to supply.</p>`;
+  const reproducibility = advanced.length
+    ? `<details class="advanced">
+        <summary>Advanced — reproducibility</summary>
+        <div class="advanced-fields">${advanced.map(fieldMarkup).join("")}</div>
+      </details>`
+    : "";
+  const hasWorkedExample = fields.some(
+    ([, field]) => Boolean(field.example_note),
+  );
   const runLabel = record.paid_stock
     ? "Run a free preview"
-    : `Run the ${escapeHTML(record.stock_status)}`;
+    : "Run it free";
   const availability = record.paid_stock
-    ? `This service has passed all four paid-stock gates. Agents can submit its exact x402
+    ? `<p class="section-note">This service has passed all four paid-stock gates. Agents can submit its exact x402
        authorization to <span class="mono">${escapeHTML(record.hire_path)}</span>; this page
-       runs only the free preview because it holds no signing key.`
-    : `This service is <strong>not admitted to paid stock</strong>. Its status is
-       <span class="mono">${escapeHTML(record.stock_status)}</span>, so this form runs only the
-       free ${escapeHTML(record.stock_status)} and does not use a payment authorization.`;
+       runs only the free preview because it holds no signing key.</p>`
+    : `<section class="admission-info" aria-labelledby="admission-heading">
+        <h3 id="admission-heading">Why this isn't for sale yet</h3>
+        <p>This service is <strong>not admitted to paid stock</strong>. Its status is
+          <span class="mono">${escapeHTML(record.stock_status)}</span>, so this form runs it
+          free and does not use a payment authorization.</p>
+        <dl class="deflist">
+          <dt>Price after admission</dt><dd class="num">${escapeHTML(record.price_display)}</dd>
+          <dt>Paid-stock status</dt><dd>${escapeHTML(record.stock_status)}</dd>
+        </dl>
+      </section>`;
   return `<form class="activate" data-activate novalidate>
       ${controls}
+      ${reproducibility}
       <p class="btn-row">
         <button type="submit" class="btn btn-primary" data-run>${runLabel}</button>
+        ${hasWorkedExample ? '<button type="submit" class="btn" data-example>Try the worked example</button>' : ""}
         <span class="dim">
           Typical run ${escapeHTML(fmtInt(record.typical_seconds))} seconds. One attempt, and the
           result is whatever it returns.
         </span>
       </p>
-      <p class="dim">
-        ${availability}
-      </p>
-    </form>`;
+    </form>
+    ${availability}`;
 }
 
 function paintServiceRecord(record) {
@@ -527,9 +581,9 @@ function paintServiceRecord(record) {
     <p class="lede">${escapeHTML(record.what_you_get)}</p>
     <div class="panel">
       <dl class="deflist">
-        <dt>${record.paid_stock ? "Price" : "Price after admission"}</dt><dd class="num">${escapeHTML(record.price_display)} (${escapeHTML(record.price_atomic)} atomic units of <span class="mono">${escapeHTML(record.asset)}</span>)</dd>
-        <dt>Paid-stock status</dt><dd>${escapeHTML(record.stock_status)}${record.paid_stock ? " — all four admission facts passed" : " — no Pay and hire offer is available"}</dd>
-        <dt>Typical run</dt><dd class="num">${escapeHTML(fmtInt(record.typical_seconds))} seconds</dd>
+        ${record.paid_stock ? `<dt>Price</dt><dd class="num">${escapeHTML(record.price_display)} (${escapeHTML(record.price_atomic)} atomic units of <span class="mono">${escapeHTML(record.asset)}</span>)</dd>` : ""}
+        <dt>Typical run, declared</dt><dd class="num">${escapeHTML(fmtInt(record.typical_seconds))} seconds</dd>
+        <dt>Evidence modality</dt><dd>${escapeHTML(record.evidence_modality.replaceAll("_", " "))}</dd>
         <dt>What activating does</dt><dd>${escapeHTML(record.activation_means)}</dd>
         <dt>How an agent calls it</dt><dd class="mono">${escapeHTML(record.hire_method)} ${escapeHTML(record.hire_path)}</dd>
       </dl>
@@ -541,7 +595,7 @@ function paintServiceRecord(record) {
         it was measured against and the record it came from.
       </p>
       <div class="panel">
-        ${metricLines(record.metrics) || '<p class="dim">Nothing has been recorded for this service yet.</p>'}
+        ${metricLines(record.metrics)}
         ${record.metrics
           .map(
             (metric) =>
@@ -1167,7 +1221,7 @@ function wireActivation(record) {
   target.innerHTML = activationForm(record);
   const form = target.querySelector("[data-activate]");
   wireArrayControls(form);
-  const button = form.querySelector("[data-run]");
+  const buttons = form.querySelectorAll('button[type="submit"]');
   const outcome = region("outcome");
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1196,7 +1250,9 @@ function wireActivation(record) {
       });
       return;
     }
-    button.disabled = true;
+    buttons.forEach((button) => {
+      button.disabled = true;
+    });
     outcome.innerHTML = `<div class="notice" role="status">
         <p>Running ${escapeHTML(record.name)}. It usually takes about
         ${escapeHTML(fmtInt(record.typical_seconds))} seconds, and this is one attempt.</p>
@@ -1209,7 +1265,9 @@ function wireActivation(record) {
     } catch (err) {
       paintRunFailure(outcome, err);
     } finally {
-      button.disabled = false;
+      buttons.forEach((button) => {
+        button.disabled = false;
+      });
     }
   });
 }
@@ -1336,9 +1394,13 @@ function paintStats(stats) {
   paintSlice(stats);
 
   fill("sampled", fmtInt(cov.sampled));
+  const sampledPopulation =
+    stats.registry_total !== null && cov.population === "min_feedbacks>=1"
+      ? `${fmtInt(cov.sampled)} of ${fmtInt(stats.registry_total)} BSC agents — the ones carrying at least one feedback record`
+      : `of ${fmtInt(cov.expected)} the registry said to expect, ${fmtInt(cov.dropped)} dropped`;
   fill(
     "sampled-note",
-    `of ${fmtInt(cov.expected)} the registry said to expect, ${fmtInt(cov.dropped)} dropped`,
+    sampledPopulation,
   );
 
   fill("with-feedback", fmtInt(stats.with_feedback));
@@ -1400,22 +1462,40 @@ function comparisonRow(row) {
        <span class="metric-note">(agent ${escapeHTML(seconds(measured.agent_seconds))},
        by hand ${escapeHTML(seconds(measured.manual_seconds))}, n=${escapeHTML(
          String(measured.sample_size),
-       )})</span>`
+       )})</span><br><span class="metric-note">${escapeHTML(measured.basis)}</span>`
     : `<span class="metric-note">${escapeHTML(measured.reason || "not measured")}</span>`;
-  const gates = (row.admission_failing || []).length
-    ? `<span class="metric-note">not yet for sale — ${escapeHTML(
-        row.admission_failing.join(", "),
-      )}</span>`
-    : `<span class="metric-note">every admission limb passing</span>`;
+  const evidence = row.evidence.available
+    ? `<a href="${escapeHTML(row.evidence.url)}">${escapeHTML(row.evidence.label)}</a>`
+    : `<span class="metric-note">${escapeHTML(row.evidence.reason)}</span>`;
   return `<tr>
       <th scope="row">${escapeHTML(row.name)}<br><span class="metric-note">${escapeHTML(
         row.job,
       )}</span></th>
-      <td class="num">${escapeHTML(row.price_display)}</td>
-      <td class="num">${escapeHTML(String(row.typical_seconds))}s</td>
-      <td>${escapeHTML(row.stock_status)}<br>${gates}</td>
+      <td>${row.paid_stock ? `<span class="num">${escapeHTML(row.price_display)}</span>` : "Free"}</td>
+      <td class="num">${escapeHTML(String(row.typical_seconds))}s<br><span class="metric-note">${escapeHTML(row.typical_seconds_basis)}</span></td>
       <td>${saving}</td>
+      <td>${escapeHTML(row.freshness)}</td>
+      <td>${evidence}</td>
     </tr>`;
+}
+
+function comparisonAdmission(rows) {
+  const pending = rows.filter((row) => !row.paid_stock);
+  if (!pending.length) return "";
+  return `<section class="admission-info" aria-labelledby="comparison-admission-heading">
+      <h3 id="comparison-admission-heading">Why this isn't for sale yet</h3>
+      <ul class="facts">${pending
+        .map(
+          (row) => `<li><strong>${escapeHTML(row.name)}</strong>
+            <span>${escapeHTML(row.stock_status)}</span>
+            <span class="metric-note">${escapeHTML(
+              (row.admission_failing || []).length
+                ? row.admission_failing.join(", ")
+                : "No failing admission reason was returned.",
+            )}</span></li>`,
+        )
+        .join("")}</ul>
+    </section>`;
 }
 
 function seconds(value) {
@@ -1435,24 +1515,56 @@ async function paintCompare() {
   target.innerHTML = `<div class="table-wrap"><table>
       <thead><tr>
         <th scope="col">Service</th>
-        <th scope="col">Price</th>
-        <th scope="col">Typically</th>
-        <th scope="col">For sale?</th>
+        <th scope="col">Run</th>
+        <th scope="col">Declared time</th>
         <th scope="col">Measured against a person</th>
+        <th scope="col">Freshness</th>
+        <th scope="col">Evidence</th>
       </tr></thead>
       <tbody>${table.rows.map(comparisonRow).join("")}</tbody>
     </table></div>
     <p class="section-note">${escapeHTML(table.summary.reading)}
     ${escapeHTML(
       String(table.summary.services_with_a_paired_measurement),
-    )} of ${escapeHTML(String(table.summary.services))} services have one.</p>`;
+    )} of ${escapeHTML(String(table.summary.services))} services have one.</p>
+    ${comparisonAdmission(table.rows)}`;
+}
+
+async function paintPancakeImpact() {
+  const target = region("pancake-impact");
+  if (!target) return;
+  let report;
+  try {
+    report = await fetchJSON("/advantage/v2.json");
+  } catch (err) {
+    renderError(target, err);
+    return;
+  }
+  const impact = report.decision_impact;
+  const shift = impact.break_even_shift;
+  const dollars = impact.dollars_at_notionals.notionals.find(
+    (item) => item.notional_usd === shift.notional_usd,
+  );
+  const reversals = impact.ranking_reversals;
+  const notional =
+    dollars.notional_usd % 1000 === 0
+      ? `$${fmtInt(dollars.notional_usd / 1000)}k`
+      : usd(dollars.notional_usd);
+  target.innerHTML = `<div class="panel impact-panel">
+      <p class="impact-value"><strong>${escapeHTML(usd(dollars.median_annual_overstatement_usd))} median annual overstatement at ${escapeHTML(notional)} notional (n=${escapeHTML(fmtInt(dollars.n_pools))}) and payback arriving a median ${escapeHTML(Number(shift.median_days_later_than_gross_implies).toFixed(2))} days later than gross implies.</strong></p>
+      <p>Ranking reversals were <strong class="num">${escapeHTML(fmtInt(reversals.numerator))}/${escapeHTML(fmtInt(reversals.denominator))}</strong>; the corresponding share was ${escapeHTML(pct(reversals.value))}.</p>
+      <p class="metric-note">${escapeHTML(impact.registration_note)}</p>
+      <p><a href="/advantage/v2">Read the measurements and their limits</a></p>
+    </div>`;
 }
 
 async function initIndex() {
   paintVocabulary();
   /* The jobs first, and awaited separately: a /stats that cannot be read must not leave
      the shop front empty, and an empty shelf must not be hidden by a failing statistic. */
+  const impact = paintPancakeImpact();
   await paintJobs();
+  await impact;
   await paintCompare();
   try {
     paintStats(await fetchJSON("/stats"));

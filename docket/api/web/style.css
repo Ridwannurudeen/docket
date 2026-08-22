@@ -323,6 +323,22 @@ section {
   margin-bottom: 0;
 }
 
+.impact-panel {
+  border-left: 3px solid var(--accent);
+}
+
+.impact-value {
+  max-width: 36ch;
+  margin-top: 0;
+  font-size: clamp(var(--fs-lg), 3vw, var(--fs-xl));
+  line-height: 1.35;
+}
+
+.impact-context {
+  max-width: var(--measure);
+  margin-top: var(--s-3);
+}
+
 .panel-error {
   border-color: var(--danger);
   background: var(--bg);
@@ -481,6 +497,31 @@ section {
 
 .service > :last-child {
   margin-bottom: 0;
+}
+
+.admission {
+  margin-top: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: var(--border-w) solid var(--border);
+}
+
+.admission > summary,
+.advanced > summary {
+  color: var(--fg-dim);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admission[open] > summary,
+.advanced[open] > summary {
+  margin-bottom: var(--s-3);
+  color: var(--fg);
+}
+
+.admission-info {
+  max-width: var(--measure);
+  margin-top: var(--s-4);
 }
 
 /* A figure and the population it was measured against, on one line that cannot be
@@ -743,6 +784,25 @@ textarea {
 .activate .field > .dim {
   margin: 0;
   font-size: var(--fs-sm);
+}
+
+.advanced {
+  padding: var(--s-3);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.advanced-fields {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.example-note {
+  margin: 0;
+  color: var(--fg);
+  font-size: var(--fs-sm);
+  font-weight: 600;
 }
 
 .activate > :last-child {
