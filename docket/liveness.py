@@ -2,14 +2,16 @@
 
 Nobody in this ecosystem currently knows which registered agents actually answer.
 One GET each settles it, but the URLs come from a registry anyone can write to,
-so every target is vetted by the SSRF guard first and a rejected one is never
-connected to at all. Redirects are deliberately not followed: the guard vetted
-the URL we were given, not wherever a 302 would send us next.
+so every target is vetted by the SSRF guard first. The connection uses the
+approved address directly and its peer is checked before any response metadata
+is recorded. Redirects are deliberately not followed: the guard vetted the URL
+we were given, not wherever a 302 would send us next.
 
 `responded` means a response arrived at any status — a 404 still proves the host
 is up. None of these outcomes is a verdict about the agent behind the URL.
 """
 
+import ipaddress
 import socket
 import time
 from datetime import datetime, timezone
@@ -17,7 +19,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .netguard import UNRESOLVED, check_url
+from .netguard import UNRESOLVED, check_address, check_url_addresses
 from .store import Store
 
 # `blocked` means one thing only: we refused this target on policy grounds. A host that would
@@ -54,6 +56,25 @@ def _pace(last_hit: dict[str, float], url: str) -> None:
     last_hit[host] = time.monotonic()
 
 
+def _peer_policy_reason(response: httpx.Response, approved_address: str) -> str | None:
+    stream = response.extensions.get("network_stream")
+    if stream is None:
+        return "connected peer address unavailable"
+    try:
+        server = stream.get_extra_info("server_addr")
+    except (AttributeError, OSError):
+        return "connected peer address unavailable"
+    if not isinstance(server, (tuple, list)) or not server:
+        return "connected peer address unavailable"
+    peer_address = str(server[0])
+    ok, reason = check_address(peer_address)
+    if not ok:
+        return f"connected peer is a {reason}"
+    if ipaddress.ip_address(peer_address) != ipaddress.ip_address(approved_address):
+        return "connected peer differs from approved address"
+    return None
+
+
 def probe_one(
     client: httpx.Client, endpoint: dict, *, now: str, resolver=socket.getaddrinfo
 ) -> dict:
@@ -69,7 +90,7 @@ def probe_one(
         "elapsed_ms": None,
         "detail": None,
     }
-    ok, reason = check_url(url, resolver=resolver)
+    ok, reason, addresses = check_url_addresses(url, resolver=resolver)
     if not ok:
         outcome = "unresolved" if reason == UNRESOLVED else "blocked"
         return {**observation, "outcome": outcome, "detail": reason}
@@ -78,15 +99,33 @@ def probe_one(
     try:
         # follow_redirects=False is load-bearing: an allowed public host that 302s to
         # 169.254.169.254 would otherwise walk straight past the guard.
-        resp = client.get(url, headers=HEADERS, timeout=TIMEOUT_S, follow_redirects=False)
+        original_url = httpx.URL(url)
+        approved_address = addresses[0]
+        headers = {
+            **HEADERS,
+            "host": original_url.netloc.decode("ascii"),
+            "connection": "close",
+        }
+        extensions = {"sni_hostname": original_url.raw_host.decode("ascii")}
+        pinned_url = original_url.copy_with(host=approved_address)
+        with client.stream(
+            "GET",
+            pinned_url,
+            headers=headers,
+            timeout=TIMEOUT_S,
+            follow_redirects=False,
+            extensions=extensions,
+        ) as resp:
+            peer_reason = _peer_policy_reason(resp, approved_address)
+            if peer_reason:
+                return {**observation, "outcome": "blocked", "detail": peer_reason}
+            observation.update(outcome="responded", status_code=resp.status_code)
     except httpx.TimeoutException as exc:
         observation.update(outcome="timeout", detail=type(exc).__name__)
     except httpx.ConnectError as exc:
         observation.update(outcome="refused", detail=type(exc).__name__)
     except Exception as exc:  # a registry-supplied URL can break httpx outside HTTPError
         observation.update(outcome="error", detail=type(exc).__name__)
-    else:
-        observation.update(outcome="responded", status_code=resp.status_code)
     observation["elapsed_ms"] = int((time.monotonic() - started) * 1000)
     return observation
 
@@ -109,17 +148,17 @@ def probe_snapshot(
     if limit is not None:
         targets = targets[:limit]
 
-    owned = client is None
-    client = client or httpx.Client()
     last_hit: dict[str, float] = {}
     rows = []
-    try:
-        for endpoint in targets:
-            _pace(last_hit, endpoint["url"])
+    for endpoint in targets:
+        _pace(last_hit, endpoint["url"])
+        if client is None:
+            # A fresh direct client per target prevents a connection pinned for one hostname
+            # from being pooled for another hostname that happens to share its address.
+            with httpx.Client(trust_env=False) as owned_client:
+                rows.append(probe_one(owned_client, endpoint, now=_now(), resolver=resolver))
+        else:
             rows.append(probe_one(client, endpoint, now=_now(), resolver=resolver))
-    finally:
-        if owned:
-            client.close()
 
     store.record_liveness(rows)
     outcomes = [row["outcome"] for row in rows]

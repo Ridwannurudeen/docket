@@ -15,7 +15,22 @@ def _seed(tmp_path, urls):
 
 
 def _client(handler):
-    return httpx.Client(transport=httpx.MockTransport(handler))
+    def handle(request):
+        response = handler(request)
+        response.extensions.setdefault("network_stream", _PeerStream(request.url.host))
+        return response
+
+    return httpx.Client(transport=httpx.MockTransport(handle))
+
+
+class _PeerStream:
+    def __init__(self, address):
+        self.address = address
+
+    def get_extra_info(self, info):
+        if info == "server_addr":
+            return (self.address, 443)
+        return None
 
 
 def test_outcome_vocabulary_is_closed():
@@ -32,6 +47,25 @@ def test_responded_records_status_and_elapsed(tmp_path):
     row = next(iter(store.iter_liveness(sid)))
     assert row["outcome"] == "responded" and row["status_code"] == 200
     assert row["elapsed_ms"] is not None and row["observed_at"]
+
+
+def test_probe_pins_the_approved_address_and_preserves_the_http_identity(tmp_path):
+    store, sid = _seed(tmp_path, ["https://ok.example:8443/a2a"])
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200)
+
+    with _client(handler) as c:
+        probe_snapshot(store, sid, client=c, resolver=_public)
+
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.url.host == "93.184.216.34"
+    assert request.url.port == 8443
+    assert request.headers["host"] == "ok.example:8443"
+    assert request.extensions["sni_hostname"] == "ok.example"
 
 
 def test_non_2xx_still_counts_as_responded(tmp_path):
@@ -63,7 +97,7 @@ def test_timeout_and_refused_are_distinguished(tmp_path):
     store, sid = _seed(tmp_path, ["https://a.example/1", "https://b.example/2"])
 
     def handler(request):
-        if request.url.host == "a.example":
+        if request.headers["host"] == "a.example":
             raise httpx.ReadTimeout("too slow", request=request)
         raise httpx.ConnectError("refused", request=request)
 
@@ -71,6 +105,62 @@ def test_timeout_and_refused_are_distinguished(tmp_path):
         probe_snapshot(store, sid, client=c, resolver=_public)
     outcomes = {r["outcome"] for r in store.iter_liveness(sid)}
     assert outcomes == {"timeout", "refused"}
+
+
+def test_rebound_connected_peer_is_a_policy_refusal_not_a_response(tmp_path):
+    store, sid = _seed(tmp_path, ["https://rebind.example/a2a"])
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            extensions={"network_stream": _PeerStream("127.0.0.1")},
+        )
+
+    with _client(handler) as c:
+        result = probe_snapshot(store, sid, client=c, resolver=_public)
+
+    assert result["responded"] == 0
+    assert result["blocked"] == 1
+    row = next(iter(store.iter_liveness(sid)))
+    assert row["outcome"] == "blocked"
+    assert "loopback" in row["detail"]
+    assert row["status_code"] is None
+    assert row["elapsed_ms"] is None
+
+
+def test_different_public_connected_peer_is_also_refused(tmp_path):
+    store, sid = _seed(tmp_path, ["https://changed.example/a2a"])
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            extensions={"network_stream": _PeerStream("93.184.216.35")},
+        )
+
+    with _client(handler) as c:
+        result = probe_snapshot(store, sid, client=c, resolver=_public)
+
+    assert result["responded"] == 0
+    assert result["blocked"] == 1
+    row = next(iter(store.iter_liveness(sid)))
+    assert row["outcome"] == "blocked"
+    assert "differs" in row["detail"]
+
+
+def test_missing_connected_peer_is_refused(tmp_path):
+    store, sid = _seed(tmp_path, ["https://missing-peer.example/a2a"])
+
+    def handler(request):
+        return httpx.Response(200, extensions={"network_stream": None})
+
+    with _client(handler) as c:
+        result = probe_snapshot(store, sid, client=c, resolver=_public)
+
+    assert result["responded"] == 0
+    assert result["blocked"] == 1
+    row = next(iter(store.iter_liveness(sid)))
+    assert row["outcome"] == "blocked"
+    assert "unavailable" in row["detail"]
 
 
 def test_a_host_that_will_not_resolve_is_unresolved_not_blocked(tmp_path, monkeypatch):
