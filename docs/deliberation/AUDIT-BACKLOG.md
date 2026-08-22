@@ -629,3 +629,29 @@ vulnerability, and I conflated the two.**
   `finally` runs. Unresolved by design, not by omission.
 - A TOCTOU race between two concurrent invocations of the shared-session check is unguarded.
 - **Zero real seat runs still.** This has been driven only by a synthetic callable.
+
+---
+
+# Role change 2026-08-22 — Codex builds, Fable 5 audits, by owner directive
+
+**Status: CLOSES THE CONVENTION ABOVE FOR COMMITS FROM THIS DATE.** Entries 13–16 remain OPEN FOR
+CODEX as written; they are not retroactively closed by this note.
+
+On 2026-08-22 the owner directed that Codex build the remediation plan in
+`JOINT-AUDIT-2026-08-22.md` ("let codex handle everything in the audit … use multiple agents for
+the builds") and that Fable 5 audit the result. Under that arrangement the auditor of record is no
+longer the builder's reviewer, so the rule "append an entry on every commit that lands without a
+Codex audit" no longer describes the process. Every commit between `fdf02cf` and the integration
+head was built by Codex (gpt-5.6-sol, xhigh) in one of nine isolated worktrees, reviewed by a seat
+that did not write it (wave 1: Opus 5 reviewers plus Claude; wave 2: Fable 5 directly), sent back
+for a fix round where the review found defects, and merged only after the integrator ran the full
+suite itself. The evidence is tracked beside this file:
+
+- `JOINT-AUDIT-2026-08-22.md` — the plan the builds implement, with the seat reports in
+  `2026-08-22-seats/` (both Codex runs, four Opus judge simulations, the ChatGPT comparison).
+- `2026-08-22-seats/BUILD-REPORTS-WAVE1.md` and `BUILD-REPORTS-WAVE2.md` — each workstream's own
+  report: file:line per change, exit-test output, mutation table, fix-round findings and what the
+  builder could not do. Absolute local paths and the host address are redacted.
+
+What this does not establish: none of these commits had run on Linux at the time of writing — every
+"N passed" in the reports is a Windows result until the CI run on the pushed branch says otherwise.
