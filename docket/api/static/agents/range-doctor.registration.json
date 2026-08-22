@@ -1,0 +1,14 @@
+{
+  "description": "A read-only diagnosis of the PancakeSwap v3 liquidity positions a BSC wallet holds or has staked: for each one, whether the current tick sits inside its range and where in that range it sits, the pool's gross and protocol-adjusted net 24h fee rates when its reported figures clear a plausibility gate, and conditional wait and recenter paths. Name one token id and declare its USD value and estimated recenter cost to add fixed-notional dollar effects and cost-only break-even; those two inputs are labelled as the caller's rather than derived from an unverified price feed. Every finding carries the numbers it was computed from, so you can check it against the chain yourself. Nothing is signed, approved, or moved.",
+  "name": "Range Doctor",
+  "services": [
+    {
+      "description": "A read-only diagnosis of the PancakeSwap v3 liquidity positions a BSC wallet holds or has staked: for each one, whether the current tick sits inside its range and where in that range it sits, the pool's gross and protocol-adjusted net 24h fee rates when its reported figures clear a plausibility gate, and conditional wait and recenter paths. Name one token id and declare its USD value and estimated recenter cost to add fixed-notional dollar effects and cost-only break-even; those two inputs are labelled as the caller's rather than derived from an unverified price feed. Every finding carries the numbers it was computed from, so you can check it against the chain yourself. Nothing is signed, approved, or moved.",
+      "endpoint": "https://docket.gudman.xyz/hire/range-doctor",
+      "name": "range-doctor",
+      "protocol": "Web"
+    }
+  ],
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "x402Support": true
+}

@@ -38,12 +38,13 @@ packages = [
     "docket.escrow",
     "docket.execution",
     "docket.hire",
+    "docket.identity",
     "docket.marketplace",
     "experiments",
 ]
 
 [tool.setuptools.package-data]
-"docket.api" = ["static/*", "web/*"]
+"docket.api" = ["static/*", "static/agents/*.registration.json", "web/*"]
 # /advantage.json is served from these files, so an installed Docket must carry them.
 # The v2 files are the evidence a report cites — the labelled corpus, the pre-registration
 # that hashes it, and the run recorded against that hash — and an install that shipped the

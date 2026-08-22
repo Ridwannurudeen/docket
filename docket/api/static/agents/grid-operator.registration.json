@@ -1,0 +1,14 @@
+{
+  "description": "A deterministic PancakeSwap V2 grid, built from a band you give it \u2014 or drawn around the pair's current price if you give it none \u2014 and previewed against BSC mainnet as it stands right now. You get the exact price levels and their spacing, which token each level spends and how much of it, the condition each level fires on, and for every level the full action record that acting would commit to: the router's own live quote for that trade, the minimum output the action would insist on, a hash of the exact calldata that binds it, a deadline, a gas ceiling and a slippage bound. Nothing is signed, approved, submitted or held. This is a preview and structurally only a preview: the object that runs it holds no session key, no signer and no submitter, and has no method that sends a transaction, so it cannot move anything. Acting on a level needs a session the wallet's owner grants on chain, with a spend cap, a call allowlist and an expiry that the session validator enforces at validation time \u2014 Docket never holds the owner key and cannot grant or revoke on their behalf. Every figure comes back with the block it was read at, so you can check any of it against the chain yourself.",
+  "name": "Grid Operator Preview",
+  "services": [
+    {
+      "description": "A deterministic PancakeSwap V2 grid, built from a band you give it \u2014 or drawn around the pair's current price if you give it none \u2014 and previewed against BSC mainnet as it stands right now. You get the exact price levels and their spacing, which token each level spends and how much of it, the condition each level fires on, and for every level the full action record that acting would commit to: the router's own live quote for that trade, the minimum output the action would insist on, a hash of the exact calldata that binds it, a deadline, a gas ceiling and a slippage bound. Nothing is signed, approved, submitted or held. This is a preview and structurally only a preview: the object that runs it holds no session key, no signer and no submitter, and has no method that sends a transaction, so it cannot move anything. Acting on a level needs a session the wallet's owner grants on chain, with a spend cap, a call allowlist and an expiry that the session validator enforces at validation time \u2014 Docket never holds the owner key and cannot grant or revoke on their behalf. Every figure comes back with the block it was read at, so you can check any of it against the chain yourself.",
+      "endpoint": "https://docket.gudman.xyz/hire/grid-operator",
+      "name": "grid-operator",
+      "protocol": "Web"
+    }
+  ],
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "x402Support": true
+}
