@@ -210,6 +210,7 @@ def _card(record: ServiceRecord, admission: PaidStockAdmission) -> ServiceCard:
         typical_seconds=record.typical_seconds,
         activation=record.activation,
         activation_means=record.activation_means,
+        evidence_modality=record.evidence_modality,
         metrics=[_metric_figure(metric) for metric in record.metrics],
         agent_id=record.agent_id,
         identity=record.identity_line,

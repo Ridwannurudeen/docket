@@ -15,11 +15,12 @@ the two it is.
 import re
 from dataclasses import replace
 
+import pydantic
 import pytest
 from fastapi.testclient import TestClient
 
-from docket.api.models import BANNED_FIELD_NAMES
 from docket.api import create_app
+from docket.api.models import BANNED_FIELD_NAMES, ServiceCard
 from docket.hire.catalogue import get_service as get_hire_service
 from docket.marketplace.models import CATEGORIES, Category, is_share_unit
 from docket.marketplace.registry import (
@@ -224,6 +225,21 @@ def test_every_card_carries_its_closed_evidence_modality(
 
     agent = client_holding_the_identity.get(f"/agents/{SOLVENT_AGENT_ID}").json()
     assert agent["associated_services"][0]["evidence_modality"] == "historical"
+
+
+def test_service_card_requires_a_non_null_evidence_modality(client):
+    card = client.get("/services/range-doctor").json()
+    schema = ServiceCard.model_json_schema()
+    assert "evidence_modality" in schema["required"]
+    assert schema["properties"]["evidence_modality"]["type"] == "string"
+
+    without_modality = {
+        key: value for key, value in card.items() if key != "evidence_modality"
+    }
+    with pytest.raises(pydantic.ValidationError, match="evidence_modality"):
+        ServiceCard.model_validate(without_modality)
+    with pytest.raises(pydantic.ValidationError, match="evidence_modality"):
+        ServiceCard.model_validate({**card, "evidence_modality": None})
 
 
 @pytest.mark.parametrize(

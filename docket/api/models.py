@@ -196,22 +196,12 @@ class ServiceCard(pydantic.BaseModel):
     typical_seconds: int
     activation: str
     activation_means: str
-    evidence_modality: EvidenceModality | None = None
+    evidence_modality: EvidenceModality
     metrics: list[MetricFigure]
     agent_id: str | None
     identity: str
     hire_method: str
     hire_path: str
-
-    @pydantic.model_validator(mode="after")
-    def fill_evidence_modality(self):
-        if self.evidence_modality is None:
-            from ..marketplace.registry import get_record
-
-            record = get_record(self.service_id)
-            if record is not None:
-                self.evidence_modality = record.evidence_modality
-        return self
 
 
 class AgentDetail(AgentSummary):
