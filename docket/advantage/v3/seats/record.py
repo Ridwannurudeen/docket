@@ -10,6 +10,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+POST_KILL_WAIT_SECONDS = 5
+
 
 class SeatUnavailable(RuntimeError):
     """The requested CLI cannot provide a provenance-bound response."""
@@ -138,7 +140,14 @@ def run_process(
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             _kill_process_tree(process)
-            stdout, stderr = process.communicate()
+            try:
+                _stdout, stderr = process.communicate(timeout=POST_KILL_WAIT_SECONDS)
+            except subprocess.TimeoutExpired:
+                if process.stdout is not None:
+                    process.stdout.close()
+                if process.stderr is not None:
+                    process.stderr.close()
+                stderr = None
             return ProcessResult(process.returncode, None, stderr, True)
     if process.returncode != 0:
         return ProcessResult(process.returncode, None, stderr, False)
@@ -158,7 +167,13 @@ def version_output(argv: list[str], *, timeout: float) -> bytes:
         stdout, _stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         _kill_process_tree(process)
-        process.communicate()
+        try:
+            process.communicate(timeout=POST_KILL_WAIT_SECONDS)
+        except subprocess.TimeoutExpired:
+            if process.stdout is not None:
+                process.stdout.close()
+            if process.stderr is not None:
+                process.stderr.close()
         raise SeatUnavailable("CLI version command timed out") from exc
     if process.returncode != 0 or not isinstance(stdout, bytes) or not stdout.strip():
         raise SeatUnavailable("CLI version command failed")

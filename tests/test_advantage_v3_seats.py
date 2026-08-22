@@ -68,9 +68,15 @@ if mode == "nonzero":
         sys.stdout.buffer.write(b"nonzero-response")
     raise SystemExit(7)
 if mode == "timeout":
-    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+    )
     Path(os.environ["FAKE_CHILD_PID"]).write_text(str(child.pid), encoding="ascii")
-    time.sleep(30)
+    time.sleep(10)
 
 if cli == "codex":
     output = Path(args[args.index("-o") + 1])
@@ -189,13 +195,29 @@ def _pid_exists(pid: int) -> bool:
     return True
 
 
+def _kill_test_pid(pid: int) -> None:
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            capture_output=True,
+            check=False,
+        )
+    else:
+        try:
+            os.kill(pid, 9)
+        except ProcessLookupError:
+            pass
+
+
 @pytest.mark.parametrize("module", [codex_cli, claude_cli])
 def test_timeout_becomes_none_and_kills_the_process_tree(tmp_path, monkeypatch, module):
     _install_fake_clis(tmp_path, monkeypatch)
     pid_path = tmp_path / "child.pid"
     monkeypatch.setenv("FAKE_CLI_MODE", "timeout")
     monkeypatch.setenv("FAKE_CHILD_PID", str(pid_path))
-    monkeypatch.setattr(module, "TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(module, "TIMEOUT_SECONDS", 3.0)
+    model = "fake-codex-model" if module is codex_cli else "fake-claude-model"
+    monkeypatch.setattr(module, "_model", model)
 
     assert module.ask(b"derived prompt\n") is None
     assert pid_path.is_file()
@@ -203,7 +225,46 @@ def test_timeout_becomes_none_and_kills_the_process_tree(tmp_path, monkeypatch, 
     deadline = time.monotonic() + 2
     while _pid_exists(pid) and time.monotonic() < deadline:
         time.sleep(0.05)
-    assert not _pid_exists(pid)
+    alive = _pid_exists(pid)
+    if alive:
+        _kill_test_pid(pid)
+    assert not alive
+
+
+def test_failed_tree_kill_still_has_a_bounded_pipe_wait(tmp_path, monkeypatch):
+    class Pipe:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    class Process:
+        returncode = None
+        stdout = Pipe()
+        stderr = Pipe()
+
+        def communicate(self, timeout):
+            raise subprocess.TimeoutExpired("fake", timeout)
+
+    process = Process()
+    prompt_path = tmp_path / "prompt.bin"
+    prompt_path.write_bytes(b"prompt")
+    monkeypatch.setattr(record, "_popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(record, "_kill_process_tree", lambda _process: None)
+
+    result = record.run_process(
+        ["fake"],
+        prompt_path=prompt_path,
+        cwd=tmp_path,
+        response_path=None,
+        timeout=0.1,
+    )
+
+    assert result.timed_out is True
+    assert result.response is None
+    assert process.stdout.closed is True
+    assert process.stderr.closed is True
 
 
 @pytest.mark.parametrize("module", [codex_cli, claude_cli])
@@ -296,6 +357,89 @@ def test_driver_uses_the_seat_owned_model_build_before_opening_the_attempt(
         )
     )
     assert request["model_build"] == "cli-owned-build-and-command"
+
+
+def test_driver_refuses_spent_and_shared_seats_before_model_provenance(
+    tmp_path, monkeypatch
+):
+    calls = {"model_build": 0}
+
+    def seat(_prompt):
+        return b"{}"
+
+    def model_build():
+        calls["model_build"] += 1
+        return "must-not-be-read"
+
+    seat.model_build = model_build
+    monkeypatch.setattr(calibration_driver, "_resolve_seat", lambda _reference: seat)
+    raw_set = CALIBRATION_PATH.read_bytes()
+
+    spent_root = tmp_path / "spent"
+    request = calibration.open_attempt(
+        SPEC,
+        spent_root,
+        evaluator_id="seat-a",
+        model_build="first-build",
+        session_id="first-session",
+        calibration_set=raw_set,
+    )
+    calibration.record_response(
+        SPEC,
+        spent_root,
+        evaluator_id="seat-a",
+        attempt_ordinal=request["attempt_ordinal"],
+        raw_response=b"{}",
+    )
+    spent = calibration_driver.main(
+        [
+            str(SPEC_PATH),
+            str(spent_root),
+            "--evaluator-id",
+            "seat-a",
+            "--session-id",
+            "second-session",
+            "--calibration-set",
+            str(CALIBRATION_PATH),
+            "--seat",
+            "fake:ask",
+        ]
+    )
+
+    shared_root = tmp_path / "shared"
+    request = calibration.open_attempt(
+        SPEC,
+        shared_root,
+        evaluator_id="seat-a",
+        model_build="first-build",
+        session_id="shared-session",
+        calibration_set=raw_set,
+    )
+    calibration.record_response(
+        SPEC,
+        shared_root,
+        evaluator_id="seat-a",
+        attempt_ordinal=request["attempt_ordinal"],
+        raw_response=b"{}",
+    )
+    shared = calibration_driver.main(
+        [
+            str(SPEC_PATH),
+            str(shared_root),
+            "--evaluator-id",
+            "seat-b",
+            "--session-id",
+            "shared-session",
+            "--calibration-set",
+            str(CALIBRATION_PATH),
+            "--seat",
+            "fake:ask",
+        ]
+    )
+
+    assert spent == 2
+    assert shared == 2
+    assert calls["model_build"] == 0
 
 
 def test_codex_self_test_prints_only_length_and_cli_owned_build(

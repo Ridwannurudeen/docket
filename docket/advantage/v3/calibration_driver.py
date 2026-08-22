@@ -253,6 +253,20 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         seat = _resolve_seat(args.seat) if args.seat else None
+        if seat is not None:
+            calibration_dir = Path(args.out)
+            _refuse_shared_session(
+                spec, calibration_dir, args.evaluator_id, args.session_id
+            )
+            for attempt in calibration.attempts(
+                spec, calibration_dir, args.evaluator_id
+            ):
+                if attempt["response"]["outcome"] == calibration.CAPTURED:
+                    raise CalibrationRefused(
+                        f"calibration: seat {args.evaluator_id!r} already captured a "
+                        f"response on attempt {attempt['ordinal']}. No provenance probe "
+                        "or further request is permitted under this registration."
+                    )
         model_build = (
             _model_build_for(seat, args.model_build)
             if seat is not None

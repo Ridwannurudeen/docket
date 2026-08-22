@@ -116,7 +116,9 @@ reproduction. Those are future registered-protocol events, not read-only verific
 This is an operator-only input-lock procedure, not a reproduction step. Run it once on the
 scheduled Warden lock day. Both commands derive `model_build` from the installed CLI's own
 version and resolved-model output before the request record is opened; no model name or build
-string is typed by the operator.
+string is typed by the operator. The driver checks for a shared session or an already captured
+seat before that lookup. For a new seat, the lookup sends one fixed `MODEL_METADATA_OK` query;
+that provenance query is not the calibration prompt and is not written as a seat attempt.
 
 Run `seat-a` through Codex:
 
@@ -137,6 +139,13 @@ twice, and the driver refuses the second request. Each command first writes
 It then writes `attempt-01.response.json` with either the untouched response bytes or a
 `no_response` outcome. Do not delete a failed attempt or repeat a captured one; the first
 attempt that returns bytes binds even when its answer fails calibration.
+
+The Claude command disables project instructions, tools, plugins, hooks, MCP configuration,
+and session persistence. Codex runs in the required empty working directory with project and
+user configuration ignored, but this installed CLI still injects the user's global
+`AGENTS.md`; its required `danger-full-access` mode provides no verified hard filesystem-read
+boundary. The Codex adapter therefore prevents repository discovery through its working
+directory and environment, but it must not be described as instruction-free or OS-confined.
 
 After both response records exist, assemble the authored cases, verify both captured rows,
 write `docket/advantage/v3/inputs/03-security-heldout.json`, and save its generated
