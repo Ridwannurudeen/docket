@@ -181,9 +181,43 @@ def test_a_database_predating_the_column_is_migrated_not_rejected(tmp_path: Path
         )
     store = Store(path)
     assert store.snapshot(1)["population"] is None
+    assert store.snapshot(1)["promoted_at"] == "2026-08-07T17:51:02+00:00"
     assert store.latest_complete_snapshot_id(56) == 1  # still readable, still servable
     fresh = store.begin_snapshot(chain_id=56, expected=1, population="all")
     assert store.snapshot(fresh)["population"] == "all"
+
+
+def test_a_payment_table_predating_operator_recovery_is_migrated(tmp_path: Path):
+    path = tmp_path / "legacy-payments.sqlite3"
+    with sqlite3.connect(path) as conn:
+        conn.executescript(
+            """CREATE TABLE hire_payments (
+                   nonce TEXT PRIMARY KEY,
+                   payment_id TEXT NOT NULL UNIQUE,
+                   service_id TEXT NOT NULL,
+                   payer TEXT NOT NULL,
+                   recipient TEXT NOT NULL,
+                   asset TEXT NOT NULL,
+                   amount TEXT NOT NULL,
+                   resource TEXT NOT NULL,
+                   input_hash TEXT NOT NULL,
+                   output_hash TEXT,
+                   status TEXT NOT NULL,
+                   result_json TEXT,
+                   receipt_json TEXT,
+                   transaction_id TEXT,
+                   network TEXT,
+                   error TEXT,
+                   created_at TEXT NOT NULL,
+                   updated_at TEXT NOT NULL
+               );"""
+        )
+
+    Store(path)
+
+    with sqlite3.connect(path) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(hire_payments)")}
+    assert "operator_recovered_at" in columns
 
 
 def test_latest_complete_snapshot_skips_a_sweep_that_never_finished(tmp_path: Path):
@@ -201,6 +235,55 @@ def test_latest_complete_snapshot_skips_a_sweep_that_never_finished(tmp_path: Pa
     third = store.begin_snapshot(chain_id=56, expected=10)
     store.finish_snapshot(third, sampled=10)
     assert store.latest_complete_snapshot_id(56) == third  # a later finish wins again
+
+
+def test_a_finished_candidate_stays_hidden_until_explicit_promotion(tmp_path: Path):
+    store = Store(tmp_path / "promotion.sqlite3")
+    current = store.begin_snapshot(chain_id=56, expected=1)
+    store.finish_snapshot(current, sampled=1)
+    candidate = store.begin_snapshot(chain_id=56, expected=2)
+
+    store.finish_snapshot(candidate, sampled=2, promote=False)
+
+    assert store.snapshot(candidate)["promoted_at"] is None
+    assert store.latest_complete_snapshot_id(56) == current
+    store.promote_snapshot(candidate)
+    assert store.snapshot(candidate)["promoted_at"] is not None
+    assert store.latest_complete_snapshot_id(56) == candidate
+
+
+@pytest.mark.parametrize(
+    ("sampled", "expected", "stop_reason"),
+    ((1, 2, "exhausted"), (1, 1, "max_pages"), (0, 0, "exhausted")),
+)
+def test_explicit_promotion_refuses_an_incomplete_candidate(
+    tmp_path: Path, sampled: int, expected: int, stop_reason: str
+):
+    store = Store(tmp_path / f"promotion-{stop_reason}-{sampled}.sqlite3")
+    candidate = store.begin_snapshot(chain_id=56, expected=expected)
+    store.finish_snapshot(
+        candidate,
+        sampled=sampled,
+        expected=expected,
+        stop_reason=stop_reason,
+        promote=False,
+    )
+
+    with pytest.raises(ValueError, match="cannot be promoted"):
+        store.promote_snapshot(candidate)
+
+    assert store.latest_complete_snapshot_id(56) is None
+
+
+def test_finish_snapshot_does_not_mark_incomplete_counts_as_promoted(tmp_path: Path):
+    store = Store(tmp_path / "write-side-promotion.sqlite3")
+    snapshot = store.begin_snapshot(chain_id=56, expected=2)
+
+    store.finish_snapshot(snapshot, sampled=1, stop_reason="exhausted")
+
+    row = store.snapshot(snapshot)
+    assert row["finished_at"] is not None
+    assert row["promoted_at"] is None
 
 
 def test_latest_complete_snapshot_is_per_chain_and_none_when_nothing_finished(

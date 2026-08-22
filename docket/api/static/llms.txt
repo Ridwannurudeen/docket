@@ -112,6 +112,10 @@ GET /stats
                                   snapshot. Each row is {name_family, count,
                                   share_pct}
       probe_method                one line stating how liveness was measured
+      refresh_status              null before the first terminal refresh; otherwise
+                                  {status, timestamp}, where status is ok, refused or
+                                  error. Refused/error leave the prior promoted
+                                  snapshot in service. Read fresh on every request
 
     curl -s "$DOCKET/stats"
 
@@ -288,6 +292,35 @@ POST /hire/{service_id}
 
     Returns {"result": {...}, "receipt": {...}}. Read "Hiring" below before quoting
     anything from the receipt.
+
+POST /hire/{service_id}/recover
+    Re-presents the exact original JSON body and signed X-PAYMENT or PAYMENT-SIGNATURE
+    header to retrieve a stored settled or settlement_unknown result. It never runs the
+    service or settlement again. The signed authorization must still be inside its
+    validity window.
+
+    An operator may instead send `Authorization: Bearer` with the token loaded from
+    DOCKET_CANARY_TOKEN_FILE and body {"nonce":"0x..."}. This returns the same stored
+    envelope for settled or settlement_unknown without rechecking an expired buyer
+    signature, and records operator_recovered_at on the payment row. It never changes
+    payment state or calls the service or facilitator. A wrong bearer returns 401.
+    Both paths are limited to 10 attempts per peer address per minute.
+
+    curl -s -X POST "$DOCKET/hire/range-doctor/recover" \
+      -H 'content-type: application/json' \
+      -H "X-PAYMENT: $ORIGINAL_PAYMENT_HEADER" \
+      -d "$ORIGINAL_REQUEST_BODY"
+
+GET /lp-record
+    A bounded read of the append-only controlled-position journal. Returns
+    {"lines": [...], "skipped_unparsable": N, "truncated": bool}. Valid lines retain
+    file order; invalid nonblank lines are skipped and counted. Blank lines count toward
+    the physical-line cap but are not returned. The route processes at most the first
+    8 MiB and at most 10,000 physical lines; `truncated` is true when either cap leaves
+    bytes unread. A missing
+    file returns empty lines, zero skipped, and truncated false. No parameters.
+
+    curl -s "$DOCKET/lp-record"
 
 GET /compare
     Every service side by side, for deciding between them rather than reading them one
@@ -468,9 +501,16 @@ Branch on "code", which is stable. "message" is prose for a human and may change
       invalid_field            422  a field was present and the service could not read
                                     it, e.g. a wallet that is not an address
       invalid_query_parameter  422  message names the offending parameter
-      free_tier_exhausted      402  the hire allowance is spent; the body carries the
-                                    x402 challenge alongside this error
-      payment_invalid          402  a supplied payment is malformed or does not exactly
+      hire_rate_limited        429  the free allowance is spent and no payment route exists;
+                                    Retry-After says when the window resets
+      free_tier_exhausted      429  the free allowance is spent; Retry-After and the x402
+                                    challenge travel alongside this error so payment can
+                                    be presented on the next request
+      recovery_rate_limited    429  ten recovery attempts were used by this peer address;
+                                    Retry-After says when the minute resets
+      operator_unauthorized    401  the operator bearer was absent from configuration or
+                                    did not match
+      payment_invalid      400/402  a supplied payment is malformed or does not exactly
                                     match the service, resource, asset, amount or recipient
       payment_not_verified     402  the configured facilitator rejected the authorization
       canary_unauthorized       403  a private canary credential was supplied but rejected;
@@ -496,6 +536,7 @@ Branch on "code", which is stable. "message" is prose for a human and may change
                                     no work ran and no charge was attempted
       service_de_admitted      503  the shared admission gate closed after verification;
                                     no result was delivered and no settlement ran
+      lp_record_unavailable    500  the controlled LP journal could not be read
 
 
 ## Coverage: why every number carries one
@@ -742,7 +783,10 @@ Closing the gate removes Pay and hire; it does not remove the free verified exam
 free preview.
 An admitted service may keep an allowance of 20 unsigned hires per caller per hour when
 both a recipient and facilitator are configured. A request Docket could not read costs
-no allowance and cannot enter the payment path.
+no allowance. A request carrying payment for admitted stock bypasses this FREE allowance;
+shared-egress free usage cannot make the paid route impossible. The deployment nginx
+limit_req covers every /hire/ request at 30 per peer address per minute and is the separate
+paid-path bound.
 
 ### The receipt
 
@@ -798,8 +842,9 @@ payment.status has these delivered-result values.
       transaction_id. It records the facilitator response; it is not independent proof
       of chain finality or result correctness.
 
-When an admitted, configured service exhausts its allowance, the response is an x402
-v2 challenge with resource and accepts. Its one offer is exact EIP-3009 on eip155:56
+When an admitted, configured service exhausts its free allowance, an unsigned request gets
+429 with Retry-After and an x402 v2 challenge with resource and accepts. Its one offer is
+exact EIP-3009 on eip155:56
 using $U. The PaymentPayload repeats the accepted requirements and carries signature
 plus authorization {from,to,value,validAfter,validBefore,nonce}.
 

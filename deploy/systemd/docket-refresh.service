@@ -1,0 +1,30 @@
+[Unit]
+Description=Refresh Docket's targeted ERC-8004 observation snapshot
+# The API reads the latest promoted snapshot per request. The refresh does not require an API
+# restart, and coupling the units would make an application outage suppress fresh observations.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=docket
+Group=docket
+WorkingDirectory=/var/lib/docket
+Environment=DOCKET_DB=/var/lib/docket/data/agents.sqlite3
+# Optional until the owner registers the Docket identities. The file contains public agent ids,
+# comma-separated in DOCKET_OWNED_AGENT_IDS; a malformed or missing identity fails the run.
+EnvironmentFile=-/etc/docket/docket-refresh.conf
+ExecStart=/opt/docket/.venv/bin/python -m docket.refresh
+
+# This is network-bound background work on a shared host and has no deadline inside the hour.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=2h
+Restart=no
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/docket

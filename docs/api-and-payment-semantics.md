@@ -15,20 +15,22 @@ requesting JSON receives the endpoint index.
 |---|---|
 | `GET /health` | Process status plus the served snapshot's ID, capture time, and current age |
 | `GET /canary` | Durable canary history and the resulting dynamic admission decision |
-| `GET /stats` | Observation counts with coverage and denominators |
-| `GET /agents` | Paginated agents from the startup-bound snapshot |
+| `GET /stats` | Observation counts with coverage, denominators, and the latest refresh status |
+| `GET /agents` | Paginated agents from the newest promoted complete snapshot |
 | `GET /agents/{agent_id}` | One agent, observations, coverage, and explicitly bound services |
 | `GET /categories` | Four Docket-declared jobs and service counts |
 | `GET /services` | All service cards or one typed category |
-| `GET /services/{service_id}` | Full service inputs, limitations, evidence, and identity note |
+| `GET /services/{service_id}` | Full service inputs, limitations, evidence, and identity note; HTML callers are redirected to `/service?id=...` |
 | `GET /hire` | Callable catalogue, terms, stock state, and admission booleans |
 | `POST /hire/{service_id}` | Run one service and return result plus receipt |
+| `POST /hire/{service_id}/recover` | Recover a stored terminal result through the buyer-signed or operator-token path |
 | `GET /escrow` | ERC-8183 job template and chain terms |
 | `GET /escrow/job/{job_id}` | Read one live ERC-8183 job from chain |
 | `GET /advantage.json` | V1 paired single-observation artifacts |
 | `GET /advantage/v2.json` | V2 registered experiments and computed report |
 | `GET /advantage/v3.json` | V3 registered paired families and artifact-derived state |
 | `GET /advantage/v3` | The same startup-bound V3 report rendered as HTML |
+| `GET /lp-record` | A bounded, tolerant read of the controlled PancakeSwap position journal |
 
 V3's closed states are `registered_waiting_for_inputs`, `locked_not_run`, `running`,
 `complete_unscored`, `refuted`, and `not_refuted`. All three families currently report the
@@ -36,12 +38,29 @@ first state because every `inputs_sha256` is empty and no input or run artifact 
 application builds one v3 report object at startup and renders its HTML from that exact
 object, so the JSON and page cannot drift within a process.
 
-`GET /health` returns `snapshot_captured_at`, the exact capture time of the snapshot
-bound at startup, and `snapshot_age_seconds`, its age in whole seconds when the response
-is made.
+Unless `create_app` receives an explicit snapshot ID for inspection, each request resolves
+the newest complete snapshot that has been explicitly promoted. A finished refresh candidate
+stays hidden through enrichment and probing, then becomes visible without restarting the
+application after promotion. Each request resolves once, so all counts in that response come
+from one snapshot.
+
+`GET /health` returns `snapshot_captured_at`, the exact capture time of the currently served
+snapshot, and `snapshot_age_seconds`, its age in whole seconds when the response is made.
 Every `coverage` object repeats that snapshot's `captured_at` and computed
 `snapshot_age_seconds`, so freshness is a served fact rather than something a caller has
 to imply from an old timestamp. Both age fields are null when no valid capture time exists.
+
+`GET /stats.refresh_status` is null until `refresh_once` reaches a terminal outcome. Later it
+contains `status` (`ok`, `refused`, or `error`) and a UTC `timestamp`, read on every request
+from `last-refresh.json` beside the configured database. A refused or failed candidate leaves
+the previous promoted snapshot in service.
+
+`GET /lp-record` reads the append-only JSONL journal at `DOCKET_LP_RECORD_PATH`, defaulting to
+`lp-record/controlled.jsonl` under the process working directory. It processes at most the first
+8 MiB and at most 10,000 physical lines, returns parsed `lines` in file order, counts invalid nonblank lines in
+`skipped_unparsable`, and sets `truncated` when either cap leaves bytes unread. Blank lines count
+toward the line cap but are not returned. A missing file is an empty, untruncated result. The
+route does not interpret the sequence as an outcome caused by an owner decision.
 
 ## Categories and identities
 
@@ -106,6 +125,18 @@ If a public caller supplies a payment header to an unadmitted service, the servi
 runs but the receipt says `not_for_sale`, includes `stock_status`, and sets
 `authorization_used=false`.
 
+Every free or unadmitted hire consumes one allowance entry keyed by the peer address the
+application receives. The allowance is 20 hires per one-hour window. Expired
+windows are removed on every call and the in-memory map retains at most 10,000 peer windows.
+A free request rejected before work refunds its entry. A readable request whose service work
+was attempted remains spent. A payment header for admitted stock bypasses this free allowance;
+it never consumes or refunds a shared-egress caller's free work. Exhaustion always returns 429
+with `Retry-After`; where payment is available, the same body also carries the x402 challenge
+and `free_tier_exhausted`, so the next request can present payment. The deployment nginx
+`limit_req` is the paid-path bound: it covers all `/hire/` requests by peer address at 30 per
+minute, while the application keeps the durable nonce replay boundary. It must be installed
+before paid stock opens.
+
 ## x402 exact settlement
 
 The public paid branch requires both dynamic `paid_stock=true` and owner-supplied
@@ -151,8 +182,42 @@ A `settled` receipt is evidence of the configured facilitator response. It is no
 independent receipt lookup or chain-finality proof. No committed Docket receipt has this
 status and no live settlement transaction is recorded in the repository.
 
-An exact identical settled request returns `409 authorization_replay`; it does not return
-the stored result and cannot repeat either the service work or settlement.
+An exact identical settled request at the hire route returns `409 authorization_replay`; it
+cannot repeat either the service work or settlement.
+
+## Payment result recovery
+
+If the hire response is lost after Docket stores its output, the caller can send
+`POST /hire/{service_id}/recover` with the exact original JSON request body and the same
+`X-PAYMENT` or `PAYMENT-SIGNATURE` header. Recovery uses the existing local payment verifier,
+so the authorization must still be inside its signed validity window. It checks the original
+resource, payment terms, signature, payer, nonce, payment ID, service, and input hash against
+the stored row.
+
+Only `settled` and `settlement_unknown` rows return `200` with the standard
+`{"result": ..., "receipt": ...}` envelope. A settled row returns its stored receipt. A
+`settlement_unknown` row returns the stored result and the hash-bound receipt persisted when
+that state was recorded; the receipt does not claim a transaction ID. Repeated recoveries
+therefore return the same delivery timestamp. Recovery never calls the service, facilitator
+verification, or settlement again.
+
+Recovery attempts are limited separately to 10 per minute by `request.client.host`; exhaustion
+returns `429 recovery_rate_limited` and `Retry-After`. This protects the buyer path's signature
+recovery without consuming its free-hire allowance.
+
+After the buyer's signed window closes, an operator may send `Authorization: Bearer` with the
+token loaded from `DOCKET_CANARY_TOKEN_FILE` and the body `{"nonce": "0x..."}`. The route checks
+the token in constant time, requires the nonce to name a `settled` or `settlement_unknown` row
+for the path's service, rechecks the stored result and receipt hashes, records
+`operator_recovered_at` on that payment row, and returns the stored envelope without rechecking
+the expired buyer signature. This path does not change settlement state or call any external
+service. A rejected bearer returns `401 operator_unauthorized`. Without that bearer, the buyer
+path and its signed-window constraint are unchanged.
+
+An unknown nonce returns `404 payment_not_found`; malformed or locally invalid payment
+material returns `400 payment_invalid`; a different service or body returns
+`409 authorization_mismatch`; any other stored lifecycle state returns
+`409 payment_not_recoverable`.
 
 ## ERC-8183 escrow
 
@@ -172,6 +237,12 @@ package has no artifact showing Docket created, funded, delivered, or settled a 
 ## Failure boundaries
 
 - Invalid/non-object JSON: `400 invalid_json`.
+- Hire allowance exhausted without an available payment route: `429 hire_rate_limited`.
+- Hire allowance exhausted with payment available: `429 free_tier_exhausted`, with
+  `Retry-After` and the x402 challenge in the same body.
+- Recovery allowance exhausted: `429 recovery_rate_limited` with `Retry-After`.
+- Rejected operator bearer: `401 operator_unauthorized`.
+- LP journal read failure: `500 lp_record_unavailable`.
 - Missing required fields: `422 missing_field`.
 - Invalid field value: `422 invalid_field`.
 - Upstream/service failure: `502 service_failed`.

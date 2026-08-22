@@ -2,9 +2,8 @@
 
 Endpoint URLs come from a public on-chain registry that anyone can write to.
 Before any probe we require an http(s) scheme and confirm that EVERY address the
-host resolves to is publicly routable — a host resolving to both a public and a
-private address is rejected, since we cannot control which one a later connect
-would pick.
+host resolves to is publicly routable. The approved addresses are retained so
+the probe can connect to one directly instead of resolving the hostname again.
 """
 
 import ipaddress
@@ -59,31 +58,49 @@ def _resolve(hostname: str, port: int, resolver) -> list | None:
     return None
 
 
-def check_url(url: str, resolver=socket.getaddrinfo) -> tuple[bool, str]:
-    """Vet a probe target. `(True, SAFE)` to proceed; `(False, UNRESOLVED)` when the host did
-    not resolve; `(False, <reason>)` when policy rejects it. Only the last is a refusal."""
+def check_address(address: str) -> tuple[bool, str]:
+    """Classify one resolved or connected address against the probe policy."""
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return False, f"unparseable address: {address}"
+    bad = _classify(ip)
+    if bad:
+        return False, bad
+    return True, SAFE
+
+
+def check_url_addresses(
+    url: str, resolver=socket.getaddrinfo
+) -> tuple[bool, str, tuple[str, ...]]:
+    """Vet a probe target and return the public addresses approved for the connection."""
     try:
         parts = urlsplit(url or "")
     except ValueError:  # e.g. an unterminated IPv6 literal: http://[::1
-        return False, "malformed url"
+        return False, "malformed url", ()
     if parts.scheme not in _ALLOWED_SCHEMES:
-        return False, f"blocked scheme: {parts.scheme or '(none)'}"
+        return False, f"blocked scheme: {parts.scheme or '(none)'}", ()
     if not parts.hostname:
-        return False, "no host in url"
+        return False, "no host in url", ()
     try:  # `.port` parses lazily, so it raises here rather than at urlsplit
         port = parts.port or (443 if parts.scheme == "https" else 80)
     except ValueError:
-        return False, "invalid port"
+        return False, "invalid port", ()
     infos = _resolve(parts.hostname, port, resolver)
     if not infos:
-        return False, UNRESOLVED
+        return False, UNRESOLVED, ()
+    addresses = []
     for info in infos:
         addr = info[4][0]
-        try:
-            ip = ipaddress.ip_address(addr)
-        except ValueError:
-            return False, f"unparseable address: {addr}"
-        bad = _classify(ip)
-        if bad:
-            return False, bad
-    return True, SAFE
+        ok, reason = check_address(addr)
+        if not ok:
+            return False, reason, ()
+        if addr not in addresses:
+            addresses.append(addr)
+    return True, SAFE, tuple(addresses)
+
+
+def check_url(url: str, resolver=socket.getaddrinfo) -> tuple[bool, str]:
+    """Vet a probe target. Only policy rejections are refusals; DNS failure is unresolved."""
+    ok, reason, _ = check_url_addresses(url, resolver=resolver)
+    return ok, reason
