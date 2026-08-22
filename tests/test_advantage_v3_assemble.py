@@ -1,7 +1,7 @@
 """The bridge from frozen bytes to a lockable envelope, checked against the real validator.
 
 These tests deliberately do not restate the validator's rules. They build a capture, run it
-through the bridge, and hand the result to `spec.lock_inputs` — the same function the Aug 21
+through the bridge, and hand the result to `spec.lock_inputs` — the same function the Aug 26
 lock will call. A test that mirrored the rules by hand would pass while the two drifted, and
 the drift would surface on the one morning the capture cannot be repeated.
 """
@@ -9,12 +9,12 @@ the drift would surface on the one morning the capture cannot be repeated.
 import base64
 import hashlib
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from docket.advantage.v3 import assemble, capture
+from docket.advantage.v3 import assemble, calibration, capture
 from docket.hire.receipts import canonical_hash
 from docket.advantage.v3.spec import (
     _computed_calibration_truth,
@@ -28,7 +28,9 @@ SPEC_PATH = (
     / "docket/advantage/v3/specs/v3-02-yield-router.json"
 )
 SPEC = load(SPEC_PATH)
-SCHEDULED = datetime(2026, 8, 21, 12, 0, 0, tzinfo=timezone.utc)
+SCHEDULED = datetime.fromisoformat(
+    capture.registered_schedule(SPEC)["first_attempt_at"].replace("Z", "+00:00")
+)
 
 TOKENS = [f"0x{(i + 1):040x}" for i in range(8)]
 
@@ -151,35 +153,67 @@ def _evaluator_calibration() -> list[dict]:
     ]
 
 
-def _envelope() -> dict:
+def _calibration_capture(root: Path) -> Path:
+    shared = json.loads(_calibration_set().decode("utf-8"))["cases"]
+    for row in _evaluator_calibration():
+        request = calibration.open_attempt(
+            SPEC,
+            root,
+            evaluator_id=row["evaluator_id"],
+            model_build=row["model_build"],
+            session_id=row["session_id"],
+            calibration_set=_calibration_set(),
+        )
+        answer = {
+            "evaluator_id": row["evaluator_id"],
+            "results": [
+                {
+                    "case_id": case["case_id"],
+                    "submitted": case["expected"],
+                }
+                for case in shared
+            ],
+        }
+        calibration.record_response(
+            SPEC,
+            root,
+            evaluator_id=row["evaluator_id"],
+            attempt_ordinal=request["attempt_ordinal"],
+            raw_response=json.dumps(answer, sort_keys=True).encode("utf-8"),
+        )
+    return root
+
+
+def _envelope(calibration_dir: Path) -> dict:
     return assemble.assemble_yield_envelope(
         SPEC,
         _capture_result(),
+        calibration_dir=_calibration_capture(calibration_dir),
         calibration_set=_calibration_set(),
         evaluator_calibration=_evaluator_calibration(),
     )
 
 
 def test_the_assembled_envelope_passes_the_real_input_lock(tmp_path):
-    """The whole point. If this passes, the Aug 21 sequence works end to end; if it fails,
+    """The whole point. If this passes, the Aug 26 sequence works end to end; if it fails,
     it fails now, six days early, instead of on the morning with the bytes already frozen."""
-    repo_root = _stage_repo(tmp_path, _envelope())
+    repo_root = _stage_repo(tmp_path, _envelope(tmp_path / "calibration"))
     spec = load(repo_root / "spec.json", repo_root=repo_root)
     locked = lock_inputs(spec, repo_root=repo_root)
     assert locked.runnable
     assert len(locked.inputs_sha256) == 64
 
 
-def test_the_envelope_carries_the_capture_attempts_up_to_the_chosen_one():
-    envelope = _envelope()
+def test_the_envelope_carries_the_capture_attempts_up_to_the_chosen_one(tmp_path):
+    envelope = _envelope(tmp_path / "calibration")
     assert [a["attempt_ordinal"] for a in envelope["capture_log"]] == [1, 2]
     assert envelope["capture_log"][0]["pools_status"] == 503
     assert envelope["source_snapshots"]["pools"]["attempt_ordinal"] == 2
 
 
-def test_the_embedded_bodies_are_the_captured_bytes_unchanged():
+def test_the_embedded_bodies_are_the_captured_bytes_unchanged(tmp_path):
     """The lock hashes what the server sent. A re-encode would hash a different universe."""
-    envelope = _envelope()
+    envelope = _envelope(tmp_path / "calibration")
     result = _capture_result()
     for name, index in (("pools", 0), ("token_list", 1)):
         snapshot = envelope["source_snapshots"][name]
@@ -187,8 +221,8 @@ def test_the_embedded_bodies_are_the_captured_bytes_unchanged():
         assert snapshot["sha256"] == hashlib.sha256(result["_raw"][index]).hexdigest()
 
 
-def test_the_manifest_partitions_every_captured_pool_exactly_once():
-    manifest = _envelope()["truth_manifest"]
+def test_the_manifest_partitions_every_captured_pool_exactly_once(tmp_path):
+    manifest = _envelope(tmp_path / "calibration")["truth_manifest"]
     excluded = [row["pool_id"] for row in manifest["excluded"]]
     assert set(manifest["included_pool_ids"]) | set(excluded) == set(
         manifest["raw_pool_ids"]
@@ -200,8 +234,8 @@ def test_the_manifest_partitions_every_captured_pool_exactly_once():
     ]
 
 
-def test_the_snapshot_urls_are_the_registered_constants():
-    envelope = _envelope()
+def test_the_snapshot_urls_are_the_registered_constants(tmp_path):
+    envelope = _envelope(tmp_path / "calibration")
     assert (
         envelope["source_snapshots"]["pools"]["url"]
         == "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top"
@@ -215,12 +249,13 @@ def test_an_incomplete_capture_cannot_be_assembled():
         assemble.assemble_yield_envelope(
             SPEC,
             failed,
+            calibration_dir=Path("unused"),
             calibration_set=_calibration_set(),
             evaluator_calibration=_evaluator_calibration(),
         )
 
 
-def test_too_few_eligible_pools_is_refused_rather_than_padded():
+def test_too_few_eligible_pools_is_refused_rather_than_padded(tmp_path):
     """A captured universe that cannot fill the registration is a real outcome. Padding it
     with gated-out pools would answer the registered question with unregistered data."""
     thin = _capture_result()
@@ -232,6 +267,7 @@ def test_too_few_eligible_pools_is_refused_rather_than_padded():
         assemble.assemble_yield_envelope(
             SPEC,
             thin,
+            calibration_dir=tmp_path / "calibration",
             calibration_set=_calibration_set(),
             evaluator_calibration=_evaluator_calibration(),
         )
@@ -239,7 +275,7 @@ def test_too_few_eligible_pools_is_refused_rather_than_padded():
 
 def test_existing_inputs_are_never_overwritten(tmp_path):
     """Overwriting frozen inputs is how a second capture quietly replaces the first."""
-    envelope = _envelope()
+    envelope = _envelope(tmp_path / "calibration")
     repo_root = _stage_repo(tmp_path, envelope)
     spec = load(repo_root / "spec.json", repo_root=repo_root)
     with pytest.raises(assemble.AssemblyRefused, match="already exists"):
@@ -265,10 +301,60 @@ def test_a_written_capture_can_be_read_back_and_assembled(tmp_path):
     envelope = assemble.assemble_yield_envelope(
         SPEC,
         reloaded,
+        calibration_dir=_calibration_capture(tmp_path / "calibration"),
         calibration_set=_calibration_set(),
         evaluator_calibration=_evaluator_calibration(),
     )
     assert len(envelope["cases"]) == SPEC.n_planned
+
+
+def test_cli_verifies_the_supplied_calibration_capture(tmp_path, monkeypatch):
+    capture_dir = tmp_path / "capture"
+    capture.write_capture(dict(_capture_result()), capture_dir)
+    calibration_dir = _calibration_capture(tmp_path / "calibration")
+    calibration_set = tmp_path / "calibration-set.json"
+    calibration_set.write_bytes(_calibration_set())
+    evaluator_calibration = tmp_path / "evaluator-calibration.json"
+    evaluator_calibration.write_text(
+        json.dumps(_evaluator_calibration()), encoding="utf-8"
+    )
+    written = []
+
+    def record_write(_spec, envelope):
+        written.append(envelope)
+        return tmp_path / "inputs.json"
+
+    monkeypatch.setattr(assemble, "write_envelope", record_write)
+
+    code = assemble.main(
+        [
+            str(SPEC_PATH),
+            str(capture_dir),
+            str(calibration_set),
+            str(evaluator_calibration),
+            str(calibration_dir),
+        ]
+    )
+
+    assert code == 0
+    assert len(written) == 1
+
+
+def test_an_uncaptured_calibration_edit_is_refused(tmp_path):
+    calibration_dir = _calibration_capture(tmp_path / "calibration")
+    edited = _evaluator_calibration()
+    edited[0]["calibration_results"][0]["submitted"] = {"decision": "MOVE"}
+
+    with pytest.raises(
+        assemble.AssemblyRefused, match="differs from what the binding attempt"
+    ):
+        assemble.assemble_yield_envelope(
+            SPEC,
+            _capture_result(),
+            calibration_dir=calibration_dir,
+            calibration_set=_calibration_set(),
+            evaluator_calibration=edited,
+        )
 
 
 def test_an_edited_body_is_refused_rather_than_assembled(tmp_path):

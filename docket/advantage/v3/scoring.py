@@ -1365,18 +1365,16 @@ def _rate(numerator: int, denominator: int) -> dict:
 
 def _warden_vocabulary(inputs: dict, repo_root: Path | None) -> set[str]:
     snapshot = inputs.get("vendor_snapshot")
-    if isinstance(snapshot, dict) and repo_root is not None and snapshot.get("ref"):
-        path = Path(repo_root) / snapshot["ref"]
-        body = json.loads(path.read_text(encoding="utf-8"))
-        classes = body.get("classes")
-        if isinstance(classes, list):
-            return set(classes)
-    return {
-        label
-        for case in inputs["cases"]
-        for label in case.get("labels", [])
-        if isinstance(label, str)
-    }
+    if not isinstance(snapshot, dict) or repo_root is None or not snapshot.get("ref"):
+        raise ValueError(
+            "scoring: Warden vocabulary requires a vendor snapshot reference"
+        )
+    path = Path(repo_root) / snapshot["ref"]
+    body = json.loads(path.read_text(encoding="utf-8"))
+    classes = body.get("classes")
+    if not isinstance(classes, list):
+        raise ValueError("scoring: Warden vendor snapshot carries no class vocabulary")
+    return set(classes)
 
 
 def _valid_warden_output(projection: dict, case: dict, vocabulary: set[str]) -> bool:

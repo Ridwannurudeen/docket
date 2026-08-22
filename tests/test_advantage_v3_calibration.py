@@ -19,6 +19,7 @@ from docket.advantage.v3.spec import load
 
 SPECS_DIR = Path(__file__).resolve().parents[1] / "docket/advantage/v3/specs"
 SPEC = load(SPECS_DIR / "v3-03-warden-security.json")
+YIELD_SPEC = load(SPECS_DIR / "v3-02-yield-router.json")
 SEAT = "seat-a"
 
 
@@ -134,6 +135,77 @@ def test_the_prompt_is_derived_from_the_registration_not_supplied(tmp_path):
     ]
     # The answer key is not in the ask.
     assert "expected_hostile" not in first.decode("utf-8")
+
+
+def test_pancake_prompt_requests_submitted_answers():
+    shared = {
+        "spec_id": YIELD_SPEC.spec_id,
+        "cases": [
+            {
+                "case_id": f"cal-{number}",
+                "input": {"scenario": number},
+                "expected": {"decision": "STAY"},
+            }
+            for number in range(1, 9)
+        ],
+    }
+    raw_set = json.dumps(shared, sort_keys=True).encode()
+
+    prompt = json.loads(calibration.derive_prompt(YIELD_SPEC, raw_set, SEAT))
+
+    assert "submitted" in prompt["instruction"]
+    assert "predicted_hostile" not in prompt["instruction"]
+
+
+def test_pancake_calibration_captures_submitted_answers(tmp_path):
+    shared = {
+        "spec_id": YIELD_SPEC.spec_id,
+        "cases": [
+            {
+                "case_id": f"cal-{number}",
+                "input": {"scenario": number},
+                "expected": {"decision": "STAY"},
+            }
+            for number in range(1, 9)
+        ],
+    }
+    raw_set = json.dumps(shared, sort_keys=True).encode()
+    for seat in YIELD_SPEC.scoring["evaluator_roster"]:
+        evaluator_id = seat["evaluator_id"]
+        request = calibration.open_attempt(
+            YIELD_SPEC,
+            tmp_path,
+            evaluator_id=evaluator_id,
+            model_build="build-x",
+            session_id=f"session-{evaluator_id}",
+            calibration_set=raw_set,
+        )
+        answer = {
+            "evaluator_id": evaluator_id,
+            "results": [
+                {
+                    "case_id": case["case_id"],
+                    "submitted": case["expected"],
+                }
+                for case in shared["cases"]
+            ],
+        }
+        calibration.record_response(
+            YIELD_SPEC,
+            tmp_path,
+            evaluator_id=evaluator_id,
+            attempt_ordinal=request["attempt_ordinal"],
+            raw_response=json.dumps(answer, sort_keys=True).encode(),
+        )
+
+    rows = calibration.assemble_evaluator_calibration(YIELD_SPEC, tmp_path, raw_set)
+
+    assert rows[0]["calibration_results"][0] == {
+        "case_id": "cal-1",
+        "input": {"scenario": 1},
+        "expected": {"decision": "STAY"},
+        "submitted": {"decision": "STAY"},
+    }
 
 
 def test_a_captured_seat_cannot_be_asked_again(tmp_path):

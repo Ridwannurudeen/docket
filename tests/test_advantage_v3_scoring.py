@@ -658,7 +658,7 @@ def test_warden_metrics_keep_failures_in_recall_reliability_and_critical_gates(
             )
     attempts = scoring.primary_attempts(spec, ledger, repo_root=tmp_path)
 
-    metrics = scoring.warden_metrics(spec, inputs, attempts)
+    metrics = scoring.warden_metrics(spec, inputs, attempts, repo_root=tmp_path)
 
     agent = metrics["arms"]["agent"]
     assert agent["recall"] == {"numerator": 6, "denominator": 8, "value": 0.75}
@@ -685,6 +685,14 @@ def test_warden_metrics_keep_failures_in_recall_reliability_and_critical_gates(
         ]
         == 10
     )
+
+
+def test_warden_case_labels_cannot_replace_the_vendor_vocabulary(tmp_path, monkeypatch):
+    _spec, inputs = _locked_family(tmp_path, monkeypatch, "v3-03-warden-security")
+    inputs.pop("vendor_snapshot")
+
+    with pytest.raises(ValueError, match="vendor snapshot reference"):
+        scoring._warden_vocabulary(inputs, tmp_path)
 
 
 def test_yield_completeness_requires_the_exact_partition_and_frozen_sources(
