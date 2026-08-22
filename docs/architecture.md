@@ -3,6 +3,9 @@
 Docket has four separate planes so an observation, a marketplace declaration, an action
 draft, and evidence about prior work cannot silently become the same kind of fact.
 
+Competition context: the BNB Chain main track has one $30,000 winner plus official
+adoption; it is not a shared prize pool.
+
 ```text
 8004scan response
       |

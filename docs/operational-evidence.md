@@ -9,6 +9,9 @@ This file moves the legwork instead of loosening the sandbox. The evidence below
 by the builder from the two places the auditor cannot reach — the host and GitHub — and committed
 so it can be audited under read-only like anything else.
 
+Competition context: the BNB Chain main track has one $30,000 winner plus official
+adoption; it is not a shared prize pool.
+
 **What this file is worth, stated precisely.** It does not let a reader verify the host. It lets
 a reader check the collection for *internal consistency*: whether the deployed revision resolves
 to a real commit in this repository, whether the code that commit contains matches what the live

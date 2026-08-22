@@ -6,7 +6,9 @@ answers is no — which is why the other two are worth anything.
 """
 
 import json
+import re
 from pathlib import Path
+from statistics import median
 
 import pytest
 
@@ -166,3 +168,49 @@ def test_the_served_finding_leads_with_the_measure_that_found_nothing():
     finding = report()["decision_impact"]["finding"]
     assert finding.index("change order") < finding.index("overstates")
     assert "changes nothing here" in finding
+
+
+def test_readme_decision_impact_numbers_follow_the_generated_section():
+    from docket.advantage.v2.report import decision_impact_section
+
+    readme = (
+        Path(__file__).resolve().parents[1] / "README.md"
+    ).read_text(encoding="utf-8")
+    numbers = re.search(
+        r"\*\*\$(?P<annual>[\d,]+(?:\.\d+)?) median annual overstatement at "
+        r"\$(?P<notional>[\d,]+(?:\.\d+)?)(?P<scale>[kK]?) notional "
+        r"\(n=(?P<pools>\d+)\) and payback arriving a median "
+        r"(?P<days>[\d,]+(?:\.\d+)?) days later than gross implies\.\*\* "
+        r"Across (?P<moves>\d+) candidate moves .*? ranking reversals were "
+        r"(?P<reversals>\d+)/(?P<pairs>\d+); the median "
+        r"(?P<relative>[\d,]+(?:\.\d+)?)% gross-to-net",
+        " ".join(readme.split()),
+    )
+    assert numbers is not None
+
+    section = decision_impact_section()
+    dollars = section["dollars_at_notionals"]["notionals"][0]
+    shift = section["break_even_shift"]
+    reversals = section["ranking_reversals"]
+    read_notional = float(numbers["notional"].replace(",", ""))
+    if numbers["scale"].lower() == "k":
+        read_notional *= 1_000
+    relative_overstatements = [
+        100 * pool["annual_overstatement_usd"] / pool["annual_net_usd"]
+        for pool in dollars["pools"]
+    ]
+
+    assert float(numbers["annual"].replace(",", "")) == round(
+        dollars["median_annual_overstatement_usd"], 2
+    )
+    assert read_notional == dollars["notional_usd"]
+    assert int(numbers["pools"]) == dollars["n_pools"]
+    assert float(numbers["days"].replace(",", "")) == round(
+        shift["median_days_later_than_gross_implies"], 2
+    )
+    assert int(numbers["moves"]) == shift["n_moves"]
+    assert int(numbers["reversals"]) == reversals["numerator"]
+    assert int(numbers["pairs"]) == reversals["denominator"]
+    assert float(numbers["relative"].replace(",", "")) == round(
+        median(relative_overstatements), 1
+    )

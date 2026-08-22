@@ -43,6 +43,8 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
   SHA-256 `b8c9a257c9ab3acab111b87d2507153b7d0a7bd54a41ef9110a2a57c88758beb`.
   The record is internally checkable against this repository but is not an independent
   observation of the host, and it covers no later commit.
+- **C-10.** The BNB Chain main track has one $30,000 winner plus official adoption; it is
+  not a shared prize pool.
 
 The table records where evidence is missing instead of substituting a number or a
 transaction that does not exist.
@@ -81,9 +83,13 @@ Docket's BSC snapshot.
 
 The first-party planner skills shown in
 [PancakeSwap's execution model](https://github.com/pancakeswap/pancakeswap-ai) stop at
-generated deep links, the same boundary Range Doctor keeps. Docket reads
+generated deep links, the same boundary Range Doctor keeps. On 2026-08-22, a read-only
+`_meta { block { number timestamp } hasIndexingErrors }` query to the
+[PancakeSwap BSC V3 subgraph](https://thegraph.pancakeswap.com/exchange-v3-bsc) returned
+block 95193979, timestamp 1777389823 (2026-04-28T15:23:43Z), and
+`hasIndexingErrors: true`. Docket instead reads
 [PancakeSwap's live Explorer API](https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top)
-rather than the BSC V3 subgraph.
+and SHA-pins the response bytes.
 
 ## Install and test
 
