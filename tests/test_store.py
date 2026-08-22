@@ -181,6 +181,7 @@ def test_a_database_predating_the_column_is_migrated_not_rejected(tmp_path: Path
         )
     store = Store(path)
     assert store.snapshot(1)["population"] is None
+    assert store.snapshot(1)["promoted_at"] == "2026-08-07T17:51:02+00:00"
     assert store.latest_complete_snapshot_id(56) == 1  # still readable, still servable
     fresh = store.begin_snapshot(chain_id=56, expected=1, population="all")
     assert store.snapshot(fresh)["population"] == "all"

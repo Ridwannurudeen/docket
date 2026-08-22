@@ -22,6 +22,7 @@ import time
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -41,6 +42,7 @@ from ..advantage.v2.page import fill as fill_v2_page
 from ..advantage.v2.report import report as advantage_v2_report
 from ..advantage.v3.page import fill as fill_v3_page
 from ..advantage.v3.report import report as advantage_v3_report
+from ..agents.pancake.lp_record import read as read_lp_record
 from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
 from ..escrow import constants as escrow_constants
 from ..escrow.chain import JobNotFound, JobReader
@@ -90,6 +92,7 @@ from .models import (
 )
 
 DEFAULT_DB_PATH = "data/agents.sqlite3"
+DEFAULT_LP_RECORD_PATH = "lp-record/controlled.jsonl"
 # Ships inside the package (see pyproject's package-data), so an installed Docket serves the
 # same documents a checkout does.
 STATIC_DIR = Path(__file__).parent / "static"
@@ -324,20 +327,18 @@ def create_app(
     snapshot_id: int | None = None,
     facilitator: Facilitator | None = None,
 ) -> FastAPI:
-    """Serve one immutable observation snapshot plus persistent paid-hire state.
+    """Serve promoted observation snapshots plus persistent paid-hire state.
 
-    The snapshot is resolved once so a listing and its stats describe the same capture,
-    even mid-sweep. Hire writes are confined to payment lifecycle records.
+    An explicitly named snapshot stays pinned for inspection. The normal application
+    resolves the newest promoted snapshot once per request, so a completed refresh becomes
+    visible without a process restart and no request can cross between two snapshots.
     """
     db_path = Path(db_path)
     store = Store(db_path)
-    if snapshot_id is None:
-        # The newest COMPLETE sweep, never merely the newest row. An explicit snapshot_id is
-        # still honoured, so an operator can inspect a partial capture on purpose.
-        snapshot_id = store.latest_complete_snapshot_id(CHAIN_ID)
-    served_snapshot = store.snapshot(snapshot_id) if snapshot_id is not None else {}
-    snapshot_captured_at = served_snapshot.get("finished_at") or served_snapshot.get(
-        "started_at"
+    follow_latest_snapshot = snapshot_id is None
+    pinned_snapshot_id = snapshot_id
+    lp_record_path = Path(
+        os.environ.get("DOCKET_LP_RECORD_PATH", DEFAULT_LP_RECORD_PATH)
     )
     # Read once, at startup: a missing document should fail the app that ships it, not the one
     # request that happened to ask for it.
@@ -407,8 +408,14 @@ def create_app(
     app.add_exception_handler(StarletteHTTPException, _http_error)
     app.add_exception_handler(RequestValidationError, _validation_error)
 
+    def _current_snapshot_id() -> int | None:
+        if follow_latest_snapshot:
+            return store.latest_complete_snapshot_id(CHAIN_ID)
+        return pinned_snapshot_id
+
     def _serving() -> int:
-        if snapshot_id is None:
+        current_snapshot_id = _current_snapshot_id()
+        if current_snapshot_id is None:
             raise HTTPException(
                 503,
                 detail={
@@ -420,7 +427,7 @@ def create_app(
                     ),
                 },
             )
-        return snapshot_id
+        return current_snapshot_id
 
     def _spend_allowance(client_ip: str) -> int | None:
         """Take one hire from this IP's allowance. Returns None when it was there to take,
@@ -484,7 +491,7 @@ def create_app(
                 "Read-only observations about ERC-8004 agents on BSC. Docket reports what it "
                 "measured; a reader judges."
             ),
-            "snapshot_id": snapshot_id,
+            "snapshot_id": _current_snapshot_id(),
             "llms_txt": "/llms.txt",
             "canary": "/canary",
             "openapi": "/openapi.json",
@@ -497,6 +504,7 @@ def create_app(
             "advantage": "/advantage.json",
             "advantage_v2": "/advantage/v2.json",
             "advantage_v3": "/advantage/v3.json",
+            "lp_record": "/lp-record",
             "health": "/health",
         }
 
@@ -544,12 +552,26 @@ def create_app(
 
     @app.get("/health")
     def health() -> dict:
+        current_snapshot_id = _current_snapshot_id()
+        served_snapshot = (
+            store.snapshot(current_snapshot_id)
+            if current_snapshot_id is not None
+            else {}
+        )
+        snapshot_captured_at = served_snapshot.get(
+            "finished_at"
+        ) or served_snapshot.get("started_at")
         return {
-            "status": "ok" if snapshot_id is not None else "no_snapshot",
-            "snapshot_id": snapshot_id,
+            "status": "ok" if current_snapshot_id is not None else "no_snapshot",
+            "snapshot_id": current_snapshot_id,
             "snapshot_captured_at": snapshot_captured_at,
             "snapshot_age_seconds": _snapshot_age_seconds(snapshot_captured_at),
         }
+
+    @app.get("/lp-record", response_model=None, include_in_schema=False)
+    def lp_record() -> dict:
+        history = read_lp_record(lp_record_path)
+        return {"history": history, "total": len(history)}
 
     @app.get("/canary", response_model=None)
     def canary_history(service_id: str = "range-doctor", limit: int = 30) -> dict:
@@ -796,7 +818,8 @@ def create_app(
         depend on a snapshot, and a service should not 503 because no sweep has landed."""
         if record.agent_id is None:
             return None, IDENTITY_UNBOUND
-        if snapshot_id is None:
+        current_snapshot_id = _current_snapshot_id()
+        if current_snapshot_id is None:
             return None, IDENTITY_NO_SNAPSHOT
         # Drained into a dict rather than short-circuited with any(): a suspended
         # iter_agents generator holds its sqlite connection open for the whole request.
@@ -808,7 +831,7 @@ def create_app(
         # would answer "not in the served snapshot" about an agent that is in it.
         held = {
             row["agent_id"].lower(): row["agent_id"]
-            for row in Store(db_path).iter_agents(snapshot_id)
+            for row in Store(db_path).iter_agents(current_snapshot_id)
         }
         stored = held.get(record.agent_id.lower())
         if stored is not None:
@@ -861,7 +884,9 @@ def create_app(
         )
 
     @app.get("/services/{service_id}", response_model=ServiceDetail)
-    def get_service_detail(service_id: str) -> ServiceDetail:
+    def get_service_detail(
+        service_id: str, request: Request
+    ) -> ServiceDetail | RedirectResponse:
         """One service in full: what arrives, what to send, what it costs, what has been
         observed of it, what it cannot do, and where its identity can be read."""
         record = get_record(service_id)
@@ -875,6 +900,10 @@ def create_app(
                         "lists every service it runs; GET /categories lists the four jobs."
                     ),
                 },
+            )
+        if "text/html" in request.headers.get("accept", ""):
+            return RedirectResponse(
+                f"/service?id={quote(service_id, safe='')}", status_code=302
             )
         agent_path, identity_note = _identity_link(record)
         return ServiceDetail(

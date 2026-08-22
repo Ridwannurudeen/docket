@@ -16,11 +16,11 @@ requesting JSON receives the endpoint index.
 | `GET /health` | Process status plus the served snapshot's ID, capture time, and current age |
 | `GET /canary` | Durable canary history and the resulting dynamic admission decision |
 | `GET /stats` | Observation counts with coverage and denominators |
-| `GET /agents` | Paginated agents from the startup-bound snapshot |
+| `GET /agents` | Paginated agents from the newest promoted complete snapshot |
 | `GET /agents/{agent_id}` | One agent, observations, coverage, and explicitly bound services |
 | `GET /categories` | Four Docket-declared jobs and service counts |
 | `GET /services` | All service cards or one typed category |
-| `GET /services/{service_id}` | Full service inputs, limitations, evidence, and identity note |
+| `GET /services/{service_id}` | Full service inputs, limitations, evidence, and identity note; HTML callers are redirected to `/service?id=...` |
 | `GET /hire` | Callable catalogue, terms, stock state, and admission booleans |
 | `POST /hire/{service_id}` | Run one service and return result plus receipt |
 | `GET /escrow` | ERC-8183 job template and chain terms |
@@ -29,6 +29,7 @@ requesting JSON receives the endpoint index.
 | `GET /advantage/v2.json` | V2 registered experiments and computed report |
 | `GET /advantage/v3.json` | V3 registered paired families and artifact-derived state |
 | `GET /advantage/v3` | The same startup-bound V3 report rendered as HTML |
+| `GET /lp-record` | Every retained observation of the controlled PancakeSwap position |
 
 V3's closed states are `registered_waiting_for_inputs`, `locked_not_run`, `running`,
 `complete_unscored`, `refuted`, and `not_refuted`. All three families currently report the
@@ -36,12 +37,22 @@ first state because every `inputs_sha256` is empty and no input or run artifact 
 application builds one v3 report object at startup and renders its HTML from that exact
 object, so the JSON and page cannot drift within a process.
 
-`GET /health` returns `snapshot_captured_at`, the exact capture time of the snapshot
-bound at startup, and `snapshot_age_seconds`, its age in whole seconds when the response
-is made.
+Unless `create_app` receives an explicit snapshot ID for inspection, each request resolves
+the newest complete snapshot that has been explicitly promoted. A finished refresh candidate
+stays hidden through enrichment and probing, then becomes visible without restarting the
+application after promotion. Each request resolves once, so all counts in that response come
+from one snapshot.
+
+`GET /health` returns `snapshot_captured_at`, the exact capture time of the currently served
+snapshot, and `snapshot_age_seconds`, its age in whole seconds when the response is made.
 Every `coverage` object repeats that snapshot's `captured_at` and computed
 `snapshot_age_seconds`, so freshness is a served fact rather than something a caller has
 to imply from an old timestamp. Both age fields are null when no valid capture time exists.
+
+`GET /lp-record` reads the complete append-only JSONL history at
+`DOCKET_LP_RECORD_PATH`, defaulting to `lp-record/controlled.jsonl` under the process working
+directory. It returns the retained observations in file order and their total; it does not
+interpret the sequence as an outcome caused by an owner decision.
 
 ## Categories and identities
 

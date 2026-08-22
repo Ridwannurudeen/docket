@@ -1,5 +1,9 @@
-import pydantic
+import json
 
+import pydantic
+from fastapi.testclient import TestClient
+
+from docket.api import create_app
 from docket.api.models import (
     BANNED_FIELD_NAMES,
     AgentDetail,
@@ -17,6 +21,7 @@ from docket.api.models import (
     ServicesResponse,
     StatsResponse,
 )
+from docket.store import Store
 
 ALL_MODELS = [
     Coverage,
@@ -123,3 +128,56 @@ def test_the_service_layer_carries_the_identity_it_is_bound_to_or_says_it_is_not
     names = _field_names(ServiceDetail)
     assert {"agent_id", "identity", "identity_note", "agent_path"} <= names
     assert ServiceDetail.model_fields["identity"].is_required()
+
+
+def test_service_detail_redirects_html_callers_without_changing_json(tmp_path):
+    client = TestClient(
+        create_app(tmp_path / "services.sqlite3"), follow_redirects=False
+    )
+
+    page = client.get(
+        "/services/range-doctor", headers={"Accept": "text/html,application/xhtml+xml"}
+    )
+    data = client.get(
+        "/services/range-doctor", headers={"Accept": "application/json"}
+    )
+
+    assert page.status_code == 302
+    assert page.headers["location"] == "/service?id=range-doctor"
+    assert data.status_code == 200
+    assert data.json()["service_id"] == "range-doctor"
+
+
+def test_lp_record_returns_every_stored_observation(tmp_path, monkeypatch):
+    path = tmp_path / "controlled.jsonl"
+    history = [
+        {"record_version": "lp-record.v1", "observed_at": "2026-08-21T00:00:00Z"},
+        {"record_version": "lp-record.v1", "observed_at": "2026-08-22T00:00:00Z"},
+    ]
+    path.write_text(
+        "".join(json.dumps(observation) + "\n" for observation in history),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DOCKET_LP_RECORD_PATH", str(path))
+    client = TestClient(create_app(tmp_path / "lp.sqlite3"))
+
+    response = client.get("/lp-record")
+
+    assert response.status_code == 200
+    assert response.json() == {"history": history, "total": 2}
+
+
+def test_unpinned_app_adopts_only_a_newly_promoted_snapshot(tmp_path):
+    db_path = tmp_path / "refresh.sqlite3"
+    store = Store(db_path)
+    current = store.begin_snapshot(56, expected=1)
+    store.finish_snapshot(current, sampled=1)
+    client = TestClient(create_app(db_path))
+    candidate = store.begin_snapshot(56, expected=1)
+    store.finish_snapshot(candidate, sampled=1, promote=False)
+
+    assert client.get("/stats").json()["coverage"]["snapshot_id"] == current
+
+    store.promote_snapshot(candidate)
+
+    assert client.get("/stats").json()["coverage"]["snapshot_id"] == candidate
