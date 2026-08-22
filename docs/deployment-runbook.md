@@ -87,9 +87,9 @@ factory. The working directory makes its relative default database path resolve 
 live file named by `DOCKET_DB`; the database stays under `/var/lib/docket` across replacement
 of `/opt/docket`.
 
-The application unit and nginx site remain host-managed. This repository tracks only the
-daily canary units and their installer; their presence in source is not evidence that they
-were installed.
+The application unit and nginx site remain host-managed. This repository tracks operational
+unit examples for the daily canary and targeted registry refresh; their presence in source is
+not evidence that they were installed.
 
 ## Configuration
 
@@ -137,6 +137,26 @@ Do not use a payment header in these manual checks. Only the governing runner ma
 an unadmitted paid leg, and only with the separate owner-installed canary token and payment
 configuration. Do not run a v3 arm or lock a v3 input as a deployment check.
 
+## Reconcile a lost paid-hire response
+
+If settlement may have completed but the caller lost the HTTP response, do not submit the hire
+again and do not call the facilitator directly. While the original signed authorization remains
+inside its validity window, send `POST /hire/{service_id}/recover` with the exact original JSON
+request body and the same signed authorization header used for the hire (`X-PAYMENT` or
+`PAYMENT-SIGNATURE`). The recovery route checks the signature, terms, resource, service, input,
+and nonce against the local payment row. It does not run the service or call facilitator
+`/verify` or `/settle`.
+
+A `200` response is the stored standard `{result, receipt}` envelope and is available only for
+`settled` and `settlement_unknown` rows. Record that envelope beside the caller's original
+request. Handle failures by their error code: `payment_not_found` (`404`) means this database has
+no row for the nonce; `payment_invalid` (`400`) means the signed header is absent, malformed, or
+outside its validity window; `authorization_mismatch` (`409`) means the service, input, or signed
+terms do not bind to the stored payment; and `payment_not_recoverable` (`409`) means the row has
+not reached either recoverable state. None of those responses authorizes another settlement
+attempt. Confirm the request reached the release using the intended `DOCKET_DB`, then investigate
+the durable row before any owner-approved next action.
+
 ## Daily governing canary
 
 The tracked deployment units are:
@@ -156,9 +176,12 @@ run is only a few sequential public HTTP reads. After the owner supplies a funde
 LP and the payment key file, it adds at most one free controlled-position preflight plus one
 exact 0.50 $U paid execution and its rejected replay per day. The preflight proves the
 decision-grade result before anything is spent; the replay is refused before work repeats.
-From Aug 15 through Sep 23 inclusive that is at most 40 runs and 20 $U. It replaces the
-explicitly cut six-hour registry refresh daemon, which would add load without protecting the
-primary paid-service claim.
+From Aug 15 through Sep 23 inclusive that is at most 40 runs and 20 $U.
+
+The canary and registry refresh have different scopes. The canary protects the primary paid
+service and controlled-position claims. The refresh keeps the small, feedback-filtered ERC-8004
+fact plane and explicit Docket identities current. It does not reinstate the cut full-registry
+crawl or registry-history build.
 
 The runner appends what it checked, what it observed, its evidence, and its state to
 `DOCKET_DB`. `not_yet_exercised` is not a pass: while the controlled wallet, position token,
@@ -184,6 +207,43 @@ operator to run after review. Run it only after the copied release is in place:
 ```bash
 bash /opt/docket/deploy/install-canary.sh
 ```
+
+## Six-hour targeted registry refresh
+
+The tracked refresh units are:
+
+- `deploy/systemd/docket-refresh.service`
+- `deploy/systemd/docket-refresh.timer`
+
+The timer starts at 01:41, 07:41, 13:41, and 19:41 UTC and catches one missed activation after
+downtime. Each run sweeps the complete `min_feedbacks>=1` query and unions the public agent ids
+listed in `DOCKET_OWNED_AGENT_IDS`, fetching those identities individually even when they have
+zero feedback. The stored population names both parts of that union. A malformed, missing, or
+mismatched configured identity fails the run rather than publishing a snapshot that silently
+omits it.
+
+Ingestion finishes an unpromoted candidate. The job then enriches every callable row, records one
+policy-guarded observation for every a2a/mcp endpoint, rechecks that the sweep exhausted with
+`sampled == expected > 0`, and promotes the snapshot. A page-bounded or non-advancing sweep is
+never promoted. The application resolves the latest promoted snapshot on each fact-plane request,
+so a successful refresh becomes visible without a process restart; a failed refresh leaves the
+previous promoted snapshot in service.
+
+Installation and configuration are owner actions and must happen only after the exact tested
+release is under `/opt/docket`, the database has a SQLite-consistent backup, and the pinned-address
+liveness guard is in that release. Install the two unit files under `/etc/systemd/system`, run
+`systemctl daemon-reload`, then run `systemctl enable --now docket-refresh.timer`. Verify the
+schedule with `systemctl list-timers docket-refresh.timer` and inspect the first completed run with
+`systemctl status docket-refresh.service` plus `journalctl -u docket-refresh.service` before
+treating freshness as operational.
+
+Until Docket's new ERC-8004 registrations exist, leave `/etc/docket/docket-refresh.conf` absent;
+the targeted feedback sweep still runs. Once the identities exist, create that root-managed file
+with one line, `DOCKET_OWNED_AGENT_IDS=` followed by the comma-separated full ids in
+`{chain_id}:{registry_address}:{token_id}` form. Agent ids are public, but the file must contain no
+wallet key, facilitator credential, or payment authorization. Restarting the API is not required
+after updating the allowlist; start `docket-refresh.service` once and confirm the promoted
+snapshot contains every configured id.
 
 ## Database handling
 
