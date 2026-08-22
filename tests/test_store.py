@@ -203,6 +203,44 @@ def test_latest_complete_snapshot_skips_a_sweep_that_never_finished(tmp_path: Pa
     assert store.latest_complete_snapshot_id(56) == third  # a later finish wins again
 
 
+def test_a_finished_candidate_stays_hidden_until_explicit_promotion(tmp_path: Path):
+    store = Store(tmp_path / "promotion.sqlite3")
+    current = store.begin_snapshot(chain_id=56, expected=1)
+    store.finish_snapshot(current, sampled=1)
+    candidate = store.begin_snapshot(chain_id=56, expected=2)
+
+    store.finish_snapshot(candidate, sampled=2, promote=False)
+
+    assert store.snapshot(candidate)["promoted_at"] is None
+    assert store.latest_complete_snapshot_id(56) == current
+    store.promote_snapshot(candidate)
+    assert store.snapshot(candidate)["promoted_at"] is not None
+    assert store.latest_complete_snapshot_id(56) == candidate
+
+
+@pytest.mark.parametrize(
+    ("sampled", "expected", "stop_reason"),
+    ((1, 2, "exhausted"), (1, 1, "max_pages"), (0, 0, "exhausted")),
+)
+def test_explicit_promotion_refuses_an_incomplete_candidate(
+    tmp_path: Path, sampled: int, expected: int, stop_reason: str
+):
+    store = Store(tmp_path / f"promotion-{stop_reason}-{sampled}.sqlite3")
+    candidate = store.begin_snapshot(chain_id=56, expected=expected)
+    store.finish_snapshot(
+        candidate,
+        sampled=sampled,
+        expected=expected,
+        stop_reason=stop_reason,
+        promote=False,
+    )
+
+    with pytest.raises(ValueError, match="cannot be promoted"):
+        store.promote_snapshot(candidate)
+
+    assert store.latest_complete_snapshot_id(56) is None
+
+
 def test_latest_complete_snapshot_is_per_chain_and_none_when_nothing_finished(
     tmp_path: Path,
 ):

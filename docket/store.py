@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
     sampled INTEGER,
     started_at TEXT NOT NULL,
     finished_at TEXT,
+    promoted_at TEXT,
     -- Which query this snapshot swept: "all" for the whole registry, or the predicate that
     -- narrowed it, e.g. "min_feedbacks>=1". NULL where a sweep predating this column never
     -- recorded one; that reads as unspecified and is never filled in by guesswork.
@@ -167,6 +168,16 @@ class Store:
                 conn.execute("ALTER TABLE snapshots ADD COLUMN population TEXT")
             if "stop_reason" not in columns:
                 conn.execute("ALTER TABLE snapshots ADD COLUMN stop_reason TEXT")
+            if "promoted_at" not in columns:
+                conn.execute("ALTER TABLE snapshots ADD COLUMN promoted_at TEXT")
+                conn.execute(
+                    """UPDATE snapshots SET promoted_at = finished_at
+                       WHERE finished_at IS NOT NULL
+                         AND sampled IS NOT NULL AND expected IS NOT NULL
+                         AND sampled = expected AND sampled > 0
+                         AND (stop_reason IS NULL OR stop_reason = ?)""",
+                    (COMPLETE_STOP_REASON,),
+                )
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -438,6 +449,8 @@ class Store:
         sampled: int,
         expected: int | None = None,
         stop_reason: str = "exhausted",
+        *,
+        promote: bool = True,
     ) -> None:
         """Close a snapshot. Pass `expected` to overwrite the figure `begin_snapshot` recorded —
         a sweep that watches the registry grow must persist the final claim, or a later reader
@@ -454,19 +467,53 @@ class Store:
             raise ValueError(
                 f"unknown stop_reason {stop_reason!r}; expected one of {STOP_REASONS}"
             )
+        finished_at = _now()
         with self._conn() as conn:
             if expected is None:
                 conn.execute(
                     "UPDATE snapshots SET sampled = ?, finished_at = ?, stop_reason = ? "
                     "WHERE id = ?",
-                    (sampled, _now(), stop_reason, snapshot_id),
+                    (sampled, finished_at, stop_reason, snapshot_id),
                 )
             else:
                 conn.execute(
                     "UPDATE snapshots SET sampled = ?, expected = ?, finished_at = ?, "
                     "stop_reason = ? WHERE id = ?",
-                    (sampled, expected, _now(), stop_reason, snapshot_id),
+                    (sampled, expected, finished_at, stop_reason, snapshot_id),
                 )
+            if promote:
+                conn.execute(
+                    """UPDATE snapshots SET promoted_at = ?
+                       WHERE id = ? AND finished_at IS NOT NULL
+                         AND sampled IS NOT NULL AND expected IS NOT NULL
+                         AND sampled = expected AND sampled > 0
+                         AND (stop_reason IS NULL OR stop_reason = ?)""",
+                    (finished_at, snapshot_id, COMPLETE_STOP_REASON),
+                )
+
+    def promote_snapshot(self, snapshot_id: int) -> None:
+        """Make one fully finished candidate visible to readers."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM snapshots WHERE id = ?", (snapshot_id,)
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"snapshot {snapshot_id} cannot be promoted: it does not exist")
+            if (
+                row["finished_at"] is None
+                or row["sampled"] is None
+                or row["expected"] is None
+                or row["sampled"] <= 0
+                or row["sampled"] != row["expected"]
+                or row["stop_reason"] not in {None, COMPLETE_STOP_REASON}
+            ):
+                raise ValueError(
+                    f"snapshot {snapshot_id} cannot be promoted: it is not a complete exhausted sweep"
+                )
+            conn.execute(
+                "UPDATE snapshots SET promoted_at = ? WHERE id = ?",
+                (_now(), snapshot_id),
+            )
 
     def upsert_agents(self, rows: list[dict], snapshot_id: int) -> int:
         payload = []
@@ -541,7 +588,8 @@ class Store:
         """
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT id FROM snapshots WHERE chain_id = ? AND finished_at IS NOT NULL "
+                "SELECT id FROM snapshots WHERE chain_id = ? AND promoted_at IS NOT NULL "
+                "AND finished_at IS NOT NULL "
                 "AND sampled IS NOT NULL AND expected IS NOT NULL AND sampled = expected "
                 "AND sampled > 0 AND (stop_reason IS NULL OR stop_reason = ?) "
                 "ORDER BY id DESC LIMIT 1",
