@@ -207,12 +207,12 @@ def test_every_card_carries_its_closed_evidence_modality(
         card["service_id"]: card for card in client.get("/services").json()["services"]
     }
     expected = {
-        "grid-operator": "preview",
-        "health-guard": "preview",
+        "grid-operator": "live_read",
+        "health-guard": "live_read",
         "range-doctor": "live_read",
         "solvent-signal": "historical",
         "warden-scan": "live_read",
-        "yield-router": "preview",
+        "yield-router": "live_read",
     }
     assert {
         service_id: card["evidence_modality"] for service_id, card in cards.items()
@@ -277,6 +277,24 @@ def test_service_detail_carries_everything_needed_to_activate_it(client):
     assert body["limitations"].strip()
     assert body["hire_path"] == "/hire/range-doctor"
     assert body["evidence"] and body["evidence"][0]["url"].startswith("/")
+
+
+def test_all_four_category_cards_carry_recorded_metrics(client):
+    cards = {
+        card["service_id"]: card for card in client.get("/services").json()["services"]
+    }
+    for service_id in (
+        "range-doctor",
+        "grid-operator",
+        "health-guard",
+        "yield-router",
+    ):
+        assert cards[service_id]["metrics"], service_id
+    for service_id in ("grid-operator", "health-guard", "yield-router"):
+        assert all(
+            "single recorded read; no paired run against a person" in metric["window"]
+            for metric in cards[service_id]["metrics"]
+        )
 
 
 def test_an_unknown_service_is_a_404_naming_the_catalogue(client):
