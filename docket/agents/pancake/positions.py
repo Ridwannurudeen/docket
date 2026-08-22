@@ -33,6 +33,7 @@ a JSON-RPC error body, which web3 raises as a `ValueError` rather than as a
 transport error. The order below is the measured one, best first.
 """
 
+import os
 import time
 from datetime import datetime, timezone
 
@@ -220,7 +221,10 @@ POOL_ABI = [
 
 
 class PositionReader:
-    def __init__(self, rpc_urls=BSC_RPCS, w3: Web3 | None = None) -> None:
+    def __init__(self, rpc_urls=None, w3: Web3 | None = None) -> None:
+        if rpc_urls is None:
+            archive_rpc = os.environ.get("DOCKET_ARCHIVE_RPC", "").strip()
+            rpc_urls = ((archive_rpc,) if archive_rpc else ()) + BSC_RPCS
         self._rpc_urls = tuple(rpc_urls)
         # An injected Web3 is used as given, with no failover: whoever supplied
         # it — a test, or a caller with their own node — owns its reliability.
@@ -238,6 +242,9 @@ class PositionReader:
             return do(self._injected)
 
         failures: list[str] = []
+        pruned_failures: list[str] = []
+        ordinary_failure = False
+        last_pruned: Exception | None = None
         for url in self._rpc_urls:
             for attempt in range(ATTEMPTS_PER_RPC):
                 try:
@@ -249,21 +256,35 @@ class PositionReader:
                 except Exception as exc:
                     self._sessions.pop(url, None)
                     text = str(exc).lower()
-                    if any(marker in text for marker in PRUNED_STATE_MARKERS):
-                        # Re-raise immediately rather than failing over. Every public
-                        # dataseed prunes, so trying the next one wastes time and then
-                        # reports the wrong reason — and the caller must be able to tell
-                        # "this node cannot see that block" from "there is nothing there".
-                        raise PrunedStateError(
-                            f"{url} no longer holds the state for this block: {exc}. "
-                            "This is a pruned endpoint, not an empty result — an archive "
-                            "node is required to read it."
-                        ) from exc
+                    if isinstance(exc, PrunedStateError) or any(
+                        marker in text for marker in PRUNED_STATE_MARKERS
+                    ):
+                        failure = (
+                            f"{url}: {type(exc).__name__}: {exc} (pruned endpoint)"
+                        )
+                        failures.append(failure)
+                        pruned_failures.append(failure)
+                        last_pruned = exc
+                        # Retrying the same node cannot restore historical state. Try the
+                        # next configured endpoint, which may be the archive RPC.
+                        break
+                    ordinary_failure = True
                     failures.append(
                         f"{url} (attempt {attempt + 1}): {type(exc).__name__}: {exc}"
                     )
                     if attempt < ATTEMPTS_PER_RPC - 1:
                         time.sleep(RETRY_PAUSE_S)
+        if (
+            pruned_failures
+            and len(pruned_failures) == len(self._rpc_urls)
+            and not ordinary_failure
+        ):
+            raise PrunedStateError(
+                "every BSC endpoint was pruned:\n  "
+                + "\n  ".join(pruned_failures)
+                + "\nThis is a pruned-endpoint failure, not an empty result — an "
+                "archive node is required to read it."
+            ) from last_pruned
         raise RuntimeError("every BSC endpoint failed:\n  " + "\n  ".join(failures))
 
     def _exact_position(

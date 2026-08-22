@@ -15,6 +15,7 @@ import pytest
 from web3.providers.base import BaseProvider
 
 from docket.agents.pancake.positions import (
+    BSC_RPCS,
     default_session,
     MASTER_CHEF_V3,
     NPM,
@@ -159,6 +160,11 @@ class _FakeW3:
 def _reader() -> tuple[PositionReader, list]:
     log: list = []
     return PositionReader(w3=_FakeW3(log)), log
+
+
+class _EndpointSession:
+    def __init__(self, url):
+        self.url = url
 
 
 def test_closed_positions_are_skipped_but_stay_countable():
@@ -332,14 +338,79 @@ def test_historical_pool_provenance_uses_the_requested_block_header():
     assert state["block_number"] == BLOCK
 
 
+def test_default_reader_prepends_archive_rpc_and_explicit_urls_stay_explicit(
+    monkeypatch,
+):
+    monkeypatch.setenv("DOCKET_ARCHIVE_RPC", "https://archive.example")
+
+    assert PositionReader()._rpc_urls == ("https://archive.example", *BSC_RPCS)
+    assert PositionReader(rpc_urls=("https://explicit.example",))._rpc_urls == (
+        "https://explicit.example",
+    )
+
+
+def test_a_pruned_endpoint_fails_over_to_archive(monkeypatch):
+    urls = ("https://public.example", "https://archive.example")
+    attempted = []
+    monkeypatch.setattr(
+        "docket.agents.pancake.positions.default_session", _EndpointSession
+    )
+    reader = PositionReader(rpc_urls=urls)
+
+    def read(session):
+        attempted.append(session.url)
+        if session.url == urls[0]:
+            raise ValueError("missing trie node 0xabc (path ) state 0xdef")
+        return {"number": BLOCK}
+
+    assert reader._call(read) == {"number": BLOCK}
+    assert attempted == list(urls)
+
+
+def test_all_pruned_endpoints_raise_pruned_state_error(monkeypatch):
+    urls = ("https://one.invalid", "https://two.invalid")
+    attempted = []
+    monkeypatch.setattr(
+        "docket.agents.pancake.positions.default_session", _EndpointSession
+    )
+    reader = PositionReader(rpc_urls=urls)
+
+    def pruned(session):
+        attempted.append(session.url)
+        raise ValueError("missing trie node 0xabc (path ) state 0xdef")
+
+    with pytest.raises(PrunedStateError, match="archive node is required"):
+        reader._call(pruned)
+    assert attempted == list(urls)
+
+
+def test_mixed_pruned_and_ordinary_failures_raise_ordinary_aggregate(monkeypatch):
+    urls = ("https://pruned.example", "https://broken.example")
+    monkeypatch.setattr(
+        "docket.agents.pancake.positions.default_session", _EndpointSession
+    )
+    monkeypatch.setattr("docket.agents.pancake.positions.time.sleep", lambda _: None)
+    reader = PositionReader(rpc_urls=urls)
+
+    def fail(session):
+        if session.url == urls[0]:
+            raise ValueError("missing trie node 0xabc (path ) state 0xdef")
+        raise ValueError("connection reset by peer")
+
+    with pytest.raises(RuntimeError, match="every BSC endpoint failed") as caught:
+        reader._call(fail)
+    assert not isinstance(caught.value, PrunedStateError)
+    assert "pruned endpoint" in str(caught.value)
+    assert "connection reset by peer" in str(caught.value)
+
+
 def test_a_pruned_node_is_an_infrastructure_fault_not_an_empty_wallet():
     """The trap this repository already paid for once.
 
     `missing trie node` is not a revert and not an answer — it is a node saying it no longer
     holds that block. Reported as a missing observation it sends the caller to an archive
     endpoint; reported as "no positions" it becomes a false claim about somebody's money.
-    It also short-circuits failover, because every public dataseed prunes and trying them all
-    just arrives at the wrong reason more slowly.
+    If every configured endpoint is pruned, the final error must keep that specific remedy.
     """
     reader = PositionReader(rpc_urls=("https://one.invalid", "https://two.invalid"))
 
