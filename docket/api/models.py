@@ -11,6 +11,8 @@ quoted without the snapshot and sample size it came from.
 
 import pydantic
 
+from ..marketplace.models import EvidenceModality
+
 # A reader judges; Docket does not. Names that would claim otherwise are refused at the model.
 BANNED_FIELD_NAMES = frozenset(
     {
@@ -194,6 +196,7 @@ class ServiceCard(pydantic.BaseModel):
     typical_seconds: int
     activation: str
     activation_means: str
+    evidence_modality: EvidenceModality
     metrics: list[MetricFigure]
     agent_id: str | None
     identity: str

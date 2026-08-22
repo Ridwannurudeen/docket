@@ -45,6 +45,7 @@ from ..agents.pancake.positions import MAX_EXAMINED
 U_TOKEN = "0xcE24439F2D9C6a2289F741120FE202248B666666"
 HIRE_PRICE_DISPLAY = "0.50 $U"
 HIRE_PRICE_ATOMIC = 5 * 10**17
+CONTROLLED_EXAMPLE_WALLET = "0xe55816904796341bf8535e25f6c8b647927fc946"
 # How many of a wallet's position NFTs a hire reads by default. Ten is the
 # measured point where the read finishes in tens of seconds rather than minutes.
 RANGE_DOCTOR_LIMIT = 10
@@ -131,6 +132,7 @@ class Service:
 
     id: str
     name: str
+    job_summary: str
     what_you_get: str
     input_schema: dict
     typical_seconds: int
@@ -631,6 +633,9 @@ SERVICES: dict[str, Service] = {
     "range-doctor": Service(
         id="range-doctor",
         name="Range Doctor",
+        job_summary=(
+            "Diagnoses one wallet's PancakeSwap v3 position range and fee economics."
+        ),
         what_you_get=(
             "A read-only diagnosis of the PancakeSwap v3 liquidity positions a BSC wallet holds "
             "or has staked: for each one, whether the current tick sits inside its range and "
@@ -646,12 +651,15 @@ SERVICES: dict[str, Service] = {
             "wallet": {
                 "type": "string",
                 "required": True,
+                "default": CONTROLLED_EXAMPLE_WALLET,
+                "example_note": (
+                    "Docket's own controlled position — replace with your address"
+                ),
                 "description": "the 0x-prefixed BSC address whose v3 positions to read",
             },
             "limit": {
                 "type": "integer",
                 "required": False,
-                "default": RANGE_DOCTOR_LIMIT,
                 "description": (
                     "how many open positions to return. It bounds the answer, not the reading: "
                     "closed positions no longer consume it, so a wallet whose older positions "
@@ -664,6 +672,7 @@ SERVICES: dict[str, Service] = {
             "token_id": {
                 "type": "integer",
                 "required": False,
+                "default": 7141050,
                 "description": (
                     "one exact PancakeSwap v3 position NFT to diagnose. The wallet is still "
                     "enumerated for coverage, the selected NFT is returned even when closed, "
@@ -673,6 +682,7 @@ SERVICES: dict[str, Service] = {
             "declared_position_value_usd": {
                 "type": "number",
                 "required": False,
+                "default": 50.55,
                 "description": (
                     "the positive caller-declared USD value of the exact token_id, used for "
                     "fixed-notional dollar effects. Requires token_id; it is not derived from "
@@ -682,6 +692,7 @@ SERVICES: dict[str, Service] = {
             "estimated_recenter_cost_usd": {
                 "type": "number",
                 "required": False,
+                "default": 1.0,
                 "description": (
                     "the caller-declared non-negative USD cost of recentering the exact "
                     "token_id, including every gas, swap fee and price-impact component the "
@@ -691,6 +702,7 @@ SERVICES: dict[str, Service] = {
             "observation_block": {
                 "type": "integer",
                 "required": False,
+                "advanced": True,
                 "description": (
                     "read the position and its pool at this BSC block instead of the latest "
                     "one. Both are read at the same block either way, so a diagnosis never "
@@ -704,6 +716,7 @@ SERVICES: dict[str, Service] = {
             "position_manager": {
                 "type": "string",
                 "required": False,
+                "advanced": True,
                 "description": (
                     "the PancakeSwap v3 NPM address; required with frozen source snapshots"
                 ),
@@ -711,11 +724,13 @@ SERVICES: dict[str, Service] = {
             "decision_horizon_days": {
                 "type": "integer",
                 "required": False,
+                "default": 30,
                 "description": "the positive horizon for the cost-only break-even comparison",
             },
             "pool_snapshot": {
                 "type": "object",
                 "required": False,
+                "advanced": True,
                 "description": (
                     "exact top-pools HTTP response bytes as base64 with URL, observation "
                     "time and bare SHA-256; supplied with token_list_snapshot and source_refs"
@@ -724,6 +739,7 @@ SERVICES: dict[str, Service] = {
             "token_list_snapshot": {
                 "type": "object",
                 "required": False,
+                "advanced": True,
                 "description": (
                     "exact token-list HTTP response bytes as base64 with URL, observation "
                     "time and bare SHA-256; supplied with pool_snapshot and source_refs"
@@ -733,6 +749,7 @@ SERVICES: dict[str, Service] = {
                 "type": "array",
                 "items": {"type": "object"},
                 "required": False,
+                "advanced": True,
                 "description": "the frozen typed source references bound to this position",
             },
         },
@@ -747,6 +764,7 @@ SERVICES: dict[str, Service] = {
     "grid-operator": Service(
         id="grid-operator",
         name="Grid Operator Preview",
+        job_summary="Builds a read-only PancakeSwap V2 grid preview for one wallet.",
         what_you_get=(
             "A deterministic PancakeSwap V2 grid, built from a band you give it — or drawn "
             "around the pair's current price if you give it none — and previewed against BSC "
@@ -769,6 +787,10 @@ SERVICES: dict[str, Service] = {
             "wallet": {
                 "type": "string",
                 "required": True,
+                "default": CONTROLLED_EXAMPLE_WALLET,
+                "example_note": (
+                    "Docket's own controlled wallet — replace with your address"
+                ),
                 "description": (
                     "the 0x-prefixed BSC address the previewed swaps name as recipient; it is "
                     "read and never touched"
@@ -849,6 +871,9 @@ SERVICES: dict[str, Service] = {
     "health-guard": Service(
         id="health-guard",
         name="Venus Health Guard Preview",
+        job_summary=(
+            "Reads one wallet's Venus Core Pool position and drafts bounded protective actions."
+        ),
         what_you_get=(
             "A read-only report on what Venus Core Pool publishes about one BSC address's "
             "lending position, and on what can honestly be derived from it. Venus publishes "
@@ -873,6 +898,11 @@ SERVICES: dict[str, Service] = {
             "wallet": {
                 "type": "string",
                 "required": True,
+                "default": CONTROLLED_EXAMPLE_WALLET,
+                "example_note": (
+                    "Docket's controlled wallet has no Venus position, so the honest result "
+                    "is no position — replace with your address"
+                ),
                 "description": (
                     "the 0x-prefixed BSC address whose Venus position to read; it is read "
                     "and never touched"
@@ -899,6 +929,9 @@ SERVICES: dict[str, Service] = {
     "yield-router": Service(
         id="yield-router",
         name="Yield Router Preview",
+        job_summary=(
+            "Compares an eligible PancakeSwap v3 pool set and states switching break-even."
+        ),
         what_you_get=(
             "A comparison of PancakeSwap v3 pools on BSC at the rates they were observed at, "
             "bounded by a set you can reproduce. The eligible universe is built from "
@@ -1021,6 +1054,9 @@ SERVICES: dict[str, Service] = {
     "solvent-signal": Service(
         id="solvent-signal",
         name="SOLVENT Last Published Regime Signal",
+        job_summary=(
+            "Relays SOLVENT's last published historical regime signal and provenance."
+        ),
         what_you_get=(
             "SOLVENT's last published daily regime read, relayed byte for byte, together with "
             "the provenance chain that dates it: the regime and the thesis recorded with it, "
@@ -1053,7 +1089,9 @@ SERVICES: dict[str, Service] = {
     "warden-scan": Service(
         id="warden-scan",
         name="Warden Payload Scan",
+        job_summary="Scans one untrusted payload and returns Warden's live telemetry.",
         what_you_get=(
+            "This hire makes a live upstream call; the recorded run is evidence, not freshness. "
             "Warden's verdict on one piece of untrusted text — ALLOW, SANITIZE or BLOCK — with "
             "the threat classes it matched, the individual detections and confidences behind "
             "them, its sanitized rendering of the text, and the per-layer checks that produced "

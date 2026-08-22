@@ -18,7 +18,7 @@
 - Errors are structured: `{"error": {"code": "<STABLE_SNAKE_CODE>", "message": "<what to do about it>"}}` with a stable code an agent can branch on. No bare 500s, no HTML error pages.
 - CORS: `GET`/`HEAD` from any origin (this is public evidence), no credentials.
 - No Claude/Anthropic attribution; no Co-Authored-By. Stage by explicit filename. Do not push. `data/` stays gitignored.
-- Repo `C:\Users\gudma\OneDrive\Desktop\GITHUB-FILES\docket`, run with `./.venv/Scripts/python`.
+- Repo `.`, run with `./.venv/Scripts/python`.
 
 ## File Structure
 

@@ -18,6 +18,7 @@ class _Service:
     def __init__(self, service_id, **overrides):
         self.id = service_id
         self.name = overrides.get("name", service_id.replace("-", " ").title())
+        self.job_summary = overrides.get("job_summary", "Does one bounded job.")
         self.what_you_get = overrides.get("what_you_get", "a decision")
         self.price_display = overrides.get("price_display", "0.50 $U")
         self.asset = overrides.get("asset", "$U")
@@ -119,3 +120,61 @@ def test_every_measured_service_maps_to_a_run_that_actually_exists():
     """The map is a claim about the repository, so it is checked against it."""
     for filename in comparison.MEASURED_BY.values():
         assert (comparison.EXPERIMENTS / filename).is_file(), filename
+
+
+def test_the_job_cell_uses_the_short_summary_instead_of_the_full_description():
+    service = _Service(
+        "range-doctor",
+        job_summary="Diagnoses one wallet's LP position.",
+        what_you_get="A deliberately long service contract that belongs on the detail page.",
+    )
+    row = _row(comparison.compare([service]), "range-doctor")
+    assert row["job"] == service.job_summary
+    assert row["job"] != service.what_you_get
+
+
+def test_declared_time_and_one_measured_pair_are_labelled_as_different_kinds():
+    for service_id, filename in comparison.MEASURED_BY.items():
+        row = _row(comparison.compare([_Service(service_id)]), service_id)
+        body = json.loads(
+            (comparison.EXPERIMENTS / filename).read_text(encoding="utf-8")
+        )
+        measured_date = body["agent_arm"]["output"]["receipt"]["delivered_at"][:10]
+        assert row["typical_seconds_basis"] == "declared"
+        assert row["measured"]["basis"] == f"measured, n=1, {measured_date}"
+
+
+def test_freshness_and_evidence_are_present_or_state_why_they_are_not():
+    measured = _row(comparison.compare([_Service("range-doctor")]), "range-doctor")
+    body = json.loads(
+        (comparison.EXPERIMENTS / comparison.MEASURED_BY["range-doctor"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    result = body["agent_arm"]["output"]["result"]
+    assert result["computed_at"] in measured["freshness"]
+    assert (
+        str(result["positions"][0]["diagnosis"]["as_of_block"]) in measured["freshness"]
+    )
+    assert measured["evidence"] == {
+        "available": True,
+        "url": "/advantage#01-liquidity",
+        "label": "Paired run, n=1",
+    }
+
+    unmeasured = _row(comparison.compare([_Service("grid-operator")]), "grid-operator")
+    assert unmeasured["freshness"] == "Live BSC read at hire time."
+    assert unmeasured["evidence"] == {
+        "available": False,
+        "reason": comparison.NO_MEASUREMENT,
+    }
+
+    warden = _row(comparison.compare([_Service("warden-scan")]), "warden-scan")
+    assert warden["freshness"] == (
+        "Live upstream call at hire time; the recorded run is evidence, not freshness."
+    )
+    assert warden["evidence"] == {
+        "available": True,
+        "url": "/advantage#03-security",
+        "label": "Paired run, n=1",
+    }

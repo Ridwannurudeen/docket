@@ -4,7 +4,7 @@ You are building. I guide before and audit after; the auditor of record above us
 **Do not commit, push, deploy or spend.** Build and stop; I review the diff, run the suite,
 mutation-test the claims, and commit.
 
-Repo `C:\Users\gudma\OneDrive\Desktop\GITHUB-FILES\docket`, branch `docs/deliberation-round2`,
+Repo `.`, branch `docs/deliberation-round2`,
 clean, **1167 tests pass**. Run python as `./.venv/Scripts/python`. Never run `ruff format` on a
 whole directory — it reformatted thirty untouched files here once. Format only files you edited.
 

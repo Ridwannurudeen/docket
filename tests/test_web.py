@@ -195,3 +195,47 @@ def test_pages_declare_viewport_and_language():
         text = (WEB_DIR / name).read_text(encoding="utf-8")
         assert 'lang="en"' in text
         assert "width=device-width" in text
+
+
+def test_coverage_uses_days_and_treats_a_week_old_snapshot_as_stale():
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "ageSeconds / 86400" in js
+    assert "ageDays >= 7" in js
+    assert '"Stale snapshot"' in js
+    assert 'data-state="${incomplete || stale || ageUnavailable ? "partial" : "complete"}"' in js
+    assert "This snapshot is stale" in js
+
+
+def test_sampled_metric_names_the_filter_and_registry_population_from_the_api():
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    sampled = js.split("const sampledPopulation", 1)[1].split(
+        'fill(\n    "sampled-note"', 1
+    )[0]
+
+    assert "stats.registry_total" in sampled
+    assert 'cov.population === "min_feedbacks>=1"' in sampled
+    assert "BSC agents" in sampled
+    assert "the ones carrying at least one feedback record" in sampled
+
+
+def test_json_footer_links_are_labelled_as_json():
+    for page in WEB_DIR.glob("*.html"):
+        text = page.read_text(encoding="utf-8")
+        footer = re.search(r'<footer class="site-footer">(.*?)</footer>', text, re.S)
+        assert footer, page.name
+        for href in re.findall(r'href="(/[^"]+)"', footer.group(1)):
+            if href in {"/llms.txt", "/skill.md"}:
+                continue
+            if href.endswith(".json") or href in {
+                "/agents",
+                "/categories",
+                "/health",
+                "/hire",
+                "/services",
+                "/stats",
+            }:
+                link = re.search(
+                    rf'<a href="{re.escape(href)}">(.*?)</a>', footer.group(1)
+                )
+                assert link and "(JSON)" in link.group(1), (page.name, href)

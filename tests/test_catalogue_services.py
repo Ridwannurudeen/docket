@@ -77,3 +77,75 @@ def test_the_yield_comparison_needs_no_wallet_and_the_draft_declares_every_input
     for field in ("wallet", "token_in", "token_out", "amount", "cap"):
         assert field in schema
     assert "supplied rather than derived" in schema["switching_cost_usd"]["description"]
+
+
+def test_the_controlled_examples_are_prefilled_without_weakening_required_inputs():
+    wallet = "0xe55816904796341bf8535e25f6c8b647927fc946"
+    range_schema = get_service("range-doctor").input_schema
+    assert range_schema["wallet"] == {
+        "type": "string",
+        "required": True,
+        "default": wallet,
+        "example_note": "Docket's own controlled position — replace with your address",
+        "description": "the 0x-prefixed BSC address whose v3 positions to read",
+    }
+    assert range_schema["token_id"]["default"] == 7141050
+    assert range_schema["declared_position_value_usd"]["default"] == 50.55
+    assert range_schema["estimated_recenter_cost_usd"]["default"] == 1.0
+    assert range_schema["decision_horizon_days"]["default"] == 30
+    assert "default" not in range_schema["limit"]
+
+    for service_id in ("grid-operator", "health-guard"):
+        schema = get_service(service_id).input_schema
+        assert schema["wallet"]["required"] is True
+        assert schema["wallet"]["default"] == wallet
+
+    assert (
+        get_service("grid-operator").input_schema["wallet"]["example_note"]
+        == "Docket's own controlled wallet — replace with your address"
+    )
+    assert (
+        get_service("health-guard").input_schema["wallet"]["example_note"]
+        == "Docket's controlled wallet has no Venus position, so the honest result is no position — replace with your address"
+    )
+
+
+def test_warden_card_distinguishes_live_freshness_from_recorded_evidence():
+    assert (
+        "live upstream call; the recorded run is evidence, not freshness"
+        in get_service("warden-scan").what_you_get.lower()
+    )
+
+
+def test_range_reproducibility_inputs_are_marked_for_the_advanced_disclosure():
+    schema = get_service("range-doctor").input_schema
+    advanced = {name for name, field in schema.items() if field.get("advanced")}
+    assert advanced == {
+        "observation_block",
+        "pool_snapshot",
+        "position_manager",
+        "source_refs",
+        "token_list_snapshot",
+    }
+
+
+def test_every_service_has_a_one_clause_job_summary():
+    expected = {
+        "grid-operator": "Builds a read-only PancakeSwap V2 grid preview for one wallet.",
+        "health-guard": (
+            "Reads one wallet's Venus Core Pool position and drafts bounded protective actions."
+        ),
+        "range-doctor": (
+            "Diagnoses one wallet's PancakeSwap v3 position range and fee economics."
+        ),
+        "solvent-signal": (
+            "Relays SOLVENT's last published historical regime signal and provenance."
+        ),
+        "warden-scan": "Scans one untrusted payload and returns Warden's live telemetry.",
+        "yield-router": (
+            "Compares an eligible PancakeSwap v3 pool set and states switching break-even."
+        ),
+    }
+    assert {
+        service_id: service.job_summary for service_id, service in SERVICES.items()
+    } == expected

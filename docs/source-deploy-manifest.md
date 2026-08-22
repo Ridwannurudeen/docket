@@ -2,8 +2,8 @@
 
 ## Status
 
-This document separates what is present in source from what has not been deployed or
-externally anchored.
+This document separates source state, the builder-collected deployment record, and what
+remains unanchored.
 
 | Field | Value |
 |---|---|
@@ -12,53 +12,50 @@ externally anchored.
 | Python | `>=3.11`; CI uses 3.12 |
 | Application factory | `docket.api:create_app` |
 | Builder base commit | `731dcb3d3fe1267546c96fd73118a3b34d58b7b3` |
-| Release source commit | `b883e3f5167f8d705a3a2a13c174a0a94d543dfc` — remote-reachable, see below |
-| Release wheel digest | `bc5f33f7fb063fc6ed43d535eac96c1e885f2aebb994b12d92bbd71f343e2ac4` |
+| Release source commit | `534af826575a3c316eaace03b5e41ab077d4c253` — remote-reachable from `origin/docs/deliberation-round2`, see below |
+| Release wheel digest | `b8c9a257c9ab3acab111b87d2507153b7d0a7bd54a41ef9110a2a57c88758beb` |
 | Public repository visibility action | Not performed; owner-only |
-| Deployment action | **Performed 2026-08-15T12:08:12Z** to `docket.gudman.xyz` (supersedes the 05:17:06Z deployment of `bcccafe`) |
-| Deployed source/wheel identity | The wheel above, imported from site-packages — see "Deployed identity" |
+| Deployment action | **Recorded as performed 2026-08-16T12:20Z** to `docket.gudman.xyz` |
+| Deployed source/wheel identity | Builder-collected commit and wheel record — see "Deployed identity" |
 | Live settlement transaction | Missing. Settlement is built, disabled, and has never run. |
 
 The base commit identifies the tree before the public-package change. It does not identify
 the release and must not be used as a deployment hash.
 
-## Deployed identity (recorded 2026-08-15)
+## Deployed identity (recorded 2026-08-16)
+
+The builder collected the following values from the host after the 12:20Z deploy and
+committed them to `docs/operational-evidence.md`:
 
 | Field | Value |
 |---|---|
-| Deployed at | `2026-08-15T12:08:12Z` |
-| Runtime venv | `/opt/docket-venvs/b883e3f5167f` (permanent path; `/opt/docket/.venv` is a symlink to it) |
-| Runtime `docket.__file__` | `/opt/docket-venvs/b883e3f5167f/lib/python3.12/site-packages/docket/__init__.py` |
-| Python | 3.12.3 · `pip check` clean |
-| Previous release backup | `/opt/docket.bak-20260815T120812Z` (retained; the earlier `/opt/docket.bak-20260815T051706Z` is also kept) |
-| Database backup | `/root/docket-db-backups/agents-20260815T120812Z.sqlite3`, 45,240,320 bytes, `PRAGMA integrity_check` = ok, 3 snapshots, taken with the app stopped and **before** the additive `stop_reason` migration ran |
-| Canary units | `docket-canary.service` + `.timer` installed and enabled; first record `not_yet_exercised` |
+| Recorded at | `2026-08-16`, refreshed after the `12:20Z` deploy |
+| Host | `docket.gudman.xyz` |
+| `/opt/docket/.venv` resolves to | `/opt/docket-venvs/534af826575a` |
+| `RELEASE-commit.txt` | `534af826575a3c316eaace03b5e41ab077d4c253` |
+| Wheel SHA-256 | `b8c9a257c9ab3acab111b87d2507153b7d0a7bd54a41ef9110a2a57c88758beb` |
+| Services recorded active | `docket.service`, `docket-lp-record.timer`, `docket-v3-capture.timer` |
 
-**Why the wheel digest may now be called the deployed artifact.** Before this release the host
-ran an *editable* install — `__editable__.docket-0.1.0.pth` resolved `docket` to
-`/opt/docket/docket`, the source tree, so no wheel was the runtime artifact and claiming one
-would have been false. This release installs the wheel into a fresh venv at a path that does
-not move, and the runtime import path above was read from the live interpreter after cutover.
+`git cat-file -t` and `git rev-parse` resolve the recorded commit in this repository, and
+the remote branch contains it. This makes the collector's record internally checkable; it
+does not turn the record into an independent observation of the host.
 
 ## Remote reachability, and exactly what it witnesses
 
-**Pushed 2026-08-15.** `origin/docs/deliberation-round2` contains both the v3 stage-one
-registration `88cc2bc` and the release commit `bcccafea9b46`. GitHub recorded the ref creation
-at **`2026-08-15T06:08:36Z`**, matching `repo.pushed_at`. That timestamp is GitHub's and cannot
-be set by this repository's authors.
+**Reachability checked 2026-08-22.** `origin/docs/deliberation-round2` contains both the v3
+stage-one registration `88cc2bc` and deployed release commit `534af826575a`. GitHub recorded
+the ref at **`2026-08-15T06:08:36Z`**, matching the previously collected `repo.pushed_at`.
+That timestamp covers content pushed by that moment; it is not a timestamp for the later
+deployed release commit.
 
 What that does and does not establish, stated precisely because the v3 specs rest on it:
 
-- **It does establish** that this content existed by 2026-08-15T06:08:36Z, attested by a third
-  party. A commit backdated after that moment can no longer be silently inserted *before* the
-  registration, which is the specific forgery the audit demonstrated against the unpushed chain.
-- **It does not establish** that the commits were authored when their headers say. Committer
-  dates are still set locally, and branch protection is unavailable on a private repository —
-  the API answers `Upgrade to GitHub Pro or make this repository public` — so the ref can still
-  be force-pushed by its owner.
-- **What would close the gap:** an OpenTimestamps proof over the stage-one protocol hash, which
-  is Bitcoin-anchored, works on a private repository, and is checkable by a stranger with no
-  GitHub account. Not yet done.
+- **It does establish** that the content present in the ref at the recorded push existed by
+  `2026-08-15T06:08:36Z`, and the current remote ref contains the registration commit.
+- **It does not establish** when individual commits were authored. Committer dates are set
+  locally, and the repository owner can rewrite the private remote ref.
+- **What would close the gap:** an external timestamp or chain commitment over the stage-one
+  protocol hash, recorded before inputs or runs. Not yet done.
 
 The repository remains **private**. Public accessibility during Sep 9-23 judging is an owner
 action and a stated eligibility condition.
@@ -140,7 +137,7 @@ artifact. The warning remains a backend-maintenance risk; this build does not hi
 
 ## Deployment record required for parity
 
-A future deploy record must contain, without inference:
+A parity-complete deploy record must contain, without inference:
 
 1. Release commit reachable from the stated remote.
 2. Exact wheel filename and SHA-256.
@@ -152,5 +149,8 @@ A future deploy record must contain, without inference:
 8. Deployment time and read-only canary results.
 9. Rollback wheel/digest and database-backup time.
 
-Until those fields exist as a signed or externally anchored record, the correct deployment
-statement is: **not established from this repository**.
+As of 2026-08-16, the builder-collected record associates `docket.gudman.xyz` with commit
+`534af826575a3c316eaace03b5e41ab077d4c253` and wheel SHA-256
+`b8c9a257c9ab3acab111b87d2507153b7d0a7bd54a41ef9110a2a57c88758beb`. It is an
+internally checkable as-of record, not a signed or externally anchored observation of the
+host, and it covers no later commit.

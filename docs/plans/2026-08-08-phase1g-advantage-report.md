@@ -18,7 +18,7 @@
 - At least one task must come from trading, stock, or security (TermiX's rule). Docket will have two: trading and security.
 - Verified live 2026-08-08 (retry through DNS flakiness; first attempt returned HTTP 000 on both, then three consecutive successes): `https://solvent.gudman.xyz/signal` → HTTP 200 in ~1.0s; `https://warden.gudman.xyz/health` → HTTP 200 in ~0.6s.
 - No Claude/Anthropic attribution; no Co-Authored-By. Stage by explicit filename. Do not push.
-- Repo `C:\Users\gudma\OneDrive\Desktop\GITHUB-FILES\docket`, run with `./.venv/Scripts/python`.
+- Repo `.`, run with `./.venv/Scripts/python`.
 
 ## File Structure
 

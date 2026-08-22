@@ -13,7 +13,7 @@
 - The snapshot row (`store.py` SCHEMA) does not persist the ingestion filter, so `/stats` presents the `min_feedbacks>=1` universe of 506 as "complete 506/506, 100% feedback" without carrying "this population was prefiltered."
 
 ## Global Constraints
-- No new dependencies. Run with `./.venv/Scripts/python`. Repo `C:\Users\gudma\OneDrive\Desktop\GITHUB-FILES\docket`, branch `feat/stage0-evidence-contract`. Do NOT push, do NOT deploy (Fable 5 reviews first, then a separate guarded deploy).
+- No new dependencies. Run with `./.venv/Scripts/python`. Repo `.`, branch `feat/stage0-evidence-contract`. Do NOT push, do NOT deploy (Fable 5 reviews first, then a separate guarded deploy).
 - These are PUBLIC CONTRACT changes (field renames). The drift test (`llms.txt` must mention every OpenAPI path) and the no-verdict contract test must both stay green. Update `llms.txt`, `skill.md`, and web copy in lockstep with any field rename.
 - Every published number keeps its denominator. The fix REPLACES one mislabeled denominator with correctly-labeled ones — it does not hide a number.
 - No Claude/Anthropic attribution; no Co-Authored-By. Stage by explicit filename.

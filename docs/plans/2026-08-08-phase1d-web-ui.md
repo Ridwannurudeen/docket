@@ -18,7 +18,7 @@
 - Accessibility is not optional: visible focus rings, keyboard-reachable everything, `aria-label` on icon-only controls, tabular numerals for data columns, `prefers-reduced-motion` respected, no meaning conveyed by colour alone (status always carries text, not just a dot).
 - Responsive at 375 / 768 / 1024 / 1440. No horizontal scroll on mobile; wide tables scroll inside their own container.
 - No Claude/Anthropic attribution; no Co-Authored-By. Stage by explicit filename. Do not push.
-- Repo `C:\Users\gudma\OneDrive\Desktop\GITHUB-FILES\docket`, run with `./.venv/Scripts/python`.
+- Repo `.`, run with `./.venv/Scripts/python`.
 
 ## File Structure
 

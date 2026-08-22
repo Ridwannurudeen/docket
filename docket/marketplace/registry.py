@@ -1,9 +1,8 @@
 """The inventory: every service Docket runs, joined to its identity, its job and its record.
 
-This is the honest starting stock. One of BNB's four categories has a service in it;
-three do not, and they say so rather than showing a card for something that does not
-exist. Two of the three services do work that is not one of those four jobs at all,
-and they are listed as themselves rather than pushed into a shelf they do not belong on.
+This is the current stock. Each of BNB's four categories has one service in it, and
+two of the six services do work that is not one of those four jobs at all. Those two
+are listed as themselves rather than pushed into a shelf they do not belong on.
 
 Every figure here is transcribed from a recorded experiment under
 `docket/advantage/experiments/`, and each one names the arm and field it came from in
@@ -68,6 +67,7 @@ SERVICES: dict[str, ServiceRecord] = {
         agent_id=None,
         registration_uri=None,
         activation="one_shot",
+        evidence_modality="preview",
         # No recorded hired-versus-manual run stands behind this, so it carries no figures
         # and cites no evidence. The grid set that precedent and it holds here.
         metrics=(),
@@ -104,6 +104,7 @@ SERVICES: dict[str, ServiceRecord] = {
         agent_id=None,
         registration_uri=None,
         activation="one_shot",
+        evidence_modality="preview",
         metrics=(),
         evidence=(),
         limitations=(
@@ -142,6 +143,7 @@ SERVICES: dict[str, ServiceRecord] = {
         # it did would be claiming the half of this service that needs a session nobody
         # has granted yet.
         activation="one_shot",
+        evidence_modality="preview",
         # No recorded hired-versus-manual run stands behind this yet, so it carries no
         # figures. An invented one would be the same class of fabrication as an invented
         # category, and this stage exists partly to refuse that.
@@ -175,6 +177,7 @@ SERVICES: dict[str, ServiceRecord] = {
         agent_id=None,
         registration_uri=None,
         activation="one_shot",
+        evidence_modality="live_read",
         metrics=(
             Metric(
                 name="Position NFTs read",
@@ -246,6 +249,7 @@ SERVICES: dict[str, ServiceRecord] = {
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:136384",
         registration_uri=None,
         activation="one_shot",
+        evidence_modality="historical",
         metrics=(
             Metric(
                 name="Receipts covered by the last on-chain anchor",
@@ -302,6 +306,7 @@ SERVICES: dict[str, ServiceRecord] = {
         agent_id=None,
         registration_uri=None,
         activation="one_shot",
+        evidence_modality="live_read",
         metrics=(
             Metric(
                 name="Hostile vectors named",

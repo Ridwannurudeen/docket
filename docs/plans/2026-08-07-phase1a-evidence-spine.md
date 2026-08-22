@@ -18,7 +18,7 @@
 - Honest coverage semantics: report what was actually stored (`sampled`), what the API claimed existed (`expected`), and `dropped = max(expected - sampled, 0)`. A mismatch is rendered as partial, never silently rounded away.
 - No agent is described as "verified", "trusted", or "safe" by Docket. Signals are factual observations (has feedback / declares a protocol / shares a bulk-mint pattern), never a safety claim.
 - No Claude/Anthropic attribution; no Co-Authored-By.
-- Repo: `C:\Users\gudma\OneDrive\Desktop\GITHUB-FILES\docket`. Run everything with `./.venv/Scripts/python` (Git Bash on Windows). Do not push.
+- Repo: `.`. Run everything with `./.venv/Scripts/python` (Git Bash on Windows). Do not push.
 
 ## File Structure
 
@@ -299,7 +299,7 @@ class Store:
 - [ ] **Step 4: Run the tests**
 
 ```bash
-cd "C:/Users/gudma/OneDrive/Desktop/GITHUB-FILES/docket"
+cd "."
 ./.venv/Scripts/python -m pip install -e ".[dev]"
 ./.venv/Scripts/python -m pytest tests/test_store.py -q
 ```

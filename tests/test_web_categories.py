@@ -251,6 +251,92 @@ if (encoded !== '{"lower":9007199254740993123456789,"filled":[2,9007199254740993
     assert completed.returncode == 0, completed.stderr
 
 
+def test_the_worked_example_replaces_edited_regular_and_advanced_fields(tmp_path):
+    """The example action submits schema defaults, never values left in the form."""
+    module = tmp_path / "app.mjs"
+    module.write_text(_read("app.js"), encoding="utf-8")
+    script = tmp_path / "worked-example.mjs"
+    script.write_text(
+        """
+globalThis.document = {
+  body: { dataset: {} },
+  querySelector: () => null,
+  querySelectorAll: () => [],
+};
+globalThis.window = {};
+const { encodeJSON, submissionBody } = await import("./app.mjs");
+
+const controls = {
+  wallet: { value: "edited-wallet" },
+  declared_position_value_usd: { value: "999.99" },
+  observation_block: { value: "117443373" },
+  decision_horizon_days: { value: "365" },
+};
+const arrayItems = {
+  innerHTML: "",
+  querySelectorAll: () => [{ value: "7" }, { value: "8" }],
+};
+const arrayControl = {
+  dataset: { nextIndex: "9" },
+  querySelector: (selector) => selector === "[data-array-items]" ? arrayItems : null,
+  querySelectorAll: (selector) => selector === "input" ? arrayItems.querySelectorAll() : [],
+};
+const form = {
+  elements: { namedItem: (name) => controls[name] || null },
+  querySelector: (selector) => selector.includes("filled") ? arrayControl : null,
+};
+const record = {
+  input_schema: {
+    wallet: { type: "string", required: true, default: "controlled-wallet" },
+    declared_position_value_usd: { type: "number", required: false, default: 50.55 },
+    observation_block: { type: "integer", required: false, advanced: true },
+    decision_horizon_days: { type: "integer", required: false, default: 30, advanced: true },
+    filled: {
+      type: "array",
+      items: { type: "integer" },
+      required: false,
+      default: [2, "9007199254740993"],
+      advanced: true,
+    },
+  },
+};
+
+const runButton = { matches: () => false };
+const edited = encodeJSON(submissionBody(record, form, runButton));
+if (edited !== '{"wallet":"edited-wallet","declared_position_value_usd":999.99,"observation_block":117443373,"decision_horizon_days":365,"filled":[7,8]}') {
+  throw new Error(`ordinary submission stopped reading the form: ${edited}`);
+}
+
+const exampleButton = { matches: (selector) => selector === "[data-example]" };
+const example = encodeJSON(submissionBody(record, form, exampleButton));
+if (example !== '{"wallet":"controlled-wallet","declared_position_value_usd":50.55,"decision_horizon_days":30,"filled":[2,9007199254740993]}') {
+  throw new Error(`worked example used edited fields: ${example}`);
+}
+if (controls.wallet.value !== "controlled-wallet" ||
+    controls.declared_position_value_usd.value !== "50.55" ||
+    controls.observation_block.value !== "" ||
+    controls.decision_horizon_days.value !== "30") {
+  throw new Error("worked example did not reset every scalar control");
+}
+if (!arrayItems.innerHTML.includes('value="2"') ||
+    !arrayItems.innerHTML.includes('value="9007199254740993"') ||
+    arrayControl.dataset.nextIndex !== "2") {
+  throw new Error("worked example did not reset the advanced array control");
+}
+""",
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        ["node", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "submissionBody(record, form, event.submitter)" in _read("app.js")
+
+
 def test_the_agent_page_exposes_dockets_bound_service_with_the_same_hire_gating(client):
     app_js = _read("app.js")
     assert "detail.associated_services" in app_js
@@ -680,3 +766,109 @@ def test_the_comparison_table_reaches_the_page_and_keeps_its_empty_cells():
     styles = _read("style.css")
     for class_name in ("table-wrap", "metric-note", "section-note"):
         assert f".{class_name}" in styles, class_name
+
+
+def test_service_forms_put_the_worked_example_first_and_reproducibility_behind_disclosure():
+    js = _read("app.js")
+    styles = _read("style.css")
+
+    assert "field.example_note" in js
+    assert "field.advanced" in js
+    assert '<details class="advanced">' in js
+    assert "Advanced — reproducibility" in js
+    assert 'type="submit" class="btn" data-example' in js
+    assert "Try the worked example" in js
+    assert "querySelectorAll('button[type=\"submit\"]')" in js
+    for class_name in ("advanced", "advanced-fields", "example-note"):
+        assert f".{class_name}" in styles
+
+
+def test_free_service_vocabulary_keeps_admission_below_the_action():
+    js = _read("app.js")
+
+    assert '"Run a free preview"' in js
+    assert '"Run it free"' in js
+    assert "Why this isn't for sale yet" in js
+    assert "Open ${escapeHTML(card.stock_status)}" not in js
+    assert "Run the ${escapeHTML(record.stock_status)}" not in js
+
+
+def test_empty_metric_cards_state_that_no_run_has_been_recorded():
+    js = _read("app.js")
+
+    assert "if (!metrics.length)" in js
+    assert "No run recorded yet." in js
+
+
+def test_cards_show_the_closed_evidence_modality_field():
+    js = _read("app.js")
+
+    assert "card.evidence_modality" in js
+    assert "record.evidence_modality" in js
+    assert "Evidence modality" in js
+
+
+def test_comparison_distinguishes_declarations_from_measurements_and_cites_each_row():
+    js = _read("app.js")
+    painter = js.split("function comparisonRow", 1)[1].split("\nasync function", 1)[0]
+
+    assert "row.job" in painter
+    assert "row.typical_seconds_basis" in painter
+    assert "measured.basis" in painter
+    assert "row.freshness" in painter
+    assert "row.evidence.available" in painter
+    assert "row.evidence.url" in painter
+    assert "row.evidence.label" in painter
+    assert "row.evidence.reason" in painter
+    for heading in ("Freshness", "Evidence"):
+        assert heading in js
+
+
+def test_homepage_leads_with_generated_pancake_impact_and_caveated_research_context():
+    index = _read("index.html")
+    js = _read("app.js")
+    styles = _read("style.css")
+    copy = " ".join(index.split())
+
+    assert "Hire by evidence, not promises." in index
+    assert "No account, no key, no wallet connection" in index
+    assert "No account, no key, no wallet —" not in index
+    assert 'data-region="pancake-impact"' in index
+    assert "arXiv:2606.26028" in index
+    assert "arXiv:2606.12128" in index
+    for phrase in (
+        "4% of registrations exposed a live service endpoint",
+        "59.2% of reviewers showed coordinated Sybil behaviour",
+        "77.9% of agents with feedback kept no valid feedback",
+        "preprint",
+    ):
+        assert phrase in copy
+    assert "first-party planner skills shown in its execution model" in index
+    assert "terminate at generated deep links" in index
+    assert "live Explorer API" in index
+    assert "BSC V3 subgraph" in index
+
+    for field in (
+        "median_annual_overstatement_usd",
+        "median_days_later_than_gross_implies",
+        "ranking_reversals",
+        "registration_note",
+    ):
+        assert field in js
+    assert 'fetchJSON("/advantage/v2.json")' in js
+    assert "126.78" not in index
+    assert "8.30" not in index
+    assert "0/231" not in index
+    for class_name in ("impact-value", "impact-context"):
+        assert f".{class_name}" in styles
+
+
+def test_home_metadata_does_not_promise_a_run_behind_every_service():
+    index = _read("index.html")
+    description = re.search(
+        r'<meta\s+name="description"\s+content="([^"]+)"', index, re.S
+    )
+
+    assert description
+    assert "recorded run behind each one" not in description.group(1)
+    assert "Hire by evidence, not promises." in description.group(1)

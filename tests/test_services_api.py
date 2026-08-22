@@ -13,12 +13,15 @@ the two it is.
 """
 
 import re
+from dataclasses import replace
 
+import pydantic
 import pytest
 from fastapi.testclient import TestClient
 
-from docket.api.models import BANNED_FIELD_NAMES
 from docket.api import create_app
+from docket.api.models import BANNED_FIELD_NAMES, ServiceCard
+from docket.hire.catalogue import get_service as get_hire_service
 from docket.marketplace.models import CATEGORIES, Category, is_share_unit
 from docket.marketplace.registry import (
     EMPTY_CATEGORY,
@@ -197,6 +200,73 @@ def test_every_card_carries_what_it_costs_and_how_to_run_it(client):
         assert card["activation"] and card["activation_means"]
 
 
+def test_every_card_carries_its_closed_evidence_modality(
+    client, client_holding_the_identity
+):
+    cards = {
+        card["service_id"]: card for card in client.get("/services").json()["services"]
+    }
+    expected = {
+        "grid-operator": "preview",
+        "health-guard": "preview",
+        "range-doctor": "live_read",
+        "solvent-signal": "historical",
+        "warden-scan": "live_read",
+        "yield-router": "preview",
+    }
+    assert {
+        service_id: card["evidence_modality"] for service_id, card in cards.items()
+    } == expected
+    for service_id, modality in expected.items():
+        assert (
+            client.get(f"/services/{service_id}").json()["evidence_modality"]
+            == modality
+        )
+
+    agent = client_holding_the_identity.get(f"/agents/{SOLVENT_AGENT_ID}").json()
+    assert agent["associated_services"][0]["evidence_modality"] == "historical"
+
+
+def test_service_card_requires_a_non_null_evidence_modality(client):
+    card = client.get("/services/range-doctor").json()
+    schema = ServiceCard.model_json_schema()
+    assert "evidence_modality" in schema["required"]
+    assert schema["properties"]["evidence_modality"]["type"] == "string"
+
+    without_modality = {
+        key: value for key, value in card.items() if key != "evidence_modality"
+    }
+    with pytest.raises(pydantic.ValidationError, match="evidence_modality"):
+        ServiceCard.model_validate(without_modality)
+    with pytest.raises(pydantic.ValidationError, match="evidence_modality"):
+        ServiceCard.model_validate({**card, "evidence_modality": None})
+
+
+@pytest.mark.parametrize(
+    "service_id", ["range-doctor", "grid-operator", "health-guard"]
+)
+def test_controlled_example_defaults_do_not_make_an_empty_body_valid(
+    client, monkeypatch, service_id
+):
+    service = get_hire_service(service_id)
+
+    def forbidden_run(payload):
+        raise AssertionError("an empty body reached the service runner")
+
+    monkeypatch.setattr(
+        "docket.api.routes.get_service",
+        lambda requested: (
+            replace(service, run=forbidden_run)
+            if requested == service_id
+            else get_hire_service(requested)
+        ),
+    )
+    response = client.post(f"/hire/{service_id}", json={})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "missing_field"
+    assert "wallet" in response.json()["error"]["message"]
+
+
 # ---------------------------------------------------------------------- detail
 
 
@@ -356,7 +426,9 @@ def test_agent_docs_explain_the_reverse_marketplace_link(client):
     skill = client.get("/skill.md").text
     assert "associated_services" in llms
     assert "associated_services" in skill
-    assert "Nothing on that plane carries a category, a service or a hire path" not in llms
+    assert (
+        "Nothing on that plane carries a category, a service or a hire path" not in llms
+    )
 
 
 def test_llms_txt_names_every_service_a_caller_can_hire(client):
@@ -407,3 +479,24 @@ def test_skill_md_teaches_the_category_first_route(client):
     body = client.get("/skill.md").text
     for path in ("/categories", "/services"):
         assert path in body, path
+
+
+def test_agent_docs_describe_the_new_service_and_comparison_fields(client):
+    for path in ("/llms.txt", "/skill.md"):
+        body = client.get(path).text
+        for field in (
+            "advanced",
+            "evidence_modality",
+            "freshness",
+            "example_note",
+            "typical_seconds_basis",
+        ):
+            assert field in body, f"{path} does not describe {field}"
+        for modality in (
+            "live_read",
+            "preview",
+            "historical",
+            "paired_benchmark",
+            "replay",
+        ):
+            assert modality in body, f"{path} does not name {modality}"

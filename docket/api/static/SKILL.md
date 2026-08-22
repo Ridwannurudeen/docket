@@ -50,9 +50,10 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/agents/{agent_id}` | One agent, its endpoints, observations, and Docket-bound `associated_services` |
 | GET | `/categories` | BNB's four jobs, what each gets done, and how many services stand in it |
 | GET | `/services` | Service cards with paid-stock status; `?category=` narrows to one job |
-| GET | `/services/{service_id}` | Inputs, price-after-admission, admission facts, evidence, limitations, identity |
+| GET | `/services/{service_id}` | Inputs, price-after-admission, admission facts, evidence modality, evidence, limitations, identity |
 | GET | `/hire` | The catalogue: inputs, flat 0.50 $U term, stock status and four admission facts |
 | POST | `/hire/{service_id}` | Runs the service; returns the result and a hash-bound receipt |
+| GET | `/compare` | One-clause jobs, declared and measured times, freshness, and evidence links side by side |
 | GET | `/escrow` | Escrow terms: addresses, dispute window, the ordered call sequence |
 | GET | `/escrow/job/{job_id}` | One job's live on-chain state and when it can be settled |
 | GET | `/advantage.json` | Three hired-vs-manual experiments, both arms in full, with deltas |
@@ -219,13 +220,18 @@ free tier serves the work on the first request.
 curl -s "$DOCKET/hire"
 curl -s -X POST "$DOCKET/hire/range-doctor" \
   -H 'content-type: application/json' \
-  -d '{"wallet":"0x451871A1753903FB8fdd64a6B838E95aB8D5B80f","limit":5}'
+  -d '{"wallet":"0xe55816904796341bf8535e25f6c8b647927fc946","token_id":7141050,"declared_position_value_usd":50.55,"estimated_recenter_cost_usd":1.00,"decision_horizon_days":30}'
 ```
 
 `GET /hire` carries each service's `input_schema`, so build the body from that rather
-than from this example. `limit` is optional and bounds how many of the wallet's
-position NFTs are read, newest first; the result reports `positions_held` and
-`positions_examined`, so say what was left out when a read was bounded.
+than from this example. A field can carry `default`; `example_note` explains when that
+default is Docket's controlled input, and `advanced: true` marks a reproducibility field
+the page groups under its disclosure. The controlled Range body above is prefilled by the
+page; replace the wallet and position economics to run another position. `limit` is
+optional and bounds how many of the wallet's position NFTs are read, newest first; it has
+no form default because it cannot be combined with the controlled token_id. The result
+reports `positions_held` and `positions_examined`, so say what was left out when a read
+was bounded.
 
 The response is `{"result": {...}, "receipt": {...}}`. Verify the receipt before
 quoting it - the hashes are plain SHA-256 over canonical JSON and need none of
@@ -430,6 +436,16 @@ Three things to carry into any answer built on this layer:
   `agent_path: null` means the identity is registered on chain and is not in the
   snapshot Docket serves - the default sweep only covers agents with feedback - so there
   are no observations here, and that is a statement about Docket's index, not the agent.
+
+Every service card carries `evidence_modality` from the closed vocabulary `live_read`,
+`preview`, `historical`, `paired_benchmark`, or `replay`. Current cards use `live_read`
+for Range and Warden, `preview` for Grid, Health and Yield, and `historical` for SOLVENT.
+
+Use `GET /compare` when the user needs the six services side by side. Its `job` is the
+one-clause `job_summary`, `typical_seconds_basis` is `declared`, and a recorded pair's
+`measured.basis` says `measured, n=1, YYYY-MM-DD`. `freshness` dates the recorded read or
+states that it is read live at hire time. `evidence` is either
+`{available: true, url, label}` or `{available: false, reason}`, never an empty cell.
 
 Every figure under `metrics` carries `window`, `observed_at`, `method`, and its
 denominator where it has one. `display` is the figure as text with the denominator

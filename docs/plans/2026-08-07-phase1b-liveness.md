@@ -18,7 +18,7 @@
 - Liveness records **observations, not verdicts**: what happened, when, and the evidence (status code, elapsed ms, error class). No probe result may be phrased as safe/trusted/recommended — the Phase 1a test enforcing that stays green.
 - Every published number stays generated from the store, never typed.
 - No Claude/Anthropic attribution; no Co-Authored-By. Stage by explicit filename.
-- Repo `C:\Users\gudma\OneDrive\Desktop\GITHUB-FILES\docket`, run with `./.venv/Scripts/python`. Do not push. `data/` stays gitignored.
+- Repo `.`, run with `./.venv/Scripts/python`. Do not push. `data/` stays gitignored.
 
 ## File Structure
 
