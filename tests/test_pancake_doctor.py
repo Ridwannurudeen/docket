@@ -4,7 +4,7 @@ import re
 import httpx
 import pytest
 
-from docket.agents.pancake.doctor import diagnose, report
+from docket.agents.pancake.doctor import RATE_LIMITATION, diagnose, report
 from docket.agents.pancake.pools import PoolClient
 
 # Every fixture below is a real reading taken from BSC mainnet on 2026-08-08:
@@ -220,6 +220,7 @@ class _StubReader:
         self._read = read
         self.calls: list[tuple] = []
         self.observation_blocks: list[int | None] = []
+        self.pool_archive_first: list[bool | None] = []
 
     def wallet_positions(
         self,
@@ -243,7 +244,16 @@ class _StubReader:
             **self._read,
         }
 
-    def pool_state(self, token0, token1, fee, *, observation_block=None):
+    def pool_state(
+        self,
+        token0,
+        token1,
+        fee,
+        *,
+        observation_block=None,
+        archive_first=None,
+    ):
+        self.pool_archive_first.append(archive_first)
         return POOL
 
 
@@ -330,6 +340,35 @@ def test_report_passes_the_bounds_through_to_the_reader():
     # `include_closed` reaches the diagnosis: the closed position is reported, not dropped.
     assert out["positions"][0]["diagnosis"]["status"] == "closed"
     assert out["positions"][0]["pool"] is None
+
+
+@pytest.mark.parametrize(
+    ("observation_block", "expected_archive_first"),
+    ((None, False), (114_000_000, True)),
+    ids=("latest", "historical"),
+)
+def test_report_only_prefers_archive_for_caller_pinned_history(
+    observation_block, expected_archive_first
+):
+    reader = _StubReader(
+        {
+            "positions": [POSITION],
+            "positions_held": 1,
+            "positions_examined": 1,
+            "closed_skipped": 0,
+        }
+    )
+
+    report(
+        "0xwallet",
+        reader=reader,
+        observation_block=observation_block,
+        pool_rows=[ROW],
+        token_allowlist={ROW["token0"]["id"], ROW["token1"]["id"]},
+        source_evidence={},
+    )
+
+    assert reader.pool_archive_first == [expected_archive_first]
 
 
 def test_an_empty_result_says_which_empty_it_is():
@@ -456,6 +495,109 @@ def test_every_report_carries_a_coverage_sentence_even_when_it_found_something()
     assert "all 3 of this wallet's position NFTs were read" in out["coverage"]
     assert (
         "1 hold liquidity and are diagnosed below, and 2 are closed" in out["coverage"]
+    )
+
+
+def test_pancake_headline_leads_with_generated_dollars_and_payback(monkeypatch):
+    decision_impact = {
+        "registration_state": "post_hoc",
+        "dollars_at_notionals": {
+            "notionals": [
+                {
+                    "notional_usd": 43_210.0,
+                    "n_pools": 17,
+                    "median_annual_overstatement_usd": 654.32,
+                }
+            ]
+        },
+        "break_even_shift": {
+            "n_moves": 88,
+            "median_days_later_than_gross_implies": 9.75,
+        },
+        "ranking_reversals": {"numerator": 4, "denominator": 136},
+    }
+    monkeypatch.setattr(
+        "docket.advantage.v2.report.decision_impact_section",
+        lambda: decision_impact,
+    )
+    monkeypatch.setattr("docket.agents.pancake.doctor._DECISION_IMPACT_SECTION", None)
+    reader = _StubReader(
+        {
+            "positions": [POSITION],
+            "positions_held": 1,
+            "positions_examined": 1,
+            "closed_skipped": 0,
+        }
+    )
+
+    with _pool_client() as client:
+        out = report("0xwallet", reader=reader, pools=client)
+
+    headline = out["pancake_headline"]
+    assert headline == {
+        "statement": (
+            "At a declared $43,210 fixed notional, the median annual fee overstatement "
+            "across 17 eligible pools is $654.32. Across 88 candidate moves, real payback "
+            "arrives a median 9.75 days later than gross implies. Ranking reversals were "
+            "4/136. Registration state: post_hoc."
+        ),
+        "fixed_notional_usd": 43_210.0,
+        "n_pools": 17,
+        "median_annual_overstatement_usd": 654.32,
+        "n_candidate_moves": 88,
+        "median_payback_delay_days": 9.75,
+        "ranking_reversals": {"numerator": 4, "denominator": 136},
+        "registration_state": "post_hoc",
+    }
+    statement = headline["statement"]
+    assert statement.index("$654.32") < statement.index("9.75 days later")
+    assert statement.index("9.75 days later") < statement.index("4/136")
+    assert (
+        out["positions"][0]["diagnosis"]["economic_consequence"]["limitation"]
+        == RATE_LIMITATION
+    )
+
+
+def test_reports_reuse_the_unchanged_frozen_decision_impact_headline(monkeypatch):
+    from docket.advantage.v2.report import decision_impact_section
+
+    calls = 0
+
+    def counted_decision_impact_section():
+        nonlocal calls
+        calls += 1
+        return decision_impact_section()
+
+    monkeypatch.setattr(
+        "docket.advantage.v2.report.decision_impact_section",
+        counted_decision_impact_section,
+    )
+    monkeypatch.setattr("docket.agents.pancake.doctor._DECISION_IMPACT_SECTION", None)
+    reader = _StubReader(
+        {
+            "positions": [],
+            "positions_held": 0,
+            "positions_examined": 0,
+            "closed_skipped": 0,
+        }
+    )
+    report_kwargs = {
+        "reader": reader,
+        "pool_rows": [ROW],
+        "token_allowlist": {ROW["token0"]["id"], ROW["token1"]["id"]},
+        "source_evidence": {},
+    }
+
+    first = report("0xwallet", **report_kwargs)["pancake_headline"]
+    second = report("0xwallet", **report_kwargs)["pancake_headline"]
+
+    assert calls == 1
+    assert second == first
+    assert first["statement"] == (
+        "At a declared $10,000 fixed notional, the median annual fee overstatement "
+        "across 22 eligible pools is $126.78. Across 231 candidate moves, real payback "
+        "arrives a median 8.30 days later than gross implies. Ranking reversals were "
+        "0/231. Registration state: post_hoc."
     )
 
 

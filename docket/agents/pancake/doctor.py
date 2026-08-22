@@ -55,6 +55,50 @@ BREAK_EVEN_LIMITATION = (
     "It excludes realized impermanent loss, future rate changes, and any cost not included "
     "in the caller-declared estimate."
 )
+_DECISION_IMPACT_SECTION: dict | None = None
+
+
+def pancake_headline(decision_impact: dict) -> dict:
+    """The fixed-notional decision impact in presenter-ready order."""
+    fixed_notional = decision_impact["dollars_at_notionals"]["notionals"][0]
+    payback = decision_impact["break_even_shift"]
+    reversals = decision_impact["ranking_reversals"]
+    registration_state = decision_impact["registration_state"]
+    statement = (
+        f"At a declared ${fixed_notional['notional_usd']:,.0f} fixed notional, the median "
+        f"annual fee overstatement across {fixed_notional['n_pools']} eligible pools is "
+        f"${fixed_notional['median_annual_overstatement_usd']:,.2f}. Across "
+        f"{payback['n_moves']} candidate moves, real payback arrives a median "
+        f"{payback['median_days_later_than_gross_implies']:.2f} days later than gross "
+        f"implies. Ranking reversals were {reversals['numerator']}/"
+        f"{reversals['denominator']}. Registration state: {registration_state}."
+    )
+    return {
+        "statement": statement,
+        "fixed_notional_usd": fixed_notional["notional_usd"],
+        "n_pools": fixed_notional["n_pools"],
+        "median_annual_overstatement_usd": fixed_notional[
+            "median_annual_overstatement_usd"
+        ],
+        "n_candidate_moves": payback["n_moves"],
+        "median_payback_delay_days": payback["median_days_later_than_gross_implies"],
+        "ranking_reversals": {
+            "numerator": reversals["numerator"],
+            "denominator": reversals["denominator"],
+        },
+        "registration_state": registration_state,
+    }
+
+
+def _decision_impact_section() -> dict:
+    """Load the frozen decision-impact analysis once for this process."""
+    global _DECISION_IMPACT_SECTION
+
+    if _DECISION_IMPACT_SECTION is None:
+        from docket.advantage.v2.report import decision_impact_section
+
+        _DECISION_IMPACT_SECTION = decision_impact_section()
+    return _DECISION_IMPACT_SECTION
 
 
 def diagnose(
@@ -317,7 +361,11 @@ def report(
             continue
         key = (position["token0"], position["token1"], position["fee"])
         if key not in pool_cache:
-            pool_cache[key] = reader.pool_state(*key, observation_block=read_at_block)
+            pool_cache[key] = reader.pool_state(
+                *key,
+                observation_block=read_at_block,
+                archive_first=observation_block is not None,
+            )
         pool = pool_cache[key]
         entries.append(
             {
@@ -338,6 +386,7 @@ def report(
         "address": address,
         "computed_at": datetime.now(timezone.utc).isoformat(),
         "decision": _report_decision(read, entries),
+        "pancake_headline": pancake_headline(_decision_impact_section()),
         "observation": {
             "bsc_block": read["observation_block"],
             "observation_time": read["observation_time"],

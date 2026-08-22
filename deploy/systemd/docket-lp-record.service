@@ -11,6 +11,7 @@ Type=oneshot
 User=docket
 Group=docket
 WorkingDirectory=/var/lib/docket
+# Environment=DOCKET_ARCHIVE_RPC=
 # The deployed venv, not /opt/docket/docket — that path is the previous release's source
 # tree, and it would still import, still run, and record against the wrong revision.
 #

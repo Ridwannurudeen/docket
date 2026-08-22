@@ -33,6 +33,7 @@ a JSON-RPC error body, which web3 raises as a `ValueError` rather than as a
 transport error. The order below is the measured one, best first.
 """
 
+import os
 import time
 from datetime import datetime, timezone
 
@@ -220,14 +221,19 @@ POOL_ABI = [
 
 
 class PositionReader:
-    def __init__(self, rpc_urls=BSC_RPCS, w3: Web3 | None = None) -> None:
+    def __init__(self, rpc_urls=None, w3: Web3 | None = None) -> None:
+        if rpc_urls is None:
+            self._archive_rpc = os.environ.get("DOCKET_ARCHIVE_RPC", "").strip()
+            rpc_urls = BSC_RPCS
+        else:
+            self._archive_rpc = ""
         self._rpc_urls = tuple(rpc_urls)
         # An injected Web3 is used as given, with no failover: whoever supplied
         # it — a test, or a caller with their own node — owns its reliability.
         self._injected = w3
         self._sessions: dict[str, Web3] = {}
 
-    def _call(self, do):
+    def _call(self, do, *, observation_block: int | None = None):
         """Run `do(w3)` against the first endpoint that answers it.
 
         Each endpoint gets two attempts before the next is tried, and a failing
@@ -238,7 +244,13 @@ class PositionReader:
             return do(self._injected)
 
         failures: list[str] = []
-        for url in self._rpc_urls:
+        pruned_urls: set[str] = set()
+        ordinary_failure_urls: set[str] = set()
+        last_pruned: Exception | None = None
+        rpc_urls = self._rpc_urls
+        if observation_block is not None and self._archive_rpc:
+            rpc_urls = (self._archive_rpc, *rpc_urls)
+        for url in rpc_urls:
             for attempt in range(ATTEMPTS_PER_RPC):
                 try:
                     session = self._sessions.get(url)
@@ -249,25 +261,53 @@ class PositionReader:
                 except Exception as exc:
                     self._sessions.pop(url, None)
                     text = str(exc).lower()
-                    if any(marker in text for marker in PRUNED_STATE_MARKERS):
-                        # Re-raise immediately rather than failing over. Every public
-                        # dataseed prunes, so trying the next one wastes time and then
-                        # reports the wrong reason — and the caller must be able to tell
-                        # "this node cannot see that block" from "there is nothing there".
-                        raise PrunedStateError(
-                            f"{url} no longer holds the state for this block: {exc}. "
-                            "This is a pruned endpoint, not an empty result — an archive "
-                            "node is required to read it."
-                        ) from exc
+                    if isinstance(exc, PrunedStateError) or any(
+                        marker in text for marker in PRUNED_STATE_MARKERS
+                    ):
+                        failure = (
+                            f"{url}: {type(exc).__name__}: {exc} (pruned endpoint)"
+                        )
+                        failures.append(failure)
+                        pruned_urls.add(url)
+                        last_pruned = exc
+                        # Retrying the same node cannot restore historical state. Try the
+                        # next configured endpoint, which may be the archive RPC.
+                        break
+                    ordinary_failure_urls.add(url)
                     failures.append(
                         f"{url} (attempt {attempt + 1}): {type(exc).__name__}: {exc}"
                     )
                     if attempt < ATTEMPTS_PER_RPC - 1:
                         time.sleep(RETRY_PAUSE_S)
+        all_endpoints_pruned = bool(pruned_urls) and pruned_urls == set(rpc_urls)
+        archive_unreachable = (
+            bool(self._archive_rpc)
+            and self._archive_rpc in ordinary_failure_urls
+            and ordinary_failure_urls <= {self._archive_rpc}
+            and set(rpc_urls) - {self._archive_rpc} <= pruned_urls
+        )
+        if all_endpoints_pruned or archive_unreachable:
+            summary = (
+                "every BSC endpoint was pruned"
+                if all_endpoints_pruned
+                else "public BSC endpoints were pruned and the configured archive endpoint failed"
+            )
+            raise PrunedStateError(
+                summary
+                + ":\n  "
+                + "\n  ".join(failures)
+                + "\nThis is a pruned-endpoint failure, not an empty result — a "
+                "reachable archive node is required to read it."
+            ) from last_pruned
         raise RuntimeError("every BSC endpoint failed:\n  " + "\n  ".join(failures))
 
     def _exact_position(
-        self, owner: str, token_id: int, block: int, observed_at: str
+        self,
+        owner: str,
+        token_id: int,
+        block: int,
+        observed_at: str,
+        observation_block: int | None,
     ) -> dict | None:
         """Read one NFT directly and confirm this wallet holds it.
 
@@ -283,7 +323,8 @@ class PositionReader:
                     w3.eth.contract(address=NPM, abi=OWNER_ABI)
                     .functions.ownerOf(int(token_id))
                     .call(block_identifier=block)
-                )
+                ),
+                observation_block=observation_block,
             )
         except (BadFunctionCallOutput, ContractLogicError, ValueError):
             # A burned or never-minted token id. Not an error: the caller asked whether this
@@ -299,7 +340,8 @@ class PositionReader:
                     w3.eth.contract(address=MASTER_CHEF_V3, abi=FARM_OWNER_ABI)
                     .functions.userPositionInfos(int(token_id))
                     .call(block_identifier=block)
-                )
+                ),
+                observation_block=observation_block,
             )
             # userPositionInfos exposes the depositor; a farm-held token belongs to this
             # wallet only if the farm records this wallet as the one that staked it.
@@ -310,7 +352,8 @@ class PositionReader:
                 w3.eth.contract(address=NPM, abi=NPM_ABI)
                 .functions.positions(int(token_id))
                 .call(block_identifier=block)
-            )
+            ),
+            observation_block=observation_block,
         )
         return {
             "token_id": int(token_id),
@@ -388,7 +431,10 @@ class PositionReader:
         # "latest" moves between them. Every state read below is pinned to the same block, so
         # a caller cannot be handed a position from one block and a pool from another.
         at_block = "latest" if observation_block is None else int(observation_block)
-        observed = self._call(lambda w3: w3.eth.get_block(at_block))
+        observed = self._call(
+            lambda w3: w3.eth.get_block(at_block),
+            observation_block=observation_block,
+        )
         block = int(observed["number"])
         observed_at = datetime.fromtimestamp(
             int(observed["timestamp"]), timezone.utc
@@ -404,7 +450,8 @@ class PositionReader:
                     w3.eth.contract(address=h, abi=HOLDER_ABI)
                     .functions.balanceOf(owner)
                     .call(block_identifier=block)
-                )
+                ),
+                observation_block=observation_block,
             )
             held_total += count
             holdings.append((holder, staked, count))
@@ -420,7 +467,7 @@ class PositionReader:
         # runs at all. Two calls settle it regardless of where the token sits in the wallet;
         # the enumeration below still runs, for the coverage counts it is the only source of.
         direct = (
-            self._exact_position(owner, token_id, block, observed_at)
+            self._exact_position(owner, token_id, block, observed_at, observation_block)
             if token_id
             else None
         )
@@ -449,14 +496,16 @@ class PositionReader:
                         w3.eth.contract(address=h, abi=HOLDER_ABI)
                         .functions.tokenOfOwnerByIndex(owner, i)
                         .call(block_identifier=block)
-                    )
+                    ),
+                    observation_block=observation_block,
                 )
                 raw = self._call(
                     lambda w3, t=position_id: (
                         w3.eth.contract(address=NPM, abi=NPM_ABI)
                         .functions.positions(t)
                         .call(block_identifier=block)
-                    )
+                    ),
+                    observation_block=observation_block,
                 )
                 examined += 1
                 # The target was already read directly, so the walk counts it for coverage
@@ -523,6 +572,7 @@ class PositionReader:
         fee: int,
         *,
         observation_block: int | None = None,
+        archive_first: bool | None = None,
     ) -> dict:
         """Current tick, sqrt price and active liquidity for a pool.
 
@@ -534,8 +584,15 @@ class PositionReader:
         it a diagnosis compares a position from one moment against a price from another, and
         the mismatch is invisible in the output — the range would be real, the tick would be
         real, and "in range" could still be wrong.
+
+        `archive_first` distinguishes a caller-pinned historical read from the numeric block
+        captured during a latest read. Direct pinned reads prefer the configured archive by
+        default; the report path overrides this when it is only keeping one live read atomic.
         """
         _at = "latest" if observation_block is None else int(observation_block)
+        if archive_first is None:
+            archive_first = observation_block is not None
+        archive_block = observation_block if archive_first else None
         address = self._call(
             lambda w3: (
                 w3.eth.contract(address=FACTORY, abi=FACTORY_ABI)
@@ -545,7 +602,8 @@ class PositionReader:
                     int(fee),
                 )
                 .call(block_identifier=_at)
-            )
+            ),
+            observation_block=archive_block,
         )
         if address == ZERO_ADDRESS:
             return {
@@ -558,7 +616,10 @@ class PositionReader:
             }
 
         pool = Web3.to_checksum_address(address)
-        observed = self._call(lambda w3: w3.eth.get_block(_at))
+        observed = self._call(
+            lambda w3: w3.eth.get_block(_at),
+            observation_block=archive_block,
+        )
         block = int(observed["number"])
         observed_at = datetime.fromtimestamp(
             int(observed["timestamp"]), timezone.utc
@@ -568,14 +629,16 @@ class PositionReader:
                 w3.eth.contract(address=pool, abi=POOL_ABI)
                 .functions.slot0()
                 .call(block_identifier=_at)
-            )
+            ),
+            observation_block=archive_block,
         )
         liquidity = self._call(
             lambda w3: (
                 w3.eth.contract(address=pool, abi=POOL_ABI)
                 .functions.liquidity()
                 .call(block_identifier=_at)
-            )
+            ),
+            observation_block=archive_block,
         )
         return {
             "address": pool,
