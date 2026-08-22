@@ -234,7 +234,8 @@ the GET-capable `/services/{service_id}` route, and keeps the POST hire URL in `
 
 Do not mint while a URI is missing or stale. Before each transaction, the owner must confirm
 that an unauthenticated GET returns HTTP 200 and that its body is byte-for-byte identical to
-the matching committed file.
+the matching committed file. The `plan` command performs that check before it reads BSC state
+or prints an unsigned transaction; a non-200 response or a different SHA-256 is a refusal.
 
 Process the services one at a time. A plan includes the wallet's pending nonce, so do not
 create all four plans first: wait for each transaction receipt before planning the next.

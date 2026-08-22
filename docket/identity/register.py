@@ -5,6 +5,7 @@ and prints the transaction fields for the owner. It has no transaction-submissio
 """
 
 import argparse
+import hashlib
 import json
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ from decimal import Decimal
 from importlib.metadata import version
 from pathlib import Path
 
+import httpx
 from eth_abi import decode
 from hexbytes import HexBytes
 from web3 import HTTPProvider, Web3
@@ -246,6 +248,32 @@ def render_registration_document(
     ).encode()
 
 
+def preflight_registration(
+    token_uri: str,
+    committed_document: bytes,
+    *,
+    http_get=httpx.get,
+) -> None:
+    try:
+        response = http_get(token_uri, timeout=30.0, follow_redirects=False)
+    except httpx.HTTPError as exc:
+        raise ValueError(
+            f"registration preflight refused: GET {token_uri} failed: {exc}"
+        ) from exc
+    if response.status_code != 200:
+        raise ValueError(
+            f"registration preflight refused: GET {token_uri} returned HTTP "
+            f"{response.status_code}, not 200"
+        )
+    committed_sha256 = hashlib.sha256(committed_document).hexdigest()
+    served_sha256 = hashlib.sha256(response.content).hexdigest()
+    if served_sha256 != committed_sha256:
+        raise ValueError(
+            f"registration preflight refused: GET {token_uri} returned SHA-256 "
+            f"{served_sha256}, not committed SHA-256 {committed_sha256}"
+        )
+
+
 def build_register_tx(w3, *, token_uri: str, from_address: str) -> dict:
     if w3.eth.chain_id != CHAIN_ID:
         raise ValueError(f"registration planning requires BSC mainnet chain {CHAIN_ID}")
@@ -292,7 +320,7 @@ def bind_agent_id(service_id: str, agent_id: int) -> str:
     return f"{CHAIN_ID}:{IDENTITY_REGISTRY_ID}:{agent_id}"
 
 
-def main(argv: list[str] | None = None, *, w3=None) -> int:
+def main(argv: list[str] | None = None, *, w3=None, http_get=httpx.get) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     plan = commands.add_parser("plan", help="print one unsigned registration plan")
@@ -307,6 +335,7 @@ def main(argv: list[str] | None = None, *, w3=None) -> int:
     document = REGISTRATION_DOCUMENT_DIR.joinpath(
         f"{service.id}.registration.json"
     ).read_bytes()
+    preflight_registration(token_uri, document, http_get=http_get)
     session = (
         w3
         if w3 is not None

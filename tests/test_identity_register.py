@@ -82,6 +82,21 @@ class _W3:
         self.eth = _Eth(chain_id)
 
 
+class _HTTPGet:
+    def __init__(self, status_code: int, content: bytes) -> None:
+        self.status_code = status_code
+        self.content = content
+        self.calls = []
+
+    def __call__(self, url: str, *, timeout: float, follow_redirects: bool):
+        self.calls.append((url, timeout, follow_redirects))
+        return type(
+            "Response",
+            (),
+            {"status_code": self.status_code, "content": self.content},
+        )()
+
+
 class _ExplodingW3:
     def __getattribute__(self, name):
         raise AssertionError(f"a refused CLI action touched Web3 ({name})")
@@ -250,8 +265,12 @@ def test_bind_agent_id_uses_the_marketplace_canonical_form():
 
 def test_plan_cli_prints_an_unsigned_costed_plan_and_refuses_other_actions(capsys):
     w3 = _W3()
+    committed = STATIC.joinpath("range-doctor.registration.json").read_bytes()
+    http_get = _HTTPGet(200, committed)
     result = register.main(
-        ["plan", "--service", "range-doctor", "--from", SENDER], w3=w3
+        ["plan", "--service", "range-doctor", "--from", SENDER],
+        w3=w3,
+        http_get=http_get,
     )
     assert result == 0
     output = json.loads(capsys.readouterr().out)
@@ -267,6 +286,9 @@ def test_plan_cli_prints_an_unsigned_costed_plan_and_refuses_other_actions(capsy
     assert output["bnb_cost"] == format(
         Decimal(163_334 * 50_000_000) / Decimal(10**18), "f"
     )
+    assert http_get.calls == [
+        ("https://docket.gudman.xyz/registrations/range-doctor.json", 30.0, False)
+    ]
 
     with pytest.raises(SystemExit):
         register.main(
@@ -285,6 +307,24 @@ def test_plan_cli_prints_an_unsigned_costed_plan_and_refuses_other_actions(capsy
             ],
             w3=_ExplodingW3(),
         )
+
+
+@pytest.mark.parametrize(
+    ("status_code", "alter_body", "message"),
+    ((404, False, "HTTP 404"), (200, True, "SHA-256")),
+)
+def test_plan_preflight_refuses_missing_or_changed_documents_before_web3(
+    status_code, alter_body, message, capsys
+):
+    committed = STATIC.joinpath("range-doctor.registration.json").read_bytes()
+    body = committed + b" " if alter_body else committed
+    with pytest.raises(ValueError, match=message):
+        register.main(
+            ["plan", "--service", "range-doctor", "--from", SENDER],
+            w3=_ExplodingW3(),
+            http_get=_HTTPGet(status_code, body),
+        )
+    assert capsys.readouterr().out == ""
 
 
 def test_identity_package_and_static_documents_are_declared_for_the_wheel():
