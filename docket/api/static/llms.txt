@@ -279,6 +279,23 @@ POST /hire/{service_id}
     Returns {"result": {...}, "receipt": {...}}. Read "Hiring" below before quoting
     anything from the receipt.
 
+POST /hire/{service_id}/recover
+    Re-presents the exact original JSON body and signed X-PAYMENT or PAYMENT-SIGNATURE
+    header to retrieve a stored settled or settlement_unknown result. It never runs the
+    service or settlement again. The signed authorization must still be inside its
+    validity window.
+
+    curl -s -X POST "$DOCKET/hire/range-doctor/recover" \
+      -H 'content-type: application/json' \
+      -H "X-PAYMENT: $ORIGINAL_PAYMENT_HEADER" \
+      -d "$ORIGINAL_REQUEST_BODY"
+
+GET /lp-record
+    The complete append-only observation history for the controlled PancakeSwap position,
+    in file order, plus the number of retained observations. No parameters.
+
+    curl -s "$DOCKET/lp-record"
+
 GET /compare
     Every service side by side, for deciding between them rather than reading them one
     at a time. No parameters, no snapshot, no network.

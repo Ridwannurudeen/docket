@@ -23,6 +23,7 @@ requesting JSON receives the endpoint index.
 | `GET /services/{service_id}` | Full service inputs, limitations, evidence, and identity note; HTML callers are redirected to `/service?id=...` |
 | `GET /hire` | Callable catalogue, terms, stock state, and admission booleans |
 | `POST /hire/{service_id}` | Run one service and return result plus receipt |
+| `POST /hire/{service_id}/recover` | Re-present an original signed authorization and request body to recover a stored terminal result |
 | `GET /escrow` | ERC-8183 job template and chain terms |
 | `GET /escrow/job/{job_id}` | Read one live ERC-8183 job from chain |
 | `GET /advantage.json` | V1 paired single-observation artifacts |
@@ -117,6 +118,15 @@ If a public caller supplies a payment header to an unadmitted service, the servi
 runs but the receipt says `not_for_sale`, includes `stock_status`, and sets
 `authorization_used=false`.
 
+Every readable hire, whether free or paid, consumes one allowance entry keyed by the peer
+address the application receives. The allowance is 20 hires per one-hour window. Expired
+windows are removed on every call and the in-memory map retains at most 10,000 peer windows.
+A request rejected before work, including a malformed payment or unreadable service input,
+refunds its entry. A readable request whose service work was attempted remains spent. When
+no payment route is available, exhaustion returns `429 hire_rate_limited` with
+`Retry-After`; an admitted and configured service instead returns its existing x402 challenge
+with `402 free_tier_exhausted`.
+
 ## x402 exact settlement
 
 The public paid branch requires both dynamic `paid_stock=true` and owner-supplied
@@ -162,8 +172,29 @@ A `settled` receipt is evidence of the configured facilitator response. It is no
 independent receipt lookup or chain-finality proof. No committed Docket receipt has this
 status and no live settlement transaction is recorded in the repository.
 
-An exact identical settled request returns `409 authorization_replay`; it does not return
-the stored result and cannot repeat either the service work or settlement.
+An exact identical settled request at the hire route returns `409 authorization_replay`; it
+cannot repeat either the service work or settlement.
+
+## Payment result recovery
+
+If the hire response is lost after Docket stores its output, the caller can send
+`POST /hire/{service_id}/recover` with the exact original JSON request body and the same
+`X-PAYMENT` or `PAYMENT-SIGNATURE` header. Recovery uses the existing local payment verifier,
+so the authorization must still be inside its signed validity window. It checks the original
+resource, payment terms, signature, payer, nonce, payment ID, service, and input hash against
+the stored row.
+
+Only `settled` and `settlement_unknown` rows return `200` with the standard
+`{"result": ..., "receipt": ...}` envelope. A settled row returns its stored receipt. A
+`settlement_unknown` row returns the stored result and the hash-bound receipt persisted when
+that state was recorded; the receipt does not claim a transaction ID. Repeated recoveries
+therefore return the same delivery timestamp. Recovery never calls the service, facilitator
+verification, or settlement again.
+
+An unknown nonce returns `404 payment_not_found`; malformed or locally invalid payment
+material returns `400 payment_invalid`; a different service or body returns
+`409 authorization_mismatch`; any other stored lifecycle state returns
+`409 payment_not_recoverable`.
 
 ## ERC-8183 escrow
 
@@ -183,6 +214,7 @@ package has no artifact showing Docket created, funded, delivered, or settled a 
 ## Failure boundaries
 
 - Invalid/non-object JSON: `400 invalid_json`.
+- Hire allowance exhausted without an available payment route: `429 hire_rate_limited`.
 - Missing required fields: `422 missing_field`.
 - Invalid field value: `422 invalid_field`.
 - Upstream/service failure: `502 service_failed`.
