@@ -57,6 +57,40 @@ BREAK_EVEN_LIMITATION = (
 )
 
 
+def pancake_headline(decision_impact: dict) -> dict:
+    """The fixed-notional decision impact in presenter-ready order."""
+    fixed_notional = decision_impact["dollars_at_notionals"]["notionals"][0]
+    payback = decision_impact["break_even_shift"]
+    reversals = decision_impact["ranking_reversals"]
+    registration_state = decision_impact["registration_state"]
+    statement = (
+        f"At a declared ${fixed_notional['notional_usd']:,.0f} fixed notional, the median "
+        f"annual fee overstatement across {fixed_notional['n_pools']} eligible pools is "
+        f"${fixed_notional['median_annual_overstatement_usd']:,.2f}. Across "
+        f"{payback['n_moves']} candidate moves, real payback arrives a median "
+        f"{payback['median_days_later_than_gross_implies']:.2f} days later than gross "
+        f"implies. Ranking reversals were {reversals['numerator']}/"
+        f"{reversals['denominator']}. Registration state: {registration_state}."
+    )
+    return {
+        "statement": statement,
+        "fixed_notional_usd": fixed_notional["notional_usd"],
+        "n_pools": fixed_notional["n_pools"],
+        "median_annual_overstatement_usd": fixed_notional[
+            "median_annual_overstatement_usd"
+        ],
+        "n_candidate_moves": payback["n_moves"],
+        "median_payback_delay_days": payback[
+            "median_days_later_than_gross_implies"
+        ],
+        "ranking_reversals": {
+            "numerator": reversals["numerator"],
+            "denominator": reversals["denominator"],
+        },
+        "registration_state": registration_state,
+    }
+
+
 def diagnose(
     position: dict,
     pool: dict | None,
@@ -334,10 +368,13 @@ def report(
             }
         )
 
+    from docket.advantage.v2.report import decision_impact_section
+
     return {
         "address": address,
         "computed_at": datetime.now(timezone.utc).isoformat(),
         "decision": _report_decision(read, entries),
+        "pancake_headline": pancake_headline(decision_impact_section()),
         "observation": {
             "bsc_block": read["observation_block"],
             "observation_time": read["observation_time"],

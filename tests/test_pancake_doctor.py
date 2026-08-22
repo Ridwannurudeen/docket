@@ -4,7 +4,7 @@ import re
 import httpx
 import pytest
 
-from docket.agents.pancake.doctor import diagnose, report
+from docket.agents.pancake.doctor import RATE_LIMITATION, diagnose, report
 from docket.agents.pancake.pools import PoolClient
 
 # Every fixture below is a real reading taken from BSC mainnet on 2026-08-08:
@@ -456,6 +456,65 @@ def test_every_report_carries_a_coverage_sentence_even_when_it_found_something()
     assert "all 3 of this wallet's position NFTs were read" in out["coverage"]
     assert (
         "1 hold liquidity and are diagnosed below, and 2 are closed" in out["coverage"]
+    )
+
+
+def test_pancake_headline_leads_with_generated_dollars_and_payback(monkeypatch):
+    decision_impact = {
+        "registration_state": "post_hoc",
+        "dollars_at_notionals": {
+            "notionals": [
+                {
+                    "notional_usd": 43_210.0,
+                    "n_pools": 17,
+                    "median_annual_overstatement_usd": 654.32,
+                }
+            ]
+        },
+        "break_even_shift": {
+            "n_moves": 88,
+            "median_days_later_than_gross_implies": 9.75,
+        },
+        "ranking_reversals": {"numerator": 4, "denominator": 136},
+    }
+    monkeypatch.setattr(
+        "docket.advantage.v2.report.decision_impact_section",
+        lambda: decision_impact,
+    )
+    reader = _StubReader(
+        {
+            "positions": [POSITION],
+            "positions_held": 1,
+            "positions_examined": 1,
+            "closed_skipped": 0,
+        }
+    )
+
+    with _pool_client() as client:
+        out = report("0xwallet", reader=reader, pools=client)
+
+    headline = out["pancake_headline"]
+    assert headline == {
+        "statement": (
+            "At a declared $43,210 fixed notional, the median annual fee overstatement "
+            "across 17 eligible pools is $654.32. Across 88 candidate moves, real payback "
+            "arrives a median 9.75 days later than gross implies. Ranking reversals were "
+            "4/136. Registration state: post_hoc."
+        ),
+        "fixed_notional_usd": 43_210.0,
+        "n_pools": 17,
+        "median_annual_overstatement_usd": 654.32,
+        "n_candidate_moves": 88,
+        "median_payback_delay_days": 9.75,
+        "ranking_reversals": {"numerator": 4, "denominator": 136},
+        "registration_state": "post_hoc",
+    }
+    statement = headline["statement"]
+    assert statement.index("$654.32") < statement.index("9.75 days later")
+    assert statement.index("9.75 days later") < statement.index("4/136")
+    assert (
+        out["positions"][0]["diagnosis"]["economic_consequence"]["limitation"]
+        == RATE_LIMITATION
     )
 
 
