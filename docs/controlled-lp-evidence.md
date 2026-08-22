@@ -20,11 +20,13 @@ An owner decision is a separate `owner_decision` event. The owner explicitly ent
 `RECENTER`, a rationale, the decision time, and the alternatives considered. Docket never
 infers that choice from later chain state.
 
-`prior_observation_sha256` binds the decision to the observation it answers. A later
-observation carries `answers_decision_sha256` for the latest decision. Those references make
-the sequence machine-checkable:
+`prior_observation_sha256` binds the decision to the observation it answers. Each decision
+also carries `supersedes_decision_sha256`: `null` on the first decision and the preceding
+decision's digest after that. A later observation carries `answers_decision_sha256` for the
+latest decision. Those references make the sequence machine-checkable, including when the
+owner records two decisions before the next observation:
 
-`observation -> owner decision -> later observation`
+`observation -> owner decision -> optional superseding decisions -> later observation`
 
 The sequence shows an observed association between a diagnosed state, the owner's stated
 decision, and a later state. It does not establish that the decision caused the later state,
@@ -33,9 +35,12 @@ alpha. Market prices move independently. The rate fields remain fixed-notional, 
 annualisations rather than realized earnings for this position.
 
 The hashes also have a narrow integrity meaning. They detect a referenced line being removed
-or edited while its reference remains. They do not authenticate the person who typed the
-decision, provide an external timestamp, or prevent someone who controls the whole file from
-rewriting a line and every later reference before publication.
+or edited while its reference remains. This is not a running hash of every line: an
+observation that no decision references is not anchored, and the latest decision or
+observation remains unanchored until a later event references it. The hashes do not
+authenticate the person who typed the decision, provide an external timestamp, or prevent
+someone who controls the whole file from rewriting a line and every later reference before
+publication.
 
 ## How to check the history
 
@@ -50,7 +55,10 @@ verify_history(Path("/var/lib/docket/lp-record/controlled.jsonl"))
 ```
 
 `verify_history` parses every JSONL line in order and recomputes each referenced digest. A
-missing or changed referenced line raises an error.
+missing or changed referenced line raises an error that names the affected line. A new daily
+observation is still appended when an older line is damaged; appending a day does not certify
+the earlier chain. The `decide` command refuses to bind a decision until the full history
+passes this check.
 
 To recompute one reference independently, serialize the complete referenced JSON object with
 keys sorted, no whitespace separators, and UTF-8 output (`ensure_ascii=False`), then take its
@@ -66,8 +74,8 @@ canonical = json.dumps(
 digest = hashlib.sha256(canonical).hexdigest()
 ```
 
-Compare the hex digest with `prior_observation_sha256` or `answers_decision_sha256` on the
-referencing line.
+Compare the hex digest with `prior_observation_sha256`, `supersedes_decision_sha256`, or
+`answers_decision_sha256` on the referencing line.
 
 ## Block pin and archive access
 
@@ -78,5 +86,8 @@ repeating the position and pool reads with that value as `observation_block`, no
 Historical BSC state may already be pruned from public endpoints. In that case Docket raises
 `PrunedStateError`; it does not turn the missing node state into a claim that the position or
 pool is absent. Set `DOCKET_ARCHIVE_RPC` to an owner-supplied BSC archive endpoint before the
-check. The archive endpoint is tried first for pinned-block reads. A successful archive read
-supports checking the block-pinned state; it does not change the causal limits of the record.
+check. The archive endpoint is tried first only when the caller supplies a historical
+`observation_block`. Live observations and hires retain the public endpoint order, including
+pool reads pinned internally to the block captured at the start of that live read. A
+successful archive read supports checking the block-pinned state; it does not change the
+causal limits of the record.
