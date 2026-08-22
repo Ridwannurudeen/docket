@@ -92,6 +92,25 @@ def _resolve_seat(reference: str):
     return target
 
 
+def _model_build_for(seat, declared: str | None) -> str:
+    if declared is not None:
+        return declared
+    build = getattr(seat, "model_build", None)
+    if not callable(build):
+        raise CalibrationRefused(
+            "the resolved seat exposes no model_build() and --model-build was not supplied"
+        )
+    try:
+        value = build()
+    except Exception as exc:
+        raise CalibrationRefused(
+            f"seat model_build() refused: {type(exc).__name__}: {exc}"
+        ) from exc
+    if not isinstance(value, str) or not value.strip():
+        raise CalibrationRefused("seat model_build() returned no nonblank string")
+    return value
+
+
 def _refuse_shared_session(
     spec, calibration_dir, evaluator_id: str, session_id: str
 ) -> None:
@@ -204,7 +223,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--evaluator-id", required=True, help="roster seat to ask")
     parser.add_argument(
-        "--model-build", required=True, help="the build that will actually answer"
+        "--model-build",
+        help="the build that will actually answer; defaults to the seat's model_build()",
     )
     parser.add_argument(
         "--session-id", required=True, help="distinct session for this seat"
@@ -233,11 +253,16 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         seat = _resolve_seat(args.seat) if args.seat else None
+        model_build = (
+            _model_build_for(seat, args.model_build)
+            if seat is not None
+            else args.model_build or ""
+        )
         result = run_seat(
             spec,
             Path(args.out),
             evaluator_id=args.evaluator_id,
-            model_build=args.model_build,
+            model_build=model_build,
             session_id=args.session_id,
             calibration_set=Path(args.calibration_set).read_bytes(),
             call_seat=seat,
