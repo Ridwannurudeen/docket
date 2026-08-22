@@ -27,28 +27,35 @@ and none of them can move the registered moment.
 """
 
 import argparse
+import asyncio
 import hashlib
 import json
 import os
 import platform
 import re
 import shutil
+import sys
+import threading
 import time
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import datetime, timedelta, timezone
 from importlib import resources
 from pathlib import Path
 
 import httpx
 
+from .runner import _ledger_lock
 from .spec import load
 
 # The registered attempt policy. Read from the spec at run time rather than duplicated as
 # behaviour — these constants exist to name what the code is checking against, and a spec
 # that disagrees with them is the spec that wins.
 ATTEMPT_OFFSETS_S = (0, 60, 120)
-# Shorter than one attempt window on purpose: a request still in flight when the next attempt
-# is due would land its observation in the wrong minute, and the validator rejects that.
-REQUEST_TIMEOUT_S = 25.0
+# Phase timeouts stop one socket operation from hanging. They are not a total request cap:
+# httpx restarts the read timeout for each chunk, so the monotonic deadline below is what
+# bounds a slow-drip response and the complete two-request attempt.
+REQUEST_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
+ATTEMPT_DEADLINE_S = 50.0
 # The input validator requires each observation to fall inside its own attempt's ONE minute:
 # `attempt_start <= observed_at < attempt_start + 1 minute`. A tolerance wider than that lets
 # a capture succeed here and be refused at lock, which is the worst place to find out — the
@@ -58,18 +65,41 @@ LATE_TOLERANCE_S = 5
 # refuse `null` at lock — after the bytes were frozen and the moment had passed. Zero is
 # never a real status code, so it records "no response" without being mistaken for one.
 NO_RESPONSE = 0
+TERMINAL_WRITE_FAILURE_EXIT = 4
 
-# The worst-case attempt must still finish inside its own minute: a late start plus two
-# sequential timeouts cannot exceed the window, or a 200/200 could land outside it — and the
-# validator has no way to accept that. Line 1799 of spec.py refuses to record a both-200
-# attempt as anything but the chosen one, so a single late success poisons the whole capture.
-assert LATE_TOLERANCE_S + 2 * REQUEST_TIMEOUT_S < 60, (
+# The hard attempt deadline must still finish inside its own minute after the allowed late
+# start. Per-phase HTTP timeouts do not enter this proof because only the monotonic deadline
+# is a total bound.
+assert LATE_TOLERANCE_S + ATTEMPT_DEADLINE_S < 60, (
     "the attempt budget must fit inside one registered minute"
 )
 
 
 class CaptureRefused(RuntimeError):
     """The capture cannot be performed as registered, so it is not performed at all."""
+
+
+_ATTEMPT_LOOP = None
+_ATTEMPT_LOOP_LOCK = threading.Lock()
+
+
+def _attempt_loop() -> asyncio.AbstractEventLoop:
+    global _ATTEMPT_LOOP
+    with _ATTEMPT_LOOP_LOCK:
+        if _ATTEMPT_LOOP is None:
+            loop = asyncio.new_event_loop()
+
+            def run_loop():
+                asyncio.set_event_loop(loop)
+                loop.run_forever()
+
+            threading.Thread(
+                target=run_loop,
+                name="docket-v3-capture-http",
+                daemon=True,
+            ).start()
+            _ATTEMPT_LOOP = loop
+    return _ATTEMPT_LOOP
 
 
 def _utc_now() -> datetime:
@@ -102,14 +132,14 @@ def _observations_outside(record: dict, attempt_start: datetime) -> list[str]:
     return outside
 
 
-def _fetch(client: httpx.Client, url: str) -> dict:
+async def _fetch(client: httpx.AsyncClient, url: str) -> dict:
     """One request, returning the raw bytes and the status, never raising for status.
 
     A non-200 is data here, not an error: the registration wants the status of every attempt
     recorded, and an exception would throw away the very thing it asked for.
     """
     try:
-        response = client.get(url, timeout=REQUEST_TIMEOUT_S)
+        response = await client.get(url)
     except httpx.HTTPError as exc:
         return {
             "url": url,
@@ -129,11 +159,55 @@ def _fetch(client: httpx.Client, url: str) -> dict:
     }
 
 
-def capture_attempt(urls: tuple[str, str], *, ordinal: int, scheduled_at: str) -> dict:
-    """One ordered pair of requests, recorded whether or not it succeeded."""
-    with httpx.Client(follow_redirects=False) as client:
-        first = _fetch(client, urls[0])
-        second = _fetch(client, urls[1])
+async def _capture_attempt_async(
+    urls: tuple[str, str],
+    observations: list,
+    *,
+    ordinal: int,
+    scheduled_at: str,
+) -> dict:
+    async with httpx.AsyncClient(
+        follow_redirects=False, timeout=REQUEST_TIMEOUT
+    ) as client:
+        observations[0] = await _fetch(client, urls[0])
+        observations[1] = await _fetch(client, urls[1])
+    return _attempt_record(urls, observations, ordinal, scheduled_at)
+
+
+def _attempt_record(
+    urls: tuple[str, str],
+    observations: list,
+    ordinal: int,
+    scheduled_at: str,
+    *,
+    deadline_exceeded: bool = False,
+) -> dict:
+    first, second = observations
+    if deadline_exceeded:
+        observed_at = _stamp()
+        if first is None:
+            first = {
+                "url": urls[0],
+                "status": NO_RESPONSE,
+                "transport_error": (
+                    "attempt wall-clock deadline elapsed before the pools observation "
+                    "completed"
+                ),
+                "body": None,
+                "observed_at": observed_at,
+            }
+        second = {
+            "url": urls[1],
+            "status": NO_RESPONSE,
+            "transport_error": (
+                "attempt wall-clock deadline elapsed before the attempt completed; the "
+                "token-list response is not eligible"
+            ),
+            "body": None,
+            "observed_at": observed_at,
+        }
+
+    assert first is not None and second is not None
     both_ok = first["status"] == 200 and second["status"] == 200
     # Field names are the validator's, not this module's. An attempt log that reads well here
     # and fails `_required_fields` at lock would be discovered with the bytes already frozen
@@ -150,11 +224,47 @@ def capture_attempt(urls: tuple[str, str], *, ordinal: int, scheduled_at: str) -
         "token_list_status": second["status"],
         "transport_errors": [first["transport_error"], second["transport_error"]],
         "succeeded": both_ok,
+        "attempt_outcome": (
+            "deadline_exceeded"
+            if deadline_exceeded
+            else ("succeeded" if both_ok else "failed")
+        ),
         # Bodies are carried out of this function but never into the record: the record is
         # the audit trail and the bodies are the evidence, and mixing them would put
         # megabytes of pool data inside a log of what time we asked.
         "_bodies": (first["body"], second["body"]) if both_ok else None,
     }
+
+
+def capture_attempt(urls: tuple[str, str], *, ordinal: int, scheduled_at: str) -> dict:
+    """One ordered pair of requests, bounded by one monotonic attempt deadline."""
+    deadline = time.monotonic() + ATTEMPT_DEADLINE_S
+    observations = [None, None]
+    future = asyncio.run_coroutine_threadsafe(
+        _capture_attempt_async(
+            urls,
+            observations,
+            ordinal=ordinal,
+            scheduled_at=scheduled_at,
+        ),
+        _attempt_loop(),
+    )
+    try:
+        return future.result(timeout=max(0.0, deadline - time.monotonic()))
+    except FutureTimeoutError:
+        if future.done():
+            error = future.exception()
+            if error is not None:
+                raise error
+        else:
+            future.cancel()
+        return _attempt_record(
+            urls,
+            observations,
+            ordinal,
+            scheduled_at,
+            deadline_exceeded=True,
+        )
 
 
 def run_registered_capture(
@@ -220,11 +330,12 @@ def run_registered_capture(
         )
 
     attempts, bodies = [], None
+    stopped_reason = None
     for ordinal, offset in enumerate(ATTEMPT_OFFSETS_S, start=1):
         if offset:
             # Wait until this attempt's own registered time, never a relative sixty seconds
-            # stacked after however long the last attempt took. Two timeouts make an attempt
-            # ~50s long, so relative spacing would push attempt three past the end of its
+            # stacked after however long the last attempt took. The deadline allows an
+            # attempt to last 50s, so relative spacing would push attempt three past the end of its
             # window — and a 200/200 observed outside its minute is refused at lock with the
             # bytes already frozen. A negative delay means we are already late; the window
             # check below is what decides whether that is still usable.
@@ -232,16 +343,24 @@ def run_registered_capture(
             if delay > 0:
                 sleep(delay)
         attempt_start = scheduled + timedelta(seconds=offset)
-        if clock() > attempt_start + timedelta(seconds=LATE_TOLERANCE_S):
+        checked_at = clock()
+        latest_start = attempt_start + timedelta(seconds=LATE_TOLERANCE_S)
+        if checked_at > latest_start:
             # Not "has the window closed" but "can this attempt still FINISH inside it".
-            # Starting at +59s is inside the window and useless: two timeouts would stamp the
-            # observations a minute late, the attempt would report 200/200, and the lock would
+            # Starting at +59s is inside the window and useless: the total deadline could stamp
+            # observations a minute late, the attempt could report 200/200, and the lock would
             # refuse the snapshot it had already frozen. The same budget that bounds the first
             # attempt bounds every attempt, so an attempt that cannot fit is not begun.
             #
             # Skipping ahead is not the alternative. The validator requires capture_log entry
             # i to carry attempt_ordinal i with no gaps, so a skipped attempt makes every
             # later one unlockable. Stopping is the only honest outcome.
+            stopped_reason = (
+                f"attempt {ordinal} could no longer start inside the "
+                f"{LATE_TOLERANCE_S}s late tolerance: the clock read "
+                f"{_stamp_at(checked_at)} after the latest allowed start "
+                f"{_stamp_at(latest_start)}."
+            )
             break
         record = attempt(
             (schedule["pools_url"], schedule["token_list_url"]),
@@ -280,6 +399,22 @@ def run_registered_capture(
         # Registered outcome, not an exception: three failed attempts is a result the
         # protocol anticipated and named, and it says the lock fails rather than that
         # another time may be tried.
+        if stopped_reason is not None:
+            attempted = len(attempts)
+            verb = "was" if attempted == 1 else "were"
+            remaining = len(ATTEMPT_OFFSETS_S) - attempted
+            return {
+                "captured": False,
+                "attempts": attempts,
+                "why": (
+                    f"{attempted} of 3 registered attempts {verb} made. "
+                    f"{stopped_reason} The remaining {remaining} registered attempt"
+                    f"{'s were' if remaining != 1 else ' was'} not made because skipping "
+                    "an ordinal would leave an invalid capture-log gap. None of the attempts "
+                    "made returned 200 from both URLs, so input lock fails and the protocol "
+                    "must be recommitted before another time is used."
+                ),
+            }
         return {
             "captured": False,
             "attempts": attempts,
@@ -388,40 +523,79 @@ def write_armed(
     identity = (host_identity if host_identity is not None else platform.node()).strip()
     if not identity:
         raise CaptureRefused("the capture host identity is blank")
-    path = directory / "armed.json"
+    payload = _json_bytes(
+        {
+            "registered_moment": schedule["first_attempt_at"],
+            "attempt_schedule": [
+                _stamp_at(
+                    datetime.fromisoformat(
+                        schedule["first_attempt_at"].replace("Z", "+00:00")
+                    )
+                    + timedelta(seconds=offset)
+                )
+                for offset in ATTEMPT_OFFSETS_S
+            ],
+            "process_started_at": _stamp_at(started.astimezone(timezone.utc)),
+            "spec_hash": spec.spec_hash,
+            "host_identity": identity,
+            "preflight": {
+                "clock_checked_at": _stamp_at(
+                    (checked_at or started).astimezone(timezone.utc)
+                ),
+                "clock_timezone_aware": True,
+                "directory_writable": True,
+                "disk_free_bytes": disk_free_bytes,
+            },
+        }
+    )
+    original = directory / "armed.json"
+    if not original.exists():
+        try:
+            _create_exclusively(original, payload)
+            return original
+        except CaptureRefused:
+            pass
+
     try:
-        _create_exclusively(
-            path,
-            _json_bytes(
-                {
-                    "registered_moment": schedule["first_attempt_at"],
-                    "attempt_schedule": [
-                        _stamp_at(
-                            datetime.fromisoformat(
-                                schedule["first_attempt_at"].replace("Z", "+00:00")
-                            )
-                            + timedelta(seconds=offset)
-                        )
-                        for offset in ATTEMPT_OFFSETS_S
-                    ],
-                    "process_started_at": _stamp_at(started.astimezone(timezone.utc)),
-                    "spec_hash": spec.spec_hash,
-                    "host_identity": identity,
-                    "preflight": {
-                        "clock_checked_at": _stamp_at(
-                            (checked_at or started).astimezone(timezone.utc)
-                        ),
-                        "clock_timezone_aware": True,
-                        "directory_writable": True,
-                        "disk_free_bytes": disk_free_bytes,
-                    },
-                }
-            ),
+        existing = json.loads(original.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CaptureRefused(
+            "armed.json exists but is unreadable, so this process cannot establish which "
+            "registered moment was armed and must not make an HTTP attempt."
+        ) from exc
+    if not isinstance(existing, dict):
+        raise CaptureRefused(
+            "armed.json is not a JSON object, so this process cannot establish which "
+            "registered moment was armed and must not make an HTTP attempt."
         )
+    if existing.get("registered_moment") != schedule["first_attempt_at"]:
+        raise CaptureRefused(
+            "armed.json names a different registered moment, so this process must not "
+            "replace it or make an HTTP attempt."
+        )
+    if existing.get("spec_hash") != spec.spec_hash:
+        raise CaptureRefused(
+            "armed.json names a different registered spec, so this process must not "
+            "replace it or make an HTTP attempt."
+        )
+    attempts = sorted(path.name for path in directory.glob("attempt-*.json"))
+    if attempts:
+        raise CaptureRefused(
+            f"attempt evidence already exists ({', '.join(attempts)}), so the registered "
+            "window is in progress or complete and this process must not make another "
+            "HTTP attempt."
+        )
+
+    ordinal = 2
+    while (directory / f"armed-{ordinal:02d}.json").exists():
+        ordinal += 1
+    path = directory / f"armed-{ordinal:02d}.json"
+    try:
+        _create_exclusively(path, payload)
     except CaptureRefused as exc:
         raise CaptureRefused(
-            "armed.json already exists. Another activation already armed this registered "
-            "moment, so this process must not make an HTTP attempt."
+            "another activation re-armed this registered moment first, so this process "
+            "must not make an HTTP attempt."
         ) from exc
     return path
 
@@ -476,15 +650,19 @@ def write_attempt(record: dict, directory: Path) -> Path:
     return path
 
 
-def write_capture(result: dict, directory: Path) -> dict:
+def write_capture(
+    result: dict, directory: Path, *, recorded_at: datetime | None = None
+) -> dict:
     """Write the raw bodies and the attempt log, keeping the two apart."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     if not result.get("captured"):
         _create_exclusively(directory / "capture-attempts.json", _json_bytes(result))
-        _create_exclusively(
-            directory / "capture-failed.json",
-            _json_bytes({"outcome": "failed", "why": result["why"]}),
+        write_terminal(
+            "failed",
+            result["why"],
+            directory,
+            recorded_at=recorded_at or _utc_now(),
         )
         return result
 
@@ -570,62 +748,50 @@ def main(
     def event_time() -> datetime:
         return runtime_clock()
 
+    def terminal_exit(outcome: str, reason: str, code: int) -> int:
+        try:
+            write_terminal(outcome, reason, output, recorded_at=event_time())
+        except OSError as failure:
+            print(
+                f"capture {outcome}: {reason}; terminal evidence write failed: "
+                f"{type(failure).__name__}: {failure}",
+                file=sys.stderr,
+            )
+            print(f"capture {outcome}: {reason}")
+            return TERMINAL_WRITE_FAILURE_EXIT
+        print(f"capture {outcome}: {reason}")
+        return code
+
     try:
         spec = load(_resolve_spec(args.spec))
     except CaptureRefused as refusal:
-        write_terminal("refused", str(refusal), output, recorded_at=event_time())
-        print(f"capture refused: {refusal}")
-        return 2
+        return terminal_exit("refused", str(refusal), 2)
     except Exception as failure:
-        write_terminal(
-            "failed",
-            f"{type(failure).__name__}: {failure}",
-            output,
-            recorded_at=event_time(),
-        )
-        print(f"capture failed: {type(failure).__name__}: {failure}")
-        return 1
+        return terminal_exit("failed", f"{type(failure).__name__}: {failure}", 1)
 
     try:
-        result = run_registered_capture(
-            spec,
-            journal=output,
-            now=process_started,
-            clock=runtime_clock,
-            sleep=sleep,
-            attempt=attempt,
-        )
+        with _ledger_lock(output / "capture"):
+            result = run_registered_capture(
+                spec,
+                journal=output,
+                now=process_started,
+                clock=runtime_clock,
+                sleep=sleep,
+                attempt=attempt,
+            )
     except CaptureRefused as refusal:
         # Exit 2, not 1: this is the protocol declining, which a timer log should be able to
         # tell apart from the capture crashing.
-        write_terminal("refused", str(refusal), output, recorded_at=event_time())
-        print(f"capture refused: {refusal}")
-        return 2
+        return terminal_exit("refused", str(refusal), 2)
     except Exception as failure:
-        write_terminal(
-            "failed",
-            f"{type(failure).__name__}: {failure}",
-            output,
-            recorded_at=event_time(),
-        )
-        print(f"capture failed: {type(failure).__name__}: {failure}")
-        return 1
+        return terminal_exit("failed", f"{type(failure).__name__}: {failure}", 1)
 
     try:
-        write_capture(result, output)
+        write_capture(result, output, recorded_at=event_time())
     except CaptureRefused as refusal:
-        write_terminal("refused", str(refusal), output, recorded_at=event_time())
-        print(f"capture refused: {refusal}")
-        return 2
+        return terminal_exit("refused", str(refusal), 2)
     except Exception as failure:
-        write_terminal(
-            "failed",
-            f"{type(failure).__name__}: {failure}",
-            output,
-            recorded_at=event_time(),
-        )
-        print(f"capture failed: {type(failure).__name__}: {failure}")
-        return 1
+        return terminal_exit("failed", f"{type(failure).__name__}: {failure}", 1)
     if not result["captured"]:
         print(result["why"])
         return 3
