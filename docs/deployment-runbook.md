@@ -78,7 +78,8 @@ ssh root@gudman.xyz \
 ```
 
 `preflight.sh` requires `nginx -t` to exit successfully, print `test is successful`, and
-emit exactly the operator-supplied warning baseline. It also requires at least 2 GiB free
+emit exactly the operator-supplied number of lines containing the fixed `[warn]` token, whether
+nginx uses timestamped error-log or `nginx: [warn]` form. It also requires at least 2 GiB free
 under `/opt`, verifies all eight tracked units with `systemd-analyze verify`, and prints the
 current journal disk use. It never edits or reloads nginx. The tracked rate-limit example is
 still an owner-reviewed, separately applied nginx change.

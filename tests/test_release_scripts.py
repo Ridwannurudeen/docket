@@ -88,7 +88,7 @@ esac
         """#!/usr/bin/env bash
 set -euo pipefail
 for ((i = 0; i < ${FAKE_NGINX_WARNINGS:-22}; i++)); do
-    printf '%s\n' 'nginx: [warn] test warning' >&2
+    printf '%s\n' "${FAKE_NGINX_WARNING:-2026/08/22 19:10:42 [warn] 3091734#3091734: protocol options redefined for 0.0.0.0:443 in /etc/nginx/sites-enabled/docket}" >&2
 done
 if [[ "${FAKE_NGINX_SUCCESS:-1}" == 1 ]]; then
     printf '%s\n' 'nginx: configuration file /etc/nginx/nginx.conf test is successful' >&2
@@ -604,6 +604,26 @@ def test_preflight_accepts_the_guarded_production_baseline(tmp_path):
     assert "22 nginx warnings" in result.stdout
     assert "2097152 KiB free" in result.stdout
     assert "Archived and active journals take up 64.0M" in result.stdout
+
+
+def test_preflight_accepts_nginx_prefixed_warning_format(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    fake_bin = _fake_bin(tmp_path)
+
+    result = _run(
+        "preflight.sh",
+        "--dry-run",
+        "22",
+        environment=_environment(
+            root,
+            fake_bin,
+            FAKE_NGINX_WARNING="nginx: [warn] test warning",
+        ),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "22 nginx warnings" in result.stdout
 
 
 @pytest.mark.parametrize(

@@ -79,7 +79,7 @@ nginx_status=$?
 set -e
 printf '%s\n' "${nginx_output}"
 (( nginx_status == 0 )) || no_go "nginx -t failed with exit ${nginx_status}"
-warning_count="$(grep -cF 'nginx: [warn]' <<<"${nginx_output}" || true)"
+warning_count="$(grep -cF '[warn]' <<<"${nginx_output}" || true)"
 [[ "${warning_count}" == "${EXPECTED_WARNINGS}" ]] || no_go \
     "nginx warning count is ${warning_count}, expected ${EXPECTED_WARNINGS}"
 grep -Fq 'test is successful' <<<"${nginx_output}" || no_go \
