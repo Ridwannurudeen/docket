@@ -23,7 +23,7 @@
 - **No verdict language**, consistent with the rest of Docket: the agent reports observations and arithmetic ("out of range since tick 65452 < current 66100", "uncollected fees ≈ $12.40"), and frames advice as explicit conditional recommendations with their reasoning, never as "safe"/"good"/"recommended".
 - Every number the agent emits carries the block number and timestamp it was computed at.
 - No new dependencies. No Claude/Anthropic attribution; no Co-Authored-By. Stage by explicit filename. Do not push.
-- Repo `C:\Users\gudma\OneDrive\Desktop\GITHUB-FILES\docket`, run with `./.venv/Scripts/python`.
+- Repo `.`, run with `./.venv/Scripts/python`.
 
 ## File Structure
 

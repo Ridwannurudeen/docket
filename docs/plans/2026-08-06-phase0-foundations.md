@@ -24,7 +24,7 @@
 
 **Files:**
 - Create: `pyproject.toml`, `.gitignore`, `abis/AgenticCommerce.json`, `abis/ERC20.json`, `tests/test_abis.py`
-- (Repo root: `C:\Users\gudma\OneDrive\Desktop\GITHUB-FILES\docket`)
+- (Repo root: `.`)
 
 **Interfaces:**
 - Consumes: nothing.
@@ -65,7 +65,7 @@ node_modules/
 - [ ] **Step 3: Vendor the ABIs from the SDK repo (shallow clone, copy two files, delete clone)**
 
 ```bash
-cd "C:/Users/gudma/OneDrive/Desktop/GITHUB-FILES/docket"
+cd "."
 git clone --depth 1 https://github.com/bnb-chain/bnbagent-sdk /tmp/bnbagent-sdk-abi
 cp /tmp/bnbagent-sdk-abi/abis/AgenticCommerce.json abis/AgenticCommerce.json
 cp /tmp/bnbagent-sdk-abi/abis/ERC20.json abis/ERC20.json
@@ -107,7 +107,7 @@ def test_erc20_abi_has_approve_and_balance():
 - [ ] **Step 5: Install and run the test**
 
 ```bash
-cd "C:/Users/gudma/OneDrive/Desktop/GITHUB-FILES/docket"
+cd "."
 python -m pip install -e ".[dev]"
 python -m pytest -q
 ```
@@ -315,7 +315,7 @@ Generate a fresh throwaway key pair locally (`python -c "from eth_account import
 - [ ] **Step 6: Run the experiment**
 
 ```bash
-cd "C:/Users/gudma/OneDrive/Desktop/GITHUB-FILES/docket"
+cd "."
 E1_CLIENT_KEY=... E1_EVALUATOR_KEY=... python -m experiments.e1_instant_settlement
 ```
 Expected: `e1-result.json` written either way. If `complete` reverts, capture the revert reason — try once more with `complete(job_id, "accepted", opt)` variants ONLY if the ABI showed a different signature in Step 1; otherwise record and stop. Two identical reverts = answer is no; do not loop.
@@ -332,7 +332,7 @@ git commit -m "experiment(e1): marketplace-evaluator instant settlement on testn
 ### Task 3: SOLVENT registration JSON + content negotiation (solvent repo)
 
 **Files:**
-- Create: `web/agent-registration.json` (in `C:\Users\gudma\solvent`)
+- Create: `web/agent-registration.json` (in `<solvent-repo>`)
 - Modify: `ops/solvent.gudman.xyz.conf` (add `location = /` negotiation block above the existing `location /` at line 165)
 - Test: `tests/test_agent_registration.py`
 
@@ -374,7 +374,7 @@ def test_registration_makes_no_performance_claims():
         assert banned not in text
 ```
 
-Run: `cd C:\Users\gudma\solvent && python -m pytest tests/test_agent_registration.py -q` → Expected: FAIL (file missing).
+Run: `cd <solvent-repo> && python -m pytest tests/test_agent_registration.py -q` → Expected: FAIL (file missing).
 
 - [ ] **Step 2: Write `web/agent-registration.json`**
 
@@ -450,14 +450,14 @@ Insert ABOVE the existing `location /` block (line 164 comment "The glass-box da
 - [ ] **Step 4: Run the full solvent suite (guard against collateral damage)**
 
 ```bash
-cd C:\Users\gudma\solvent && python -m pytest -q
+cd <solvent-repo> && python -m pytest -q
 ```
 Expected: PASS (same count as before this task, +4).
 
 - [ ] **Step 5: Commit (solvent repo, current branch)**
 
 ```bash
-cd C:\Users\gudma\solvent
+cd <solvent-repo>
 git add web/agent-registration.json tests/test_agent_registration.py ops/solvent.gudman.xyz.conf
 git commit -m "feat: ERC-8004 registration JSON + root content negotiation for indexers"
 ```
@@ -467,10 +467,10 @@ git commit -m "feat: ERC-8004 registration JSON + root content negotiation for i
 Ship individually (never a directory copy). Find the live vhost path first; count `nginx -t` warnings against the 22-warning baseline:
 
 ```bash
-ssh root@75.119.153.252 "nginx -T 2>/dev/null | grep -n 'solvent.gudman.xyz.conf' | head -3"
-scp C:/Users/gudma/solvent/web/agent-registration.json root@75.119.153.252:/var/www/solvent/agent-registration.json
-scp C:/Users/gudma/solvent/ops/solvent.gudman.xyz.conf root@75.119.153.252:<live-vhost-path>
-ssh root@75.119.153.252 "nginx -t && systemctl reload nginx"
+ssh <deploy-user>@<vps-host> "nginx -T 2>/dev/null | grep -n 'solvent.gudman.xyz.conf' | head -3"
+scp <solvent-repo>/web/agent-registration.json <deploy-user>@<vps-host>:/var/www/solvent/agent-registration.json
+scp <solvent-repo>/ops/solvent.gudman.xyz.conf <deploy-user>@<vps-host>:<live-vhost-path>
+ssh <deploy-user>@<vps-host> "nginx -t && systemctl reload nginx"
 ```
 
 - [ ] **Step 7: Verify live from outside**
@@ -522,7 +522,7 @@ Success: `name` becomes `SOLVENT` and `last_parsed_at` moves past 2026-06-16.
 - [ ] **Step 1: Rename the default branch on GitHub and locally**
 
 ```bash
-cd C:\Users\gudma\solvent
+cd <solvent-repo>
 git branch -m codex/solvent-private-prep main
 git push -u origin main
 gh api repos/Ridwannurudeen/solvent -X PATCH -f default_branch=main

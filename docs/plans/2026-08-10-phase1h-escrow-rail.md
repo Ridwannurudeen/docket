@@ -28,7 +28,7 @@ Verified live on BSC mainnet 2026-08-10, all by `eth_call`: commerce `0xEa4DAa31
 - **The settle worker ships disarmed.** Sending a transaction needs a funded Docket EOA, which is a user action; it must be impossible to broadcast by accident, and its absence must degrade to an honest "not armed" rather than a silent no-op.
 - **The buyer's lever is `policy.dispute(jobId)`, client-only. Never surface `voteReject`** — it is restricted to whitelisted voters and wiring a buyer to it would produce a confusing revert.
 - No Claude/Anthropic attribution; no Co-Authored-By. Stage by explicit filename.
-- Repo `C:\Users\gudma\OneDrive\Desktop\GITHUB-FILES\docket`, run with `./.venv/Scripts/python`. Baseline is 187 tests green.
+- Repo `.`, run with `./.venv/Scripts/python`. Baseline is 187 tests green.
 
 ## File Structure
 
