@@ -111,6 +111,46 @@ must refuse it.
 Do not create the referenced inputs, call `lock_inputs`, or run an arm as part of
 reproduction. Those are future registered-protocol events, not read-only verification.
 
+## Running the evaluator seats
+
+This is an operator-only input-lock procedure, not a reproduction step. Run it once on the
+scheduled Warden lock day. Both commands derive `model_build` from the installed CLI's own
+version and resolved-model output before the request record is opened; no model name or build
+string is typed by the operator.
+
+Run `seat-a` through Codex:
+
+```bash
+python -m docket.advantage.v3.calibration_driver v3-03-warden-security docket/advantage/v3/calibration-captures/2026-08-25 --evaluator-id seat-a --session-id warden-seat-a-2026-08-25T1200Z --calibration-set docket/advantage/v3/sources/warden-calibration-set.json --seat docket.advantage.v3.seats.codex_cli:ask
+```
+
+Run `seat-b` through Claude:
+
+```bash
+python -m docket.advantage.v3.calibration_driver v3-03-warden-security docket/advantage/v3/calibration-captures/2026-08-25 --evaluator-id seat-b --session-id warden-seat-b-2026-08-25T1200Z --calibration-set docket/advantage/v3/sources/warden-calibration-set.json --seat docket.advantage.v3.seats.claude_cli:ask
+```
+
+The session IDs must be distinct: one session ID reported by two seats is one run counted
+twice, and the driver refuses the second request. Each command first writes
+`attempt-01.request.json`, including the exact derived prompt bytes, under
+`docket/advantage/v3/calibration-captures/2026-08-25/v3-03-warden-security/seat-<seat-id>/`.
+It then writes `attempt-01.response.json` with either the untouched response bytes or a
+`no_response` outcome. Do not delete a failed attempt or repeat a captured one; the first
+attempt that returns bytes binds even when its answer fails calibration.
+
+After both response records exist, assemble the authored cases, verify both captured rows,
+write `docket/advantage/v3/inputs/03-security-heldout.json`, and save its generated
+`inputs_sha256` into the existing specification in one command:
+
+```bash
+python -m docket.advantage.v3.assemble lock-warden docket/advantage/v3/specs/v3-03-warden-security.json docket/advantage/v3/sources/warden-heldout-cases.json docket/advantage/v3/sources/warden-vendor-snapshot.json docket/advantage/v3/sources/warden-calibration-set.json docket/advantage/v3/calibration-captures/2026-08-25
+```
+
+The lock refuses an uncaptured or edited seat, fewer than seven correct hostile-versus-benign
+decisions, class micro-F1 below the registered floor, a changed vendor snapshot, or an invalid
+held-out envelope. Review and commit the two seat-capture directories, generated input, and the
+specification update together before either scored arm runs.
+
 ## The Git witness
 
 Each v3 spec says Git history is the registration witness and disclaims an independently
