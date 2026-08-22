@@ -29,6 +29,7 @@ packages = [
     "docket.advantage",
     "docket.advantage.v2",
     "docket.advantage.v3",
+    "docket.advantage.v3.seats",
     "docket.api",
     "docket.agents",
     "docket.agents.grid",

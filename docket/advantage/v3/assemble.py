@@ -18,16 +18,21 @@ authored, not observed, so it must be supplied; there is no default and no place
 import base64
 import hashlib
 import json
+import os
+import tempfile
 from pathlib import Path
 
-from .calibration import verify_calibration_capture
+from .calibration import assemble_evaluator_calibration, verify_calibration_capture
 from .spec import (
     REPO_ROOT,
     PairedSpec,
     YIELD_SOURCE_URLS,
     _token_allowlist,
+    _validate_inputs,
     _yield_first_failed_gate,
     _yield_number,
+    lock_inputs,
+    save,
 )
 
 # The registered case terms. The validator refuses anything else, so these are named here to
@@ -39,6 +44,64 @@ DECISION_HORIZON_DAYS = 30
 
 class AssemblyRefused(RuntimeError):
     """The capture cannot produce a lockable envelope, so no envelope is produced."""
+
+
+def _envelope_bytes(envelope: dict) -> bytes:
+    return (json.dumps(envelope, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def assemble_warden_envelope(
+    spec: PairedSpec,
+    heldout_cases: bytes,
+    vendor_snapshot: bytes,
+    *,
+    calibration_dir: Path,
+    calibration_set: bytes,
+) -> dict:
+    """Build Warden inputs from authored cases and both captured evaluator seats."""
+    if spec.spec_id != "v3-03-warden-security":
+        raise AssemblyRefused("lock-warden accepts only v3-03-warden-security")
+    try:
+        heldout = json.loads(heldout_cases.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AssemblyRefused("the Warden held-out source is not UTF-8 JSON") from exc
+    if not isinstance(heldout, dict) or not isinstance(heldout.get("cases"), list):
+        raise AssemblyRefused("the Warden held-out source has no cases array")
+    snapshot_ref = heldout.get("vendor_snapshot_ref")
+    snapshot_sha256 = heldout.get("vendor_snapshot_sha256")
+    if not isinstance(snapshot_ref, str) or not snapshot_ref.strip():
+        raise AssemblyRefused("the Warden held-out source names no vendor snapshot")
+    actual_snapshot_sha256 = hashlib.sha256(vendor_snapshot).hexdigest()
+    if snapshot_sha256 != actual_snapshot_sha256:
+        raise AssemblyRefused(
+            "the supplied Warden vendor snapshot differs from the one the held-out "
+            "cases name"
+        )
+    try:
+        evaluator_calibration = assemble_evaluator_calibration(
+            spec, calibration_dir, calibration_set
+        )
+    except ValueError as exc:
+        raise AssemblyRefused(str(exc)) from exc
+    envelope = {
+        "spec_id": spec.spec_id,
+        "stage_one_protocol_hash": spec.stage_one_protocol_hash,
+        "vendor_snapshot": {
+            "ref": snapshot_ref,
+            "sha256": actual_snapshot_sha256,
+        },
+        "calibration_set": {
+            "sha256": hashlib.sha256(calibration_set).hexdigest(),
+            "body_base64": base64.b64encode(calibration_set).decode("ascii"),
+        },
+        "evaluator_calibration": evaluator_calibration,
+        "cases": heldout["cases"],
+    }
+    try:
+        verify_calibration_capture(spec, envelope, calibration_dir)
+    except ValueError as exc:
+        raise AssemblyRefused(str(exc)) from exc
+    return envelope
 
 
 def assemble_yield_envelope(
@@ -267,17 +330,27 @@ def write_envelope(
     the digest and cannot be left to chance.
     """
     path = Path(repo_root) / spec.inputs_ref
-    if path.exists():
-        raise AssemblyRefused(
-            f"{spec.inputs_ref} already exists. Overwriting frozen inputs is how a second "
-            "capture quietly replaces the registered one."
-        )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(envelope, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    raw = _envelope_bytes(envelope)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(raw)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        try:
+            os.link(temporary_path, path)
+        except FileExistsError as exc:
+            raise AssemblyRefused(
+                f"{spec.inputs_ref} already exists. Overwriting frozen inputs is how a "
+                "second capture quietly replaces the registered one."
+            ) from exc
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
     return path
 
 
@@ -290,8 +363,70 @@ def main(argv: list[str] | None = None) -> int:
     than in whatever a timer did at noon.
     """
     import argparse
+    import sys
 
     from .spec import load
+
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "lock-warden":
+        parser = argparse.ArgumentParser(
+            description="Assemble and lock the authored Warden held-out family."
+        )
+        parser.add_argument("command")
+        parser.add_argument("spec", help="path to the Warden specification JSON")
+        parser.add_argument("heldout_cases", help="path to the twelve held-out cases")
+        parser.add_argument(
+            "vendor_snapshot", help="path to the frozen vendor snapshot"
+        )
+        parser.add_argument("calibration_set", help="path to the eight-case key")
+        parser.add_argument(
+            "calibration_dir", help="directory holding both seat capture artifacts"
+        )
+        args = parser.parse_args(arguments)
+        try:
+            spec = load(Path(args.spec), repo_root=REPO_ROOT)
+            envelope = assemble_warden_envelope(
+                spec,
+                Path(args.heldout_cases).read_bytes(),
+                Path(args.vendor_snapshot).read_bytes(),
+                calibration_dir=Path(args.calibration_dir),
+                calibration_set=Path(args.calibration_set).read_bytes(),
+            )
+            raw = _envelope_bytes(envelope)
+            _validate_inputs(spec, raw, REPO_ROOT)
+            input_path = Path(REPO_ROOT) / spec.inputs_ref
+            try:
+                write_envelope(spec, envelope, repo_root=REPO_ROOT)
+            except AssemblyRefused:
+                if not input_path.is_file() or input_path.read_bytes() != raw:
+                    raise
+            locked = lock_inputs(spec, repo_root=REPO_ROOT)
+            spec_path = Path(args.spec)
+            temporary_spec = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    dir=spec_path.parent,
+                    prefix=f".{spec_path.name}.",
+                    suffix=".tmp",
+                    delete=False,
+                ) as temporary:
+                    temporary_spec = Path(temporary.name)
+                    temporary.write(spec_path.read_bytes())
+                    temporary.flush()
+                    os.fsync(temporary.fileno())
+                save(locked, temporary_spec, repo_root=REPO_ROOT)
+                temporary_spec.replace(spec_path)
+            finally:
+                if temporary_spec is not None:
+                    temporary_spec.unlink(missing_ok=True)
+        except (AssemblyRefused, OSError, ValueError) as refusal:
+            print(f"assembly refused: {refusal}")
+            return 2
+        print(
+            f"locked {input_path} with inputs_sha256={locked.inputs_sha256}. "
+            "Commit the input and updated specification together."
+        )
+        return 0
 
     parser = argparse.ArgumentParser(description=main.__doc__.splitlines()[0])
     parser.add_argument("spec", help="path to the stage-one specification JSON")
@@ -305,7 +440,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "calibration_dir", help="directory holding both seats' capture artifacts"
     )
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
 
     spec = load(Path(args.spec))
     try:
