@@ -100,9 +100,9 @@ V3 has exactly three stage-one specifications:
 
 | Spec | Stage-one protocol hash | Current spec hash |
 |---|---|---|
-| Range | `0xcfaf6d9655c35385456efed490169540258422fca9f5f17e385b4fb4a0f68bd6` | `0x2d3a615b689ce1611783d218a2ab9406cd93421485cdb6eef6e6b61f9470d282` |
-| Yield | `0x2d567eae84c22c61cf83b86bd63692894af65b231ef16ca6c880065d7f254ace` | `0x9455cc8c811af8c497ff8d16b5ff62c951cc8835f8bafdab76c20bc8947baa1e` |
-| Warden | `0x919b37d5e84dd21ee1822f155df4dc0772e8c203a4efdbcd2e993e62be5fb4bf` | `0x27ce69f5420817dd73b4da159d375a0d1bf7468e198c9f852798be1de14db01b` |
+| Range | `0x5436fe80f16558d06f2f8f09f2eb4bbad6a2f3e26e5bbbbbafd143b7f14d2fce` | `0x4844dfcf708d257c92d8d5c00f502c14af8fb187464d3b1a5314d1592c720d82` |
+| Yield | `0x52930b5854db990fbde1fe2f66e63b1f1ab0b396b07f6f0a07eab9833840d7a7` | `0xb1b203db589bf1c78eccea132af9c82dee60b4e99e67268f5b010b90d4e6e1da` |
+| Warden | `0xcd4c698f55c316fdedaa2eb52d80091c3a08d004175d7d156527f224c4e941eb` | `0x9321343763a7b8ff215b54f356ef8cc781ad4db56924d1bc5f23b3a53b7e618e` |
 
 For all three, `inputs_sha256` is the empty string. The referenced input files do not exist,
 and there is no runs directory. `load()` can validate the stage-one file; `assert_runnable()`
@@ -122,15 +122,19 @@ git branch -a --contains 88cc2bc
 git branch -a --contains HEAD
 ```
 
-At this build, `88cc2bc` and HEAD are absent from the configured remote refs and the branch
-has no upstream. A hostile audit also demonstrated that an owner can edit a spec, recompute
-its hashes through the library, and create a backdated local commit that loads cleanly.
+At this build, `88cc2bc` and commit `534af826575a` are reachable from
+`origin/docs/deliberation-round2`. GitHub recorded that ref at `2026-08-15T06:08:36Z`, so
+the content pushed at that moment existed by then. That timestamp does not cover a later
+registration or establish when any individual commit was authored. A hostile audit also
+demonstrated that an owner can edit a spec, recompute its hashes through the library, and
+create a backdated local commit that loads cleanly.
 
-Therefore the witness establishes consistency/order only inside this self-controlled local
-object graph. It does not prove a wall clock or prevent owner rewrite. To make the ordering
-checkable, publish or commit the exact registration object hash to an independently readable
-system before inputs/runs—for example, a remote object outside the owner's unilateral rewrite
-control or a third-party timestamp/chain commitment—and record that external identifier here.
+Therefore the reachable ref establishes a third-party timestamp for the ref content at that
+push, while the commit graph establishes sequence. It does not independently timestamp each
+registration or prevent the owner from rewriting the private remote ref. To make the ordering
+durable outside the owner's control, publish or commit the exact registration object hash to
+an independently readable system before inputs or runs, then record that external
+identifier here.
 
 ## SOLVENT's narrow on-chain evidence
 

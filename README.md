@@ -1,9 +1,10 @@
 # Docket
 
+**Hire by evidence, not promises.**
+
 Docket is an evidence-first interface for inspecting ERC-8004 agent observations and
 running bounded services on BNB Smart Chain. It publishes measurements, inputs,
-limitations, and receipts; it does not publish a trust score or choose an agent for the
-reader.
+limitations, and receipts, then leaves the decision to the reader.
 
 ## Submission claims
 
@@ -37,10 +38,11 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
   set locally, and branch protection is unavailable on a private repository, so the ref
   can still be rewritten by its owner. There is no independently attested wall-clock time
   for any individual protocol registration.
-- **C-09.** Commit `b883e3f` is deployed to `docket.gudman.xyz` as recorded in
-  `docs/source-deploy-manifest.md`, installed from a wheel into a fresh environment and
-  confirmed by reading the runtime import path from the live interpreter after cutover.
-  Any commit made after that deployment is not covered by it.
+- **C-09.** As of 2026-08-16, the builder-collected operational record associates
+  `docket.gudman.xyz` with commit `534af826575a3c316eaace03b5e41ab077d4c253` and wheel
+  SHA-256 `b8c9a257c9ab3acab111b87d2507153b7d0a7bd54a41ef9110a2a57c88758beb`.
+  The record is internally checkable against this repository but is not an independent
+  observation of the host, and it covers no later commit.
 
 The table records where evidence is missing instead of substituting a number or a
 transaction that does not exist.
@@ -59,6 +61,29 @@ transaction that does not exist.
 `price_display` and `price_atomic` are catalogue terms for a service after admission;
 they are not evidence that the service can be bought now. `GET /hire` exposes the
 admission limbs and `paid_stock` state directly.
+
+## Measured decision impact
+
+**$126.78 median annual overstatement at $10k notional (n=22) and payback arriving a
+median 8.30 days later than gross implies.** Across 231 candidate moves in the frozen v2
+corpus, ranking reversals were 0/231; the median 49.3% gross-to-net fee-rate overstatement
+is secondary. These are post-hoc measurements on one frozen daily snapshot, not realized
+returns or a forecast.
+
+One 2026 [preprint measuring BSC ERC-8004 activity](https://arxiv.org/abs/2606.26028)
+reports that 4% of registrations expose a live endpoint, 59.2% of reviewers show
+coordinated Sybil behaviour, and 77.9% of agents with feedback retain no valid feedback
+after Sybil filtering; those network-wide results motivate scrutiny but do not establish
+Docket's performance. A separate 2026
+[preprint on Ethereum ERC-8004 activity](https://arxiv.org/abs/2606.12128) describes a
+registration-heavy, operationally shallow ecosystem; its network and sample differ from
+Docket's BSC snapshot.
+
+The first-party planner skills shown in
+[PancakeSwap's execution model](https://github.com/pancakeswap/pancakeswap-ai) stop at
+generated deep links, the same boundary Range Doctor keeps. Docket reads
+[PancakeSwap's live Explorer API](https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top)
+rather than the BSC V3 subgraph.
 
 ## Install and test
 

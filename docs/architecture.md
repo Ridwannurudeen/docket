@@ -50,6 +50,24 @@ none is paid stock.
 the canonical request hash, result hash, delivery time, service ID, and payment state. The
 hashes bind bytes to a delivery record; they do not establish result quality.
 
+## How a third party would list
+
+There is no provider onboarding route today. A third-party listing would require a source
+change and review, using the pieces that already exist:
+
+1. **Manifest:** map the provider's declaration into the existing `ServiceRecord` fields,
+   including its category, activation/identity data, denominator-bearing metrics, evidence
+   references, and limitations. Add a catalogue entry only when Docket can actually call the
+   service.
+2. **Verifier:** run the existing endpoint enrichment and SSRF-guarded liveness probe. That
+   records whether the declared endpoint was reachable at an observation time; it does not
+   establish the content's correctness.
+3. **Receipt:** for a callable catalogue service, use the existing receipt builder to bind
+   canonical input and output hashes to the service, delivery time, and payment state.
+
+That Manifest → Verifier → Receipt shape describes an extension path, not current third-party
+inventory. It does not make a listing paid stock, establish settlement, or create a v3 result.
+
 ## Payment planes
 
 There are two distinct rails.
