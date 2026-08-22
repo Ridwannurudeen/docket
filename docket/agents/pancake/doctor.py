@@ -55,6 +55,7 @@ BREAK_EVEN_LIMITATION = (
     "It excludes realized impermanent loss, future rate changes, and any cost not included "
     "in the caller-declared estimate."
 )
+_DECISION_IMPACT_SECTION: dict | None = None
 
 
 def pancake_headline(decision_impact: dict) -> dict:
@@ -89,6 +90,17 @@ def pancake_headline(decision_impact: dict) -> dict:
         },
         "registration_state": registration_state,
     }
+
+
+def _decision_impact_section() -> dict:
+    """Load the frozen decision-impact analysis once for this process."""
+    global _DECISION_IMPACT_SECTION
+
+    if _DECISION_IMPACT_SECTION is None:
+        from docket.advantage.v2.report import decision_impact_section
+
+        _DECISION_IMPACT_SECTION = decision_impact_section()
+    return _DECISION_IMPACT_SECTION
 
 
 def diagnose(
@@ -368,13 +380,11 @@ def report(
             }
         )
 
-    from docket.advantage.v2.report import decision_impact_section
-
     return {
         "address": address,
         "computed_at": datetime.now(timezone.utc).isoformat(),
         "decision": _report_decision(read, entries),
-        "pancake_headline": pancake_headline(decision_impact_section()),
+        "pancake_headline": pancake_headline(_decision_impact_section()),
         "observation": {
             "bsc_block": read["observation_block"],
             "observation_time": read["observation_time"],

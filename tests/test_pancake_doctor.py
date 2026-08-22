@@ -481,6 +481,9 @@ def test_pancake_headline_leads_with_generated_dollars_and_payback(monkeypatch):
         "docket.advantage.v2.report.decision_impact_section",
         lambda: decision_impact,
     )
+    monkeypatch.setattr(
+        "docket.agents.pancake.doctor._DECISION_IMPACT_SECTION", None
+    )
     reader = _StubReader(
         {
             "positions": [POSITION],
@@ -515,6 +518,51 @@ def test_pancake_headline_leads_with_generated_dollars_and_payback(monkeypatch):
     assert (
         out["positions"][0]["diagnosis"]["economic_consequence"]["limitation"]
         == RATE_LIMITATION
+    )
+
+
+def test_reports_reuse_the_unchanged_frozen_decision_impact_headline(monkeypatch):
+    from docket.advantage.v2.report import decision_impact_section
+
+    calls = 0
+
+    def counted_decision_impact_section():
+        nonlocal calls
+        calls += 1
+        return decision_impact_section()
+
+    monkeypatch.setattr(
+        "docket.advantage.v2.report.decision_impact_section",
+        counted_decision_impact_section,
+    )
+    monkeypatch.setattr(
+        "docket.agents.pancake.doctor._DECISION_IMPACT_SECTION", None
+    )
+    reader = _StubReader(
+        {
+            "positions": [],
+            "positions_held": 0,
+            "positions_examined": 0,
+            "closed_skipped": 0,
+        }
+    )
+    report_kwargs = {
+        "reader": reader,
+        "pool_rows": [ROW],
+        "token_allowlist": {ROW["token0"]["id"], ROW["token1"]["id"]},
+        "source_evidence": {},
+    }
+
+    first = report("0xwallet", **report_kwargs)["pancake_headline"]
+    second = report("0xwallet", **report_kwargs)["pancake_headline"]
+
+    assert calls == 1
+    assert second == first
+    assert first["statement"] == (
+        "At a declared $10,000 fixed notional, the median annual fee overstatement "
+        "across 22 eligible pools is $126.78. Across 231 candidate moves, real payback "
+        "arrives a median 8.30 days later than gross implies. Ranking reversals were "
+        "0/231. Registration state: post_hoc."
     )
 
 
