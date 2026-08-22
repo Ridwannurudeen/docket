@@ -14,10 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from docket.advantage.v3 import assemble, calibration, capture
+from docket.advantage.v3 import assemble, calibration, calibration_driver, capture
 from docket.hire.receipts import canonical_hash
 from docket.advantage.v3.spec import (
     _computed_calibration_truth,
+    assert_runnable,
     load,
     lock_inputs,
     save,
@@ -372,3 +373,104 @@ def test_an_incomplete_written_capture_is_refused(tmp_path):
     )
     with pytest.raises(assemble.AssemblyRefused, match="incomplete capture"):
         assemble.load_capture(tmp_path)
+
+
+WARDEN_SPEC_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "docket/advantage/v3/specs/v3-03-warden-security.json"
+)
+WARDEN_SPEC = load(WARDEN_SPEC_PATH)
+WARDEN_SOURCE_DIR = Path(__file__).resolve().parents[1] / "docket/advantage/v3/sources"
+
+
+def _stage_warden_lock(tmp_path: Path, monkeypatch) -> tuple[Path, Path, Path]:
+    repo_root = tmp_path / "warden-repo"
+    spec_path = repo_root / "docket/advantage/v3/specs/v3-03-warden-security.json"
+    source_dir = repo_root / "docket/advantage/v3/sources"
+    source_dir.mkdir(parents=True)
+    save(WARDEN_SPEC, spec_path, repo_root=repo_root)
+    for name in (
+        "warden-heldout-cases.json",
+        "warden-calibration-set.json",
+        "warden-vendor-snapshot.json",
+    ):
+        (source_dir / name).write_bytes((WARDEN_SOURCE_DIR / name).read_bytes())
+
+    calibration_set = (source_dir / "warden-calibration-set.json").read_bytes()
+    shared = json.loads(calibration_set)["cases"]
+    calibration_dir = repo_root / "calibration"
+    for index, seat in enumerate(WARDEN_SPEC.scoring["evaluator_roster"]):
+        evaluator_id = seat["evaluator_id"]
+
+        def answer(_prompt, *, evaluator_id=evaluator_id):
+            return json.dumps(
+                {
+                    "evaluator_id": evaluator_id,
+                    "results": [
+                        {
+                            "case_id": case["case_id"],
+                            "predicted_hostile": case["expected_hostile"],
+                            "predicted_classes": case["expected_classes"],
+                        }
+                        for case in shared
+                    ],
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+
+        calibration_driver.run_seat(
+            WARDEN_SPEC,
+            calibration_dir,
+            evaluator_id=evaluator_id,
+            model_build=f"synthetic-build-{index}",
+            session_id=f"synthetic-session-{index}",
+            calibration_set=calibration_set,
+            call_seat=answer,
+        )
+    monkeypatch.setattr(assemble, "REPO_ROOT", repo_root)
+    return repo_root, spec_path, calibration_dir
+
+
+def _warden_lock_args(repo_root: Path, spec_path: Path, calibration_dir: Path):
+    source_dir = repo_root / "docket/advantage/v3/sources"
+    return [
+        "lock-warden",
+        str(spec_path),
+        str(source_dir / "warden-heldout-cases.json"),
+        str(source_dir / "warden-vendor-snapshot.json"),
+        str(source_dir / "warden-calibration-set.json"),
+        str(calibration_dir),
+    ]
+
+
+def test_lock_warden_cli_builds_captured_inputs_and_saves_the_real_lock(
+    tmp_path, monkeypatch
+):
+    repo_root, spec_path, calibration_dir = _stage_warden_lock(tmp_path, monkeypatch)
+
+    code = assemble.main(_warden_lock_args(repo_root, spec_path, calibration_dir))
+
+    assert code == 0
+    input_path = repo_root / WARDEN_SPEC.inputs_ref
+    assert input_path.is_file()
+    locked = load(spec_path, repo_root=repo_root)
+    assert len(locked.inputs_sha256) == 64
+    assert locked.inputs_sha256 == hashlib.sha256(input_path.read_bytes()).hexdigest()
+    assert_runnable(locked, repo_root=repo_root)
+
+
+def test_lock_warden_refuses_before_writing_when_capture_verification_fails(
+    tmp_path, monkeypatch
+):
+    repo_root, spec_path, calibration_dir = _stage_warden_lock(tmp_path, monkeypatch)
+
+    def refuse(*_args, **_kwargs):
+        raise ValueError("capture verification sentinel")
+
+    monkeypatch.setattr(assemble, "verify_calibration_capture", refuse)
+
+    code = assemble.main(_warden_lock_args(repo_root, spec_path, calibration_dir))
+
+    assert code == 2
+    assert not (repo_root / WARDEN_SPEC.inputs_ref).exists()
+    assert load(spec_path, repo_root=repo_root).inputs_sha256 == ""
