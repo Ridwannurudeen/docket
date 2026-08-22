@@ -59,3 +59,20 @@ def test_owner_only_lp_and_payment_configuration_remains_unset():
         "DOCKET_CANARY_PRIVATE_KEY_FILE",
     ):
         assert f"# {name}=" in config
+
+
+def test_the_v3_capture_prearms_and_has_bounded_failure_restarts():
+    service = _read(DEPLOY / "systemd" / "docket-v3-capture.service")
+    timer = _read(DEPLOY / "systemd" / "docket-v3-capture.timer")
+
+    assert "OnCalendar=2026-08-26 11:50:00 UTC" in timer
+    assert "Persistent=true" in timer
+    assert not any(
+        line.startswith("RandomizedDelaySec=") for line in timer.splitlines()
+    )
+    assert "Restart=on-failure" in service
+    assert "RestartSec=30s" in service
+    assert "RestartPreventExitStatus=2 3" in service
+    assert "StartLimitIntervalSec=15min" in service
+    assert "StartLimitBurst=3" in service
+    assert "Restart=no" not in service

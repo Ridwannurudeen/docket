@@ -91,6 +91,24 @@ def test_registered_capture_harness_preserves_exact_http_bytes(tmp_path):
         assert snapshot["sha256"] == hashlib.sha256(raw[name]).hexdigest()
 
 
+def test_registered_capture_schedule_keeps_range_boundary_and_recommits_yield():
+    range_spec = load(SPECS_DIR / "v3-01-range-doctor.json")
+    yield_spec = load(SPECS_DIR / "v3-02-yield-router.json")
+
+    assert [
+        slot.scheduled_at.isoformat().replace("+00:00", "Z")
+        for slot in runner.registered_capture_schedule(range_spec)
+    ] == ["2026-08-21T12:00:00Z"]
+    assert [
+        slot.scheduled_at.isoformat().replace("+00:00", "Z")
+        for slot in runner.registered_capture_schedule(yield_spec)
+    ] == [
+        "2026-08-26T12:00:00Z",
+        "2026-08-26T12:01:00Z",
+        "2026-08-26T12:02:00Z",
+    ]
+
+
 def test_primary_schedule_and_case_bindings_come_only_from_locked_inputs(locked):
     spec, runs, root = locked
     slots = runner.scheduled_slots(spec, repo_root=root)

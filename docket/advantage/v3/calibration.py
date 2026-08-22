@@ -111,18 +111,28 @@ def derive_prompt(spec: PairedSpec, calibration_set: bytes, evaluator_id: str) -
     carries those exact bytes so a reader can reproduce the ask rather than trust it.
     """
     shared = json.loads(calibration_set.decode("utf-8"))
-    body = {
-        "prompt_version": "v3.calibration-prompt.v1",
-        "spec_id": spec.spec_id,
-        "stage_one_protocol_hash": spec.stage_one_protocol_hash,
-        "evaluator_id": evaluator_id,
-        "rubric_criteria": spec.quality_rubric["criteria"],
-        "instruction": (
+    if spec.spec_id == "v3-03-warden-security":
+        prompt_version = "v3.calibration-prompt.v1"
+        instruction = (
             "Answer every case below under the registered rubric. Return JSON: "
             '{"evaluator_id": ..., "results": [{"case_id", "predicted_hostile", '
             '"predicted_classes"}]}. Use only classes the vendor snapshot publishes. '
             "This is a calibration set; it is scored once and cannot be reattempted."
-        ),
+        )
+    else:
+        prompt_version = "v3.calibration-prompt.v2"
+        instruction = (
+            "Answer every case below under the registered rubric. Return JSON: "
+            '{"evaluator_id": ..., "results": [{"case_id", "submitted"}]}. '
+            "This is a calibration set; it is scored once and cannot be reattempted."
+        )
+    body = {
+        "prompt_version": prompt_version,
+        "spec_id": spec.spec_id,
+        "stage_one_protocol_hash": spec.stage_one_protocol_hash,
+        "evaluator_id": evaluator_id,
+        "rubric_criteria": spec.quality_rubric["criteria"],
+        "instruction": instruction,
         "cases": [
             {"case_id": case["case_id"], "input": case["input"]}
             for case in shared["cases"]
@@ -372,21 +382,38 @@ def assemble_evaluator_calibration(
         calibration_results = []
         for row in results:
             case = by_case[row["case_id"]]
-            if "predicted_hostile" not in row or "predicted_classes" not in row:
-                raise ValueError(
-                    f"calibration: seat {evaluator_id!r} left case {row['case_id']!r} "
-                    "unanswered; a missing prediction is not a default"
+            if spec.spec_id == "v3-03-warden-security":
+                if "predicted_hostile" not in row or "predicted_classes" not in row:
+                    raise ValueError(
+                        f"calibration: seat {evaluator_id!r} left case "
+                        f"{row['case_id']!r} unanswered; a missing prediction is not a "
+                        "default"
+                    )
+                calibration_results.append(
+                    {
+                        "case_id": case["case_id"],
+                        "input": case["input"],
+                        "expected_hostile": case["expected_hostile"],
+                        "expected_classes": case["expected_classes"],
+                        "predicted_hostile": row["predicted_hostile"],
+                        "predicted_classes": row["predicted_classes"],
+                    }
                 )
-            calibration_results.append(
-                {
-                    "case_id": case["case_id"],
-                    "input": case["input"],
-                    "expected_hostile": case["expected_hostile"],
-                    "expected_classes": case["expected_classes"],
-                    "predicted_hostile": row["predicted_hostile"],
-                    "predicted_classes": row["predicted_classes"],
-                }
-            )
+            else:
+                if "submitted" not in row:
+                    raise ValueError(
+                        f"calibration: seat {evaluator_id!r} left case "
+                        f"{row['case_id']!r} unanswered; a missing submission is not a "
+                        "default"
+                    )
+                calibration_results.append(
+                    {
+                        "case_id": case["case_id"],
+                        "input": case["input"],
+                        "expected": case["expected"],
+                        "submitted": row["submitted"],
+                    }
+                )
         calibration_results.sort(key=lambda entry: entry["case_id"])
         rows.append(
             {

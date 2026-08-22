@@ -1,7 +1,7 @@
 """Turn a completed capture into the input envelope the stage-two lock will accept.
 
 The capture freezes bytes; the lock wants a structured envelope built from them. Nothing
-bridged the two, which meant the Aug 21 morning would have ended with valid evidence on disk
+bridged the two, which meant the Aug 26 morning would have ended with valid evidence on disk
 and no way to register it — and the capture cannot be repeated.
 
 The whole design rule here is **derive, never restate**. Every gate, partition and truth value
@@ -20,6 +20,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from .calibration import verify_calibration_capture
 from .spec import (
     REPO_ROOT,
     PairedSpec,
@@ -44,6 +45,7 @@ def assemble_yield_envelope(
     spec: PairedSpec,
     capture_result: dict,
     *,
+    calibration_dir: Path,
     calibration_set: bytes,
     evaluator_calibration: list[dict],
 ) -> dict:
@@ -106,7 +108,7 @@ def assemble_yield_envelope(
         ).hexdigest(),
     )[: spec.n_planned]
 
-    return {
+    envelope = {
         "spec_id": spec.spec_id,
         "stage_one_protocol_hash": spec.stage_one_protocol_hash,
         "source_snapshots": snapshots,
@@ -119,6 +121,11 @@ def assemble_yield_envelope(
         },
         "evaluator_calibration": evaluator_calibration,
     }
+    try:
+        verify_calibration_capture(spec, envelope, calibration_dir)
+    except ValueError as exc:
+        raise AssemblyRefused(str(exc)) from exc
+    return envelope
 
 
 def _snapshot(name: str, body: bytes, observed_at: str, chosen: dict) -> dict:
@@ -295,6 +302,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "evaluator_calibration", help="both seats' calibration results JSON"
     )
+    parser.add_argument(
+        "calibration_dir", help="directory holding both seats' capture artifacts"
+    )
     args = parser.parse_args(argv)
 
     spec = load(Path(args.spec))
@@ -302,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
         envelope = assemble_yield_envelope(
             spec,
             load_capture(Path(args.capture_dir)),
+            calibration_dir=Path(args.calibration_dir),
             calibration_set=Path(args.calibration_set).read_bytes(),
             evaluator_calibration=json.loads(
                 Path(args.evaluator_calibration).read_text(encoding="utf-8")

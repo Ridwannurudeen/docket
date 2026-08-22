@@ -132,7 +132,7 @@ artifact. The warning remains a backend-maintenance risk; this build does not hi
 | `docket/advantage/v2/runs/03-security-corpus.json` | `b67f0d3c1b923065c505705fe3358d0e7dacb64e6c15da4d0d33f2896afa34f0` |
 | `docket/advantage/v2/runs/04-grid-replay.json` | `7a81088a5b7189c5b260e0957e1221b2557711bc8f71f934515b0dbc82128af4` |
 | `docket/advantage/v3/specs/v3-01-range-doctor.json` | `2146cbf9c7886f3d1059d496f0469d3fcff01aed1e18e5fb48813c7a4421826f` |
-| `docket/advantage/v3/specs/v3-02-yield-router.json` | `b7d5530fad502bac37df54397b9438375ccd4b09f8acb200e2999602f3253efa` |
+| `docket/advantage/v3/specs/v3-02-yield-router.json` | `1292fbf63c0616a983b41cee7a3e727c867c78f12d01adbab576d45d5f85e15d` |
 | `docket/advantage/v3/specs/v3-03-warden-security.json` | `d18270a88d0bfcd4d2fae807824427d117e7a1d6440317afd5b8a519cd1e9771` |
 
 ## Deployment record required for parity

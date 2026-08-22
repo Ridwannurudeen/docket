@@ -1,9 +1,11 @@
 [Unit]
-Description=Docket v3 Yield capture — the registered 2026-08-21T12:00:00Z observation
+Description=Docket v3 Yield capture — the registered 2026-08-26T12:00:00Z observation
 # Deliberately not Wants=docket.service: this reads two public URLs and has nothing to do
 # with the API being up. Coupling them would let a Docket restart move a registered moment.
 Wants=network-online.target
 After=network-online.target
+StartLimitIntervalSec=15min
+StartLimitBurst=3
 
 [Service]
 Type=oneshot
@@ -16,11 +18,13 @@ WorkingDirectory=/var/lib/docket
 ExecStart=/opt/docket/.venv/bin/python -m docket.advantage.v3.capture \
   v3-02-yield-router /var/lib/docket/v3-capture/yield
 
-# Unlike the canary, this is not a background job: it has a one-minute window and cannot be
-# repeated, so it does not yield CPU or IO to the rest of the shared host.
+# Unlike the canary, this is not a background job: it pre-arms before a one-minute window and
+# cannot be repeated, so it does not yield CPU or IO to the rest of the shared host.
 Nice=-5
-TimeoutStartSec=10min
-Restart=no
+TimeoutStartSec=15min
+Restart=on-failure
+RestartSec=30s
+RestartPreventExitStatus=2 3
 UMask=0027
 
 NoNewPrivileges=true

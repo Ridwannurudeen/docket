@@ -114,7 +114,8 @@ YIELD_SOURCE_URLS = {
     "pools": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
     "token_list": "https://tokens.pancakeswap.finance/pancakeswap-extended.json",
 }
-YIELD_CAPTURE_NOT_BEFORE = datetime(2026, 8, 21, 12, tzinfo=timezone.utc)
+RANGE_CAPTURE_NOT_BEFORE = datetime(2026, 8, 21, 12, tzinfo=timezone.utc)
+YIELD_CAPTURE_NOT_BEFORE = datetime(2026, 8, 26, 12, tzinfo=timezone.utc)
 YIELD_CAPTURE_ATTEMPTS = tuple(
     YIELD_CAPTURE_NOT_BEFORE + timedelta(minutes=offset) for offset in range(3)
 )
@@ -626,11 +627,11 @@ def _range_source_frame(sources: list[dict], repo_root: Path, conflict: tuple):
         or not isinstance(selected_block["timestamp"], str)
         or not isinstance(predecessor_block["timestamp"], str)
         or _utc_timestamp(selected_block["timestamp"], "Range selected block timestamp")
-        < YIELD_CAPTURE_NOT_BEFORE
+        < RANGE_CAPTURE_NOT_BEFORE
         or _utc_timestamp(
             predecessor_block["timestamp"], "Range predecessor block timestamp"
         )
-        >= YIELD_CAPTURE_NOT_BEFORE
+        >= RANGE_CAPTURE_NOT_BEFORE
     ):
         raise ValueError("spec: Range block-boundary/finality evidence is invalid")
     candidate_wallets = set()
@@ -757,7 +758,9 @@ def _range_source_frame(sources: list[dict], repo_root: Path, conflict: tuple):
     if set(snapshots) != {"pools", "token_list"}:
         raise ValueError("spec: Range pool truth needs pools and token_list snapshots")
     source_bodies = {
-        name: _validate_source_snapshot(snapshot, name)
+        name: _validate_source_snapshot(
+            snapshot, name, attempts=(RANGE_CAPTURE_NOT_BEFORE,)
+        )
         for name, snapshot in snapshots.items()
         if isinstance(snapshot, dict)
     }
@@ -1864,7 +1867,12 @@ def _validate_evaluator_calibration(
         )
 
 
-def _validate_source_snapshot(snapshot: dict, name: str):
+def _validate_source_snapshot(
+    snapshot: dict,
+    name: str,
+    *,
+    attempts: tuple[datetime, ...] = YIELD_CAPTURE_ATTEMPTS,
+):
     _required_fields(
         snapshot,
         {"url", "observed_at", "attempt_ordinal", "sha256", "body_base64"},
@@ -1884,10 +1892,10 @@ def _validate_source_snapshot(snapshot: dict, name: str):
     if (
         not isinstance(attempt, int)
         or isinstance(attempt, bool)
-        or not 1 <= attempt <= 3
+        or not 1 <= attempt <= len(attempts)
     ):
         raise ValueError(f"spec: Yield {name} capture attempt is invalid")
-    attempt_start = YIELD_CAPTURE_ATTEMPTS[attempt - 1]
+    attempt_start = attempts[attempt - 1]
     if not attempt_start <= observed_at < attempt_start + timedelta(minutes=1):
         raise ValueError(
             f"spec: Yield {name} snapshot is outside its registered capture attempt"

@@ -90,9 +90,11 @@ timer at 06:00Z without anyone starting it, which is the claim the first line al
 
 `534af826575a` is live and the four fixes were read back out of the venv the service imports
 from — exclusive capture writes, per-attempt journalling, the calibration digest check, and
-`still_held`. The capture still refuses to run early with its registered reason and has written
-nothing; the timer remains armed for 12:00:00 UTC on Aug 21; the LP journal came through the
-swap at 2 lines.
+`still_held`. The registered Yield capture at 2026-08-21T12:00:00Z failed: the service exited
+2, wrote nothing to `/var/lib/docket/v3-capture/`, and the volatile journal rotated before its
+refusal text could be recovered. Before any input lock, Yield was recommitted once to
+2026-08-26T12:00:00Z; `inputs_sha256` remains empty. The LP journal came through the swap at
+2 lines.
 
 ---
 
