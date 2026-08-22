@@ -91,6 +91,20 @@ CREATE TABLE IF NOT EXISTS liveness (
     detail TEXT
 );
 CREATE INDEX IF NOT EXISTS liveness_snapshot ON liveness (snapshot_id, agent_id);
+CREATE TABLE IF NOT EXISTS liveness_on_demand (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL,
+    agent_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    status_code INTEGER,
+    elapsed_ms INTEGER,
+    detail TEXT,
+    requested_from_ip_hash TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS liveness_on_demand_snapshot_agent
+    ON liveness_on_demand (snapshot_id, agent_id, id DESC);
 CREATE TABLE IF NOT EXISTS hire_payments (
     nonce TEXT PRIMARY KEY,
     payment_id TEXT NOT NULL UNIQUE,
@@ -136,6 +150,14 @@ def _canary_run(row: sqlite3.Row) -> dict:
     run = dict(row)
     run["checks"] = json.loads(run.pop("checks_json"))
     return run
+
+
+def _agent(row: sqlite3.Row) -> dict:
+    agent = dict(row)
+    agent["supported_protocols"] = json.loads(agent["supported_protocols"])
+    agent["x402_supported"] = bool(agent["x402_supported"])
+    agent["is_verified"] = bool(agent["is_verified"])
+    return agent
 
 
 def _sensitive_canary_field(value) -> str | None:
@@ -697,11 +719,15 @@ class Store:
         sql += " ORDER BY CAST(token_id AS INTEGER)"
         with self._conn() as conn:
             for row in conn.execute(sql, args):
-                d = dict(row)
-                d["supported_protocols"] = json.loads(d["supported_protocols"])
-                d["x402_supported"] = bool(d["x402_supported"])
-                d["is_verified"] = bool(d["is_verified"])
-                yield d
+                yield _agent(row)
+
+    def agent_by_id(self, snapshot_id: int, agent_id: str) -> dict:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM agents WHERE snapshot_id = ? AND agent_id = ?",
+                (snapshot_id, agent_id),
+            ).fetchone()
+        return _agent(row) if row else {}
 
     def upsert_endpoints(self, rows: list[dict], snapshot_id: int) -> int:
         payload = [(snapshot_id, r["agent_id"], r["kind"], r["url"]) for r in rows]
@@ -754,8 +780,8 @@ class Store:
         return {row["agent_id"] for row in rows}
 
     def record_liveness(self, rows: list[dict]) -> int:
-        """Append probe observations. Never an upsert — each probe is a distinct event, and
-        overwriting one would erase the history that makes a liveness claim auditable."""
+        """Append sweep probe observations. Never an upsert — each sweep probe is a distinct
+        event, and overwriting one would erase the history behind the snapshot figures."""
         payload = [
             (
                 r["snapshot_id"],
@@ -786,3 +812,36 @@ class Store:
                 (snapshot_id,),
             ):
                 yield dict(row)
+
+    def record_on_demand_liveness(
+        self, observation: dict, *, requested_from_ip_hash: str
+    ) -> int:
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """INSERT INTO liveness_on_demand
+                   (snapshot_id, agent_id, url, observed_at, outcome,
+                    status_code, elapsed_ms, detail, requested_from_ip_hash)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    observation["snapshot_id"],
+                    observation["agent_id"],
+                    observation["url"],
+                    observation["observed_at"],
+                    observation["outcome"],
+                    observation.get("status_code"),
+                    observation.get("elapsed_ms"),
+                    observation.get("detail"),
+                    requested_from_ip_hash,
+                ),
+            )
+        return cursor.rowcount
+
+    def latest_on_demand_liveness(self, snapshot_id: int, agent_id: str) -> dict:
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT * FROM liveness_on_demand
+                   WHERE snapshot_id = ? AND agent_id = ?
+                   ORDER BY id DESC LIMIT 1""",
+                (snapshot_id, agent_id),
+            ).fetchone()
+        return dict(row) if row else {}

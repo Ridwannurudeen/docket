@@ -2007,7 +2007,7 @@ export function paintPancakeRecord(history) {
           <tbody>${lines.map((line) => recordRow(line)).join("")}</tbody>
         </table>
       </div>`
-    : `<div class="panel"><p>No rows are stored in the fixed-window record served by /lp-record.</p></div>`;
+    : `<div class="panel"><p>No record lines are mounted on this host.</p></div>`;
   target.innerHTML = `${table}
     <div class="notice">
       <h3>What the digest chain anchors</h3>
@@ -2201,7 +2201,7 @@ async function workedExample(currentId) {
 }
 
 function observationRows(detail) {
-  return detail.observations
+  return detail.latest_on_demand_observation || detail.observations
     .map((obs) => {
       const outcome = outcomeLabel(obs.outcome);
       return `<tr>
@@ -2222,9 +2222,9 @@ function observationSection(detail) {
     return `<div class="table-wrap">
         <table>
           <caption>
-            Every probe Docket made of this agent's endpoints in snapshot
+            Latest sweep observation for each probed URL in snapshot
             ${escapeHTML(detail.coverage.snapshot_id)}. One GET each, one attempt, at the moment
-            of the sweep.
+            of that sweep.
           </caption>
           <thead>
             <tr>
@@ -2256,6 +2256,9 @@ function observationSection(detail) {
 }
 
 function lastAgentProbe(detail) {
+  if (detail.latest_on_demand_observation) {
+    return detail.latest_on_demand_observation;
+  }
   return detail.observations
     .filter((observation) => observation.kind === "a2a" || observation.kind === "mcp")
     .reduce((latest, observation) => {
@@ -2301,23 +2304,45 @@ export function agentActionBlock(detail, associatedServices) {
         })
         .join("")
     : `<li><p class="dim">No A2A or MCP endpoint has a recorded probe outcome in the served snapshot.</p></li>`;
+  const onDemand = detail.latest_on_demand_observation;
+  const onDemandResult = onDemand ? outcomeLabel(onDemand.outcome) : null;
+  const onDemandSection = onDemand
+    ? `<section aria-labelledby="on-demand-probe-heading">
+        <h3 id="on-demand-probe-heading">Latest on-demand re-probe</h3>
+        <p>
+          <span class="outcome ${onDemandResult.className}">${escapeHTML(onDemandResult.label)}</span>
+          ${onDemand.status_code === null ? "No HTTP status was returned." : `HTTP status ${escapeHTML(onDemand.status_code)}.`}
+          ${onDemand.elapsed_ms === null ? "" : `Elapsed ${escapeHTML(fmtInt(onDemand.elapsed_ms))} ms.`}
+        </p>
+        <p>
+          Re-probed on request at <time datetime="${escapeHTML(onDemand.observed_at || "")}">${escapeHTML(onDemand.observed_at || DASH)}</time>;
+          not part of the snapshot's coverage figures.
+        </p>
+        <p class="dim">${escapeHTML(onDemandResult.means)}${onDemand.detail ? ` Detail: ${escapeHTML(onDemand.detail)}.` : ""}</p>
+      </section>`
+    : `<section aria-labelledby="on-demand-probe-heading">
+        <h3 id="on-demand-probe-heading">Latest on-demand re-probe</h3>
+        <p class="dim">No on-demand re-probe has been requested for this agent in the served snapshot.</p>
+      </section>`;
   const control = canReprobe
     ? `<p class="btn-row">
         <button type="button" class="btn btn-primary" data-reprobe>Re-probe now</button>
-        <span class="dim">Repeats one pinned GET to the last endpoint that answered. Any HTTP status counts as an answer; it does not show what the agent does behind it.</span>
+        <span class="dim">Repeats one pinned GET to the endpoint in the latest probe observation that answered. Any HTTP status counts as an answer; it does not show what the agent does behind it.</span>
       </p>`
-    : `<p class="dim">Re-probe is available only when this agent declares a callable protocol and its last recorded probe answered.</p>`;
+    : `<p class="dim">Re-probe is available only when this agent declares a callable protocol and its latest sweep or on-demand probe observation answered.</p>`;
   return `<section aria-labelledby="agent-actions-heading">
       <h2 id="agent-actions-heading">What you can do with this agent</h2>
       <p class="section-note">
-        Copy the endpoints the publisher declared, inspect Docket's dated probe outcome, and see
-        whether Docket binds a service action to this identity. A probe reads reachability only.
+        Copy the endpoints the publisher declared, inspect Docket's sweep and on-demand probe
+        outcomes separately, and see whether Docket binds a service action to this identity. A
+        probe reads reachability only.
       </p>
       <div class="panel">
         <dl class="deflist">
           <dt>Declares x402 payments</dt><dd>${detail.x402 ? "yes" : "no"}</dd>
         </dl>
         <ul class="endpoint-actions">${endpoints}</ul>
+        ${onDemandSection}
         ${control}
         <div data-region="agent-probe-result" aria-live="polite"></div>
       </div>
@@ -2351,11 +2376,12 @@ function bindAgentActions(detail) {
       const observation = response.observation || {};
       const outcome = outcomeLabel(observation.outcome);
       target.innerHTML = `<div class="notice">
-          <p><strong>New observation:</strong>
+          <p><strong>Latest on-demand re-probe:</strong>
             <span class="outcome ${outcome.className}">${escapeHTML(outcome.label)}</span>
             ${observation.status_code === null || observation.status_code === undefined ? "No HTTP status was returned." : `HTTP status ${escapeHTML(observation.status_code)}.`}
             Recorded <time datetime="${escapeHTML(observation.observed_at || "")}">${escapeHTML(observation.observed_at || DASH)}</time>.
           </p>
+          <p>${escapeHTML(response.coverage_note || "This requested probe is not part of the snapshot's coverage figures.")}</p>
           <p class="dim">${escapeHTML(outcome.means)}</p>
         </div>`;
       if (observation.outcome === "responded") {

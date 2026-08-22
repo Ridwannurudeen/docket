@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import sqlite3
 import subprocess
 import threading
 import time
@@ -95,11 +97,13 @@ def test_unknown_registration_uses_the_error_contract(tmp_path):
     }
 
 
-def test_live_probe_reuses_the_hardened_probe_and_records_the_new_observation(
+def test_live_probe_records_on_demand_without_changing_snapshot_coverage(
     tmp_path, monkeypatch
 ):
     client, store, snapshot_id = _agent_client(tmp_path)
     calls = []
+    monkeypatch.setattr(routes, "_snapshot_age_seconds", lambda _captured: 123)
+    before_stats = client.get("/stats").content
 
     class FakeClient:
         def __init__(self, *, trust_env):
@@ -128,7 +132,12 @@ def test_live_probe_reuses_the_hardened_probe_and_records_the_new_observation(
     monkeypatch.setattr(routes.httpx, "Client", FakeClient)
     monkeypatch.setattr(routes, "probe_one", fake_probe)
 
-    response = client.post(f"/agents/{AGENT_ID}/probe")
+    def unexpected_full_scan(*_args, **_kwargs):
+        raise AssertionError("the probe route must use the snapshot agent primary key")
+
+    with monkeypatch.context() as keyed_lookup:
+        keyed_lookup.setattr(Store, "iter_agents", unexpected_full_scan)
+        response = client.post(f"/agents/{AGENT_ID}/probe")
 
     assert response.status_code == 200
     assert calls == [
@@ -144,9 +153,30 @@ def test_live_probe_reuses_the_hardened_probe_and_records_the_new_observation(
     assert body["observation"]["outcome"] == "timeout"
     assert body["observation"]["outcome"] in OUTCOMES
     assert body["probe_method"] == routes.PROBE_METHOD
-    rows = list(store.iter_liveness(snapshot_id))
-    assert len(rows) == 2
-    assert rows[-1]["outcome"] == "timeout"
+    assert body["coverage_note"] == (
+        f"Re-probed on request at {body['observation']['observed_at']}; "
+        "not part of the snapshot's coverage figures."
+    )
+    assert client.get("/stats").content == before_stats
+
+    sweep_rows = list(store.iter_liveness(snapshot_id))
+    assert len(sweep_rows) == 1
+    assert sweep_rows[0]["outcome"] == "responded"
+    on_demand = store.latest_on_demand_liveness(snapshot_id, AGENT_ID)
+    assert on_demand["outcome"] == "timeout"
+    with sqlite3.connect(store.path) as conn:
+        stored_row = conn.execute("SELECT * FROM liveness_on_demand").fetchone()
+        stored_hash = stored_row[-1]
+    assert stored_hash == hashlib.sha256(b"testclient").hexdigest()
+    assert stored_hash != "testclient"
+    assert "testclient" not in repr(stored_row)
+
+    detail = client.get(f"/agents/{AGENT_ID}").json()
+    assert detail["observations"][0]["outcome"] == "responded"
+    assert detail["latest_on_demand_observation"]["outcome"] == "timeout"
+    refused = client.post(f"/agents/{AGENT_ID}/probe")
+    assert refused.status_code == 409
+    assert refused.json()["error"]["code"] == "probe_not_available"
 
 
 @pytest.mark.parametrize(
@@ -297,6 +327,9 @@ def test_w6_paths_are_in_both_machine_documents(tmp_path):
     ):
         assert path in llms
         assert path in skill
+    for document in (llms, skill):
+        assert "on-demand" in document
+        assert "not part of the snapshot's coverage figures" in document
 
 
 def test_w6_frontend_contract_is_runtime_driven_and_actionable():
@@ -369,6 +402,15 @@ const detail = {
     status_code: 204,
     observed_at: "2026-08-21T10:00:00Z",
   }],
+  latest_on_demand_observation: {
+    url: "https://a.example/a2a",
+    kind: "a2a",
+    outcome: "timeout",
+    status_code: null,
+    elapsed_ms: 8000,
+    observed_at: "2026-08-22T10:00:00Z",
+    detail: "ReadTimeout",
+  },
 };
 const answered = agentActionBlock(detail, "<p>bound service</p>");
 for (const text of [
@@ -377,17 +419,24 @@ for (const text of [
   "HTTP status 204",
   "2026-08-21T10:00:00Z",
   "Declares x402 payments</dt><dd>yes",
-  "data-reprobe",
   "bound service",
   "It does not prove the agent behind the URL does anything",
+  "Latest on-demand re-probe",
+  "2026-08-22T10:00:00Z",
+  "not part of the snapshot's coverage figures",
+  "ReadTimeout",
 ]) {
   if (!answered.includes(text)) throw new Error(`answered action omitted ${text}`);
+}
+if (answered.includes("data-reprobe")) {
+  throw new Error("an on-demand timeout left the re-probe control enabled");
 }
 if (answered.includes("https://a.example/about")) {
   throw new Error("an unprobed web endpoint entered the A2A/MCP action block");
 }
 const timedOut = agentActionBlock({
   ...detail,
+  latest_on_demand_observation: null,
   observations: [
     { ...detail.observations[0], outcome: "timeout", status_code: null },
     {
@@ -484,6 +533,15 @@ if (!(history.indexOf("first observation") < history.indexOf("Owner decision: WA
 }
 for (const text of ["below range", "in range", "could not be parsed", "was truncated", "does not run verify_history"]) {
   if (!history.includes(text)) throw new Error(`record omitted ${text}`);
+}
+
+paintPancakeRecord({ lines: [], skipped_unparsable: 0, truncated: false });
+const emptyHistory = regions.get("pancake-record").innerHTML;
+if (!emptyHistory.includes("No record lines are mounted on this host.")) {
+  throw new Error("empty record did not explain the missing host mount");
+}
+if (emptyHistory.includes("<table")) {
+  throw new Error("empty record rendered an empty table");
 }
 
 paintPancakeLive({ price_display: "free" }, {

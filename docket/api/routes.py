@@ -9,13 +9,15 @@ Errors are `{"error": {"code", "message"}}` at every status. FastAPI's default
 one error shape should never receive two.
 
 The hire routes run work and persist payment state. The agent re-probe route repeats
-the hardened pinned liveness probe and appends its observation. Unadmitted services
+the hardened pinned liveness probe and stores its observation outside the sweep table.
+Unadmitted services
 remain free previews/research/beta. An admitted service settles only after a
 facilitator verifies the authorization and Docket has durably bound a non-empty result
 to its input; missing owner settlement configuration disables paid stock rather than
 preview access.
 """
 
+import hashlib
 import hmac
 import json
 import os
@@ -333,6 +335,20 @@ def _summary(agent: dict, signals: dict) -> AgentSummary:
         x402=signals["x402"],
         name_family=signals["name_family"],
         placeholder_name=signals["placeholder_name"],
+    )
+
+
+def _endpoint_observation(
+    observation: dict, kinds: dict[str, str]
+) -> EndpointObservation:
+    return EndpointObservation(
+        url=observation["url"],
+        kind=kinds.get(observation["url"], "unknown"),
+        observed_at=observation["observed_at"],
+        outcome=observation["outcome"],
+        status_code=observation["status_code"],
+        elapsed_ms=observation["elapsed_ms"],
+        detail=observation["detail"],
     )
 
 
@@ -921,11 +937,8 @@ def create_app(
     def get_agent(agent_id: str) -> AgentDetail:
         sid = _serving()
         store = Store(db_path)
-        # Drained into a dict rather than short-circuited: a suspended iter_agents generator
-        # holds its sqlite connection open for the rest of the request.
-        agents = {row["agent_id"]: row for row in store.iter_agents(sid)}
-        agent = agents.get(agent_id)
-        if agent is None:
+        agent = store.agent_by_id(sid, agent_id)
+        if not agent:
             raise HTTPException(
                 404,
                 detail={
@@ -947,22 +960,20 @@ def create_app(
             if kinds.get(row["url"]) not in _PROBE_KINDS:
                 kinds[row["url"]] = row["kind"]
         observations = [
-            EndpointObservation(
-                url=obs["url"],
-                kind=kinds.get(obs["url"], "unknown"),
-                observed_at=obs["observed_at"],
-                outcome=obs["outcome"],
-                status_code=obs["status_code"],
-                elapsed_ms=obs["elapsed_ms"],
-                detail=obs["detail"],
-            )
+            _endpoint_observation(obs, kinds)
             for obs in _latest_observations(store, sid)
             if obs["agent_id"] == agent_id
         ]
+        latest_on_demand = store.latest_on_demand_liveness(sid, agent_id)
         return AgentDetail(
             **_summary(agent, signals_for(agent)).model_dump(),
             endpoints=sorted(kinds),
             observations=observations,
+            latest_on_demand_observation=(
+                _endpoint_observation(latest_on_demand, kinds)
+                if latest_on_demand
+                else None
+            ),
             coverage=_coverage(coverage_report(store, sid)),
             associated_services=[
                 _card(record, _effective_admission(record.service_id))
@@ -977,9 +988,8 @@ def create_app(
         """Repeat the most recently answered A2A/MCP endpoint with the pinned probe."""
         sid = _serving()
         probe_store = Store(db_path)
-        agents = {row["agent_id"]: row for row in probe_store.iter_agents(sid)}
-        agent = agents.get(agent_id)
-        if agent is None:
+        agent = probe_store.agent_by_id(sid, agent_id)
+        if not agent:
             return _error(
                 404,
                 "agent_not_found",
@@ -992,10 +1002,12 @@ def create_app(
             for row in probe_store.iter_endpoints(sid)
             if row["agent_id"] == agent_id and row["kind"] in _PROBE_KINDS
         }
-        latest = None
+        latest_sweep = None
         for row in probe_store.iter_liveness(sid):
             if row["agent_id"] == agent_id and row["url"] in targets:
-                latest = row
+                latest_sweep = row
+        latest_on_demand = probe_store.latest_on_demand_liveness(sid, agent_id)
+        latest = latest_on_demand or latest_sweep
         if (
             not signals_for(agent)["callable"]
             or latest is None
@@ -1009,6 +1021,7 @@ def create_app(
             )
 
         client_ip = request.client.host if request.client else "unknown"
+        requested_from_ip_hash = hashlib.sha256(client_ip.encode("utf-8")).hexdigest()
         resets_in = _spend_window(
             hires,
             client_ip,
@@ -1040,7 +1053,9 @@ def create_app(
                     target,
                     now=datetime.now(timezone.utc).isoformat(),
                 )
-            Store(db_path).record_liveness([observation])
+            Store(db_path).record_on_demand_liveness(
+                observation, requested_from_ip_hash=requested_from_ip_hash
+            )
             return observation
 
         observation = await run_in_threadpool(run_probe)
@@ -1048,6 +1063,10 @@ def create_app(
             "agent_id": agent_id,
             "observation": {**observation, "kind": target["kind"]},
             "probe_method": PROBE_METHOD,
+            "coverage_note": (
+                f"Re-probed on request at {observation['observed_at']}; "
+                "not part of the snapshot's coverage figures."
+            ),
             "allowance": {
                 "attempts": FREE_TIER_HIRES,
                 "window_seconds": FREE_TIER_WINDOW_S,

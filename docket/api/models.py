@@ -217,10 +217,13 @@ class AgentDetail(AgentSummary):
 
     `associated_services` is Docket's marketplace overlay, not something inferred from
     the agent's registration. It is required so a missing join cannot look like an empty one.
+    Sweep observations and the latest requester-initiated probe stay separate so the latter
+    cannot read as part of the snapshot capture.
     """
 
     endpoints: list[str]
     observations: list[EndpointObservation]
+    latest_on_demand_observation: EndpointObservation | None
     coverage: Coverage
     associated_services: list[ServiceCard]
 
