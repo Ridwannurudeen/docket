@@ -296,6 +296,27 @@ def test_targeted_sweep_adds_a_zero_feedback_owned_agent_to_its_population(tmp_p
     )
 
 
+def test_targeted_sweep_normalizes_an_uppercase_owned_registry_prefix(tmp_path):
+    store = Store(tmp_path / "uppercase-prefix.sqlite3")
+    supplied = f"56:0X{REGISTRY_ADDRESS[2:].upper()}:2"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/agents"):
+            return httpx.Response(200, json={"items": [], "total": 0})
+        assert request.url.path.endswith("/agents/56/2")
+        return httpx.Response(200, json={**_row(2), "agent_id": OWNED_AGENT_ID})
+
+    client = Scan8004Client(transport=httpx.MockTransport(handler), pace=False)
+    result = ingest_targeted(store, client, owned_agent_ids=(supplied,))
+
+    assert [row["agent_id"] for row in store.iter_agents(result["snapshot_id"])] == [
+        OWNED_AGENT_ID
+    ]
+    assert store.snapshot(result["snapshot_id"])["population"] == (
+        f"min_feedbacks>=1 OR agent_id in ({OWNED_AGENT_ID})"
+    )
+
+
 def test_targeted_candidate_can_finish_without_becoming_current(tmp_path):
     store = Store(tmp_path / "d.sqlite3")
     client = Scan8004Client(

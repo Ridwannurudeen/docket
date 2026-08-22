@@ -72,12 +72,19 @@ def _client(
     pay_to=None,
     facilitator=None,
     admit_range=False,
+    canary_token=None,
 ):
     db_path = tmp_path / f"{name}.sqlite3"
     if pay_to is None:
         monkeypatch.delenv("DOCKET_PAY_TO", raising=False)
     else:
         monkeypatch.setenv("DOCKET_PAY_TO", pay_to)
+    if canary_token is None:
+        monkeypatch.delenv("DOCKET_CANARY_TOKEN_FILE", raising=False)
+    else:
+        token_file = tmp_path / f"{name}.token"
+        token_file.write_text(canary_token, encoding="ascii")
+        monkeypatch.setenv("DOCKET_CANARY_TOKEN_FILE", str(token_file))
     if admit_range:
         monkeypatch.setitem(
             SERVICES,
@@ -276,10 +283,9 @@ def test_the_allowance_applies_even_without_a_payment_route(tmp_path, monkeypatc
     assert exhausted.json()["error"]["code"] == "hire_rate_limited"
 
 
-def test_an_available_payment_route_still_returns_its_challenge_at_the_limit(
+def test_a_free_request_at_the_cap_returns_429_with_a_payment_challenge(
     tmp_path, monkeypatch
 ):
-
     metered = _client(
         tmp_path,
         monkeypatch,
@@ -295,11 +301,42 @@ def test_an_available_payment_route_still_returns_its_challenge_at_the_limit(
         )
 
     resp = metered.post("/hire/range-doctor", json={"wallet": WALLET})
-    assert resp.status_code == 402
+    assert resp.status_code == 429
+    assert int(resp.headers["Retry-After"]) > 0
     body = resp.json()
     assert body["x402Version"] == 2
     assert body["accepts"][0]["payTo"] == PAY_TO
     assert body["error"]["code"] == "free_tier_exhausted"
+
+
+def test_a_valid_payment_settles_at_the_free_cap_without_refunding_free_work(
+    tmp_path, monkeypatch
+):
+    facilitator = FixtureFacilitator()
+    metered = _client(
+        tmp_path,
+        monkeypatch,
+        name="paid-at-free-cap",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+    request = {"wallet": WALLET}
+    for _ in range(FREE_TIER_HIRES):
+        assert metered.post("/hire/range-doctor", json=request).status_code == 200
+
+    paid = metered.post(
+        "/hire/range-doctor",
+        json=request,
+        headers={"X-PAYMENT": _authorization(Account.create())},
+    )
+    free_after_payment = metered.post("/hire/range-doctor", json=request)
+
+    assert paid.status_code == 200
+    assert paid.json()["receipt"]["payment"]["status"] == "settled"
+    assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+    assert free_after_payment.status_code == 429
+    assert int(free_after_payment.headers["Retry-After"]) > 0
 
 
 def test_the_allowance_map_evicts_its_oldest_window_at_the_hard_cap(
@@ -670,6 +707,151 @@ def test_a_settled_result_can_be_recovered_without_repeating_work_or_settlement(
     assert recovered.json() == first.json()
     assert work_calls == [WALLET]
     assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+
+
+def test_operator_recovery_uses_the_canary_bearer_and_records_the_access(
+    tmp_path, monkeypatch
+):
+    facilitator = FixtureFacilitator()
+    token = "operator-recovery-token"
+    nonce = "0x" + "0e" * 32
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="operator-recovery",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+        canary_token=token,
+    )
+    request = {"wallet": WALLET}
+    header = _authorization(Account.create(), nonce=nonce)
+    first = client.post(
+        "/hire/range-doctor", json=request, headers={"X-PAYMENT": header}
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("operator recovery re-verified the buyer signature")
+
+    monkeypatch.setattr(routes, "verify_payment", fail_if_called)
+
+    recovered = client.post(
+        "/hire/range-doctor/recover",
+        json={"nonce": nonce},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert recovered.status_code == 200
+    assert recovered.json() == first.json()
+    stored = Store(tmp_path / "operator-recovery.sqlite3").payment_by_nonce(nonce)
+    assert stored["operator_recovered_at"] is not None
+    assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+
+
+def test_operator_recovery_rejects_the_wrong_bearer(tmp_path, monkeypatch):
+    facilitator = FixtureFacilitator()
+    token = "operator-recovery-token"
+    nonce = "0x" + "0f" * 32
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="operator-recovery-wrong-token",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+        canary_token=token,
+    )
+    assert (
+        client.post(
+            "/hire/range-doctor",
+            json={"wallet": WALLET},
+            headers={"X-PAYMENT": _authorization(Account.create(), nonce=nonce)},
+        ).status_code
+        == 200
+    )
+
+    response = client.post(
+        "/hire/range-doctor/recover",
+        json={"nonce": nonce},
+        headers={"Authorization": "Bearer wrong-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == "Bearer"
+    assert response.json()["error"]["code"] == "operator_unauthorized"
+    stored = Store(tmp_path / "operator-recovery-wrong-token.sqlite3").payment_by_nonce(
+        nonce
+    )
+    assert stored["operator_recovered_at"] is None
+
+
+def test_buyer_recovery_without_an_operator_token_keeps_the_signed_window(
+    tmp_path, monkeypatch
+):
+    facilitator = FixtureFacilitator()
+    nonce = "0x" + "10" * 32
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="expired-buyer-recovery",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+    request = {"wallet": WALLET}
+    header = _authorization(Account.create(), nonce=nonce)
+    assert (
+        client.post(
+            "/hire/range-doctor", json=request, headers={"X-PAYMENT": header}
+        ).status_code
+        == 200
+    )
+    payment = json.loads(base64.b64decode(header))
+    expired_at = int(payment["payload"]["authorization"]["validBefore"])
+    original_verify = routes.verify_payment
+
+    def verify_after_expiry(payment_payload, **kwargs):
+        return original_verify(payment_payload, now=expired_at, **kwargs)
+
+    monkeypatch.setattr(routes, "verify_payment", verify_after_expiry)
+
+    response = client.post(
+        "/hire/range-doctor/recover",
+        json=request,
+        headers={"X-PAYMENT": header},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "payment_invalid"
+    assert "expired" in response.json()["error"]["message"]
+
+
+def test_payment_recovery_has_a_separate_peer_address_bound(tmp_path, monkeypatch):
+    monkeypatch.setattr(routes, "RECOVERY_ATTEMPTS", 2)
+    client = _client(tmp_path, monkeypatch, name="bounded-recovery")
+    header = _authorization(Account.create(), nonce="0x" + "12" * 32)
+    request = {"wallet": WALLET}
+
+    first = client.post(
+        "/hire/range-doctor/recover",
+        json=request,
+        headers={"X-PAYMENT": header},
+    )
+    second = client.post(
+        "/hire/range-doctor/recover",
+        json=request,
+        headers={"X-PAYMENT": header},
+    )
+    limited = client.post(
+        "/hire/range-doctor/recover",
+        json=request,
+        headers={"X-PAYMENT": header},
+    )
+
+    assert first.status_code == second.status_code == 404
+    assert limited.status_code == 429
+    assert limited.json()["error"]["code"] == "recovery_rate_limited"
+    assert int(limited.headers["Retry-After"]) > 0
 
 
 def test_payment_recovery_rejects_a_tampered_signature(tmp_path, monkeypatch):

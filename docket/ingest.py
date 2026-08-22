@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 _AGENT_ID = re.compile(
     r"(?P<chain_id>0|[1-9][0-9]*):"
-    r"(?P<registry>0x[0-9a-fA-F]{40}):"
+    r"(?P<registry>0[xX][0-9a-fA-F]{40}):"
     r"(?P<token_id>0|[1-9][0-9]*)"
 )
 

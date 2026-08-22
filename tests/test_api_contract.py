@@ -1,9 +1,11 @@
 import json
+from pathlib import Path
 
 import pydantic
 from fastapi.testclient import TestClient
 
 from docket.api import create_app
+from docket.api import routes
 from docket.api.models import (
     BANNED_FIELD_NAMES,
     AgentDetail,
@@ -15,6 +17,7 @@ from docket.api.models import (
     EvidenceLink,
     ListResponse,
     MetricFigure,
+    RefreshStatus,
     ServiceCard,
     ServiceDetail,
     ServiceListing,
@@ -28,6 +31,7 @@ ALL_MODELS = [
     AgentSummary,
     AgentDetail,
     ListResponse,
+    RefreshStatus,
     StatsResponse,
     ServiceListing,
     CatalogueResponse,
@@ -83,7 +87,9 @@ def test_every_statistic_carries_its_coverage():
     }
     assert required <= _field_names(Coverage)
     assert "coverage" in _field_names(StatsResponse)
+    assert "refresh_status" in _field_names(StatsResponse)
     assert Coverage.model_fields["snapshot_id"].is_required()
+    assert StatsResponse.model_fields["refresh_status"].is_required()
 
 
 def test_list_response_states_its_coverage_too():
@@ -153,7 +159,7 @@ def test_service_detail_redirects_html_callers_without_changing_json(tmp_path):
     assert data.json()["service_id"] == "range-doctor"
 
 
-def test_lp_record_returns_every_stored_observation(tmp_path, monkeypatch):
+def test_lp_record_returns_stored_observations_in_file_order(tmp_path, monkeypatch):
     path = tmp_path / "controlled.jsonl"
     history = [
         {"record_version": "lp-record.v1", "observed_at": "2026-08-21T00:00:00Z"},
@@ -169,8 +175,164 @@ def test_lp_record_returns_every_stored_observation(tmp_path, monkeypatch):
     response = client.get("/lp-record")
 
     assert response.status_code == 200
-    assert response.json() == {"history": history, "total": 2}
+    assert response.json() == {
+        "lines": history,
+        "skipped_unparsable": 0,
+        "truncated": False,
+    }
     assert "/lp-record" in client.get("/openapi.json").json()["paths"]
+
+
+def test_lp_record_skips_and_counts_every_unparsable_line(tmp_path, monkeypatch):
+    path = tmp_path / "mixed.jsonl"
+    path.write_bytes(
+        b'{"ordinal":1}\n\nNOT JSON\n\xff\nNaN\nInfinity\n"\\ud800"\n{"ordinal":2}\n'
+    )
+    monkeypatch.setenv("DOCKET_LP_RECORD_PATH", str(path))
+    client = TestClient(create_app(tmp_path / "mixed.sqlite3"))
+
+    response = client.get("/lp-record")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "lines": [{"ordinal": 1}, {"ordinal": 2}],
+        "skipped_unparsable": 5,
+        "truncated": False,
+    }
+
+
+def test_lp_record_missing_file_is_an_empty_bounded_history(tmp_path, monkeypatch):
+    monkeypatch.setenv("DOCKET_LP_RECORD_PATH", str(tmp_path / "missing.jsonl"))
+    client = TestClient(create_app(tmp_path / "missing.sqlite3"))
+
+    response = client.get("/lp-record")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "lines": [],
+        "skipped_unparsable": 0,
+        "truncated": False,
+    }
+
+
+def test_lp_record_disappearing_before_open_is_an_empty_bounded_history(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "rotated.jsonl"
+    path.write_text('{"ordinal":1}\n', encoding="utf-8")
+    monkeypatch.setenv("DOCKET_LP_RECORD_PATH", str(path))
+    client = TestClient(create_app(tmp_path / "rotated.sqlite3"))
+    original_open = Path.open
+
+    def disappear_before_open(candidate, *args, **kwargs):
+        if candidate == path:
+            raise FileNotFoundError(path)
+        return original_open(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", disappear_before_open)
+
+    response = client.get("/lp-record")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "lines": [],
+        "skipped_unparsable": 0,
+        "truncated": False,
+    }
+
+
+def test_lp_record_line_cap_marks_only_a_nonempty_remainder_truncated(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "line-cap.jsonl"
+    first_two = b'{"ordinal":1}\n{"ordinal":2}\n'
+    monkeypatch.setattr(routes, "LP_RECORD_MAX_LINES", 2)
+    monkeypatch.setenv("DOCKET_LP_RECORD_PATH", str(path))
+    client = TestClient(create_app(tmp_path / "line-cap.sqlite3"))
+
+    path.write_bytes(first_two + b'{"ordinal":3}\n')
+    truncated = client.get("/lp-record").json()
+    path.write_bytes(first_two)
+    exact = client.get("/lp-record").json()
+    path.write_bytes(b"\nNOT JSON\n" + b'{"ordinal":3}\n')
+    physical_cap = client.get("/lp-record").json()
+
+    assert truncated == {
+        "lines": [{"ordinal": 1}, {"ordinal": 2}],
+        "skipped_unparsable": 0,
+        "truncated": True,
+    }
+    assert exact["lines"] == [{"ordinal": 1}, {"ordinal": 2}]
+    assert exact["truncated"] is False
+    assert physical_cap == {
+        "lines": [],
+        "skipped_unparsable": 1,
+        "truncated": True,
+    }
+
+
+def test_lp_record_byte_cap_never_publishes_a_partial_line(tmp_path, monkeypatch):
+    path = tmp_path / "byte-cap.jsonl"
+    first = b'{"ordinal":1}\n'
+    second = b'{"ordinal":2}\n'
+    monkeypatch.setattr(routes, "LP_RECORD_MAX_BYTES", len(first))
+    monkeypatch.setenv("DOCKET_LP_RECORD_PATH", str(path))
+    client = TestClient(create_app(tmp_path / "byte-cap.sqlite3"))
+
+    path.write_bytes(first + second)
+    truncated = client.get("/lp-record").json()
+    path.write_bytes(first)
+    exact = client.get("/lp-record").json()
+    path.write_bytes(b'{"ordinal":123456789}\n')
+    partial = client.get("/lp-record").json()
+
+    assert truncated == {
+        "lines": [{"ordinal": 1}],
+        "skipped_unparsable": 0,
+        "truncated": True,
+    }
+    assert exact["lines"] == [{"ordinal": 1}]
+    assert exact["truncated"] is False
+    assert partial == {
+        "lines": [],
+        "skipped_unparsable": 0,
+        "truncated": True,
+    }
+
+
+def test_lp_record_read_failure_uses_the_api_error_envelope(tmp_path, monkeypatch):
+    monkeypatch.setenv("DOCKET_LP_RECORD_PATH", str(tmp_path))
+    client = TestClient(create_app(tmp_path / "unreadable.sqlite3"))
+
+    response = client.get("/lp-record")
+
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "error": {
+            "code": "lp_record_unavailable",
+            "message": "The controlled LP record could not be read just now. Retry.",
+        }
+    }
+
+
+def test_changed_machine_contract_is_documented_in_llms_txt(tmp_path):
+    body = TestClient(create_app(tmp_path / "llms.sqlite3")).get("/llms.txt").text
+
+    for term in (
+        "refresh_status",
+        "lines",
+        "skipped_unparsable",
+        "truncated",
+        f"{routes.LP_RECORD_MAX_BYTES // (1024 * 1024)} MiB",
+        f"{routes.LP_RECORD_MAX_LINES:,}",
+        "physical lines",
+        "lp_record_unavailable",
+        "Authorization: Bearer",
+        "operator_unauthorized",
+        "recovery_rate_limited",
+    ):
+        assert term in body
 
 
 def test_unpinned_app_adopts_only_a_newly_promoted_snapshot(tmp_path):
@@ -182,7 +344,9 @@ def test_unpinned_app_adopts_only_a_newly_promoted_snapshot(tmp_path):
     candidate = store.begin_snapshot(56, expected=1)
     store.finish_snapshot(candidate, sampled=1, promote=False)
 
-    assert client.get("/stats").json()["coverage"]["snapshot_id"] == current
+    first = client.get("/stats").json()
+    assert first["coverage"]["snapshot_id"] == current
+    assert first["refresh_status"] is None
 
     store.promote_snapshot(candidate)
 

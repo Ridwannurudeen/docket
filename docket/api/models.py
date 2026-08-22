@@ -9,6 +9,8 @@ Every response carrying a count also carries `Coverage`, so no figure can be
 quoted without the snapshot and sample size it came from.
 """
 
+from typing import Literal
+
 import pydantic
 
 # A reader judges; Docket does not. Names that would claim otherwise are refused at the model.
@@ -96,8 +98,14 @@ class ListResponse(pydantic.BaseModel):
     coverage: Coverage
 
 
+class RefreshStatus(pydantic.BaseModel):
+    status: Literal["ok", "refused", "error"]
+    timestamp: str
+
+
 class StatsResponse(pydantic.BaseModel):
     coverage: Coverage
+    refresh_status: RefreshStatus | None
     # A LOWER BOUND on the chain's size — the largest total any sweep recorded — and the scale
     # `coverage.complete` is silent about, since a snapshot swept from a filtered query is
     # complete the moment it reaches the end of that query. Read it as "at least this many were

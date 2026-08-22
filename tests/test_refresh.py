@@ -1,3 +1,5 @@
+import json
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -103,6 +105,14 @@ def test_refresh_promotes_only_after_enrichment_and_probing(tmp_path, monkeypatc
     assert store.latest_complete_snapshot_id() == result["snapshot_id"]
     assert result["enrichment"]["fetched"] == 1
     assert result["liveness"]["responded"] == 1
+    refresh_status = json.loads(
+        (store.path.parent / "last-refresh.json").read_text(encoding="utf-8")
+    )
+    assert refresh_status["status"] == "ok"
+    assert (
+        datetime.fromisoformat(refresh_status["timestamp"]).utcoffset().total_seconds()
+        == 0
+    )
 
 
 def test_bounded_refresh_is_refused_and_never_promoted(tmp_path):
@@ -119,6 +129,14 @@ def test_bounded_refresh_is_refused_and_never_promoted(tmp_path):
     row = store.snapshot(store.latest_snapshot_id())
     assert row["stop_reason"] == "max_pages"
     assert row["promoted_at"] is None
+    refresh_status = json.loads(
+        (store.path.parent / "last-refresh.json").read_text(encoding="utf-8")
+    )
+    assert refresh_status["status"] == "refused"
+    assert (
+        datetime.fromisoformat(refresh_status["timestamp"]).utcoffset().total_seconds()
+        == 0
+    )
 
 
 def test_non_advancing_refresh_is_refused_and_never_promoted(tmp_path):
@@ -136,6 +154,27 @@ def test_non_advancing_refresh_is_refused_and_never_promoted(tmp_path):
     row = store.snapshot(store.latest_snapshot_id())
     assert row["stop_reason"] == "not_advancing"
     assert row["promoted_at"] is None
+
+
+def test_unexpected_refresh_failure_writes_error_status(tmp_path):
+    store = Store(tmp_path / "error-status.sqlite3")
+
+    def fail(_request: httpx.Request) -> httpx.Response:
+        raise RuntimeError("fixture registry failure")
+
+    registry = Scan8004Client(transport=httpx.MockTransport(fail), pace=False)
+
+    with pytest.raises(RuntimeError, match="fixture registry failure"):
+        refresh_once(store, registry)
+
+    refresh_status = json.loads(
+        (store.path.parent / "last-refresh.json").read_text(encoding="utf-8")
+    )
+    assert refresh_status["status"] == "error"
+    assert (
+        datetime.fromisoformat(refresh_status["timestamp"]).utcoffset().total_seconds()
+        == 0
+    )
 
 
 def test_refresh_includes_an_allowlisted_agent_with_zero_feedback(tmp_path):
@@ -188,6 +227,8 @@ def test_running_app_serves_the_snapshot_promoted_by_refresh(tmp_path):
     assert response.status_code == 200
     assert response.json()["coverage"]["snapshot_id"] == refreshed["snapshot_id"]
     assert response.json()["coverage"]["sampled"] == 2
+    assert response.json()["refresh_status"]["status"] == "ok"
+    assert response.json()["refresh_status"]["timestamp"]
 
 
 def test_refresh_systemd_units_run_the_pipeline_every_six_hours():
@@ -195,6 +236,7 @@ def test_refresh_systemd_units_run_the_pipeline_every_six_hours():
         encoding="utf-8"
     )
     timer = (ROOT / "deploy/systemd/docket-refresh.timer").read_text(encoding="utf-8")
+    runbook = (ROOT / "docs/deployment-runbook.md").read_text(encoding="utf-8")
 
     assert "User=docket" in service
     assert "Environment=DOCKET_DB=/var/lib/docket/data/agents.sqlite3" in service
@@ -203,3 +245,8 @@ def test_refresh_systemd_units_run_the_pipeline_every_six_hours():
     assert "ReadWritePaths=/var/lib/docket" in service
     assert "OnCalendar=*-*-* 01,07,13,19:41:00 UTC" in timer
     assert "Persistent=true" in timer
+    assert "Restart=no" in service
+    assert "/var/lib/docket/data/last-refresh.json" in runbook
+    assert "systemctl status docket-refresh.service" in runbook
+    assert "journalctl -u docket-refresh.service" in runbook
+    assert "Restart=no" in runbook

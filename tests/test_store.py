@@ -187,6 +187,39 @@ def test_a_database_predating_the_column_is_migrated_not_rejected(tmp_path: Path
     assert store.snapshot(fresh)["population"] == "all"
 
 
+def test_a_payment_table_predating_operator_recovery_is_migrated(tmp_path: Path):
+    path = tmp_path / "legacy-payments.sqlite3"
+    with sqlite3.connect(path) as conn:
+        conn.executescript(
+            """CREATE TABLE hire_payments (
+                   nonce TEXT PRIMARY KEY,
+                   payment_id TEXT NOT NULL UNIQUE,
+                   service_id TEXT NOT NULL,
+                   payer TEXT NOT NULL,
+                   recipient TEXT NOT NULL,
+                   asset TEXT NOT NULL,
+                   amount TEXT NOT NULL,
+                   resource TEXT NOT NULL,
+                   input_hash TEXT NOT NULL,
+                   output_hash TEXT,
+                   status TEXT NOT NULL,
+                   result_json TEXT,
+                   receipt_json TEXT,
+                   transaction_id TEXT,
+                   network TEXT,
+                   error TEXT,
+                   created_at TEXT NOT NULL,
+                   updated_at TEXT NOT NULL
+               );"""
+        )
+
+    Store(path)
+
+    with sqlite3.connect(path) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(hire_payments)")}
+    assert "operator_recovered_at" in columns
+
+
 def test_latest_complete_snapshot_skips_a_sweep_that_never_finished(tmp_path: Path):
     """A crashed or in-flight sweep is the newest ROW, and its counts are still moving. The
     live database carries exactly this: snapshot 2 was begun on 2026-08-07 and never closed."""
@@ -240,6 +273,17 @@ def test_explicit_promotion_refuses_an_incomplete_candidate(
         store.promote_snapshot(candidate)
 
     assert store.latest_complete_snapshot_id(56) is None
+
+
+def test_finish_snapshot_does_not_mark_incomplete_counts_as_promoted(tmp_path: Path):
+    store = Store(tmp_path / "write-side-promotion.sqlite3")
+    snapshot = store.begin_snapshot(chain_id=56, expected=2)
+
+    store.finish_snapshot(snapshot, sampled=1, stop_reason="exhausted")
+
+    row = store.snapshot(snapshot)
+    assert row["finished_at"] is not None
+    assert row["promoted_at"] is None
 
 
 def test_latest_complete_snapshot_is_per_chain_and_none_when_nothing_finished(

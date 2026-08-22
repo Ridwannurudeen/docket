@@ -2,8 +2,8 @@
 limit_req_zone $binary_remote_addr zone=docket_hire_per_ip:10m rate=30r/m;
 
 # Copy this location into Docket's existing server {} block. Keep the general Docket
-# location alongside it for every non-hire path. This outer limit bounds request bursts;
-# the application keeps the separate one-hour hire allowance and pre-work refunds.
+# location alongside it for every non-hire path. This outer limit bounds free, paid and
+# recovery request bursts; the application separately bounds free hires and recovery.
 location ^~ /hire/ {
     limit_req zone=docket_hire_per_ip burst=10 nodelay;
     limit_req_status 429;

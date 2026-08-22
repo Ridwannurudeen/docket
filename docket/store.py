@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS hire_payments (
     transaction_id TEXT,
     network TEXT,
     error TEXT,
+    operator_recovered_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -163,12 +164,14 @@ class Store:
             # CREATE TABLE IF NOT EXISTS leaves an existing table alone, so a database written
             # before a column existed never gains it from SCHEMA. Added here instead, and only
             # when absent: the live database holds real sweeps and must migrate, not be rebuilt.
-            columns = {r["name"] for r in conn.execute("PRAGMA table_info(snapshots)")}
-            if "population" not in columns:
+            snapshot_columns = {
+                r["name"] for r in conn.execute("PRAGMA table_info(snapshots)")
+            }
+            if "population" not in snapshot_columns:
                 conn.execute("ALTER TABLE snapshots ADD COLUMN population TEXT")
-            if "stop_reason" not in columns:
+            if "stop_reason" not in snapshot_columns:
                 conn.execute("ALTER TABLE snapshots ADD COLUMN stop_reason TEXT")
-            if "promoted_at" not in columns:
+            if "promoted_at" not in snapshot_columns:
                 conn.execute("ALTER TABLE snapshots ADD COLUMN promoted_at TEXT")
                 conn.execute(
                     """UPDATE snapshots SET promoted_at = finished_at
@@ -177,6 +180,13 @@ class Store:
                          AND sampled = expected AND sampled > 0
                          AND (stop_reason IS NULL OR stop_reason = ?)""",
                     (COMPLETE_STOP_REASON,),
+                )
+            payment_columns = {
+                r["name"] for r in conn.execute("PRAGMA table_info(hire_payments)")
+            }
+            if "operator_recovered_at" not in payment_columns:
+                conn.execute(
+                    "ALTER TABLE hire_payments ADD COLUMN operator_recovered_at TEXT"
                 )
 
     @contextmanager
@@ -203,6 +213,18 @@ class Store:
             if payment[field] is not None:
                 payment[field.removesuffix("_json")] = json.loads(payment[field])
         return payment
+
+    def record_operator_recovery(self, nonce: str) -> bool:
+        """Record a token-authenticated delivery without changing payment finality."""
+        recovered_at = _now()
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE hire_payments
+                   SET operator_recovered_at = ?, updated_at = ?
+                   WHERE nonce = ? AND status IN ('settled', 'settlement_unknown')""",
+                (recovered_at, recovered_at, nonce),
+            )
+        return cursor.rowcount == 1
 
     def reserve_payment(
         self,
