@@ -61,7 +61,7 @@ case "${url}" in
         if (( count <= ${FAKE_CURL_HEALTH_FAILURES:-0} )); then
             exit 22
         fi
-        printf '%s\n' '{"status":"ok"}'
+        printf '{"status":"%s"}\n' "${FAKE_HEALTH_STATUS:-ok}"
         ;;
     */stats)
         if [[ "${FAKE_INVALID_ENDPOINT:-}" == stats ]]; then
@@ -229,6 +229,28 @@ def test_release_refuses_an_existing_venv_with_different_identity(tmp_path):
     ).strip() == OLD_COMMIT
 
 
+def test_release_refuses_when_pip_show_disagrees_with_the_wheel(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        wheel.as_posix(),
+        COMMIT,
+        digest,
+        environment=_environment(
+            root, fake_bin, DOCKET_RELEASE_INSTALLED_VERSION="9.9.9"
+        ),
+    )
+
+    assert result.returncode != 0
+    assert "pip show docket version 9.9.9 does not match wheel 0.1.0" in result.stderr
+
+
 def test_post_swap_health_failure_restores_the_old_release_and_symlink(tmp_path):
     root = tmp_path / "root"
     _prepare_live_release(root)
@@ -268,6 +290,27 @@ def test_post_swap_health_failure_restores_the_old_release_and_symlink(tmp_path)
     ).strip() == COMMIT
 
 
+def test_release_refuses_a_health_response_without_ok_status(tmp_path):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        wheel.as_posix(),
+        COMMIT,
+        digest,
+        environment=_environment(root, fake_bin, FAKE_HEALTH_STATUS="no_snapshot"),
+    )
+
+    assert result.returncode != 0
+    assert "new release did not pass /health within 30 seconds" in result.stderr
+    assert (root / "opt" / "docket" / "old-release.txt").is_file()
+
+
 def test_release_retires_the_aug21_timer_and_enables_all_four_new_timers(tmp_path):
     root = tmp_path / "root"
     _prepare_live_release(root)
@@ -297,6 +340,7 @@ def test_release_retires_the_aug21_timer_and_enables_all_four_new_timers(tmp_pat
     live = root / "opt" / "docket"
     assert (live / "RELEASE-commit.txt").read_text(encoding="ascii").strip() == COMMIT
     assert (live / "WHEEL-sha256.txt").read_text(encoding="ascii").split()[0] == digest
+    assert f"{COMMIT[:12]}/bin/python -m pip check" in result.stdout
     for timer in (
         "docket-canary.timer",
         "docket-lp-record.timer",

@@ -187,7 +187,7 @@ fi
 trace_command "${VENV}/bin/python" -m pip show docket
 if (( DRY_RUN )); then
     installed_name=docket
-    installed_version=${WHEEL_VERSION}
+    installed_version=${DOCKET_RELEASE_INSTALLED_VERSION:-${WHEEL_VERSION}}
 else
     pip_show="$("${VENV}/bin/python" -m pip show docket)"
     printf '%s\n' "${pip_show}"
@@ -311,7 +311,8 @@ wait_for_health() {
         trace_command "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/health
         if "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/health 2>/dev/null | \
             "${JSON_PYTHON}" -c \
-                'import json,sys; value=json.load(sys.stdin); raise SystemExit(value.get("status") != "ok")'; then
+                'import json,sys; value=json.load(sys.stdin); raise SystemExit(value.get("status") != "ok")' \
+                2>/dev/null; then
             printf 'Health accepted on attempt %s of %s.\n' "${attempt}" "${attempts}"
             return 0
         fi
