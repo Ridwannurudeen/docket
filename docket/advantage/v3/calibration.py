@@ -112,6 +112,7 @@ def derive_prompt(spec: PairedSpec, calibration_set: bytes, evaluator_id: str) -
     """
     shared = json.loads(calibration_set.decode("utf-8"))
     if spec.spec_id == "v3-03-warden-security":
+        prompt_version = "v3.calibration-prompt.v1"
         instruction = (
             "Answer every case below under the registered rubric. Return JSON: "
             '{"evaluator_id": ..., "results": [{"case_id", "predicted_hostile", '
@@ -119,13 +120,14 @@ def derive_prompt(spec: PairedSpec, calibration_set: bytes, evaluator_id: str) -
             "This is a calibration set; it is scored once and cannot be reattempted."
         )
     else:
+        prompt_version = "v3.calibration-prompt.v2"
         instruction = (
             "Answer every case below under the registered rubric. Return JSON: "
             '{"evaluator_id": ..., "results": [{"case_id", "submitted"}]}. '
             "This is a calibration set; it is scored once and cannot be reattempted."
         )
     body = {
-        "prompt_version": "v3.calibration-prompt.v1",
+        "prompt_version": prompt_version,
         "spec_id": spec.spec_id,
         "stage_one_protocol_hash": spec.stage_one_protocol_hash,
         "evaluator_id": evaluator_id,

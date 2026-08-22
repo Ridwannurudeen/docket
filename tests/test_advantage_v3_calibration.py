@@ -129,6 +129,7 @@ def test_the_prompt_is_derived_from_the_registration_not_supplied(tmp_path):
     again = calibration.derive_prompt(SPEC, _shared_set(), SEAT)
     assert first == again
     body = json.loads(first.decode("utf-8"))
+    assert body["prompt_version"] == "v3.calibration-prompt.v1"
     assert body["stage_one_protocol_hash"] == SPEC.stage_one_protocol_hash
     assert [case["case_id"] for case in body["cases"]] == [
         f"cal-{n}" for n in range(1, 9)
@@ -153,6 +154,7 @@ def test_pancake_prompt_requests_submitted_answers():
 
     prompt = json.loads(calibration.derive_prompt(YIELD_SPEC, raw_set, SEAT))
 
+    assert prompt["prompt_version"] == "v3.calibration-prompt.v2"
     assert "submitted" in prompt["instruction"]
     assert "predicted_hostile" not in prompt["instruction"]
 
