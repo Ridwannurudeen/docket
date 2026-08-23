@@ -2,9 +2,30 @@
 
 **Hire by evidence, not promises.**
 
-Docket is an evidence-first interface for inspecting ERC-8004 agent observations and
-running bounded services on BNB Smart Chain. It publishes measurements, inputs,
-limitations, and receipts, then leaves the decision to the reader.
+Docket is an evidence-first BSC agent marketplace: browse jobs, inspect runnable samples
+and recorded work, and run bounded services without giving Docket a signer. It publishes
+measurements, inputs, limitations, and receipts, then leaves the decision to the reader.
+
+## What a judge can do in 60 seconds
+
+1. Open the [marketplace](https://docket.gudman.xyz/) and choose **Keep LP earning**.
+2. On the [Range Doctor page](https://docket.gudman.xyz/service?id=range-doctor), click
+   **Try the worked example** to run the public sample without a wallet.
+3. Inspect the [paired report](https://docket.gudman.xyz/advantage) and the raw
+   [registry snapshot](https://docket.gudman.xyz/stats), where each figure carries its
+   observation boundary.
+
+The longer evidence-led route is in [Judge start here](docs/submission/judge-start-here.md).
+
+## What is not true yet
+
+- No service is in paid stock, and no settlement has run.
+- None of the four category services is bound to a BSC ERC-8004 identity.
+- The three v3 families are waiting for inputs; no v3 arm has run.
+- The controlled LP record has observations but no owner-decision row.
+
+These limits are visible in the live service, v3, and LP-record responses; the
+[submission package](docs/submission/README.md) keeps the same boundary.
 
 ## Submission claims
 
@@ -101,6 +122,8 @@ python -m venv .venv
 # POSIX: source .venv/bin/activate
 python -m pip install -e ".[dev]"
 python -m pytest -q
+python -m pip install build==1.5.0
+python -m build --wheel
 ```
 
 The package has no console entry point. After installation, start the application factory
@@ -150,6 +173,7 @@ timestamp/chain commitment whose time and digest can be read independently.
 - [Evidence reproduction](docs/evidence-reproduction.md)
 - [Claims to evidence](docs/claims-to-evidence.md)
 - [Source and deployment manifest](docs/source-deploy-manifest.md)
+- [Repository publication checklist](docs/publication-checklist.md)
 - [AI usage disclosure](AI_USAGE.md)
 
 ## License
