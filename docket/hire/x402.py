@@ -126,6 +126,10 @@ class VerifiedPayment:
     payment_id: str
 
 
+class PreflightConfigurationError(ValueError):
+    """The owner preflight is missing or contradicts required public settings."""
+
+
 class Facilitator(Protocol):
     def verify(self, envelope: dict) -> dict: ...
 
@@ -411,18 +415,22 @@ def payment_preflight(
     )
     missing_configuration = [name for name in names if not environment.get(name)]
     if missing_configuration:
-        raise ValueError(
+        raise PreflightConfigurationError(
             "missing preflight configuration: " + ", ".join(missing_configuration)
         )
     if environment.get("DOCKET_FACILITATOR_KIND") != B402_FACILITATOR:
-        raise ValueError("DOCKET_FACILITATOR_KIND must be b402 for payment preflight")
+        raise PreflightConfigurationError(
+            "DOCKET_FACILITATOR_KIND must be b402 for payment preflight"
+        )
 
     token_address = str(environment["DOCKET_PAYMENT_TOKEN"])
     relayer_address = str(environment["DOCKET_B402_RELAYER_CONTRACT"])
     if token_address.lower() != USDT_TOKEN.lower():
-        raise ValueError("DOCKET_PAYMENT_TOKEN must name the supported BSC USDT contract")
+        raise PreflightConfigurationError(
+            "DOCKET_PAYMENT_TOKEN must name the supported BSC USDT contract"
+        )
     if relayer_address.lower() != B402_RELAYER.lower():
-        raise ValueError(
+        raise PreflightConfigurationError(
             "DOCKET_B402_RELAYER_CONTRACT must name the live RelayerV3 proxy"
         )
 
@@ -432,7 +440,7 @@ def payment_preflight(
         ).read_text(encoding="ascii").strip()
         account = Account.from_key(private_key)
     except (OSError, UnicodeError, ValueError):
-        raise ValueError(
+        raise PreflightConfigurationError(
             "DOCKET_CANARY_PRIVATE_KEY_FILE did not contain a usable private key"
         ) from None
 
@@ -573,8 +581,19 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         report = payment_preflight(os.environ)
+    except PreflightConfigurationError as exc:
+        print(json.dumps({"ready": False, "error": str(exc)}))
+        return 2
     except Exception as exc:
-        print(json.dumps({"ready": False, "error": f"{type(exc).__name__}: {exc}"}))
+        print(
+            json.dumps(
+                {
+                    "ready": False,
+                    "error": f"{type(exc).__name__}: preflight could not complete",
+                    "settlement_attempted": False,
+                }
+            )
+        )
         return 2
     print(json.dumps(report, indent=2))
     return 0 if report["ready"] else 1

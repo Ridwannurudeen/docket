@@ -20,6 +20,7 @@ from docket.hire.x402 import (
     build_signed_payment,
     build_challenge,
     facilitator_envelope,
+    main as preflight_main,
     parse_payment_header,
     payment_preflight,
     verify_payment,
@@ -525,3 +526,18 @@ def test_preflight_names_each_missing_payment_prerequisite(tmp_path):
     assert report["checks"]["facilitator_verify"]["observed"] == (
         "payment_verification_error: insufficient allowance"
     )
+
+
+def test_preflight_cli_does_not_print_external_exception_details(monkeypatch, capsys):
+    def fail_without_echoing_environment(environment):
+        raise RuntimeError("https://user:rpc-secret@rpc.invalid")
+
+    monkeypatch.setattr(
+        "docket.hire.x402.payment_preflight", fail_without_echoing_environment
+    )
+
+    assert preflight_main(["preflight"]) == 2
+    output = capsys.readouterr().out
+    assert "rpc-secret" not in output
+    assert "RuntimeError" in output
+    assert "settlement" in output
