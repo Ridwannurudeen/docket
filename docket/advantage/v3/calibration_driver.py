@@ -18,6 +18,7 @@ from importlib import import_module, resources
 from pathlib import Path
 
 from . import calibration
+from .runner import _ledger_lock
 from .spec import load
 
 
@@ -168,17 +169,21 @@ def run_seat(
             "a real one afterwards."
         )
 
-    _refuse_shared_session(spec, calibration_dir, evaluator_id, session_id)
-
     prompt = calibration.derive_prompt(spec, calibration_set, evaluator_id)
-    request = calibration.open_attempt(
-        spec,
-        calibration_dir,
-        evaluator_id=evaluator_id,
-        model_build=model_build,
-        session_id=session_id,
-        calibration_set=calibration_set,
+    session_lock = (
+        calibration.seat_dir(spec, calibration_dir, evaluator_id).parent
+        / "session-claims"
     )
+    with _ledger_lock(session_lock):
+        _refuse_shared_session(spec, calibration_dir, evaluator_id, session_id)
+        request = calibration.open_attempt(
+            spec,
+            calibration_dir,
+            evaluator_id=evaluator_id,
+            model_build=model_build,
+            session_id=session_id,
+            calibration_set=calibration_set,
+        )
 
     raw = None
     error = None
