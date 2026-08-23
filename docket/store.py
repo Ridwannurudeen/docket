@@ -12,6 +12,28 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Why a sweep stopped. Closed, because an open vocabulary here would let a new stop condition
+# arrive unclassified and be served as if it were a clean finish. Only `exhausted` may be
+# promoted to readers; the rest describe a sweep that ended without reaching the end.
+STOP_REASONS = ("exhausted", "max_pages", "not_advancing")
+COMPLETE_STOP_REASON = "exhausted"
+CANARY_TERMINAL_VERDICTS = ("passed", "failed", "not_yet_exercised")
+CANARY_CHECK_STATUSES = CANARY_TERMINAL_VERDICTS
+MAX_CANARY_HISTORY_LIMIT = 100
+CANARY_SENSITIVE_FIELDS = frozenset(
+    {
+        "x-payment",
+        "payment-signature",
+        "authorization",
+        "signature",
+        "private-key",
+        "mnemonic",
+        "api-key",
+        "api-secret",
+        "secret-key",
+    }
+)
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -20,6 +42,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
     sampled INTEGER,
     started_at TEXT NOT NULL,
     finished_at TEXT,
+    promoted_at TEXT,
     -- Which query this snapshot swept: "all" for the whole registry, or the predicate that
     -- narrowed it, e.g. "min_feedbacks>=1". NULL where a sweep predating this column never
     -- recorded one; that reads as unspecified and is never filled in by guesswork.
@@ -68,11 +91,90 @@ CREATE TABLE IF NOT EXISTS liveness (
     detail TEXT
 );
 CREATE INDEX IF NOT EXISTS liveness_snapshot ON liveness (snapshot_id, agent_id);
+CREATE TABLE IF NOT EXISTS liveness_on_demand (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL,
+    agent_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    status_code INTEGER,
+    elapsed_ms INTEGER,
+    detail TEXT,
+    requested_from_ip_hash TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS liveness_on_demand_snapshot_agent
+    ON liveness_on_demand (snapshot_id, agent_id, id DESC);
+CREATE TABLE IF NOT EXISTS hire_payments (
+    nonce TEXT PRIMARY KEY,
+    payment_id TEXT NOT NULL UNIQUE,
+    service_id TEXT NOT NULL,
+    payer TEXT NOT NULL,
+    recipient TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    amount TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    output_hash TEXT,
+    status TEXT NOT NULL,
+    result_json TEXT,
+    receipt_json TEXT,
+    transaction_id TEXT,
+    network TEXT,
+    error TEXT,
+    operator_recovered_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS hire_payments_status ON hire_payments (status);
+CREATE TABLE IF NOT EXISTS canary_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    service_id TEXT NOT NULL,
+    target_url TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    verdict TEXT NOT NULL CHECK (
+        verdict IN ('running', 'passed', 'failed', 'not_yet_exercised')
+    ),
+    checks_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS canary_runs_service ON canary_runs (service_id, id DESC);
 """
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _canary_run(row: sqlite3.Row) -> dict:
+    run = dict(row)
+    run["checks"] = json.loads(run.pop("checks_json"))
+    return run
+
+
+def _agent(row: sqlite3.Row) -> dict:
+    agent = dict(row)
+    agent["supported_protocols"] = json.loads(agent["supported_protocols"])
+    agent["x402_supported"] = bool(agent["x402_supported"])
+    agent["is_verified"] = bool(agent["is_verified"])
+    return agent
+
+
+def _sensitive_canary_field(value) -> str | None:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            normalized = str(key).strip().lower().replace("_", "-")
+            if normalized in CANARY_SENSITIVE_FIELDS:
+                return normalized
+            found = _sensitive_canary_field(nested)
+            if found is not None:
+                return found
+    elif isinstance(value, (list, tuple)):
+        for nested in value:
+            found = _sensitive_canary_field(nested)
+            if found is not None:
+                return found
+    return None
 
 
 class Store:
@@ -84,19 +186,308 @@ class Store:
             # CREATE TABLE IF NOT EXISTS leaves an existing table alone, so a database written
             # before a column existed never gains it from SCHEMA. Added here instead, and only
             # when absent: the live database holds real sweeps and must migrate, not be rebuilt.
-            columns = {r["name"] for r in conn.execute("PRAGMA table_info(snapshots)")}
-            if "population" not in columns:
+            snapshot_columns = {
+                r["name"] for r in conn.execute("PRAGMA table_info(snapshots)")
+            }
+            if "population" not in snapshot_columns:
                 conn.execute("ALTER TABLE snapshots ADD COLUMN population TEXT")
+            if "stop_reason" not in snapshot_columns:
+                conn.execute("ALTER TABLE snapshots ADD COLUMN stop_reason TEXT")
+            if "promoted_at" not in snapshot_columns:
+                conn.execute("ALTER TABLE snapshots ADD COLUMN promoted_at TEXT")
+                conn.execute(
+                    """UPDATE snapshots SET promoted_at = finished_at
+                       WHERE finished_at IS NOT NULL
+                         AND sampled IS NOT NULL AND expected IS NOT NULL
+                         AND sampled = expected AND sampled > 0
+                         AND (stop_reason IS NULL OR stop_reason = ?)""",
+                    (COMPLETE_STOP_REASON,),
+                )
+            payment_columns = {
+                r["name"] for r in conn.execute("PRAGMA table_info(hire_payments)")
+            }
+            if "operator_recovered_at" not in payment_columns:
+                conn.execute(
+                    "ALTER TABLE hire_payments ADD COLUMN operator_recovered_at TEXT"
+                )
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         try:
-            with conn:  # commits on clean exit; contextlib.closing would silently drop writes
+            with (
+                conn
+            ):  # commits on clean exit; contextlib.closing would silently drop writes
                 yield conn
         finally:
             conn.close()
+
+    def payment_by_nonce(self, nonce: str) -> dict:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM hire_payments WHERE nonce = ?", (nonce,)
+            ).fetchone()
+        if row is None:
+            return {}
+        payment = dict(row)
+        for field in ("result_json", "receipt_json"):
+            if payment[field] is not None:
+                payment[field.removesuffix("_json")] = json.loads(payment[field])
+        return payment
+
+    def record_operator_recovery(self, nonce: str) -> bool:
+        """Record a token-authenticated delivery without changing payment finality."""
+        recovered_at = _now()
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE hire_payments
+                   SET operator_recovered_at = ?, updated_at = ?
+                   WHERE nonce = ? AND status IN ('settled', 'settlement_unknown')""",
+                (recovered_at, recovered_at, nonce),
+            )
+        return cursor.rowcount == 1
+
+    def reserve_payment(
+        self,
+        *,
+        nonce: str,
+        payment_id: str,
+        service_id: str,
+        payer: str,
+        recipient: str,
+        asset: str,
+        amount: str,
+        resource: str,
+        input_hash: str,
+    ) -> tuple[bool, dict]:
+        """Atomically claim a nonce; concurrent callers can never both own it."""
+        observed_at = _now()
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """INSERT INTO hire_payments
+                   (nonce, payment_id, service_id, payer, recipient, asset, amount,
+                    resource, input_hash, status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'verified', ?, ?)
+                   ON CONFLICT DO NOTHING""",
+                (
+                    nonce,
+                    payment_id,
+                    service_id,
+                    payer,
+                    recipient,
+                    asset,
+                    amount,
+                    resource,
+                    input_hash,
+                    observed_at,
+                    observed_at,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM hire_payments WHERE nonce = ?", (nonce,)
+            ).fetchone()
+        return cursor.rowcount == 1, dict(row) if row else {}
+
+    def record_payment_output(
+        self, payment_id: str, *, output_hash: str, result: dict
+    ) -> None:
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE hire_payments
+                   SET output_hash = ?, result_json = ?, status = 'output_ready',
+                       updated_at = ?
+                   WHERE payment_id = ? AND status = 'verified'""",
+                (
+                    output_hash,
+                    json.dumps(result, sort_keys=True, ensure_ascii=False),
+                    _now(),
+                    payment_id,
+                ),
+            )
+        if cursor.rowcount != 1:
+            raise ValueError("payment output was not recorded from verified state")
+
+    def begin_payment_settlement(self, payment_id: str) -> bool:
+        """Persist the one-way settlement boundary before any external call is made."""
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE hire_payments SET status = 'settling', updated_at = ?
+                   WHERE payment_id = ? AND status = 'output_ready'""",
+                (_now(), payment_id),
+            )
+        return cursor.rowcount == 1
+
+    def finish_payment(
+        self,
+        payment_id: str,
+        *,
+        transaction_id: str,
+        network: str,
+        receipt: dict,
+    ) -> None:
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE hire_payments
+                   SET transaction_id = ?, network = ?, receipt_json = ?,
+                       status = 'settled', updated_at = ?
+                   WHERE payment_id = ? AND status = 'settling'""",
+                (
+                    transaction_id,
+                    network,
+                    json.dumps(receipt, sort_keys=True, ensure_ascii=False),
+                    _now(),
+                    payment_id,
+                ),
+            )
+        if cursor.rowcount != 1:
+            raise ValueError("payment was not finalized from settling state")
+
+    def fail_payment(
+        self,
+        payment_id: str,
+        *,
+        status: str,
+        error: str,
+        receipt: dict | None = None,
+    ) -> None:
+        if status not in {
+            "failed_no_charge",
+            "settlement_failed",
+            "settlement_unknown",
+        }:
+            raise ValueError(f"unsupported terminal payment status {status!r}")
+        if status == "settlement_unknown" and not isinstance(receipt, dict):
+            raise ValueError("settlement_unknown requires a recovery receipt")
+        if status != "settlement_unknown" and receipt is not None:
+            raise ValueError(f"{status} does not accept a recovery receipt")
+        receipt_json = (
+            json.dumps(receipt, sort_keys=True, ensure_ascii=False)
+            if receipt is not None
+            else None
+        )
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE hire_payments
+                   SET status = ?, error = ?, receipt_json = ?, updated_at = ?
+                   WHERE payment_id = ? AND status != 'settled'""",
+                (status, error, receipt_json, _now(), payment_id),
+            )
+
+    def begin_canary_run(
+        self, service_id: str, target_url: str, started_at: str | None = None
+    ) -> int:
+        """Persist the running state before the canary makes any external request."""
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """INSERT INTO canary_runs
+                   (service_id, target_url, started_at, verdict, checks_json)
+                   VALUES (?, ?, ?, 'running', '[]')""",
+                (
+                    service_id,
+                    target_url,
+                    started_at if started_at is not None else _now(),
+                ),
+            )
+        return int(cursor.lastrowid)
+
+    def finish_canary_run(
+        self,
+        run_id: int,
+        *,
+        verdict: str,
+        checks: list[dict],
+        finished_at: str | None = None,
+    ) -> dict:
+        if verdict not in CANARY_TERMINAL_VERDICTS:
+            raise ValueError(
+                f"unsupported canary verdict {verdict!r}; "
+                f"expected one of {CANARY_TERMINAL_VERDICTS}"
+            )
+        if not isinstance(checks, list):
+            raise ValueError("canary checks must be a list")
+        for check in checks:
+            if (
+                not isinstance(check, dict)
+                or not {
+                    "leg",
+                    "checked",
+                    "observed",
+                    "evidence",
+                }
+                <= check.keys()
+            ):
+                raise ValueError(
+                    "every canary check must carry leg, checked, observed and evidence"
+                )
+            if check.get("status") not in CANARY_CHECK_STATUSES:
+                raise ValueError(
+                    f"unsupported canary check status {check.get('status')!r}; "
+                    f"expected one of {CANARY_CHECK_STATUSES}"
+                )
+        if verdict == "passed" and not checks:
+            raise ValueError("a passed canary requires a non-empty list of checks")
+        if verdict == "passed" and any(check["status"] != "passed" for check in checks):
+            raise ValueError(
+                "a passed canary requires every check to have status 'passed'"
+            )
+        sensitive_field = _sensitive_canary_field(checks)
+        if sensitive_field is not None:
+            raise ValueError(
+                f"canary checks must not store sensitive field {sensitive_field!r}"
+            )
+        try:
+            encoded_checks = json.dumps(
+                checks, sort_keys=True, ensure_ascii=False, allow_nan=False
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("canary checks must be finite JSON values") from exc
+
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE canary_runs
+                   SET finished_at = ?, verdict = ?, checks_json = ?
+                   WHERE id = ? AND verdict = 'running'""",
+                (
+                    finished_at if finished_at is not None else _now(),
+                    verdict,
+                    encoded_checks,
+                    run_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("canary run does not exist or is no longer running")
+            row = conn.execute(
+                "SELECT * FROM canary_runs WHERE id = ?", (run_id,)
+            ).fetchone()
+        return _canary_run(row)
+
+    def latest_canary_run(self, service_id: str) -> dict:
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT * FROM canary_runs
+                   WHERE service_id = ? ORDER BY id DESC LIMIT 1""",
+                (service_id,),
+            ).fetchone()
+        return _canary_run(row) if row else {}
+
+    def iter_canary_runs(self, service_id: str, limit: int = 30) -> Iterator[dict]:
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not 1 <= limit <= MAX_CANARY_HISTORY_LIMIT
+        ):
+            raise ValueError(
+                f"canary history limit must be between 1 and {MAX_CANARY_HISTORY_LIMIT}"
+            )
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM canary_runs
+                   WHERE service_id = ? ORDER BY id DESC LIMIT ?""",
+                (service_id, limit),
+            ).fetchall()
+        for row in rows:
+            yield _canary_run(row)
 
     def begin_snapshot(
         self, chain_id: int, expected: int | None, population: str | None = None
@@ -113,21 +504,79 @@ class Store:
             )
             return int(cur.lastrowid)
 
-    def finish_snapshot(self, snapshot_id: int, sampled: int, expected: int | None = None) -> None:
+    def finish_snapshot(
+        self,
+        snapshot_id: int,
+        sampled: int,
+        expected: int | None = None,
+        stop_reason: str = "exhausted",
+        *,
+        promote: bool = True,
+    ) -> None:
         """Close a snapshot. Pass `expected` to overwrite the figure `begin_snapshot` recorded —
         a sweep that watches the registry grow must persist the final claim, or a later reader
-        would compare `sampled` against a stale total and publish false completeness."""
+        would compare `sampled` against a stale total and publish false completeness.
+
+        `stop_reason` records WHY the sweep ended, because "it ended" and "it reached the end"
+        are not the same event and only one of them may be served. A sweep stopped by a page
+        cap or by a paginator that stopped advancing is finished and partial, and until this
+        column existed it was indistinguishable from a clean one: `finished_at` was set either
+        way, so `latest_complete_snapshot_id` would promote it the moment a sweep ran
+        unattended.
+        """
+        if stop_reason not in STOP_REASONS:
+            raise ValueError(
+                f"unknown stop_reason {stop_reason!r}; expected one of {STOP_REASONS}"
+            )
+        finished_at = _now()
         with self._conn() as conn:
             if expected is None:
                 conn.execute(
-                    "UPDATE snapshots SET sampled = ?, finished_at = ? WHERE id = ?",
-                    (sampled, _now(), snapshot_id),
+                    "UPDATE snapshots SET sampled = ?, finished_at = ?, stop_reason = ? "
+                    "WHERE id = ?",
+                    (sampled, finished_at, stop_reason, snapshot_id),
                 )
             else:
                 conn.execute(
-                    "UPDATE snapshots SET sampled = ?, expected = ?, finished_at = ? WHERE id = ?",
-                    (sampled, expected, _now(), snapshot_id),
+                    "UPDATE snapshots SET sampled = ?, expected = ?, finished_at = ?, "
+                    "stop_reason = ? WHERE id = ?",
+                    (sampled, expected, finished_at, stop_reason, snapshot_id),
                 )
+            if promote:
+                conn.execute(
+                    """UPDATE snapshots SET promoted_at = ?
+                       WHERE id = ? AND finished_at IS NOT NULL
+                         AND sampled IS NOT NULL AND expected IS NOT NULL
+                         AND sampled = expected AND sampled > 0
+                         AND (stop_reason IS NULL OR stop_reason = ?)""",
+                    (finished_at, snapshot_id, COMPLETE_STOP_REASON),
+                )
+
+    def promote_snapshot(self, snapshot_id: int) -> None:
+        """Make one fully finished candidate visible to readers."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM snapshots WHERE id = ?", (snapshot_id,)
+            ).fetchone()
+            if row is None:
+                raise ValueError(
+                    f"snapshot {snapshot_id} cannot be promoted: it does not exist"
+                )
+            if (
+                row["finished_at"] is None
+                or row["sampled"] is None
+                or row["expected"] is None
+                or row["sampled"] <= 0
+                or row["sampled"] != row["expected"]
+                or row["stop_reason"] not in {None, COMPLETE_STOP_REASON}
+            ):
+                raise ValueError(
+                    f"snapshot {snapshot_id} cannot be promoted: it is not a complete exhausted sweep"
+                )
+            conn.execute(
+                "UPDATE snapshots SET promoted_at = ? WHERE id = ?",
+                (_now(), snapshot_id),
+            )
 
     def upsert_agents(self, rows: list[dict], snapshot_id: int) -> int:
         payload = []
@@ -187,12 +636,27 @@ class Store:
         being written. Serving it would publish a partial capture as the whole of what Docket
         observed: every count understated, and `complete` computed against an `expected` the
         run never reached.
+
+        `finished_at IS NOT NULL` was the whole of this test, and it caught only the crashed
+        sweep. It did not catch the *finished and partial* one: `_sweep` stops on a page cap or
+        a paginator that will not advance, and then closes the snapshot exactly as a clean run
+        does. Harmless while every sweep was launched by hand and checked; the moment one runs
+        unattended, a truncated capture becomes what the site serves. So completeness is now
+        the same predicate `coverage_report` publishes — `sampled == expected` — plus the
+        recorded reason the sweep ended.
+
+        Rows written before `stop_reason` existed carry NULL and are judged on counts alone:
+        they were run and checked by hand, and rejecting them would take the live snapshot off
+        the site to fix a bug it does not have.
         """
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT id FROM snapshots WHERE chain_id = ? AND finished_at IS NOT NULL "
-                "AND sampled IS NOT NULL ORDER BY id DESC LIMIT 1",
-                (chain_id,),
+                "SELECT id FROM snapshots WHERE chain_id = ? AND promoted_at IS NOT NULL "
+                "AND finished_at IS NOT NULL "
+                "AND sampled IS NOT NULL AND expected IS NOT NULL AND sampled = expected "
+                "AND sampled > 0 AND (stop_reason IS NULL OR stop_reason = ?) "
+                "ORDER BY id DESC LIMIT 1",
+                (chain_id, COMPLETE_STOP_REASON),
             ).fetchone()
         return int(row["id"]) if row else None
 
@@ -214,13 +678,16 @@ class Store:
         """
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT MAX(expected) AS m FROM snapshots WHERE chain_id = ?", (chain_id,)
+                "SELECT MAX(expected) AS m FROM snapshots WHERE chain_id = ?",
+                (chain_id,),
             ).fetchone()
         return int(row["m"]) if row and row["m"] is not None else None
 
     def snapshot(self, snapshot_id: int) -> dict:
         with self._conn() as conn:
-            row = conn.execute("SELECT * FROM snapshots WHERE id = ?", (snapshot_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM snapshots WHERE id = ?", (snapshot_id,)
+            ).fetchone()
         return dict(row) if row else {}
 
     def agent_count(self, snapshot_id: int | None = None) -> int:
@@ -229,7 +696,8 @@ class Store:
                 row = conn.execute("SELECT COUNT(*) AS n FROM agents").fetchone()
             else:
                 row = conn.execute(
-                    "SELECT COUNT(*) AS n FROM agents WHERE snapshot_id = ?", (snapshot_id,)
+                    "SELECT COUNT(*) AS n FROM agents WHERE snapshot_id = ?",
+                    (snapshot_id,),
                 ).fetchone()
         return int(row["n"])
 
@@ -251,11 +719,15 @@ class Store:
         sql += " ORDER BY CAST(token_id AS INTEGER)"
         with self._conn() as conn:
             for row in conn.execute(sql, args):
-                d = dict(row)
-                d["supported_protocols"] = json.loads(d["supported_protocols"])
-                d["x402_supported"] = bool(d["x402_supported"])
-                d["is_verified"] = bool(d["is_verified"])
-                yield d
+                yield _agent(row)
+
+    def agent_by_id(self, snapshot_id: int, agent_id: str) -> dict:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM agents WHERE snapshot_id = ? AND agent_id = ?",
+                (snapshot_id, agent_id),
+            ).fetchone()
+        return _agent(row) if row else {}
 
     def upsert_endpoints(self, rows: list[dict], snapshot_id: int) -> int:
         payload = [(snapshot_id, r["agent_id"], r["kind"], r["url"]) for r in rows]
@@ -268,7 +740,9 @@ class Store:
             )
         return len(payload)
 
-    def iter_endpoints(self, snapshot_id: int, kind: str | None = None) -> Iterator[dict]:
+    def iter_endpoints(
+        self, snapshot_id: int, kind: str | None = None
+    ) -> Iterator[dict]:
         sql = "SELECT * FROM endpoints WHERE snapshot_id = ?"
         args: tuple = (snapshot_id,)
         if kind is not None:
@@ -281,7 +755,8 @@ class Store:
     def endpoint_count(self, snapshot_id: int) -> int:
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) AS n FROM endpoints WHERE snapshot_id = ?", (snapshot_id,)
+                "SELECT COUNT(*) AS n FROM endpoints WHERE snapshot_id = ?",
+                (snapshot_id,),
             ).fetchone()
         return int(row["n"])
 
@@ -305,8 +780,8 @@ class Store:
         return {row["agent_id"] for row in rows}
 
     def record_liveness(self, rows: list[dict]) -> int:
-        """Append probe observations. Never an upsert — each probe is a distinct event, and
-        overwriting one would erase the history that makes a liveness claim auditable."""
+        """Append sweep probe observations. Never an upsert — each sweep probe is a distinct
+        event, and overwriting one would erase the history behind the snapshot figures."""
         payload = [
             (
                 r["snapshot_id"],
@@ -333,6 +808,40 @@ class Store:
     def iter_liveness(self, snapshot_id: int) -> Iterator[dict]:
         with self._conn() as conn:
             for row in conn.execute(
-                "SELECT * FROM liveness WHERE snapshot_id = ? ORDER BY id", (snapshot_id,)
+                "SELECT * FROM liveness WHERE snapshot_id = ? ORDER BY id",
+                (snapshot_id,),
             ):
                 yield dict(row)
+
+    def record_on_demand_liveness(
+        self, observation: dict, *, requested_from_ip_hash: str
+    ) -> int:
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """INSERT INTO liveness_on_demand
+                   (snapshot_id, agent_id, url, observed_at, outcome,
+                    status_code, elapsed_ms, detail, requested_from_ip_hash)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    observation["snapshot_id"],
+                    observation["agent_id"],
+                    observation["url"],
+                    observation["observed_at"],
+                    observation["outcome"],
+                    observation.get("status_code"),
+                    observation.get("elapsed_ms"),
+                    observation.get("detail"),
+                    requested_from_ip_hash,
+                ),
+            )
+        return cursor.rowcount
+
+    def latest_on_demand_liveness(self, snapshot_id: int, agent_id: str) -> dict:
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT * FROM liveness_on_demand
+                   WHERE snapshot_id = ? AND agent_id = ?
+                   ORDER BY id DESC LIMIT 1""",
+                (snapshot_id, agent_id),
+            ).fetchone()
+        return dict(row) if row else {}

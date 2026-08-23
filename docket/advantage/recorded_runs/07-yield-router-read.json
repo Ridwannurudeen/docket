@@ -1,0 +1,1054 @@
+{
+  "agent_arm": {
+    "cost": {
+      "amount": "0",
+      "note": "public read endpoints only; no API key, payment, or transaction",
+      "unit": "USD"
+    },
+    "error": null,
+    "name": "agent",
+    "output": {
+      "observation": {
+        "block": null,
+        "does_not_show": "It does not show another venue, future yield, position-specific earnings, a submitted move, or a paired run against a person.",
+        "method": "The catalogue yield-router runner read the PancakeSwap explorer top list and token allowlist at 2026-08-22T16:05:30+00:00, applied the stated TVL, turnover, token, and fee-data gates, and compared 26 eligible pools of 35 considered. The comparison-only path made no BSC eth_call, so it reports no chain block.",
+        "observed_at": "2026-08-22T16:05:30+00:00",
+        "population": "26 eligible pools of 35 considered from https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top at 2026-08-22T16:05:30+00:00",
+        "time_source": "PancakeSwap explorer snapshot time reported by the service",
+        "window": "single recorded read; no paired run against a person; one explorer top-pools snapshot"
+      },
+      "receipt": {
+        "delivered_at": "2026-08-22T16:05:30.598024+00:00",
+        "input_hash": "0x44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "output_hash": "0xe853ca161e5538f685b9cb65c4947b2b9358432495254c513cb5870d43b83368",
+        "payment": {
+          "note": "No payment, signature, transaction, or network write was made.",
+          "status": "read_only_recording"
+        },
+        "service": "yield-router"
+      },
+      "request": {},
+      "result": {
+        "actions": [],
+        "candidates": [
+          {
+            "break_even": {
+              "candidate": "0x172fcd41e0913e95784454622d1c3724f546f849",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 0.8236844926337323,
+              "extra_net_apr": 0.6646962579681062,
+              "extra_usd_per_day": 18.21085638268784,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": true
+            },
+            "delta_note": null,
+            "fee_tier": 100,
+            "fee_usd_24h": 32286.227213068,
+            "gross_fee_apr": 0.9955615848775219,
+            "net_fee_apr": 0.6669979822136944,
+            "net_fee_apr_delta": 0.6646962579681062,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "USDT/WBNB",
+            "pool_id": "0x172fcd41e0913e95784454622d1c3724f546f849",
+            "protocol_fee_usd_24h": 10655.372094187,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 27.27565985994368,
+            "tvl_usd": 11837010.499174288,
+            "volume_usd_24h": 322862272.13406
+          },
+          {
+            "break_even": {
+              "candidate": "0x36696169c63e42cd08ce11f5deebbcebae652050",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 0.8484444918097804,
+              "extra_net_apr": 0.6452985496224405,
+              "extra_usd_per_day": 17.67941231842303,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": true
+            },
+            "delta_note": null,
+            "fee_tier": 500,
+            "fee_usd_24h": 26686.672803777,
+            "gross_fee_apr": 0.9813686646825185,
+            "net_fee_apr": 0.6476002738680288,
+            "net_fee_apr_delta": 0.6452985496224405,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "USDT/WBNB",
+            "pool_id": "0x36696169c63e42cd08ce11f5deebbcebae652050",
+            "protocol_fee_usd_24h": 9076.270884185,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 5.3773625463059265,
+            "tvl_usd": 9925562.048111439,
+            "volume_usd_24h": 53373345.60855
+          },
+          {
+            "break_even": {
+              "candidate": "0x6dafbf0ab4fd72e2a5c0ad5a1ed277d3bf8a8d1f",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 0.9292110147785642,
+              "extra_net_apr": 0.5892095458322479,
+              "extra_usd_per_day": 16.142727283075285,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": true
+            },
+            "delta_note": null,
+            "fee_tier": 10000,
+            "fee_usd_24h": 8368.6402924174,
+            "gross_fee_apr": 0.8724150821572887,
+            "net_fee_apr": 0.5915112700778362,
+            "net_fee_apr_delta": 0.5892095458322479,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "WBNB/TUT",
+            "pool_id": "0x6dafbf0ab4fd72e2a5c0ad5a1ed277d3bf8a8d1f",
+            "protocol_fee_usd_24h": 2694.5693720113,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.23901783072820426,
+            "tvl_usd": 3501261.9213082814,
+            "volume_usd_24h": 836864.02924237
+          },
+          {
+            "break_even": {
+              "candidate": "0xd0e226f674bbf064f54ab47f42473ff80db98cba",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 1.7193687540270242,
+              "extra_net_apr": 0.31843081870463874,
+              "extra_usd_per_day": 8.724132019305172,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": true
+            },
+            "delta_note": null,
+            "fee_tier": 500,
+            "fee_usd_24h": 19383.578201243,
+            "gross_fee_apr": 0.48599585923295896,
+            "net_fee_apr": 0.320732542950227,
+            "net_fee_apr_delta": 0.31843081870463874,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "ETH/WBNB",
+            "pool_id": "0xd0e226f674bbf064f54ab47f42473ff80db98cba",
+            "protocol_fee_usd_24h": 6591.4026922348,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 2.6629910094982763,
+            "tvl_usd": 14557749.637250172,
+            "volume_usd_24h": 38767156.402524
+          },
+          {
+            "break_even": {
+              "candidate": "0x46cf1cf8c69595804ba91dfdd8d6b960c9b0a7c4",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 1.803487951696022,
+              "extra_net_apr": 0.3035784073218367,
+              "extra_usd_per_day": 8.31721663895443,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": true
+            },
+            "delta_note": null,
+            "fee_tier": 500,
+            "fee_usd_24h": 17022.56731398,
+            "gross_fee_apr": 0.46352772449587337,
+            "net_fee_apr": 0.305880131567425,
+            "net_fee_apr_delta": 0.3035784073218367,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "USDT/BTCB",
+            "pool_id": "0x46cf1cf8c69595804ba91dfdd8d6b960c9b0a7c4",
+            "protocol_fee_usd_24h": 5789.4417543849,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 2.539877942440009,
+            "tvl_usd": 13404240.439684883,
+            "volume_usd_24h": 34045134.627918
+          },
+          {
+            "break_even": {
+              "candidate": "0x4bba1018b967e59220b22ca03f68821a3276c9a6",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 1.8129088211255202,
+              "extra_net_apr": 0.30200084726825477,
+              "extra_usd_per_day": 8.273995815568624,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": true
+            },
+            "delta_note": null,
+            "fee_tier": 500,
+            "fee_usd_24h": 4997.4242756568,
+            "gross_fee_apr": 0.46110793464554034,
+            "net_fee_apr": 0.30430257151384305,
+            "net_fee_apr_delta": 0.30200084726825477,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "ETH/BTCB",
+            "pool_id": "0x4bba1018b967e59220b22ca03f68821a3276c9a6",
+            "protocol_fee_usd_24h": 1699.4349248618,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 2.5266188199923483,
+            "tvl_usd": 3955819.7193394876,
+            "volume_usd_24h": 9994848.55138
+          },
+          {
+            "break_even": {
+              "candidate": "0x6bbc40579ad1bbd243895ca0acb086bb6300d636",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 2.054286618581465,
+              "extra_net_apr": 0.266515877116535,
+              "extra_usd_per_day": 7.301804852507809,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": true
+            },
+            "delta_note": null,
+            "fee_tier": 500,
+            "fee_usd_24h": 20368.094999567,
+            "gross_fee_apr": 0.40733032640324646,
+            "net_fee_apr": 0.2688176013621233,
+            "net_fee_apr_delta": 0.266515877116535,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "BTCB/WBNB",
+            "pool_id": "0x6bbc40579ad1bbd243895ca0acb086bb6300d636",
+            "protocol_fee_usd_24h": 6926.173082172,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 2.231946993999158,
+            "tvl_usd": 18251414.620874893,
+            "volume_usd_24h": 40736189.999294
+          },
+          {
+            "break_even": {
+              "candidate": "0x882e23dba77bfe0e514cf5bcdad7a58aceb01522",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 2.5992306334308064,
+              "extra_net_apr": 0.21063925338450534,
+              "extra_usd_per_day": 5.770938448890558,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": true
+            },
+            "delta_note": null,
+            "fee_tier": 500,
+            "fee_usd_24h": 3208.54943417125,
+            "gross_fee_apr": 0.32267886057387274,
+            "net_fee_apr": 0.21294097763009362,
+            "net_fee_apr_delta": 0.21063925338450534,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "WBNB/U",
+            "pool_id": "0x882e23dba77bfe0e514cf5bcdad7a58aceb01522",
+            "protocol_fee_usd_24h": 1091.17598097445,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 1.7681033456106554,
+            "tvl_usd": 3629368.658949987,
+            "volume_usd_24h": 6417098.86834393
+          },
+          {
+            "break_even": {
+              "candidate": "0x7f51c8aaa6b0599abd16674e2b17fec7a9f674a1",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 2.803685786977981,
+              "extra_net_apr": 0.19527865873662534,
+              "extra_usd_per_day": 5.350100239359598,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": true
+            },
+            "delta_note": null,
+            "fee_tier": 2500,
+            "fee_usd_24h": 3363.251904336,
+            "gross_fee_apr": 0.29076528254562517,
+            "net_fee_apr": 0.19758038298221361,
+            "net_fee_apr_delta": 0.19527865873662534,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "Cake/USDT",
+            "pool_id": "0x7f51c8aaa6b0599abd16674e2b17fec7a9f674a1",
+            "protocol_fee_usd_24h": 1077.860080709,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.3186468849784752,
+            "tvl_usd": 4221917.191540962,
+            "volume_usd_24h": 1345300.7617216
+          },
+          {
+            "break_even": {
+              "candidate": "0xbe141893e4c6ad9272e8c04bab7e6a10604501a5",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 3.677504323866645,
+              "extra_net_apr": 0.14887813902672484,
+              "extra_usd_per_day": 4.078853124019858,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": true
+            },
+            "delta_note": null,
+            "fee_tier": 500,
+            "fee_usd_24h": 2997.383279205,
+            "gross_fee_apr": 0.22910165867607438,
+            "net_fee_apr": 0.15117986327231311,
+            "net_fee_apr_delta": 0.14887813902672484,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "ETH/USDT",
+            "pool_id": "0xbe141893e4c6ad9272e8c04bab7e6a10604501a5",
+            "protocol_fee_usd_24h": 1019.4665895418,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 1.2553515544001288,
+            "tvl_usd": 4775368.730335947,
+            "volume_usd_24h": 5994766.558461
+          },
+          {
+            "break_even": {
+              "candidate": "0x133b3d95bad5405d14d53473671200e9342896bf",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 7.608423271109483,
+              "extra_net_apr": 0.07195971891823547,
+              "extra_usd_per_day": 1.9714991484448072,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": true
+            },
+            "delta_note": null,
+            "fee_tier": 2500,
+            "fee_usd_24h": 1176.341674564,
+            "gross_fee_apr": 0.10925222713890081,
+            "net_fee_apr": 0.07426144316382373,
+            "net_fee_apr_delta": 0.07195971891823547,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "Cake/WBNB",
+            "pool_id": "0x133b3d95bad5405d14d53473671200e9342896bf",
+            "protocol_fee_usd_24h": 376.7531197622,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.11972846809872326,
+            "tvl_usd": 3930031.6566542424,
+            "volume_usd_24h": 470536.6698307
+          },
+          {
+            "break_even": {
+              "candidate": "0x9f8f4615ff5143aee365fa34f34196fb85be7650",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 7.618254560400089,
+              "extra_net_apr": 0.071866855545353,
+              "extra_usd_per_day": 1.9689549464480276,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": true
+            },
+            "delta_note": null,
+            "fee_tier": 100,
+            "fee_usd_24h": 1203.8047720452,
+            "gross_fee_apr": 0.11070990071507154,
+            "net_fee_apr": 0.07416857979094127,
+            "net_fee_apr_delta": 0.071866855545353,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "USDT/FF",
+            "pool_id": "0x9f8f4615ff5143aee365fa34f34196fb85be7650",
+            "protocol_fee_usd_24h": 397.33227309556,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 3.0331479647888715,
+            "tvl_usd": 3968829.697782229,
+            "volume_usd_24h": 12038047.7204218
+          },
+          {
+            "break_even": {
+              "candidate": "0x61db764c20a2ebfb7e8a7a5afb0b2dd85a4cef5f",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 13.032510433391035,
+              "extra_net_apr": 0.042010325086503035,
+              "extra_usd_per_day": 1.1509678105891243,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": true
+            },
+            "delta_note": null,
+            "fee_tier": 10000,
+            "fee_usd_24h": 1141.817979742,
+            "gross_fee_apr": 0.06532428246109007,
+            "net_fee_apr": 0.044312049332091305,
+            "net_fee_apr_delta": 0.042010325086503035,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "WBNB/BabyDoge",
+            "pool_id": "0x61db764c20a2ebfb7e8a7a5afb0b2dd85a4cef5f",
+            "protocol_fee_usd_24h": 367.27759842616,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.017897063687968312,
+            "tvl_usd": 6379917.955533185,
+            "volume_usd_24h": 114181.79797419
+          },
+          {
+            "break_even": {
+              "candidate": "0x916f992df86795f24de6c268cfb9031fbb1155da",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 19.834600818863695,
+              "extra_net_apr": 0.027603277978717887,
+              "extra_usd_per_day": 0.7562541911977503,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": true
+            },
+            "delta_note": null,
+            "fee_tier": 100,
+            "fee_usd_24h": 457.61714928967,
+            "gross_fee_apr": 0.044639110675745206,
+            "net_fee_apr": 0.029905002224306153,
+            "net_fee_apr_delta": 0.027603277978717887,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "UB/USDC",
+            "pool_id": "0x916f992df86795f24de6c268cfb9031fbb1155da",
+            "protocol_fee_usd_24h": 151.04648378526,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 1.2229893335880202,
+            "tvl_usd": 3741791.8269927795,
+            "volume_usd_24h": 4576171.492919
+          },
+          {
+            "break_even": {
+              "candidate": "0x38231d4ef9d33ebea944c75a21301ff6986499c3",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 37.21445942891021,
+              "extra_net_apr": 0.014712023455449481,
+              "extra_usd_per_day": 0.40306913576573916,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": false
+            },
+            "delta_note": null,
+            "fee_tier": 2500,
+            "fee_usd_24h": 353.130709237,
+            "gross_fee_apr": 0.025036126747453848,
+            "net_fee_apr": 0.017013747701037748,
+            "net_fee_apr_delta": 0.014712023455449481,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "Cheems/WBNB",
+            "pool_id": "0x38231d4ef9d33ebea944c75a21301ff6986499c3",
+            "protocol_fee_usd_24h": 113.1544200509,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.027436851230261225,
+            "tvl_usd": 5148268.746666785,
+            "volume_usd_24h": 141252.2836957
+          },
+          {
+            "break_even": {
+              "candidate": "0x92b7807bf19b7dddf89b706143896d05228f3121",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 72.71779911430257,
+              "extra_net_apr": 0.007529105757716951,
+              "extra_usd_per_day": 0.206276870074437,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": false
+            },
+            "delta_note": null,
+            "fee_tier": 100,
+            "fee_usd_24h": 1162.3105669017,
+            "gross_fee_apr": 0.014673038398261663,
+            "net_fee_apr": 0.009830830003305218,
+            "net_fee_apr_delta": 0.007529105757716951,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "USDT/USDC",
+            "pool_id": "0x92b7807bf19b7dddf89b706143896d05228f3121",
+            "protocol_fee_usd_24h": 383.5708618649,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.4020010519980727,
+            "tvl_usd": 28913122.51792248,
+            "volume_usd_24h": 11623105.668754
+          },
+          {
+            "break_even": {
+              "candidate": "0x9474e972f49605315763c296b122cbb998b615cf",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 85.28334616082228,
+              "extra_net_apr": 0.006419776247610606,
+              "extra_usd_per_day": 0.17588428075645496,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": false
+            },
+            "delta_note": null,
+            "fee_tier": 500,
+            "fee_usd_24h": 132.1816882003,
+            "gross_fee_apr": 0.013216923969018595,
+            "net_fee_apr": 0.008721500493198872,
+            "net_fee_apr_delta": 0.006419776247610606,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "slisBNB/WBNB",
+            "pool_id": "0x9474e972f49605315763c296b122cbb998b615cf",
+            "protocol_fee_usd_24h": 44.95846882391,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.0724215012001019,
+            "tvl_usd": 3650343.779399978,
+            "volume_usd_24h": 264363.3764006
+          },
+          {
+            "break_even": {
+              "candidate": "0x9c4ee895e4f6ce07ada631c508d1306db7502cce",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": 135.5343163475216,
+              "extra_net_apr": 0.004039567356477919,
+              "extra_usd_per_day": 0.11067307825966903,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": null,
+              "switching_cost_usd": 15.0,
+              "within_horizon": false
+            },
+            "delta_note": null,
+            "fee_tier": 100,
+            "fee_usd_24h": 137.1447002259,
+            "gross_fee_apr": 0.00946486368905638,
+            "net_fee_apr": 0.006341291602066186,
+            "net_fee_apr_delta": 0.004039567356477919,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "USDT/USD1",
+            "pool_id": "0x9c4ee895e4f6ce07ada631c508d1306db7502cce",
+            "protocol_fee_usd_24h": 45.26017189234,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.2593113339426471,
+            "tvl_usd": 5288804.70199821,
+            "volume_usd_24h": 1371447.0022373
+          },
+          {
+            "break_even": {
+              "candidate": "0x4f31fa980a675570939b737ebdde0471a4be40eb",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": null,
+              "extra_net_apr": 0.0,
+              "extra_usd_per_day": null,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": "this pool's observed net rate is not above the current one, so there is nothing extra to recover the 15.0 cost from",
+              "switching_cost_usd": 15.0,
+              "within_horizon": false
+            },
+            "delta_note": null,
+            "fee_tier": 500,
+            "fee_usd_24h": 392.65329912726,
+            "gross_fee_apr": 0.0034877932952235616,
+            "net_fee_apr": 0.002301724245588267,
+            "net_fee_apr_delta": 0.0,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "USDT/USDC",
+            "pool_id": "0x4f31fa980a675570939b737ebdde0471a4be40eb",
+            "protocol_fee_usd_24h": 133.52681363595,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.0191111961381451,
+            "tvl_usd": 41091441.50764917,
+            "volume_usd_24h": 785306.5982518
+          },
+          {
+            "break_even": {
+              "candidate": "0xa0909f81785f87f3e79309f0e73a7d82208094e4",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": null,
+              "extra_net_apr": -0.000734677596357528,
+              "extra_usd_per_day": null,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": "this pool's observed net rate is not above the current one, so there is nothing extra to recover the 15.0 cost from",
+              "switching_cost_usd": 15.0,
+              "within_horizon": false
+            },
+            "delta_note": null,
+            "fee_tier": 100,
+            "fee_usd_24h": 134.59011611635,
+            "gross_fee_apr": 0.002338910715770205,
+            "net_fee_apr": 0.001567046649230739,
+            "net_fee_apr_delta": -0.000734677596357528,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "USDT/U",
+            "pool_id": "0xa0909f81785f87f3e79309f0e73a7d82208094e4",
+            "protocol_fee_usd_24h": 44.416092346379,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.064079745637537,
+            "tvl_usd": 21003534.70153337,
+            "volume_usd_24h": 1345901.16116344
+          },
+          {
+            "break_even": {
+              "candidate": "0x5d2913a8ea284e486000177852c87ea4d64d03d6",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": null,
+              "extra_net_apr": -0.0010565780308747588,
+              "extra_usd_per_day": null,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": "this pool's observed net rate is not above the current one, so there is nothing extra to recover the 15.0 cost from",
+              "switching_cost_usd": 15.0,
+              "within_horizon": false
+            },
+            "delta_note": null,
+            "fee_tier": 100,
+            "fee_usd_24h": 15.55757798124,
+            "gross_fee_apr": 0.0018590670984994092,
+            "net_fee_apr": 0.0012451462147135082,
+            "net_fee_apr_delta": -0.0010565780308747588,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "VELVET/WBNB",
+            "pool_id": "0x5d2913a8ea284e486000177852c87ea4d64d03d6",
+            "protocol_fee_usd_24h": 5.137588649447,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.05093334516469476,
+            "tvl_usd": 3054497.5852330187,
+            "volume_usd_24h": 155575.7798134
+          },
+          {
+            "break_even": {
+              "candidate": "0xb67e5eaf770a384ab28029d08b9bc5ebe32beb0f",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": null,
+              "extra_net_apr": -0.0011587878908488022,
+              "extra_usd_per_day": null,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": "this pool's observed net rate is not above the current one, so there is nothing extra to recover the 15.0 cost from",
+              "switching_cost_usd": 15.0,
+              "within_horizon": false
+            },
+            "delta_note": null,
+            "fee_tier": 100,
+            "fee_usd_24h": 49.9014413823,
+            "gross_fee_apr": 0.0017060300801238005,
+            "net_fee_apr": 0.0011429363547394648,
+            "net_fee_apr_delta": -0.0011587878908488022,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "USDT/DUSD",
+            "pool_id": "0xb67e5eaf770a384ab28029d08b9bc5ebe32beb0f",
+            "protocol_fee_usd_24h": 16.470511779,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.046740550141595755,
+            "tvl_usd": 10676263.166015087,
+            "volume_usd_24h": 499014.413836
+          },
+          {
+            "break_even": {
+              "candidate": "0x1c3865814acbba11e7196df0b46c024472503196",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": null,
+              "extra_net_apr": -0.0014983273040954322,
+              "extra_usd_per_day": null,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": "this pool's observed net rate is not above the current one, so there is nothing extra to recover the 15.0 cost from",
+              "switching_cost_usd": 15.0,
+              "within_horizon": false
+            },
+            "delta_note": null,
+            "fee_tier": 100,
+            "fee_usd_24h": 48.293741295051,
+            "gross_fee_apr": 0.001199304631649926,
+            "net_fee_apr": 0.0008033969414928347,
+            "net_fee_apr_delta": -0.0014983273040954322,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "USDT/UUSD",
+            "pool_id": "0x1c3865814acbba11e7196df0b46c024472503196",
+            "protocol_fee_usd_24h": 15.942457871495,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.032857661141089775,
+            "tvl_usd": 14697863.334725248,
+            "volume_usd_24h": 482937.41295045
+          },
+          {
+            "break_even": {
+              "candidate": "0x39ccdd72541652ceb60d5bbf0828fd2b1753f3f9",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": null,
+              "extra_net_apr": -0.001591592374480618,
+              "extra_usd_per_day": null,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": "this pool's observed net rate is not above the current one, so there is nothing extra to recover the 15.0 cost from",
+              "switching_cost_usd": 15.0,
+              "within_horizon": false
+            },
+            "delta_note": null,
+            "fee_tier": 2500,
+            "fee_usd_24h": 73.081762456984,
+            "gross_fee_apr": 0.001044871289479531,
+            "net_fee_apr": 0.000710131871107649,
+            "net_fee_apr_delta": -0.001591592374480618,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "USDT/PRDT",
+            "pool_id": "0x39ccdd72541652ceb60d5bbf0828fd2b1753f3f9",
+            "protocol_fee_usd_24h": 23.412784813552,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.001145064426827526,
+            "tvl_usd": 25529310.22737391,
+            "volume_usd_24h": 29232.70498281
+          },
+          {
+            "break_even": {
+              "candidate": "0xac0fe1c4126e4a9b644adfc1303827e3bb5dddf3",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": null,
+              "extra_net_apr": -0.0021284038806672024,
+              "extra_usd_per_day": null,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": "this pool's observed net rate is not above the current one, so there is nothing extra to recover the 15.0 cost from",
+              "switching_cost_usd": 15.0,
+              "within_horizon": false
+            },
+            "delta_note": null,
+            "fee_tier": 500,
+            "fee_usd_24h": 2.470746536292,
+            "gross_fee_apr": 0.00026262300518211897,
+            "net_fee_apr": 0.00017332036492106475,
+            "net_fee_apr_delta": -0.0021284038806672024,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "USDT/satUSD",
+            "pool_id": "0xac0fe1c4126e4a9b644adfc1303827e3bb5dddf3",
+            "protocol_fee_usd_24h": 0.8401556023385,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.0014390301653849685,
+            "tvl_usd": 3433905.1337913093,
+            "volume_usd_24h": 4941.493072596
+          },
+          {
+            "break_even": {
+              "candidate": "0x24618d12b5ea15bb6fe3c81bbb9e011b5d5b107c",
+              "cost_covers": "the caller's own figure, in USD. It has to cover gas on every leg, the swap's own pool fee and its price impact at this size, and any fees left uncollected in the pool being left. Docket reads no BNB price here and does not invent one, so this number is supplied rather than derived — and a break-even is only as good as it is",
+              "days_to_recover": null,
+              "extra_net_apr": -0.0022909389334604064,
+              "extra_usd_per_day": null,
+              "horizon_days": 30,
+              "method": "days_to_recover = switching_cost_usd / (position_size_usd x (candidate_net_apr - current_net_apr) / 365). Both rates are the 24h observed net figures annualised by x365. within_horizon compares that against a horizon of 30 days, which is a stated choice rather than a derived one — the inputs are all here, so a reader can apply a different horizon without asking.",
+              "position_size_usd": 10000.0,
+              "reason": "this pool's observed net rate is not above the current one, so there is nothing extra to recover the 15.0 cost from",
+              "switching_cost_usd": 15.0,
+              "within_horizon": false
+            },
+            "delta_note": null,
+            "fee_tier": 100,
+            "fee_usd_24h": 0.484374933289,
+            "gross_fee_apr": 1.609666613026812e-05,
+            "net_fee_apr": 1.0785312127860568e-05,
+            "net_fee_apr_delta": -0.0022909389334604064,
+            "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+            "pair": "USDT/USDf",
+            "pool_id": "0x24618d12b5ea15bb6fe3c81bbb9e011b5d5b107c",
+            "protocol_fee_usd_24h": 0.159827303354,
+            "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+            "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+            "turnover": 0.0004410045515132846,
+            "tvl_usd": 10983445.219009468,
+            "volume_usd_24h": 4843.74933288
+          }
+        ],
+        "current": {
+          "delta_note": null,
+          "fee_tier": 500,
+          "fee_usd_24h": 392.65329912726,
+          "gross_fee_apr": 0.0034877932952235616,
+          "net_fee_apr": 0.002301724245588267,
+          "net_fee_apr_delta": 0.0,
+          "net_vs_gross": "net is the fee less the protocol's own reported cut. Liquidity providers keep roughly two thirds of what a pool charges, so the gross figure beside this overstates what is kept by about half again",
+          "pair": "USDT/USDC",
+          "pool_id": "0x4f31fa980a675570939b737ebdde0471a4be40eb",
+          "protocol_fee_usd_24h": 133.52681363595,
+          "rate_denominator": "the pool's own reported TVL in USD. It is a property of the pool and not of any position in it — a concentrated position earns at this rate only while it is in range and earns nothing while it is not",
+          "rate_window": "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads as a permanently poor pool and a busy one as a fortune",
+          "turnover": 0.0191111961381451,
+          "tvl_usd": 41091441.50764917,
+          "volume_usd_24h": 785306.5982518
+        },
+        "current_pool_chosen_by": "no pool was named, so the first row of the eligible set stands in as the baseline. The explorer serves its rows by TVL descending, so that is the deepest pool in the set and not a pool anybody is known to be in",
+        "decision": "MOVE",
+        "destination_pool_id": "0x172fcd41e0913e95784454622d1c3724f546f849",
+        "ordering": "net_fee_apr descending, then lowercase pool id ascending for exact ties — the observed 24h metric and deterministic tie-break are named so source order cannot choose a destination",
+        "sources": {
+          "pools": {
+            "observed_at": "2026-08-22T16:05:30+00:00",
+            "sha256": "24e2df68c02403edf15d154f10283442503d198b728ff7aad90accada991636e",
+            "url": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top"
+          },
+          "token_list": {
+            "observed_at": "2026-08-22T16:05:30+00:00",
+            "sha256": "703da7f5eeabb7ac0e750d931666a6e38620f7945106534214a9344a669f02fe",
+            "url": "https://tokens.pancakeswap.finance/pancakeswap-extended.json"
+          }
+        },
+        "submitted": false,
+        "universe": {
+          "allowlist_size": 974,
+          "bound": "Every comparison drawn from this set means highest within this set, at this source and this moment, and nothing beyond it. It is not a claim about every pool on PancakeSwap, about other venues, or about what any of these pools does next.",
+          "bound_note": "Every comparison drawn from this set means highest within this set, at this source and this moment, and nothing beyond it. It is not a claim about every pool on PancakeSwap, about other venues, or about what any of these pools does next.",
+          "considered": 35,
+          "excluded": [
+            {
+              "first_failed_gate": "token0_allowlist",
+              "gate": "is_plausible",
+              "pair": "COSA/BTCB",
+              "pool_id": "0xb2b6c2882eee0129623308a7bcf13d9a62ed7eca",
+              "reason": "token0 COSA is not on PancakeSwap's token allowlist"
+            },
+            {
+              "first_failed_gate": "token0_allowlist",
+              "gate": "is_plausible",
+              "pair": "COSA/USDC",
+              "pool_id": "0xbaf2345dfd37afaa9ae2a6e74b4af2e2c0565d8d",
+              "reason": "token0 COSA is not on PancakeSwap's token allowlist"
+            },
+            {
+              "first_failed_gate": "token1_allowlist",
+              "gate": "is_plausible",
+              "pair": "ETH/COSA",
+              "pool_id": "0x408df36e6577f44504c3e52c376356f04504dbd7",
+              "reason": "token1 COSA is not on PancakeSwap's token allowlist"
+            },
+            {
+              "first_failed_gate": "token0_allowlist",
+              "gate": "is_plausible",
+              "pair": "COSA/DOGE",
+              "pool_id": "0xc8469ec692bc80a4a4ee702667c698b7632dedc7",
+              "reason": "token0 COSA is not on PancakeSwap's token allowlist"
+            },
+            {
+              "first_failed_gate": "token1_allowlist",
+              "gate": "is_plausible",
+              "pair": "Cake/比特币",
+              "pool_id": "0x6de77d704b5c93c2197aaf844ef4b1babe83576d",
+              "reason": "token1 比特币 is not on PancakeSwap's token allowlist"
+            },
+            {
+              "first_failed_gate": "token1_allowlist",
+              "gate": "is_plausible",
+              "pair": "USDT/BTCLE",
+              "pool_id": "0x6a2dd37603c5b8c5bdd1d2c75111af9af8bdbcc2",
+              "reason": "token1 BTCLE is not on PancakeSwap's token allowlist"
+            },
+            {
+              "first_failed_gate": "token0_allowlist",
+              "gate": "is_plausible",
+              "pair": "$BANANA/WBNB",
+              "pool_id": "0x7f51bbf34156ba802deb0e38b7671dc4fa32041d",
+              "reason": "token0 $BANANA is not on PancakeSwap's token allowlist"
+            },
+            {
+              "first_failed_gate": "token1_allowlist",
+              "gate": "is_plausible",
+              "pair": "USDT/SPCXB",
+              "pool_id": "0x977daffc095b33872e2741c19568925015c35b4d",
+              "reason": "token1 SPCXB is not on PancakeSwap's token allowlist"
+            },
+            {
+              "first_failed_gate": "token0_allowlist",
+              "gate": "is_plausible",
+              "pair": "WLFI/USD1",
+              "pool_id": "0x9ef561cde38ee39bc582d934e190c0d31fc2b825",
+              "reason": "token0 WLFI is not on PancakeSwap's token allowlist"
+            }
+          ],
+          "excluded_count": 9,
+          "included": [
+            {
+              "pair": "USDT/USDC",
+              "pool_id": "0x4f31fa980a675570939b737ebdde0471a4be40eb"
+            },
+            {
+              "pair": "USDT/USDC",
+              "pool_id": "0x92b7807bf19b7dddf89b706143896d05228f3121"
+            },
+            {
+              "pair": "USDT/PRDT",
+              "pool_id": "0x39ccdd72541652ceb60d5bbf0828fd2b1753f3f9"
+            },
+            {
+              "pair": "USDT/U",
+              "pool_id": "0xa0909f81785f87f3e79309f0e73a7d82208094e4"
+            },
+            {
+              "pair": "BTCB/WBNB",
+              "pool_id": "0x6bbc40579ad1bbd243895ca0acb086bb6300d636"
+            },
+            {
+              "pair": "USDT/UUSD",
+              "pool_id": "0x1c3865814acbba11e7196df0b46c024472503196"
+            },
+            {
+              "pair": "ETH/WBNB",
+              "pool_id": "0xd0e226f674bbf064f54ab47f42473ff80db98cba"
+            },
+            {
+              "pair": "USDT/BTCB",
+              "pool_id": "0x46cf1cf8c69595804ba91dfdd8d6b960c9b0a7c4"
+            },
+            {
+              "pair": "USDT/WBNB",
+              "pool_id": "0x172fcd41e0913e95784454622d1c3724f546f849"
+            },
+            {
+              "pair": "USDT/USDf",
+              "pool_id": "0x24618d12b5ea15bb6fe3c81bbb9e011b5d5b107c"
+            },
+            {
+              "pair": "USDT/DUSD",
+              "pool_id": "0xb67e5eaf770a384ab28029d08b9bc5ebe32beb0f"
+            },
+            {
+              "pair": "USDT/WBNB",
+              "pool_id": "0x36696169c63e42cd08ce11f5deebbcebae652050"
+            },
+            {
+              "pair": "WBNB/BabyDoge",
+              "pool_id": "0x61db764c20a2ebfb7e8a7a5afb0b2dd85a4cef5f"
+            },
+            {
+              "pair": "USDT/USD1",
+              "pool_id": "0x9c4ee895e4f6ce07ada631c508d1306db7502cce"
+            },
+            {
+              "pair": "Cheems/WBNB",
+              "pool_id": "0x38231d4ef9d33ebea944c75a21301ff6986499c3"
+            },
+            {
+              "pair": "ETH/USDT",
+              "pool_id": "0xbe141893e4c6ad9272e8c04bab7e6a10604501a5"
+            },
+            {
+              "pair": "Cake/USDT",
+              "pool_id": "0x7f51c8aaa6b0599abd16674e2b17fec7a9f674a1"
+            },
+            {
+              "pair": "USDT/FF",
+              "pool_id": "0x9f8f4615ff5143aee365fa34f34196fb85be7650"
+            },
+            {
+              "pair": "ETH/BTCB",
+              "pool_id": "0x4bba1018b967e59220b22ca03f68821a3276c9a6"
+            },
+            {
+              "pair": "Cake/WBNB",
+              "pool_id": "0x133b3d95bad5405d14d53473671200e9342896bf"
+            },
+            {
+              "pair": "UB/USDC",
+              "pool_id": "0x916f992df86795f24de6c268cfb9031fbb1155da"
+            },
+            {
+              "pair": "slisBNB/WBNB",
+              "pool_id": "0x9474e972f49605315763c296b122cbb998b615cf"
+            },
+            {
+              "pair": "WBNB/U",
+              "pool_id": "0x882e23dba77bfe0e514cf5bcdad7a58aceb01522"
+            },
+            {
+              "pair": "WBNB/TUT",
+              "pool_id": "0x6dafbf0ab4fd72e2a5c0ad5a1ed277d3bf8a8d1f"
+            },
+            {
+              "pair": "USDT/satUSD",
+              "pool_id": "0xac0fe1c4126e4a9b644adfc1303827e3bb5dddf3"
+            },
+            {
+              "pair": "VELVET/WBNB",
+              "pool_id": "0x5d2913a8ea284e486000177852c87ea4d64d03d6"
+            }
+          ],
+          "max_turnover": 50.0,
+          "min_tvl_usd": 10000.0,
+          "observed_at": "2026-08-22T16:05:30+00:00",
+          "ordering": "the source's own order, unchanged — nothing here re-orders a set",
+          "size": 26,
+          "source": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top"
+        },
+        "why_not_submitted": "This is a preview. It holds no session, no signer and no submitter, and there is no method on it that sends anything. A drafted swap leg needs a session the wallet's owner grants on chain before it could be submitted, and this build has no path that submits one."
+      }
+    },
+    "output_hash": "0x6d10a0f6896a929069c813cfbd07f66b10cbb1a6641b7a516b6daa806cc7ca05",
+    "seconds": 3.1674415999987104
+  },
+  "category": "yield optimisation",
+  "manual_arm": {
+    "cost": null,
+    "error": "single recorded read; no paired run against a person",
+    "name": "manual",
+    "output": null,
+    "output_hash": null,
+    "seconds": null
+  },
+  "manual_steps": [
+    "python -m docket.advantage.record_run yield-router --payload '{}' --out docket/advantage/recorded_runs/07-yield-router-read.json"
+  ],
+  "notes": "This is a single recorded read; no paired run against a person. It does not show another venue, future yield, position-specific earnings, a submitted move, or a paired run against a person. Re-running reads new live state and is expected to produce different times, blocks, outputs, and hashes.",
+  "question": "What does the live eligible PancakeSwap V3 pool set contain?",
+  "task_id": "07-yield-router-read"
+}

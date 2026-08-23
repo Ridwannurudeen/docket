@@ -1,5 +1,5 @@
 from docket import netguard
-from docket.netguard import SAFE, UNRESOLVED, check_url
+from docket.netguard import SAFE, UNRESOLVED, check_url, check_url_addresses
 
 
 def _resolver(ip: str):
@@ -21,12 +21,24 @@ def _echo(host, port, *a, **kw):
 
 
 def test_public_https_is_allowed():
-    ok, reason = check_url("https://agent.example.com/a2a", resolver=_resolver("93.184.216.34"))
+    ok, reason = check_url(
+        "https://agent.example.com/a2a", resolver=_resolver("93.184.216.34")
+    )
     assert ok is True and reason == SAFE
 
 
+def test_public_addresses_are_returned_for_a_pinned_connection():
+    ok, reason, addresses = check_url_addresses(
+        "https://agent.example.com/a2a", resolver=_resolver("93.184.216.34")
+    )
+    assert ok is True and reason == SAFE
+    assert addresses == ("93.184.216.34",)
+
+
 def test_loopback_is_blocked():
-    ok, reason = check_url("http://localhost:8080/admin", resolver=_resolver("127.0.0.1"))
+    ok, reason = check_url(
+        "http://localhost:8080/admin", resolver=_resolver("127.0.0.1")
+    )
     assert ok is False and "loopback" in reason
 
 
@@ -38,7 +50,8 @@ def test_private_range_is_blocked():
 
 def test_cloud_metadata_address_is_blocked():
     ok, reason = check_url(
-        "http://169.254.169.254/latest/meta-data/", resolver=_resolver("169.254.169.254")
+        "http://169.254.169.254/latest/meta-data/",
+        resolver=_resolver("169.254.169.254"),
     )
     assert ok is False and "link-local" in reason
 
@@ -66,7 +79,10 @@ def test_all_resolved_ips_must_be_public():
     """A host resolving to both a public and a private IP is rejected."""
 
     def dual(host, port, *a, **kw):
-        return [(2, 1, 6, "", ("93.184.216.34", 443)), (2, 1, 6, "", ("127.0.0.1", 443))]
+        return [
+            (2, 1, 6, "", ("93.184.216.34", 443)),
+            (2, 1, 6, "", ("127.0.0.1", 443)),
+        ]
 
     ok, reason = check_url("https://sneaky.example/x", resolver=dual)
     assert ok is False

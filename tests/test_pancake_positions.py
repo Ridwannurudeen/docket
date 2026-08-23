@@ -10,10 +10,24 @@ The injected-Web3 seam is the one `PositionReader` already documents: a supplied
 network.
 """
 
-from docket.agents.pancake.positions import MASTER_CHEF_V3, NPM, PositionReader
+import pytest
+
+from web3.providers.base import BaseProvider
+
+from docket.agents.pancake.positions import (
+    BSC_RPCS,
+    default_session,
+    MASTER_CHEF_V3,
+    NPM,
+    ZERO_ADDRESS,
+    PositionReader,
+    PrunedStateError,
+)
 
 WALLET = "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"
 BLOCK = 114746894
+BLOCK_TIMESTAMP = 1786665600
+OBSERVED_AT = "2026-08-14T00:00:00+00:00"
 # token id -> liquidity. Two open, two closed, interleaved so a limit cannot
 # accidentally land on a clean split.
 HOLDINGS = {NPM: (7098969, 7087132, 6000001), MASTER_CHEF_V3: (5000002,)}
@@ -42,8 +56,10 @@ class _Call:
     def __init__(self, log, entry, result):
         self._log, self._entry, self._result = log, entry, result
 
-    def call(self):
-        self._log.append(self._entry)
+    def call(self, block_identifier=None):
+        # Recorded, not ignored: a test asserts every state read was pinned to one
+        # block, which is the whole point of accepting the argument.
+        self._log.append(self._entry + (block_identifier,))
         return self._result
 
 
@@ -52,7 +68,9 @@ class _Functions:
         self._address, self._log = address, log
 
     def balanceOf(self, owner):
-        return _Call(self._log, ("balanceOf", self._address), len(HOLDINGS[self._address]))
+        return _Call(
+            self._log, ("balanceOf", self._address), len(HOLDINGS[self._address])
+        )
 
     def tokenOfOwnerByIndex(self, owner, index):
         return _Call(
@@ -63,6 +81,26 @@ class _Functions:
 
     def positions(self, token_id):
         return _Call(self._log, ("positions", token_id), _raw(token_id))
+
+    def ownerOf(self, token_id):
+        # Real ownership, not the fixture's grouping key: a directly held token answers with
+        # the wallet, a staked one answers with the farm, and an unheld one with nobody.
+        if token_id in HOLDINGS[NPM]:
+            holder = WALLET
+        elif token_id in HOLDINGS[MASTER_CHEF_V3]:
+            holder = MASTER_CHEF_V3
+        else:
+            holder = ZERO_ADDRESS
+        return _Call(self._log, ("ownerOf", token_id), holder)
+
+    def userPositionInfos(self, token_id):
+        # The farm's record of who deposited. Index 6 is the depositor; the rest is padding
+        # the reader never touches.
+        return _Call(
+            self._log,
+            ("userPositionInfos", token_id),
+            [0, 0, 0, 0, 0, 0, WALLET, 0, 0],
+        )
 
 
 class _Contract:
@@ -78,6 +116,41 @@ class _Eth:
     def contract(self, address, abi):
         return _Contract(address, self._log)
 
+    def get_block(self, which):
+        self._log.append(("get_block", which))
+        return {"number": BLOCK, "timestamp": BLOCK_TIMESTAMP}
+
+
+class _PoolFunctions:
+    def __init__(self, log):
+        self._log = log
+
+    def getPool(self, token0, token1, fee):
+        return _Call(
+            self._log, ("getPool",), "0x0000000000000000000000000000000000000001"
+        )
+
+    def slot0(self):
+        return _Call(self._log, ("slot0",), (1, 0, 0, 0, 0, 0, True))
+
+    def liquidity(self):
+        return _Call(self._log, ("liquidity",), 1)
+
+
+class _PoolContract:
+    def __init__(self, log):
+        self.functions = _PoolFunctions(log)
+
+
+class _PoolEth(_Eth):
+    def contract(self, address, abi):
+        return _PoolContract(self._log)
+
+
+class _PoolW3:
+    def __init__(self, log):
+        self.eth = _PoolEth(log)
+
 
 class _FakeW3:
     def __init__(self, log):
@@ -89,6 +162,24 @@ def _reader() -> tuple[PositionReader, list]:
     return PositionReader(w3=_FakeW3(log)), log
 
 
+class _EndpointSession:
+    def __init__(self, url):
+        self.url = url
+
+
+def _read_wallet(reader, observation_block):
+    reader.wallet_positions(WALLET, observation_block=observation_block)
+
+
+def _read_pool(reader, observation_block):
+    reader.pool_state(
+        "0x205812CdBed920aFf76C6580abD681a46D11efc7",
+        "0x55d398326f99059fF775485246999027B3197955",
+        100,
+        observation_block=observation_block,
+    )
+
+
 def test_closed_positions_are_skipped_but_stay_countable():
     reader, log = _reader()
     read = reader.wallet_positions(WALLET)
@@ -98,31 +189,63 @@ def test_closed_positions_are_skipped_but_stay_countable():
     assert read["positions_examined"] == 4
     # The two zero-liquidity ones are absent from the list and present in the count.
     assert read["closed_skipped"] == 2
-    assert log.count(("positions", 7087132)) == 1
+    assert [e for e in log if e[:2] == ("positions", 7087132)] != []
 
 
 def test_include_closed_returns_every_position_and_skips_none():
     reader, _ = _reader()
     read = reader.wallet_positions(WALLET, include_closed=True)
 
-    assert [p["token_id"] for p in read["positions"]] == [7098969, 7087132, 6000001, 5000002]
+    assert [p["token_id"] for p in read["positions"]] == [
+        7098969,
+        7087132,
+        6000001,
+        5000002,
+    ]
     assert read["closed_skipped"] == 0
     assert read["positions_examined"] == 4
 
 
-def test_limit_stops_the_enumeration_rather_than_truncating_the_result():
+def test_limit_bounds_what_comes_back_rather_than_what_is_looked_at():
+    """The bound used to land on the enumeration, and that is what produced empty results.
+
+    A wallet's closed positions spent the budget before an open one was reached, so a caller
+    asking for two positions could be handed none while the wallet held plenty. The live
+    evidence wallet made it concrete: `limit=10` examined ten, all ten were closed, and the
+    answer was `[]`. `limit` now caps the positions returned; `max_examined` caps the work.
+    """
     reader, log = _reader()
     read = reader.wallet_positions(WALLET, limit=2)
 
-    enumerated = [e for e in log if e[0] == "tokenOfOwnerByIndex"]
+    # Both open positions are found, even though a closed one sits between them.
+    assert [p["token_id"] for p in read["positions"]] == [7098969, 5000002]
+    assert read["closed_skipped"] == 2
+    assert read["positions_examined"] == 4
     fetched = [e for e in log if e[0] == "positions"]
-    # Two ids, two position reads: the work stopped, it was not done and discarded.
-    assert len(enumerated) == 2 and len(fetched) == 2
-    # The limit was reached inside the NPM holdings, so the farm was never enumerated.
-    assert all(e[1] == NPM for e in enumerated)
+    assert (
+        len(fetched) == 4
+    )  # the closed ones cost a read; they no longer cost a result
+
+
+def test_max_examined_is_what_bounds_the_work_and_says_so():
+    """The cost bound still exists — it is just named for what it does now."""
+    reader, log = _reader()
+    read = reader.wallet_positions(WALLET, max_examined=2)
+
     assert read["positions_examined"] == 2
-    assert [p["token_id"] for p in read["positions"]] == [7098969]
-    assert read["closed_skipped"] == 1
+    assert read["scan_complete"] is False  # two of four looked at
+    enumerated = [e for e in log if e[0] == "tokenOfOwnerByIndex"]
+    assert len(enumerated) == 2
+    # The ceiling was hit inside the NPM holdings, so the farm was never enumerated.
+    assert all(e[1] == NPM for e in enumerated)
+
+
+def test_a_scan_that_reaches_the_end_of_the_wallet_says_it_did():
+    """`scan_complete` is what separates "these are all closed" from "the open ones were
+    never reached" — two empties that look identical without it."""
+    reader, _ = _reader()
+    assert reader.wallet_positions(WALLET)["scan_complete"] is True
+    assert reader.wallet_positions(WALLET, limit=1)["scan_complete"] is False
 
 
 def test_the_wallet_total_is_read_even_when_the_limit_cuts_the_enumeration_short():
@@ -142,3 +265,355 @@ def test_a_limit_beyond_the_holdings_reads_everything_once():
 
     assert read["positions_examined"] == 4
     assert len([e for e in log if e[0] == "tokenOfOwnerByIndex"]) == 4
+
+
+def test_the_wallet_observation_survives_an_empty_result():
+    """An all-closed wallet has no returned row to carry the block provenance.
+
+    The observation therefore belongs to the wallet read itself. Otherwise the live
+    21-closed-position case cannot supply the block and time its empty decision was made at.
+    """
+    reader, _ = _reader()
+    read = reader.wallet_positions(WALLET, limit=0)
+
+    assert read["positions"] == []
+    assert read["observation_block"] == BLOCK
+    assert read["observation_time"] == OBSERVED_AT
+
+
+def test_an_exact_token_id_returns_only_that_position_without_losing_wallet_coverage():
+    """Declared dollars and switching cost must bind to one NFT, never every open NFT."""
+    reader, _ = _reader()
+    read = reader.wallet_positions(WALLET, token_id=5000002)
+
+    assert [position["token_id"] for position in read["positions"]] == [5000002]
+    assert read["positions"][0]["staked"] is True
+    assert read["positions_held"] == 4
+    assert read["positions_examined"] == 4
+    assert read["closed_skipped"] == 2
+    assert read["open_skipped"] == 1
+    assert read["scan_complete"] is True
+
+
+def test_an_exact_closed_token_is_returned_as_the_requested_decision():
+    """A selected closed NFT is a closed decision, not another unexplained empty list."""
+    reader, _ = _reader()
+    read = reader.wallet_positions(WALLET, token_id=7087132)
+
+    assert [position["token_id"] for position in read["positions"]] == [7087132]
+    assert read["positions"][0]["liquidity"] == 0
+    assert read["closed_skipped"] == 1
+    assert read["open_skipped"] == 2
+
+
+def test_every_state_read_is_pinned_to_one_block(monkeypatch):
+    """A paired experiment needs both arms answering about the same chain state.
+
+    "latest" moves between the manual arm and the agent arm, and it moves during a slow scan
+    too — so a wallet read early and a pool read late would produce a diagnosis whose range
+    and price came from different moments, with nothing in the output showing it. Every state
+    read therefore carries the same block, including when the caller asked for latest.
+    """
+    reader, log = _reader()
+    reader.wallet_positions(WALLET)
+
+    pinned = [
+        entry[-1]
+        for entry in log
+        if entry[0] in ("balanceOf", "tokenOfOwnerByIndex", "positions")
+    ]
+    assert pinned, "no state reads were logged"
+    assert set(pinned) == {BLOCK}, (
+        f"reads were not all pinned to one block: {set(pinned)}"
+    )
+
+
+def test_a_requested_historical_block_is_the_one_read(monkeypatch):
+    reader, log = _reader()
+    reader.wallet_positions(WALLET, observation_block=114_000_000)
+    # The fake header read returns its own BLOCK; what matters is that the caller's block is
+    # what was asked for, which the get_block entry records.
+    assert ("get_block", 114_000_000) in [e[:2] for e in log]
+
+
+def test_historical_pool_provenance_uses_the_requested_block_header():
+    log = []
+    reader = PositionReader(w3=_PoolW3(log))
+
+    state = reader.pool_state(
+        "0x205812CdBed920aFf76C6580abD681a46D11efc7",
+        "0x55d398326f99059fF775485246999027B3197955",
+        100,
+        observation_block=114_000_000,
+    )
+
+    assert ("get_block", 114_000_000) in [entry[:2] for entry in log]
+    assert state["block_number"] == BLOCK
+
+
+@pytest.mark.parametrize(
+    ("session_type", "read"),
+    ((_FakeW3, _read_wallet), (_PoolW3, _read_pool)),
+    ids=("wallet", "pool"),
+)
+def test_latest_reads_keep_the_public_rpc_order(monkeypatch, session_type, read):
+    monkeypatch.setenv("DOCKET_ARCHIVE_RPC", "https://archive.example")
+    attempted = []
+
+    def session(url):
+        attempted.append(url)
+        return session_type([])
+
+    monkeypatch.setattr("docket.agents.pancake.positions.default_session", session)
+    read(PositionReader(), None)
+    assert attempted == [BSC_RPCS[0]]
+
+
+@pytest.mark.parametrize(
+    ("session_type", "read"),
+    ((_FakeW3, _read_wallet), (_PoolW3, _read_pool)),
+    ids=("wallet", "pool"),
+)
+def test_pinned_reads_try_the_archive_rpc_first(monkeypatch, session_type, read):
+    archive = "https://archive.example"
+    monkeypatch.setenv("DOCKET_ARCHIVE_RPC", archive)
+    attempted = []
+
+    def session(url):
+        attempted.append(url)
+        return session_type([])
+
+    monkeypatch.setattr("docket.agents.pancake.positions.default_session", session)
+    read(PositionReader(), BLOCK)
+    assert attempted == [archive]
+
+
+def test_a_block_derived_from_latest_keeps_the_public_rpc_order(monkeypatch):
+    monkeypatch.setenv("DOCKET_ARCHIVE_RPC", "https://archive.example")
+    attempted = []
+
+    def session(url):
+        attempted.append(url)
+        return _PoolW3([])
+
+    monkeypatch.setattr("docket.agents.pancake.positions.default_session", session)
+    PositionReader().pool_state(
+        "0x205812CdBed920aFf76C6580abD681a46D11efc7",
+        "0x55d398326f99059fF775485246999027B3197955",
+        100,
+        observation_block=BLOCK,
+        archive_first=False,
+    )
+    assert attempted == [BSC_RPCS[0]]
+
+
+def test_explicit_rpc_urls_do_not_gain_the_archive_rpc(monkeypatch):
+    monkeypatch.setenv("DOCKET_ARCHIVE_RPC", "https://archive.example")
+    attempted = []
+    monkeypatch.setattr(
+        "docket.agents.pancake.positions.default_session", _EndpointSession
+    )
+    reader = PositionReader(rpc_urls=("https://explicit.example",))
+
+    def read(session):
+        attempted.append(session.url)
+        return session.url
+
+    assert reader._call(read, observation_block=BLOCK) == "https://explicit.example"
+    assert attempted == ["https://explicit.example"]
+
+
+def test_a_pruned_endpoint_fails_over_to_archive(monkeypatch):
+    urls = ("https://public.example", "https://archive.example")
+    attempted = []
+    monkeypatch.setattr(
+        "docket.agents.pancake.positions.default_session", _EndpointSession
+    )
+    reader = PositionReader(rpc_urls=urls)
+
+    def read(session):
+        attempted.append(session.url)
+        if session.url == urls[0]:
+            raise ValueError("missing trie node 0xabc (path ) state 0xdef")
+        return {"number": BLOCK}
+
+    assert reader._call(read) == {"number": BLOCK}
+    assert attempted == list(urls)
+
+
+def test_all_pruned_endpoints_raise_pruned_state_error(monkeypatch):
+    urls = ("https://one.invalid", "https://two.invalid")
+    attempted = []
+    monkeypatch.setattr(
+        "docket.agents.pancake.positions.default_session", _EndpointSession
+    )
+    reader = PositionReader(rpc_urls=urls)
+
+    def pruned(session):
+        attempted.append(session.url)
+        raise ValueError("missing trie node 0xabc (path ) state 0xdef")
+
+    with pytest.raises(PrunedStateError, match="archive node is required"):
+        reader._call(pruned)
+    assert attempted == list(urls)
+
+
+def test_mixed_pruned_and_ordinary_failures_raise_ordinary_aggregate(monkeypatch):
+    urls = ("https://pruned.example", "https://broken.example")
+    monkeypatch.setattr(
+        "docket.agents.pancake.positions.default_session", _EndpointSession
+    )
+    monkeypatch.setattr("docket.agents.pancake.positions.time.sleep", lambda _: None)
+    reader = PositionReader(rpc_urls=urls)
+
+    def fail(session):
+        if session.url == urls[0]:
+            raise ValueError("missing trie node 0xabc (path ) state 0xdef")
+        raise ValueError("connection reset by peer")
+
+    with pytest.raises(RuntimeError, match="every BSC endpoint failed") as caught:
+        reader._call(fail)
+    assert not isinstance(caught.value, PrunedStateError)
+    assert "pruned endpoint" in str(caught.value)
+    assert "connection reset by peer" in str(caught.value)
+
+
+def test_pruned_public_endpoints_and_unreachable_archive_keep_archive_remedy(
+    monkeypatch,
+):
+    archive = "https://archive.example"
+    monkeypatch.setenv("DOCKET_ARCHIVE_RPC", archive)
+    attempted = []
+    monkeypatch.setattr(
+        "docket.agents.pancake.positions.default_session", _EndpointSession
+    )
+    monkeypatch.setattr("docket.agents.pancake.positions.time.sleep", lambda _: None)
+    reader = PositionReader()
+
+    def fail(session):
+        attempted.append(session.url)
+        if session.url == archive:
+            raise ValueError("connection reset by peer")
+        raise ValueError("missing trie node 0xabc (path ) state 0xdef")
+
+    with pytest.raises(
+        PrunedStateError, match="reachable archive node is required"
+    ) as caught:
+        reader._call(fail, observation_block=BLOCK)
+    assert attempted == [archive, archive, *BSC_RPCS]
+    assert "connection reset by peer" in str(caught.value)
+
+
+def test_a_pruned_node_is_an_infrastructure_fault_not_an_empty_wallet():
+    """The trap this repository already paid for once.
+
+    `missing trie node` is not a revert and not an answer — it is a node saying it no longer
+    holds that block. Reported as a missing observation it sends the caller to an archive
+    endpoint; reported as "no positions" it becomes a false claim about somebody's money.
+    If every configured endpoint is pruned, the final error must keep that specific remedy.
+    """
+    reader = PositionReader(rpc_urls=("https://one.invalid", "https://two.invalid"))
+
+    def pruned(_w3):
+        raise ValueError("missing trie node 0xabc (path ) state 0xdef")
+
+    with pytest.raises(PrunedStateError, match="archive node is required"):
+        reader._call(pruned)
+
+
+def test_an_ordinary_endpoint_failure_still_fails_over_and_is_not_called_pruned():
+    """The distinction only helps if it is narrow: a timeout must not be reported as a
+    pruned node, or the remedy offered is an archive endpoint nobody needs."""
+    reader = PositionReader(rpc_urls=("https://one.invalid",))
+
+    def flaky(_w3):
+        raise ValueError("connection reset by peer")
+
+    with pytest.raises(RuntimeError, match="every BSC endpoint failed") as caught:
+        reader._call(flaky)
+    assert not isinstance(caught.value, PrunedStateError)
+
+
+def test_a_target_beyond_the_examine_bound_is_still_found(monkeypatch):
+    """The defect this closes: `max_examined` stopped the walk after thirty positions, so a
+    wallet holding hundreds could hide the requested NFT behind the bound and report it
+    missing. The v3 registration says that if the hire cannot select its token_id, no arm
+    runs at all — a work ceiling must not decide whether the experiment happens.
+    """
+    deep = tuple(range(9_000_000, 9_000_200)) + (7098969,)  # target at index 200
+    monkeypatch.setitem(HOLDINGS, NPM, deep)
+    for token in deep:
+        LIQUIDITY.setdefault(token, 1)
+
+    log = []
+    read = PositionReader(w3=_FakeW3(log)).wallet_positions(
+        WALLET, token_id=7098969, max_examined=30
+    )
+
+    assert read["target_found"] is True
+    assert [p["token_id"] for p in read["positions"]] == [7098969]
+    # The walk still stopped at its bound — the direct read is what found the target, and the
+    # coverage counts stay honest about what the enumeration did not reach.
+    assert read["scan_complete"] is False
+    assert read["positions_examined"] == 30
+    assert ("ownerOf", 7098969, BLOCK) in log
+
+
+def test_an_exact_token_the_wallet_does_not_own_is_not_returned(monkeypatch):
+    """A direct read answers for any token on the contract. Without the ownership check a
+    caller could ask about a stranger's position and be told it was theirs."""
+    log = []
+    read = PositionReader(w3=_FakeW3(log)).wallet_positions(
+        WALLET, token_id=4_242_424, max_examined=30
+    )
+    assert read["positions"] == []
+    assert read["target_found"] is False
+
+
+def test_the_failover_connection_can_read_a_bsc_header(monkeypatch):
+    """The one path the injected-Web3 seam never covers, and the one production uses.
+
+    Every test above supplies its own `w3`, so nothing exercised the connection the
+    failover builds for itself. That connection lacked the proof-of-authority middleware,
+    and BSC headers carry 280 bytes of extraData where the spec allows 32 — so once the
+    observation block was pinned and every read began with a block fetch, all four
+    endpoints failed identically and the live hire returned no diagnosis at all.
+    """
+    extra_data_header = {
+        "number": "0x6ebf9b5",
+        "hash": "0x" + "11" * 32,
+        "parentHash": "0x" + "22" * 32,
+        "nonce": "0x0000000000000000",
+        "sha3Uncles": "0x" + "33" * 32,
+        "logsBloom": "0x" + "00" * 256,
+        "transactionsRoot": "0x" + "44" * 32,
+        "stateRoot": "0x" + "55" * 32,
+        "receiptsRoot": "0x" + "66" * 32,
+        "miner": "0x" + "77" * 20,
+        "difficulty": "0x2",
+        "totalDifficulty": "0x2",
+        "extraData": "0x" + "db" * 280,
+        "size": "0x100",
+        "gasLimit": "0x1c9c380",
+        "gasUsed": "0x5208",
+        "timestamp": "0x68bf0000",
+        "transactions": [],
+        "uncles": [],
+        "baseFeePerGas": "0x0",
+    }
+
+    class _BscHeaderProvider(BaseProvider):
+        def make_request(self, method, params):
+            return {"jsonrpc": "2.0", "id": 1, "result": extra_data_header}
+
+        def is_connected(self, show_traceback=False):
+            return True
+
+    session = default_session("https://bsc-dataseed.bnbchain.org")
+    session.provider = _BscHeaderProvider()
+
+    block = session.eth.get_block("latest")
+
+    assert block["number"] == 116128181
+    # The middleware moves the oversized field aside rather than rejecting the header.
+    assert "proofOfAuthorityData" in block

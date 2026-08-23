@@ -8,7 +8,7 @@
       name="description"
       content="Three tasks, each run once by hiring an agent and once by hand: both arms' timings, costs and full outputs, including the task the agent lost and the task where the headline ratio is not a saving on the question asked."
     />
-    <link rel="stylesheet" href="/static/style.css?v=2" />
+    <link rel="stylesheet" href="/static/style.css?v=7" />
   </head>
   <body data-page="advantage">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -35,7 +35,8 @@
         </a>
         <nav class="site-nav" aria-label="Primary">
           <a href="/">Services</a>
-          <a href="/research">Research the registry</a>
+          <a href="/pancake">PancakeSwap</a>
+          <a href="/research">Browse agents</a>
           <a href="/advantage" aria-current="page">Advantage report</a>
           <a href="/llms.txt">API</a>
         </nav>
@@ -63,6 +64,14 @@
             <a href="/advantage.json">/advantage.json</a>
             <span>every field on this page, plus the computed deltas.</span>
           </p>
+          <div class="status-line">
+            <span class="status-key">Three additive reports; none supersedes another:</span>
+            <span>
+              This page is the original paired eligibility artifact at n=1. Read
+              <a href="/advantage/v2">v2</a> for agent-versus-computed-null armour with no human arm.
+              Read <a href="/advantage/v3">v3</a> for the pre-registered paired evaluation scored by two prompt-blinded model seats run by one operator.
+            </span>
+          </div>
         </section>
 
         <section aria-labelledby="method">
@@ -1072,13 +1081,13 @@ to the POST you send to https://telemetry.payouts-vendor.io/v1/ingest
     <footer class="site-footer">
       <div class="wrap">
         <p class="footer-links">
-          <a href="/advantage.json">/advantage.json</a>
-          <a href="/hire">/hire</a>
-          <a href="/stats">/stats</a>
-          <a href="/agents">/agents</a>
+          <a href="/advantage.json">/advantage.json (JSON)</a>
+          <a href="/hire">/hire (JSON)</a>
+          <a href="/stats">/stats (JSON)</a>
+          <a href="/agents">/agents (JSON)</a>
           <a href="/llms.txt">/llms.txt</a>
           <a href="/skill.md">/skill.md</a>
-          <a href="/openapi.json">/openapi.json</a>
+          <a href="/openapi.json">/openapi.json (JSON)</a>
         </p>
         <p>
           Both arms of every task above are served as JSON at

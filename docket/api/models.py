@@ -9,7 +9,11 @@ Every response carrying a count also carries `Coverage`, so no figure can be
 quoted without the snapshot and sample size it came from.
 """
 
+from typing import Literal
+
 import pydantic
+
+from ..marketplace.models import EvidenceModality
 
 # A reader judges; Docket does not. Names that would claim otherwise are refused at the model.
 BANNED_FIELD_NAMES = frozenset(
@@ -39,6 +43,9 @@ class Coverage(pydantic.BaseModel):
 
     snapshot_id: int
     captured_at: str | None
+    # Computed by the server from the exact snapshot this process is serving. A caller should
+    # not have to infer operational freshness from its own clock and a timestamp.
+    snapshot_age_seconds: int | None
     sampled: int
     expected: int
     dropped: int
@@ -85,12 +92,6 @@ class EndpointObservation(pydantic.BaseModel):
     detail: str | None
 
 
-class AgentDetail(AgentSummary):
-    endpoints: list[str]
-    observations: list[EndpointObservation]
-    coverage: Coverage
-
-
 class ListResponse(pydantic.BaseModel):
     items: list[AgentSummary]
     total: int
@@ -99,8 +100,14 @@ class ListResponse(pydantic.BaseModel):
     coverage: Coverage
 
 
+class RefreshStatus(pydantic.BaseModel):
+    status: Literal["ok", "refused", "error"]
+    timestamp: str
+
+
 class StatsResponse(pydantic.BaseModel):
     coverage: Coverage
+    refresh_status: RefreshStatus | None
     # A LOWER BOUND on the chain's size — the largest total any sweep recorded — and the scale
     # `coverage.complete` is silent about, since a snapshot swept from a filtered query is
     # complete the moment it reaches the end of that query. Read it as "at least this many were
@@ -140,6 +147,9 @@ class ServiceListing(pydantic.BaseModel):
     price_display: str
     price_atomic: int
     asset: str
+    paid_stock: bool
+    stock_status: str
+    admission: dict[str, bool]
 
 
 class CatalogueResponse(pydantic.BaseModel):
@@ -188,14 +198,34 @@ class ServiceCard(pydantic.BaseModel):
     price_display: str
     price_atomic: int
     asset: str
+    paid_stock: bool
+    stock_status: str
+    admission: dict[str, bool]
     typical_seconds: int
     activation: str
     activation_means: str
+    evidence_modality: EvidenceModality
     metrics: list[MetricFigure]
     agent_id: str | None
     identity: str
     hire_method: str
     hire_path: str
+
+
+class AgentDetail(AgentSummary):
+    """Registry facts plus Docket services explicitly bound to this identity.
+
+    `associated_services` is Docket's marketplace overlay, not something inferred from
+    the agent's registration. It is required so a missing join cannot look like an empty one.
+    Sweep observations and the latest requester-initiated probe stay separate so the latter
+    cannot read as part of the snapshot capture.
+    """
+
+    endpoints: list[str]
+    observations: list[EndpointObservation]
+    latest_on_demand_observation: EndpointObservation | None
+    coverage: Coverage
+    associated_services: list[ServiceCard]
 
 
 class ServiceDetail(ServiceCard):

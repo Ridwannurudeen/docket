@@ -29,6 +29,7 @@ for its own services and assigns none to anybody else's — see `CATEGORY_DECLAR
 import re
 from dataclasses import dataclass
 from enum import Enum
+from typing import Literal
 
 from ..hire.catalogue import SERVICES as HIRE_SERVICES
 
@@ -107,6 +108,13 @@ ACTIVATIONS: dict[str, str] = {
 # hired-vs-manual experiments at /advantage, both arms in full and hash-bound. Adding
 # a kind means adding something Docket actually publishes to point at.
 EVIDENCE_KINDS = frozenset({"advantage_task"})
+
+EvidenceModality = Literal[
+    "live_read", "preview", "historical", "paired_benchmark", "replay"
+]
+EVIDENCE_MODALITIES = frozenset(
+    {"live_read", "preview", "historical", "paired_benchmark", "replay"}
+)
 
 # How a share of a population gets written. Matched as words inside the unit rather than
 # as an exact value, because an allowlist of exact spellings is open at the back: "pct" is
@@ -202,7 +210,9 @@ class EvidenceRef:
 
     def __post_init__(self) -> None:
         if self.kind not in EVIDENCE_KINDS:
-            raise ValueError(f"evidence kind {self.kind!r} is not one of {sorted(EVIDENCE_KINDS)}")
+            raise ValueError(
+                f"evidence kind {self.kind!r} is not one of {sorted(EVIDENCE_KINDS)}"
+            )
         if not self.url.startswith("/"):
             raise ValueError(
                 f"evidence url {self.url!r} must be a path this origin serves: evidence a "
@@ -229,6 +239,7 @@ class ServiceRecord:
     agent_id: str | None
     registration_uri: str | None
     activation: str
+    evidence_modality: EvidenceModality
     metrics: tuple[Metric, ...]
     evidence: tuple[EvidenceRef, ...]
     limitations: str
@@ -243,6 +254,11 @@ class ServiceRecord:
             raise ValueError(
                 f"{self.service_id}: activation {self.activation!r} is not one of "
                 f"{sorted(ACTIVATIONS)}"
+            )
+        if self.evidence_modality not in EVIDENCE_MODALITIES:
+            raise ValueError(
+                f"{self.service_id}: evidence_modality {self.evidence_modality!r} is not one "
+                f"of {sorted(EVIDENCE_MODALITIES)}"
             )
         _require_text(self.limitations, "limitations", self.service_id)
 
@@ -274,6 +290,23 @@ class ServiceRecord:
     @property
     def asset(self) -> str:
         return self.offer.asset
+
+    @property
+    def paid_stock(self) -> bool:
+        return self.offer.paid_stock
+
+    @property
+    def stock_status(self) -> str:
+        return self.offer.stock_status
+
+    @property
+    def admission(self) -> dict[str, bool]:
+        return {
+            "fresh_paired_benchmark": self.offer.admission.fresh_paired_benchmark,
+            "cold_canary": self.offer.admission.cold_canary,
+            "decision_grade_presenter": self.offer.admission.decision_grade_presenter,
+            "true_settlement": self.offer.admission.true_settlement,
+        }
 
     @property
     def typical_seconds(self) -> int:

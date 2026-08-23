@@ -28,12 +28,15 @@ question, and nothing in its output should be presented as if it did.
 
 ```bash
 DOCKET=https://docket.gudman.xyz   # the public host; or the origin serving this file
-curl -s "$DOCKET/health"       # {"status":"ok","snapshot_id":3}
+curl -s "$DOCKET/health"       # liveness plus snapshot capture time and age
 ```
 
-No authentication, no key, no account, no wallet. Every path but one is GET and
-read-only; `POST /hire/{service_id}` is the one route that runs work, and it needs no
-credentials either. `GET $DOCKET/llms.txt` is the full reference;
+The public contract needs no authentication, key, account or wallet. Two routes are not
+read-only GETs: `POST /hire/{service_id}` runs work, and `POST /agents/{agent_id}/probe`
+repeats one pinned reachability probe and stores its on-demand observation separately. It is
+not part of the snapshot's coverage figures. The two POST routes share the public free-work
+allowance and need no credential. The private owner canary credential described
+in Workflow 4 is not a public API credential. `GET $DOCKET/llms.txt` is the full reference;
 `GET $DOCKET/openapi.json` is the generated schema. If a workflow is not in one of
 those, Docket does not serve it - say so rather than inventing an endpoint.
 
@@ -42,21 +45,28 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | Method | Path | Returns |
 | --- | --- | --- |
 | GET | `/` | Service identity and orientation links |
-| GET | `/health` | Docket's liveness and the snapshot id being served |
+| GET | `/health` | Liveness plus the served snapshot's id, capture time, and age in seconds |
+| GET | `/canary` | Durable canary history and the dynamic four-fact paid-stock decision |
 | GET | `/stats` | Every generated figure, inside its coverage |
 | GET | `/agents` | Filterable listing with `total`, pagination, coverage |
-| GET | `/agents/{agent_id}` | One agent, its endpoints, and every observation of them |
+| GET | `/agents/{agent_id}` | One agent, its endpoints, latest sweep observations, separately stored latest on-demand observation, and Docket-bound `associated_services` |
+| POST | `/agents/{agent_id}/probe` | Repeats the pinned probe for the latest stored A2A/MCP observation, only when that sweep or on-demand observation answered |
 | GET | `/categories` | BNB's four jobs, what each gets done, and how many services stand in it |
-| GET | `/services` | The services Docket runs, as cards; `?category=` narrows to one job |
-| GET | `/services/{service_id}` | One service in full: inputs, price, metrics, evidence, limitations, identity |
-| GET | `/hire` | The catalogue: every service, its input schema, price, typical seconds |
+| GET | `/services` | Service cards with paid-stock status; `?category=` narrows to one job |
+| GET | `/services/{service_id}` | Inputs, price-after-admission, admission facts, evidence modality, evidence, limitations, identity |
+| GET | `/registrations/{service_id}.json` | Byte-exact ERC-8004 document for one of the four category services |
+| GET | `/hire` | The catalogue: inputs, flat 0.50 USDT term, stock status and four admission facts |
 | POST | `/hire/{service_id}` | Runs the service; returns the result and a hash-bound receipt |
+| GET | `/compare` | One-clause jobs, declared and measured times, freshness, and evidence links side by side |
 | GET | `/escrow` | Escrow terms: addresses, dispute window, the ordered call sequence |
 | GET | `/escrow/job/{job_id}` | One job's live on-chain state and when it can be settled |
 | GET | `/advantage.json` | Three hired-vs-manual experiments, both arms in full, with deltas |
 | GET | `/advantage` | The same report as a page for a human |
 | GET | `/advantage/v2.json` | Hashed experiments with per-experiment registration provenance: every run, the nulls beside every figure, each falsifier's computed result |
 | GET | `/advantage/v2` | The same v2 report as a page for a human |
+| GET | `/advantage/v3.json` | Three pre-registered paired families and each artifact-derived execution or scoring state |
+| GET | `/advantage/v3` | The same startup-bound v3 report as a page for a human |
+| GET | `/pancake` | JSON source map by default; the live PancakeSwap evidence dashboard for HTML callers |
 | GET | `/llms.txt` | Full plain-text reference |
 | GET | `/skill.md` | This file |
 | GET | `/openapi.json` | Generated OpenAPI 3.1 schema |
@@ -78,7 +88,12 @@ Errors are always `{"error": {"code": "...", "message": "..."}}`. Branch on `cod
 `agent_not_found`, `not_found`, `method_not_allowed`, `invalid_query_parameter`,
 `no_snapshot`, and on the hire routes `service_not_found` (404), `invalid_json` (400),
 `missing_field` (422, the message names the field), `invalid_field` (422),
-`free_tier_exhausted` (402), `service_failed` (502).
+`payment_invalid`/`payment_not_verified`/`free_tier_exhausted` (402),
+`canary_unauthorized` (403; no work or charge attempted),
+`authorization_replay`/`authorization_spent`/`payment_in_progress`/
+`settlement_pending_reconciliation` (409), `service_failed`/`empty_result`/
+`payment_verification_unavailable`/`settlement_failed`/`settlement_unknown` (502),
+and `settlement_unavailable`/`service_de_admitted` (503).
 
 ## The rule: a number is never quoted alone
 
@@ -110,6 +125,11 @@ response at any status. Read the observations before believing the flag:
 curl -s "$DOCKET/agents/56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:129" \
   | python -c "import json,sys; d=json.load(sys.stdin); print(d['name'], d['observations'])"
 ```
+
+`observations` contains only the latest sweep observation for each probed URL.
+`latest_on_demand_observation` is either null or the latest requested re-probe, stored
+separately; it is not part of the snapshot's coverage figures. A probe response repeats
+that boundary in `coverage_note`.
 
 On snapshot 3 that agent's declared endpoint is `https://www.8004scan.io/create` -
 the block explorer's own page - which answered `308`. It is a true `responded`
@@ -158,9 +178,15 @@ Read `coverage` first, every time:
 
 ```json
 {"snapshot_id": 3, "captured_at": "2026-08-07T17:51:02.942750+00:00",
- "sampled": 506, "expected": 506, "dropped": 0, "complete": true,
+ "snapshot_age_seconds": 675000, "sampled": 506, "expected": 506,
+ "dropped": 0, "complete": true,
  "population": null, "filter": null}
 ```
+
+`snapshot_age_seconds` is computed by the server from this response's exact
+`captured_at`; read it directly instead of implying that the served observations are
+fresh. `GET /health` exposes the same capture time and current age for the process's
+served snapshot.
 
 - `complete: false` or `dropped > 0` means rows are missing and every count in that
   response understates its population. Say so when you quote it.
@@ -204,13 +230,18 @@ free tier serves the work on the first request.
 curl -s "$DOCKET/hire"
 curl -s -X POST "$DOCKET/hire/range-doctor" \
   -H 'content-type: application/json' \
-  -d '{"wallet":"0x451871A1753903FB8fdd64a6B838E95aB8D5B80f","limit":5}'
+  -d '{"wallet":"0xe55816904796341bf8535e25f6c8b647927fc946","token_id":7141050,"declared_position_value_usd":50.55,"estimated_recenter_cost_usd":1.00,"decision_horizon_days":30}'
 ```
 
 `GET /hire` carries each service's `input_schema`, so build the body from that rather
-than from this example. `limit` is optional and bounds how many of the wallet's
-position NFTs are read, newest first; the result reports `positions_held` and
-`positions_examined`, so say what was left out when a read was bounded.
+than from this example. A field can carry `default`; `example_note` explains when that
+default is Docket's controlled input, and `advanced: true` marks a reproducibility field
+the page groups under its disclosure. The controlled Range body above is prefilled by the
+page; replace the wallet and position economics to run another position. `limit` is
+optional and bounds how many of the wallet's position NFTs are read, newest first; it has
+no form default because it cannot be combined with the controlled token_id. The result
+reports `positions_held` and `positions_examined`, so say what was left out when a read
+was bounded.
 
 The response is `{"result": {...}, "receipt": {...}}`. Verify the receipt before
 quoting it - the hashes are plain SHA-256 over canonical JSON and need none of
@@ -230,19 +261,45 @@ assert digest(response["result"]) == receipt["output_hash"]
 `ensure_ascii=False` is part of the recipe: with `ensure_ascii=True` a non-ASCII
 payload hashes to something else.
 
-`receipt["payment"]["status"]` is `free_tier` or `verified_unsettled`. Report the
-second one precisely: it means Docket checked an EIP-712 signature - right recipient,
-right amount, chain 56, unexpired, recovering to its declared payer - and **did not
-settle it**. Nothing was broadcast, no balance was read, nothing moved; the receipt
-says `"settlement": "not performed by Docket"`. Never describe such a hire as settled.
+Every catalogue entry carries `paid_stock`, `stock_status` and the four `admission`
+facts: fresh paired benchmark, cold canary, decision-grade presenter and true
+settlement. They are one dynamic gate, recomputed from the latest durable canary run on
+every catalogue, service and hire decision. Only a latest `passed` run finished within
+36 hours opens `cold_canary`; absent, running, failed, `not_yet_exercised` or stale
+latest runs close it. `GET /canary` returns the newest-first history, the 129600-second
+limit, the resulting four facts and `paid_stock`; its history is empty before the first
+run. Each run states its target, start/finish times, verdict and structured checks, and
+each check carries what was checked, observed and used as evidence. A price is a
+comparison term, not an admission. Current Grid and Health entries are previews,
+SOLVENT is research evidence, Warden is beta, and Range is a candidate; none is paid
+stock, so none should be presented as **Pay and hire**. A closed gate removes Pay and
+hire, not the free verified example or free preview.
 
-Where a payment recipient is configured, the free tier is an allowance of 20 hires per
-caller per hour and it counts every hire that ran, authorization or not. A request
-Docket could not read - unknown service, non-JSON body, missing or unparseable field -
-costs nothing, so a fumbled request cannot lock out the next caller sharing your
-address. Spending the allowance returns `402` carrying an x402 v2 challenge
-(`x402Version`, `accepts`) alongside the error object. Where no recipient is configured
-there is no allowance at all.
+For an unadmitted service, sending a payment header does not consume it: the receipt
+uses `not_for_sale` with `authorization_used: false`. Free previews use `free_tier`.
+Only an admitted public request may return `settled`; the private governing-canary
+bootstrap described below is the sole exception. Either path still requires local
+exact-payment validation, facilitator `/verify`, a non-empty human-readable result,
+durable payment/input/output binding and one facilitator `/settle` call. A settled receipt
+carries the payer, recipient, asset, exact amount, nonce, payment id, transaction id
+and network. An exact identical settled replay is rejected with 409
+`authorization_replay`, without rerunning work or settlement. Using its nonce for
+different work is rejected with the same code.
+
+The owner-operated governing canary alone may send `X-Docket-Canary` so it can measure
+the paid path before that very measurement opens `cold_canary`. Never ask for, print,
+store, copy or invent the header value: the process reads it from a private file, does
+not return it, and canary evidence excludes it. The header opens only that measured
+payment path; it does not alter admission or publish `paid_stock: true`. A rejected
+value returns 403 `canary_unauthorized` before work or payment.
+
+The owner-configured deployment uses b402 with BSC USDT and the RelayerV3 proxy at
+`0xE1Af7DaEa624bA3B5073f24A6Ea5531434D82d88`. Its seven-field authorization signs the
+token as well as payer, recipient, amount, window and nonce against the `B402`/`1`, chain
+56, Relayer-proxy domain. The payer must approve that proxy for enough USDT. Live
+settlement remains disabled unless the owner explicitly enables it; a reported
+transaction is not independent proof of chain finality. A lost `/settle` response
+becomes `settlement_unknown` and is never retried automatically.
 
 ## Workflow 5: cite the advantage report without overstating it
 
@@ -297,6 +354,28 @@ object for that reason. Never describe the replay as a trade, a return or a back
 result: nothing was sent, and the series is a centralised venue's while the plan
 addresses an on-chain pair.
 
+### The v3 report: registered paired work, with artifact-derived state
+
+```bash
+curl -s "$DOCKET/advantage/v3.json"
+```
+
+The reports are additive and none supersedes another. v1 is the original paired eligibility
+artifact at n=1. v2 is agent-versus-computed-null armour with no human arm. v3 is the
+pre-registered paired evaluation scored by two prompt-blinded model seats run by one
+operator.
+
+Read `summary.states` before describing v3. Today all three families are
+`registered_waiting_for_inputs`: every registered `inputs_sha256` is empty, no input or
+run artifact exists, no input is locked, and no arm has run. The only later state names are
+`locked_not_run`, `running`, `complete_unscored`, `refuted`, and `not_refuted`. Never turn
+`not_refuted` into "proved".
+
+The process builds one v3 payload at startup and renders `/advantage/v3` from that exact
+object. Use the JSON for machine work and the page for a reader; neither changes until the
+process restarts. Do not infer missing outputs, score sheets, mappings, costs, or falsifier
+results from a registration. They appear only when the corresponding artifacts exist.
+
 ## Workflow 6: quote the escrow rail without promising a fast settlement
 
 ```bash
@@ -343,6 +422,10 @@ guessed. Services are ordered by service id and by nothing else - there is no ra
 here to read as one - and `?category=` accepts only the four slugs, refusing anything
 else with `422 invalid_query_parameter` naming them.
 
+If the user starts from an agent instead of a job, read `/agents/{agent_id}` and follow
+its `associated_services` cards to the same `hire_path`. That array is Docket's explicit
+marketplace binding. It is not a service or category claimed by the ERC-8004 identity.
+
 Three things to carry into any answer built on this layer:
 
 - **A category is Docket's declaration about a service Docket runs, not a measurement.**
@@ -357,12 +440,24 @@ Three things to carry into any answer built on this layer:
   carry a caveat about their own name: `health_factor` is named after a figure Venus does
   not publish, so `health-guard` repeats Venus's liquidity and shortfall verbatim and
   derives a ratio with its method stated inline; and `yield_optimisation` invites "the
-  highest APR", so `yield-router` states the set that superlative is bounded by.
+  highest APR", so `yield-router` states the set that superlative is bounded by. Its
+  comparison needs no wallet; its optional swap draft requires `wallet`, `token_in`,
+  `token_out`, `amount`, and `cap` together.
 - **`identity` and `agent_path` are different facts.** `agent_id: null` means no
   ERC-8004 identity was ever registered for that service. `agent_id` set with
   `agent_path: null` means the identity is registered on chain and is not in the
   snapshot Docket serves - the default sweep only covers agents with feedback - so there
   are no observations here, and that is a statement about Docket's index, not the agent.
+
+Every service card carries `evidence_modality` from the closed vocabulary `live_read`,
+`preview`, `historical`, `paired_benchmark`, or `replay`. Current cards use `live_read`
+for Range and Warden, `preview` for Grid, Health and Yield, and `historical` for SOLVENT.
+
+Use `GET /compare` when the user needs the six services side by side. Its `job` is the
+one-clause `job_summary`, `typical_seconds_basis` is `declared`, and a recorded pair's
+`measured.basis` says `measured, n=1, YYYY-MM-DD`. `freshness` dates the recorded read or
+states that it is read live at hire time. `evidence` is either
+`{available: true, url, label}` or `{available: false, reason}`, never an empty cell.
 
 Every figure under `metrics` carries `window`, `observed_at`, `method`, and its
 denominator where it has one. `display` is the figure as text with the denominator

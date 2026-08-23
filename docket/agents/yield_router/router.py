@@ -60,8 +60,9 @@ MOVE_ASSETS = frozenset(
 )
 
 ORDERING = (
-    "net_fee_apr descending — an observed 24h rate, named here so the order is read as the "
-    "metric it sorts on rather than as an opinion about which pool to be in"
+    "net_fee_apr descending, then lowercase pool id ascending for exact ties — the observed "
+    "24h metric and deterministic tie-break are named so source order cannot choose a "
+    "destination"
 )
 RATE_WINDOW = (
     "24h of fees annualised by x365, one observation and not a forecast: a quiet day reads "
@@ -171,7 +172,8 @@ def _number(pool: dict, field: str) -> float:
 
 def _pair(pool: dict) -> str:
     return "/".join(
-        str((pool.get(side) or {}).get("symbol") or "?") for side in ("token0", "token1")
+        str((pool.get(side) or {}).get("symbol") or "?")
+        for side in ("token0", "token1")
     )
 
 
@@ -182,7 +184,9 @@ def _quotable(pool: dict) -> bool:
     for the `current` pool — which is supplied by the caller and does not pass through the
     gate. A pool the caller is already in can be one the gate would have turned away.
     """
-    return pool.get("feeUSD24h") is not None and pool.get("protocolFeeUSD24h") is not None
+    return (
+        pool.get("feeUSD24h") is not None and pool.get("protocolFeeUSD24h") is not None
+    )
 
 
 def _candidate(pool: dict, baseline: float | None) -> Candidate:
@@ -211,11 +215,12 @@ def compare(current: dict, universe) -> list[Candidate]:
 
     Ordered by `net_fee_apr` descending. That order is an observed metric and the payload
     says which one — an order with no stated basis is the one a reader takes for Docket's
-    opinion. Ties keep the source's order, so the result is deterministic for fixed input.
+    opinion. Ties use lowercase pool id ascending, so the destination rule is independent
+    of source order and matches the registered v3 contract.
     """
     baseline = net_fee_apr(current) if _quotable(current) else None
     candidates = [_candidate(pool, baseline) for pool in universe.included]
-    return sorted(candidates, key=lambda c: -c.net_fee_apr)
+    return sorted(candidates, key=lambda c: (-c.net_fee_apr, c.pool_id.lower()))
 
 
 def break_even(
@@ -315,7 +320,8 @@ def plan_move(
             )
     destination = destinations[candidate.pool_id]
     held = {
-        str((destination.get(side) or {}).get("id") or "").lower() for side in ("token0", "token1")
+        str((destination.get(side) or {}).get("id") or "").lower()
+        for side in ("token0", "token1")
     }
     if str(token_out).lower() not in held:
         raise ValueError(
@@ -440,6 +446,10 @@ class YieldRouterPreview:
                 }
             )
 
+        top_row = rows[0] if rows else None
+        top_break_even = None if top_row is None else top_row["break_even"]
+        move = bool(top_break_even and top_break_even["within_horizon"])
+
         drafted: list[dict] = []
         if wallet is not None:
             if not candidates:
@@ -448,16 +458,18 @@ class YieldRouterPreview:
                     f"{self.universe.observed_at} came out empty, so there is no destination "
                     "and no comparison behind one"
                 )
-            top = candidates[0]
+            top_candidate = candidates[0]
             # The draft takes the top observed rate, which may be one of the candidates the
             # comparison just labelled as not paying for itself inside the horizon. That
             # label travels with the action rather than sitting two keys away in a list, so
             # the draft cannot read as endorsed by a comparison that said the opposite.
-            chosen = next(row for row in rows if row["pool_id"] == top.pool_id)
+            chosen = next(
+                row for row in rows if row["pool_id"] == top_candidate.pool_id
+            )
             drafted = [
                 action.as_record() | {"break_even": chosen["break_even"]}
                 for action in plan_move(
-                    top,
+                    top_candidate,
                     self.universe,
                     token_in=token_in,
                     token_out=token_out,
@@ -473,6 +485,8 @@ class YieldRouterPreview:
             "ordering": ORDERING,
             "universe": self.universe.as_record(),
             "actions": drafted,
+            "decision": "MOVE" if move else "STAY",
+            "destination_pool_id": top_row["pool_id"] if move else None,
             "submitted": False,
             "why_not_submitted": PREVIEW_REASON,
         }

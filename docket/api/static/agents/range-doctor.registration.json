@@ -1,0 +1,42 @@
+{
+  "active": true,
+  "agent_type": "rebalancing",
+  "categories": [
+    "rebalancing"
+  ],
+  "description": "A read-only diagnosis of the PancakeSwap v3 liquidity positions a BSC wallet holds or has staked: for each one, whether the current tick sits inside its range and where in that range it sits, the pool's gross and protocol-adjusted net 24h fee rates when its reported figures clear a plausibility gate, and conditional wait and recenter paths. Name one token id and declare its USD value and estimated recenter cost to add fixed-notional dollar effects and cost-only break-even; those two inputs are labelled as the caller's rather than derived from an unverified price feed. Every finding carries the numbers it was computed from, so you can check it against the chain yourself. Nothing is signed, approved, or moved.",
+  "documentation": "https://docket.gudman.xyz/llms.txt",
+  "hireUrl": "https://docket.gudman.xyz/hire/range-doctor",
+  "image": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjAgMTIwIj48cmVjdCB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgcng9IjE4IiBmaWxsPSIjMGIxMjIwIi8+PHJlY3QgeD0iMjQiIHk9IjI0IiB3aWR0aD0iNzIiIGhlaWdodD0iNzIiIHJ4PSIxMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjRmMWU4IiBzdHJva2Utd2lkdGg9IjgiLz48cGF0aCBkPSJNNDAgNDhoNDBNNDAgNjRoMjQiIHN0cm9rZT0iI2Y0ZjFlOCIgc3Ryb2tlLXdpZHRoPSI4IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48Y2lyY2xlIGN4PSI3NiIgY3k9Ijc0IiByPSI3IiBmaWxsPSIjZjRiODYwIi8+PC9zdmc+",
+  "limitations": "PancakeSwap v3 on BSC only, and read-only: nothing is signed, approved or moved. It reads ticks rather than prices, and a position's uncollected fees come from tokensOwed, which is stale until something touches the position — so that figure can read low. One hire reads a bounded slice of a wallet's positions, newest first, and returns positions_held beside positions_examined so a truncated read announces itself. Closed positions are counted and not detailed. Every next step it states is conditional on a belief it names, and acting on any of them is the reader's decision.",
+  "name": "Range Doctor",
+  "registrations": [],
+  "services": [
+    {
+      "description": "A read-only diagnosis of the PancakeSwap v3 liquidity positions a BSC wallet holds or has staked: for each one, whether the current tick sits inside its range and where in that range it sits, the pool's gross and protocol-adjusted net 24h fee rates when its reported figures clear a plausibility gate, and conditional wait and recenter paths. Name one token id and declare its USD value and estimated recenter cost to add fixed-notional dollar effects and cost-only break-even; those two inputs are labelled as the caller's rather than derived from an unverified price feed. Every finding carries the numbers it was computed from, so you can check it against the chain yourself. Nothing is signed, approved, or moved.",
+      "endpoint": "https://docket.gudman.xyz/services/range-doctor",
+      "name": "range-doctor",
+      "protocol": "Web"
+    }
+  ],
+  "skills": [
+    {
+      "description": "A read-only diagnosis of the PancakeSwap v3 liquidity positions a BSC wallet holds or has staked: for each one, whether the current tick sits inside its range and where in that range it sits, the pool's gross and protocol-adjusted net 24h fee rates when its reported figures clear a plausibility gate, and conditional wait and recenter paths. Name one token id and declare its USD value and estimated recenter cost to add fixed-notional dollar effects and cost-only break-even; those two inputs are labelled as the caller's rather than derived from an unverified price feed. Every finding carries the numbers it was computed from, so you can check it against the chain yourself. Nothing is signed, approved, or moved.",
+      "id": "range-doctor",
+      "name": "Range Doctor"
+    }
+  ],
+  "supportedTrust": [
+    "reputation"
+  ],
+  "tags": [
+    "range-doctor",
+    "bsc",
+    "erc-8004"
+  ],
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "updatedAt": "2026-08-22T14:57:44Z",
+  "url": "https://docket.gudman.xyz/services/range-doctor",
+  "version": "0.1.0",
+  "x402Support": true
+}

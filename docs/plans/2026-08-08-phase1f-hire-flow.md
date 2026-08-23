@@ -18,7 +18,7 @@
 - **No verdict language**, consistent with the rest of Docket. A receipt records what was delivered; it does not assert the work was correct or the agent is good.
 - Rate limiting on the free tier is per-IP, bounded, and states its limit in the 429 body so a caller can back off intelligently rather than guess.
 - No Claude/Anthropic attribution; no Co-Authored-By. Stage by explicit filename. Do not push.
-- Repo `C:\Users\gudma\OneDrive\Desktop\GITHUB-FILES\docket`, run with `./.venv/Scripts/python`.
+- Repo `.`, run with `./.venv/Scripts/python`.
 
 ## File Structure
 

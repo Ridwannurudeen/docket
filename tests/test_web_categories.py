@@ -13,6 +13,7 @@ staleness bug these pages exist to avoid.
 """
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -29,7 +30,9 @@ PAGES = (
     "agent.html",
     "advantage.html",
     "advantage-v2.html",
+    "advantage-v3.html",
     "service.html",
+    "pancake.html",
 )
 
 
@@ -63,7 +66,15 @@ def _read(name: str) -> str:
 
 
 def test_every_page_of_the_journey_is_served_as_html(client):
-    for path in ("/", "/research", "/service", "/agent", "/advantage"):
+    for path in (
+        "/",
+        "/research",
+        "/service",
+        "/agent",
+        "/advantage",
+        "/advantage/v2",
+        "/advantage/v3",
+    ):
         resp = client.get(path, headers={"accept": "text/html"})
         assert resp.status_code == 200, path
         assert resp.headers["content-type"].startswith("text/html"), path
@@ -98,7 +109,11 @@ def test_the_home_leads_with_the_jobs_and_keeps_the_evidence_beneath_them(client
     not goes: every region the coverage discipline lives in is still on the page."""
     index = _read("index.html")
     jobs = index.index('data-region="jobs"')
-    for region in ('data-region="stats"', 'data-region="slice"', 'data-region="families"'):
+    for region in (
+        'data-region="stats"',
+        'data-region="slice"',
+        'data-region="families"',
+    ):
         assert region in index, region
         assert jobs < index.index(region), f"{region} sits above the jobs"
 
@@ -123,15 +138,24 @@ def test_a_category_with_nothing_in_it_renders_the_api_s_own_empty_sentence(clie
     """
     app_js = _read("app.js")
     assert "category.empty" in app_js or "entry.empty" in app_js
-    assert EMPTY_CATEGORY not in _read("index.html"), "the page authors its own empty state"
-    assert all(c["empty"] is None for c in client.get("/categories").json()["categories"])
+    assert EMPTY_CATEGORY not in _read("index.html"), (
+        "the page authors its own empty state"
+    )
+    assert all(
+        c["empty"] is None for c in client.get("/categories").json()["categories"]
+    )
 
 
 def test_no_page_promises_stock_it_does_not_have(client):
     """ "Coming soon" over a bare shelf is the failure this stage was told to avoid."""
     for path in WEB_DIR.glob("*"):
         text = path.read_text(encoding="utf-8").lower()
-        for promise in ("coming soon", "launching soon", "available soon", "in beta soon"):
+        for promise in (
+            "coming soon",
+            "launching soon",
+            "available soon",
+            "in beta soon",
+        ):
             assert promise not in text, f"{path.name} promises: {promise}"
 
 
@@ -171,6 +195,154 @@ def test_the_service_page_builds_its_form_from_the_declared_input_schema(client)
     # The one declared string field that carries newlines is warden-scan's payload, and
     # a single-line input cannot hold one.
     assert "textarea" in app_js.lower()
+    assert 'field.type === "number"' in app_js
+    assert 'field.type === "array"' in app_js
+    assert "data-array-control" in app_js
+
+
+def test_the_service_form_keeps_integer_arrays_and_large_integers_exact(tmp_path):
+    """A grid order must carry the exact indexes and atomic-unit integers the reader typed."""
+    module = tmp_path / "app.mjs"
+    module.write_text(_read("app.js"), encoding="utf-8")
+    script = tmp_path / "form-contract.mjs"
+    script.write_text(
+        """
+globalThis.document = {
+  body: { dataset: {} },
+  querySelector: () => null,
+  querySelectorAll: () => [],
+};
+globalThis.window = {};
+const { encodeJSON, inputControl, readForm } = await import("./app.mjs");
+
+const arrayMarkup = inputControl("filled", { type: "array", required: false });
+if (!arrayMarkup.includes("data-array-control") || !arrayMarkup.includes('type="number"')) {
+  throw new Error("filled is not rendered as an integer-array control");
+}
+
+const scalar = { value: "9007199254740993123456789" };
+const items = [{ value: "2" }, { value: "9007199254740993" }];
+const form = {
+  elements: { namedItem: (name) => name === "lower" ? scalar : null },
+  querySelector: (selector) => selector.includes("filled")
+    ? { querySelectorAll: () => items }
+    : null,
+};
+const record = {
+  input_schema: {
+    lower: { type: "integer", required: true },
+    filled: { type: "array", items: { type: "integer" }, required: false },
+  },
+};
+const body = readForm(record, form);
+const encoded = encodeJSON(body);
+if (encoded !== '{"lower":9007199254740993123456789,"filled":[2,9007199254740993]}') {
+  throw new Error(`integer precision or array shape changed: ${encoded}`);
+}
+""",
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        ["node", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_the_worked_example_replaces_edited_regular_and_advanced_fields(tmp_path):
+    """The example action submits schema defaults, never values left in the form."""
+    module = tmp_path / "app.mjs"
+    module.write_text(_read("app.js"), encoding="utf-8")
+    script = tmp_path / "worked-example.mjs"
+    script.write_text(
+        """
+globalThis.document = {
+  body: { dataset: {} },
+  querySelector: () => null,
+  querySelectorAll: () => [],
+};
+globalThis.window = {};
+const { encodeJSON, submissionBody } = await import("./app.mjs");
+
+const controls = {
+  wallet: { value: "edited-wallet" },
+  declared_position_value_usd: { value: "999.99" },
+  observation_block: { value: "117443373" },
+  decision_horizon_days: { value: "365" },
+};
+const arrayItems = {
+  innerHTML: "",
+  querySelectorAll: () => [{ value: "7" }, { value: "8" }],
+};
+const arrayControl = {
+  dataset: { nextIndex: "9" },
+  querySelector: (selector) => selector === "[data-array-items]" ? arrayItems : null,
+  querySelectorAll: (selector) => selector === "input" ? arrayItems.querySelectorAll() : [],
+};
+const form = {
+  elements: { namedItem: (name) => controls[name] || null },
+  querySelector: (selector) => selector.includes("filled") ? arrayControl : null,
+};
+const record = {
+  input_schema: {
+    wallet: { type: "string", required: true, default: "controlled-wallet" },
+    declared_position_value_usd: { type: "number", required: false, default: 50.55 },
+    observation_block: { type: "integer", required: false, advanced: true },
+    decision_horizon_days: { type: "integer", required: false, default: 30, advanced: true },
+    filled: {
+      type: "array",
+      items: { type: "integer" },
+      required: false,
+      default: [2, "9007199254740993"],
+      advanced: true,
+    },
+  },
+};
+
+const runButton = { matches: () => false };
+const edited = encodeJSON(submissionBody(record, form, runButton));
+if (edited !== '{"wallet":"edited-wallet","declared_position_value_usd":999.99,"observation_block":117443373,"decision_horizon_days":365,"filled":[7,8]}') {
+  throw new Error(`ordinary submission stopped reading the form: ${edited}`);
+}
+
+const exampleButton = { matches: (selector) => selector === "[data-example]" };
+const example = encodeJSON(submissionBody(record, form, exampleButton));
+if (example !== '{"wallet":"controlled-wallet","declared_position_value_usd":50.55,"decision_horizon_days":30,"filled":[2,9007199254740993]}') {
+  throw new Error(`worked example used edited fields: ${example}`);
+}
+if (controls.wallet.value !== "controlled-wallet" ||
+    controls.declared_position_value_usd.value !== "50.55" ||
+    controls.observation_block.value !== "" ||
+    controls.decision_horizon_days.value !== "30") {
+  throw new Error("worked example did not reset every scalar control");
+}
+if (!arrayItems.innerHTML.includes('value="2"') ||
+    !arrayItems.innerHTML.includes('value="9007199254740993"') ||
+    arrayControl.dataset.nextIndex !== "2") {
+  throw new Error("worked example did not reset the advanced array control");
+}
+""",
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        ["node", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "submissionBody(record, form, event.submitter)" in _read("app.js")
+
+
+def test_the_agent_page_exposes_dockets_bound_service_with_the_same_hire_gating(client):
+    app_js = _read("app.js")
+    assert "detail.associated_services" in app_js
+    assert "serviceCard(service)" in app_js
+    assert "card.paid_stock" in app_js
 
 
 def test_the_service_page_shows_the_receipt_it_was_handed(client):
@@ -240,11 +412,19 @@ def test_the_research_page_says_docket_assigns_these_agents_no_category(client):
 # ------------------------------------------------------------------ every page
 
 
-def test_every_page_carries_the_same_navigation(client):
+def test_every_page_carries_exactly_one_primary_destination_per_section(client):
+    """Report versions live inside one Advantage section, never as competing sections."""
     for name in PAGES:
         text = _read(name)
-        for href in ('href="/"', 'href="/research"', 'href="/advantage"', 'href="/llms.txt"'):
-            assert href in text, f"{name} is missing {href}"
+        nav = re.search(r'<nav class="site-nav"[^>]*>(.*?)</nav>', text, re.S)
+        assert nav, f"{name} has no primary navigation"
+        assert re.findall(r'href="([^"]+)"', nav.group(1)) == [
+            "/",
+            "/pancake",
+            "/research",
+            "/advantage",
+            "/llms.txt",
+        ], f"{name} has competing or out-of-order primary destinations"
 
 
 def test_every_page_declares_its_language_and_viewport(client):
@@ -259,7 +439,9 @@ def test_every_page_keeps_the_no_verdict_footer(client):
         assert "observations, not verdicts" in _read(name).lower(), name
 
 
-def test_the_stylesheet_and_module_are_versioned_so_a_returning_reader_gets_them(client):
+def test_the_stylesheet_and_module_are_versioned_so_a_returning_reader_gets_them(
+    client,
+):
     """Measured, not guessed: a browser that had already loaded this site served the old
     /static/style.css against the new markup, because nothing about the URL had changed —
     the job grid lost its layout and the run form its controls. The version query is what
@@ -282,4 +464,413 @@ def test_every_page_asks_for_the_same_version_of_the_same_two_files():
     for name in PAGES:
         text = _read(name)
         tokens.update(re.findall(r'/static/(?:style\.css|app\.js)\?v=([^"]+)', text))
-    assert len(tokens) == 1, f"the site asks for several asset versions at once: {tokens}"
+    assert len(tokens) == 1, (
+        f"the site asks for several asset versions at once: {tokens}"
+    )
+
+
+# ------------------------------------------------- served claims vs served reality
+
+
+def test_the_homepage_does_not_claim_a_recorded_run_for_services_that_have_none():
+    """The shop front cannot promise evidence the shelf does not carry.
+
+    The hero used to read "Every service here is one Docket runs itself and can show a
+    recorded run behind it" while grid-operator, yield-router and health-guard each carried
+    zero metrics and zero evidence. Every test passed: nothing tied the sentence to the
+    registry it described. This is that tie.
+    """
+    from docket.marketplace.registry import all_records
+
+    without_a_run = sorted(r.service_id for r in all_records() if not r.metrics)
+    hero = _read("index.html")
+    if without_a_run:
+        assert (
+            "Every service here is one Docket runs itself and can show a recorded run"
+            not in hero
+        ), (
+            f"the homepage claims a recorded run for every service, but {without_a_run} have none"
+        )
+        assert "and some do not yet" in hero, (
+            "services without a recorded run exist, so the homepage has to say so"
+        )
+
+
+def test_the_v1_report_points_at_v2_and_says_which_one_answers_the_sponsor(client):
+    """v2 was reachable only from itself: the served v1 page carried no "v2" string at all,
+    and the homepage linked the JSON endpoint rather than the page. The report a reader is
+    sent to must also tell them what the other one is, or the pair reads as one superseding
+    the other — which is the opposite of what these two are.
+    """
+    v1 = _read("advantage.html")
+    assert 'href="/advantage/v2"' in v1, "the v1 report does not link the v2 report"
+    assert "agent-versus-computed-null armour with no human arm" in v1, (
+        "v1 links v2 without saying that v1 is the one with the human arm"
+    )
+    # And it has to survive being served, not merely sit in the file.
+    served = client.get("/advantage").text
+    assert "/advantage/v2" in served
+
+
+def test_each_report_body_links_the_other_two_and_keeps_all_three_additive(client):
+    roles = (
+        "original paired eligibility artifact at n=1",
+        "agent-versus-computed-null armour with no human arm",
+        "pre-registered paired evaluation scored by two prompt-blinded model seats run by one operator",
+    )
+    pages = {
+        "/advantage": _read("advantage.html"),
+        "/advantage/v2": _read("advantage-v2.html"),
+        "/advantage/v3": _read("advantage-v3.html"),
+    }
+
+    for path, body in pages.items():
+        for sibling in pages:
+            if sibling != path:
+                assert f'href="{sibling}"' in body, (path, sibling)
+        assert "additive" in body.lower(), path
+        assert "none supersedes another" in body.lower(), path
+        for role in roles:
+            assert role in body, (path, role)
+        assert client.get(path, headers={"accept": "text/html"}).status_code == 200
+
+
+# ------------------------------------------------------- the paid answer, as a person reads it
+
+
+def test_the_result_is_presented_before_it_is_dumped():
+    """A buyer paid for an answer, not a payload.
+
+    `paintOutcome` used to put `JSON.stringify(result)` straight into a <pre>, which made
+    every service look identical and left the reader doing the interpreting they had just
+    paid to have done. The raw response stays — it is the evidence — but behind a <details>
+    rather than in front of the finding.
+    """
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    assert "const PRESENTERS = {" in js
+    assert '"range-doctor": presentRangeDoctor' in js
+    assert "function presentResult(record, answer)" in js
+    assert "answer.receipt" in js
+    # The whole answer stays reachable, including the receipt that supplies proof.
+    assert '<details class="raw">' in js
+    assert "exactly as the service returned it" in js
+    assert "JSON.stringify(answer, null, 2)" in js
+
+
+def test_the_range_presenter_dispatches_on_the_id_the_service_api_returns():
+    """ServiceDetail exposes service_id; record.id made every real hire use raw JSON."""
+    js = _read("app.js")
+
+    assert "PRESENTERS[record.service_id]" in js
+    assert 'record.service_id === "range-doctor"' in js
+
+
+def test_range_doctor_renders_all_eight_sections_in_the_required_order():
+    """A per-position card interleaves facts and actions; TermiX requires global ordering."""
+    js = _read("app.js")
+    presenter = js.split("function presentRangeDoctor", 1)[1].split(
+        "const STATUS_WORDS", 1
+    )[0]
+    headings = (
+        "1. Decision",
+        "2. Verifiable facts",
+        "3. Economic consequence",
+        "4. Conditional actions",
+        "5. Coverage",
+        "6. Measured value",
+        "7. Proof",
+        "8. Primary limitation",
+    )
+
+    offsets = [presenter.index(heading) for heading in headings]
+    assert offsets == sorted(offsets)
+    assert "receipt.input_hash" in presenter
+    assert "receipt.output_hash" in presenter
+    assert "receipt.delivered_at" in presenter
+    assert "notice notice-warn" in presenter
+
+
+def test_an_empty_range_doctor_result_leads_with_a_decision_and_keeps_coverage():
+    """The single most damaging thing this product can show a judge.
+
+    The live evidence wallet returns no positions — 21 held, all 21 closed — and a reader
+    who sees an empty list with nothing above it concludes their positions are fine. The
+    presenter has to decide first, then keep the coverage sentence and say what an empty
+    answer is not.
+    """
+    js = _read("app.js")
+    empty_branch = js.split("function presentRangeDoctor", 1)[1].split(
+        "const STATUS_WORDS", 1
+    )[0]
+    # Collapsed: the formatter chooses where these sentences wrap, and the claim under test
+    # is about what they say, not about where the line breaks fall.
+    flat = re.sub(r"\s+", " ", empty_branch)
+    assert flat.index("1. Decision") < flat.index("5. Coverage")
+    assert "result.decision" in flat
+    assert "result.coverage" in flat
+    # A COMPLETE scan that found nothing may say so — and must still refuse to be read as
+    # a clean bill of health.
+    assert "No position-specific facts are available" in flat
+    assert "No position-level economic consequence is available" in flat
+    assert "No position-specific action is available" in flat
+    # A BOUNDED scan may not say so at all: unread positions are unknown, not absent, and
+    # the page must not turn "we stopped early" into "you have none".
+    assert "scan_complete === false" in flat
+    assert "unread positions are unknown, not absent" in flat
+
+
+def test_unrun_v3_and_unadmitted_payment_are_named_as_missing_not_filled():
+    """Old v1 timing and a free-preview receipt must not masquerade as current paid proof."""
+    presenter = (
+        _read("app.js")
+        .split("function presentRangeDoctor", 1)[1]
+        .split("const STATUS_WORDS", 1)[0]
+    )
+    flat = re.sub(r"\s+", " ", presenter)
+
+    assert "not admitted to paid stock" in flat
+    assert "preregistered v3 paired report has not run" in flat
+    assert "Settlement transaction / payment ID" in flat
+    assert "Unique settlement nonce" in flat
+    assert 'payment.status === "settled"' in flat
+    assert "exact-once settlement is not built" not in flat
+    assert "43.063" not in flat
+    assert "528.31" not in flat
+
+
+def test_the_presenter_never_asserts_a_rate_is_a_forecast():
+    """The no-verdict discipline survives the presentation pass: the same figures, ordered
+    for a reader, with the same thing said about what they are not."""
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    assert "An observation, not a forecast." in js
+    assert "does not prove chain finality" in js
+
+
+def test_pay_and_hire_is_rendered_only_for_admitted_paid_stock():
+    """A price is visible for comparison, but preview/research/beta stock cannot acquire
+    a sale CTA until the API says all four admission facts passed."""
+    js = re.sub(r"\s+", " ", _read("app.js"))
+
+    assert "card.paid_stock" in js
+    assert "record.paid_stock" in js
+    assert "Pay ${escapeHTML(card.price_display)} and hire" in js
+    assert "Price after admission" in js
+    assert "Paid-stock status" in js
+
+
+def test_a_service_with_no_presenter_still_shows_its_payload():
+    """Five of six services have no presenter yet. They must degrade to the old behaviour,
+    not to an empty region."""
+    js = re.sub(r"\s+", " ", (WEB_DIR / "app.js").read_text(encoding="utf-8"))
+    assert (
+        "if (!presenter) return `<pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>`;"
+    ) in js
+
+
+def test_warden_results_are_presented_as_a_decision_not_a_payload():
+    """The second presenter, and the second of Warden's four admission limbs.
+
+    A security verdict dumped as JSON is the case where raw output is worst: the reader most
+    needs to know what was matched and where, and is least able to work it out from a nested
+    structure.
+    """
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    assert '"warden-scan": presentWardenScan' in js
+    assert "function presentWardenScan(" in js
+    flat = re.sub(r"\s+", " ", js)
+    # A clean scan is the weaker of the two answers, and must say so.
+    assert "a miss and an absence look identical" in flat
+    # The sanitized text is labelled as the scanner's output, never as a safe string.
+    assert "not a statement that the remaining text is safe" in flat
+
+
+def test_a_clean_warden_verdict_does_not_read_as_a_guarantee():
+    js = re.sub(r"\s+", " ", (WEB_DIR / "app.js").read_text(encoding="utf-8"))
+    assert "nothing was detected in this payload" in js
+    # An empty detection list is explained rather than left to imply safety.
+    assert "does not mean the payload is safe" in js
+
+
+def test_every_service_a_judge_can_run_presents_its_result():
+    """Half the catalogue was still handing back raw JSON.
+
+    A presenter is one of the four admission limbs, but the reason it matters here is
+    simpler: BNB's functionality criterion is a stranger activating a service and
+    understanding what came back, and a nested payload fails that whether or not anything is
+    for sale.
+    """
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    for service in (
+        "range-doctor",
+        "warden-scan",
+        "yield-router",
+        "grid-operator",
+        "health-guard",
+    ):
+        assert f'"{service}": present' in js, f"{service} still falls back to raw JSON"
+
+
+def test_the_grid_preview_cannot_be_mistaken_for_a_working_grid():
+    """A table of prices reads like an order book. A reader who skims could believe something
+    is placing them, and nothing is — the object that produced it holds no signer."""
+    flat = re.sub(r"\s+", " ", (WEB_DIR / "app.js").read_text(encoding="utf-8"))
+    assert "A plan, and only a plan." in flat
+    assert "Nothing was signed, submitted or held." in flat
+    assert "requires a session the wallet's owner grants on chain" in flat
+
+
+def test_an_empty_venus_account_is_not_reported_as_a_healthy_one():
+    """The common case for any wallet a judge tries. A zero shortfall on an account holding
+    nothing is not a health report, and the difference is an answer versus a reassurance."""
+    flat = re.sub(r"\s+", " ", (WEB_DIR / "app.js").read_text(encoding="utf-8"))
+    assert "no Venus markets" in flat
+    assert "is not a statement that the account is healthy" in flat
+    assert "nothing borrowed to be liquidated" in flat
+
+
+def test_the_yield_decision_leads_and_carries_the_pool_it_was_measured_against():
+    """MOVE means nothing without the baseline it beat, and the baseline was not read from a
+    wallet — so the page says where it came from rather than letting a reader assume."""
+    flat = re.sub(r"\s+", " ", (WEB_DIR / "app.js").read_text(encoding="utf-8"))
+    assert "Compared against" in flat
+    assert "was not read from any wallet" in flat
+    assert "annualise one 24-hour observation" in flat
+
+
+def test_the_comparison_table_reaches_the_page_and_keeps_its_empty_cells():
+    """The criterion is a cold judge comparing without instructions, and a judge does not
+    curl. An endpoint nobody renders closes the data half and not the half being scored.
+
+    The empty cells are the part worth guarding. A row for a service with no paired run
+    has to show the sentence saying so — a painter that skipped falsy values, or printed a
+    zero, would produce a table where every service looks measured.
+    """
+    markup = _read("index.html")
+    assert 'data-region="compare"' in markup
+    assert "Compare them side by side" in markup
+
+    js = _read("app.js")
+    assert "paintCompare" in js
+    assert "await paintCompare();" in js
+    assert 'fetchJSON("/compare")' in js
+
+    painter = js.split("function comparisonRow", 1)[1].split("\nasync function", 1)[0]
+    # The unmeasured branch prints the reason rather than falling through to a blank.
+    assert "measured.reason" in painter
+    assert "measured.available" in painter
+    # The denominator travels with the saving wherever it is shown.
+    assert "sample_size" in painter
+    # Failing limbs are named on the page too, not reduced to a count.
+    assert "admission_failing.join" in painter
+
+    # Only classes the stylesheet actually defines: an undefined wrapper would let a
+    # five-column table run off the side of a phone with nothing to scroll it.
+    styles = _read("style.css")
+    for class_name in ("table-wrap", "metric-note", "section-note"):
+        assert f".{class_name}" in styles, class_name
+
+
+def test_service_forms_put_the_worked_example_first_and_reproducibility_behind_disclosure():
+    js = _read("app.js")
+    styles = _read("style.css")
+
+    assert "field.example_note" in js
+    assert "field.advanced" in js
+    assert '<details class="advanced">' in js
+    assert "Advanced — reproducibility" in js
+    assert 'type="submit" class="btn" data-example' in js
+    assert "Try the worked example" in js
+    assert "querySelectorAll('button[type=\"submit\"]')" in js
+    for class_name in ("advanced", "advanced-fields", "example-note"):
+        assert f".{class_name}" in styles
+
+
+def test_free_service_vocabulary_keeps_admission_below_the_action():
+    js = _read("app.js")
+
+    assert '"Run a free preview"' in js
+    assert '"Run it free"' in js
+    assert "Why this isn't for sale yet" in js
+    assert "Open ${escapeHTML(card.stock_status)}" not in js
+    assert "Run the ${escapeHTML(record.stock_status)}" not in js
+
+
+def test_empty_metric_cards_state_that_no_run_has_been_recorded():
+    js = _read("app.js")
+
+    assert "if (!metrics.length)" in js
+    assert "No run recorded yet." in js
+
+
+def test_cards_show_the_closed_evidence_modality_field():
+    js = _read("app.js")
+
+    assert "card.evidence_modality" in js
+    assert "record.evidence_modality" in js
+    assert "Evidence modality" in js
+
+
+def test_comparison_distinguishes_declarations_from_measurements_and_cites_each_row():
+    js = _read("app.js")
+    painter = js.split("function comparisonRow", 1)[1].split("\nasync function", 1)[0]
+
+    assert "row.job" in painter
+    assert "row.typical_seconds_basis" in painter
+    assert "measured.basis" in painter
+    assert "row.freshness" in painter
+    assert "row.evidence.available" in painter
+    assert "row.evidence.url" in painter
+    assert "row.evidence.label" in painter
+    assert "row.evidence.reason" in painter
+    for heading in ("Freshness", "Evidence"):
+        assert heading in js
+
+
+def test_homepage_leads_with_generated_pancake_impact_and_caveated_research_context():
+    index = _read("index.html")
+    js = _read("app.js")
+    styles = _read("style.css")
+    copy = " ".join(index.split())
+
+    assert "Hire by evidence, not promises." in index
+    assert "No account, no key, no wallet connection" in index
+    assert "No account, no key, no wallet —" not in index
+    assert 'data-region="pancake-impact"' in index
+    assert "arXiv:2606.26028" in index
+    assert "arXiv:2606.12128" in index
+    for phrase in (
+        "4% of registrations exposed a live service endpoint",
+        "59.2% of reviewers showed coordinated Sybil behaviour",
+        "77.9% of agents with feedback kept no valid feedback",
+        "preprint",
+    ):
+        assert phrase in copy
+    assert "first-party planner skills shown in its execution model" in index
+    assert "terminate at generated deep links" in index
+    assert "live Explorer API" in index
+    assert "BSC V3 subgraph" in index
+
+    for field in (
+        "median_annual_overstatement_usd",
+        "median_days_later_than_gross_implies",
+        "ranking_reversals",
+        "registration_note",
+    ):
+        assert field in js
+    assert 'fetchJSON("/advantage/v2.json")' in js
+    assert "126.78" not in index
+    assert "8.30" not in index
+    assert "0/231" not in index
+    for class_name in ("impact-value", "impact-context"):
+        assert f".{class_name}" in styles
+
+
+def test_home_metadata_does_not_promise_a_run_behind_every_service():
+    index = _read("index.html")
+    description = re.search(
+        r'<meta\s+name="description"\s+content="([^"]+)"', index, re.S
+    )
+
+    assert description
+    assert "recorded run behind each one" not in description.group(1)
+    assert "Hire by evidence, not promises." in description.group(1)

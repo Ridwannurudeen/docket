@@ -8,6 +8,7 @@ measured against, and a category is only ever Docket's own declaration about a
 service Docket runs.
 """
 
+import json
 import re
 from dataclasses import asdict
 from pathlib import Path
@@ -62,10 +63,17 @@ def _strings(record: ServiceRecord) -> list[str]:
         record.what_you_get,
         record.limitations,
         record.activation,
+        record.evidence_modality,
         record.identity_line,
     ]
     for metric in record.metrics:
-        values += [metric.name, metric.unit, metric.window, metric.method, metric.render()]
+        values += [
+            metric.name,
+            metric.unit,
+            metric.window,
+            metric.method,
+            metric.render(),
+        ]
     for ref in record.evidence:
         values += [ref.kind, ref.url, ref.label]
     return values
@@ -90,7 +98,9 @@ def test_the_categories_are_exactly_bnbs_four():
 def test_every_category_names_the_job_in_words_a_stranger_reads():
     for entry in CATEGORIES:
         assert entry.job.strip(), f"{entry.category} has no job label"
-        assert entry.does.strip(), f"{entry.category} does not say what an agent in it does"
+        assert entry.does.strip(), (
+            f"{entry.category} does not say what an agent in it does"
+        )
     assert [entry.job for entry in CATEGORIES] == [
         "Keep LP earning",
         "Run a capped grid",
@@ -201,7 +211,9 @@ def test_a_count_may_stand_alone_because_it_is_not_a_share_of_anything():
 
 def test_a_metric_carrying_a_denominator_always_renders_it():
     assert _metric().render() == "14 of 14 position NFTs"
-    share = _metric(name="Answered", unit="%", numerator=13, denominator=14, value=92.857)
+    share = _metric(
+        name="Answered", unit="%", numerator=13, denominator=14, value=92.857
+    )
     assert share.render() == "13 of 14 (92.857%)"
 
 
@@ -260,6 +272,7 @@ def test_a_record_must_name_a_service_that_can_actually_be_hired():
             agent_id=None,
             registration_uri=None,
             activation="one_shot",
+            evidence_modality="live_read",
             metrics=(),
             evidence=(),
             limitations="stated",
@@ -279,6 +292,7 @@ def test_a_record_may_not_omit_its_limitations():
             agent_id=None,
             registration_uri=None,
             activation="one_shot",
+            evidence_modality="live_read",
             metrics=(),
             evidence=(),
             limitations="  ",
@@ -296,6 +310,7 @@ def test_activation_comes_from_the_closed_vocabulary():
             agent_id=None,
             registration_uri=None,
             activation="autonomous",
+            evidence_modality="live_read",
             metrics=(),
             evidence=(),
             limitations="stated",
@@ -310,6 +325,7 @@ def test_an_unbound_service_says_no_identity_is_bound():
         agent_id=None,
         registration_uri=None,
         activation="one_shot",
+        evidence_modality="live_read",
         metrics=(),
         evidence=(),
         limitations="stated",
@@ -325,6 +341,7 @@ def test_a_bound_service_names_the_identity_it_is_bound_to():
         agent_id="56:0xreg:136384",
         registration_uri=None,
         activation="one_shot",
+        evidence_modality="historical",
         metrics=(),
         evidence=(),
         limitations="stated",
@@ -344,6 +361,31 @@ def test_the_record_reads_its_offer_through_to_the_hire_catalogue():
         assert record.price_atomic == offer.price_atomic
         assert record.asset == offer.asset
         assert record.typical_seconds == offer.typical_seconds
+
+
+def test_evidence_modality_is_closed_and_populated_for_every_service():
+    assert {
+        service_id: record.evidence_modality for service_id, record in SERVICES.items()
+    } == {
+        "grid-operator": "live_read",
+        "health-guard": "live_read",
+        "range-doctor": "live_read",
+        "solvent-signal": "historical",
+        "warden-scan": "live_read",
+        "yield-router": "live_read",
+    }
+    with pytest.raises(ValueError, match="evidence_modality"):
+        ServiceRecord(
+            service_id="range-doctor",
+            category=None,
+            agent_id=None,
+            registration_uri=None,
+            activation="one_shot",
+            evidence_modality="testimonial",
+            metrics=(),
+            evidence=(),
+            limitations="stated",
+        )
 
 
 def test_every_hireable_service_has_exactly_one_record_and_no_record_is_orphaned():
@@ -392,7 +434,10 @@ def test_every_metric_on_every_record_survives_the_denominator_rule():
             assert metric.method.strip()
             if metric.numerator is not None:
                 assert metric.denominator is not None
-            assert str(metric.denominator or "") in metric.render() or metric.numerator is None
+            assert (
+                str(metric.denominator or "") in metric.render()
+                or metric.numerator is None
+            )
 
 
 # ------------------------------------------------------------- the inventory
@@ -425,9 +470,15 @@ def test_all_four_categories_are_stocked_and_each_holds_exactly_one_service():
         Category.HEALTH_FACTOR: 1,
     }
     assert [r.service_id for r in records_in(Category.REBALANCING)] == ["range-doctor"]
-    assert [r.service_id for r in records_in(Category.GRID_TRADING)] == ["grid-operator"]
-    assert [r.service_id for r in records_in(Category.YIELD_OPTIMISATION)] == ["yield-router"]
-    assert [r.service_id for r in records_in(Category.HEALTH_FACTOR)] == ["health-guard"]
+    assert [r.service_id for r in records_in(Category.GRID_TRADING)] == [
+        "grid-operator"
+    ]
+    assert [r.service_id for r in records_in(Category.YIELD_OPTIMISATION)] == [
+        "yield-router"
+    ]
+    assert [r.service_id for r in records_in(Category.HEALTH_FACTOR)] == [
+        "health-guard"
+    ]
 
 
 def test_the_health_factor_card_says_venus_publishes_no_health_factor():
@@ -444,7 +495,7 @@ def test_the_health_factor_card_says_venus_publishes_no_health_factor():
         "repay and supply-collateral only",
         "borrowing and withdrawing are not encoded",
         "a liquidation that did not happen",
-        "no recorded run stands behind this service yet",
+        "single recorded read; no paired run against a person",
     ):
         assert phrase in lowered, phrase
     assert record.activation == "one_shot"
@@ -463,20 +514,24 @@ def test_the_yield_card_bounds_its_own_superlative_and_promises_no_execution():
         "not built in this stage",
         "no execution guarantee of any kind",
         "one day, not a forecast",
-        "no recorded run stands behind this service yet",
+        "single recorded read; no paired run against a person",
     ):
         assert phrase in lowered, phrase
     assert record.activation == "one_shot"
     assert record.agent_id is None
 
 
-def test_neither_new_service_publishes_a_figure_it_has_not_measured():
-    """The grid set the precedent: a shelf is stocked with an honest empty evidence list
-    rather than a fabricated metric, and an unbound identity is said rather than omitted."""
-    for service_id in ("health-guard", "yield-router"):
+def test_each_new_category_service_publishes_only_its_single_recorded_read():
+    for service_id in ("health-guard", "grid-operator", "yield-router"):
         record = SERVICES[service_id]
-        assert record.metrics == ()
-        assert record.evidence == ()
+        assert record.metrics
+        assert record.evidence
+        assert record.evidence_modality == "live_read"
+        assert all(metric.denominator is not None for metric in record.metrics)
+        assert all(
+            "single recorded read; no paired run against a person" in metric.window
+            for metric in record.metrics
+        )
         assert record.registration_uri is None
         assert "no bsc identity bound yet" in record.identity_line.lower()
 
@@ -494,21 +549,11 @@ def test_the_grid_service_says_a_hire_previews_rather_than_trades():
         "docket never holds the owner key",
         "refuse more, never less",
         "a fill and not a gain",
-        "no recorded run stands behind this service yet",
+        "single recorded read; no paired run against a person",
     ):
         assert phrase in lowered, phrase
     assert record.activation == "one_shot"
     assert "acts on chain" not in record.activation_means.lower()
-
-
-def test_the_grid_service_publishes_no_figure_it_has_not_measured():
-    """A category is stocked with an honest empty evidence list rather than a fabricated
-    metric. The other three services cite a recorded run; this one has none yet and says
-    so instead of inventing one."""
-    record = SERVICES["grid-operator"]
-    assert record.metrics == ()
-    assert record.evidence == ()
-    assert record.agent_id is None
 
 
 def test_the_empty_shelves_say_why_and_promise_nothing():
@@ -568,9 +613,12 @@ def test_each_service_points_at_its_own_recorded_run():
     asked the same question over a labelled corpus. Both are runs it stands behind and a
     reader can open, and the later one does not replace the earlier."""
     expected = {
+        "grid-operator": ["/services/grid-operator"],
+        "health-guard": ["/services/health-guard"],
         "range-doctor": ["/advantage#01-liquidity"],
         "solvent-signal": ["/advantage#02-trading"],
         "warden-scan": ["/advantage#03-security", "/advantage/v2#03-security-corpus"],
+        "yield-router": ["/services/yield-router"],
     }
     for service_id, urls in expected.items():
         assert [ref.url for ref in SERVICES[service_id].evidence] == urls
@@ -603,9 +651,59 @@ def test_range_doctors_figures_are_the_ones_the_hire_itself_returned():
     )
 
 
+def test_category_read_figures_are_regenerated_from_the_committed_json():
+    root = (
+        Path(__file__).resolve().parents[1] / "docket" / "advantage" / "recorded_runs"
+    )
+    files = {
+        "health-guard": "05-health-guard-read.json",
+        "grid-operator": "06-grid-preview-read.json",
+        "yield-router": "07-yield-router-read.json",
+    }
+    runs = {
+        service_id: json.loads((root / filename).read_text(encoding="utf-8"))
+        for service_id, filename in files.items()
+    }
+
+    health = runs["health-guard"]
+    health_result = health["agent_arm"]["output"]["result"]
+    health_coverage = _figure(
+        SERVICES["health-guard"], "Entered markets carrying a borrow"
+    )
+    assert (health_coverage.numerator, health_coverage.denominator) == (
+        sum(int(row["borrow_balance"]) > 0 for row in health_result["account"]["rows"]),
+        health_result["account"]["markets_entered"],
+    )
+
+    grid = runs["grid-operator"]
+    grid_result = grid["agent_arm"]["output"]["result"]
+    grid_coverage = _figure(SERVICES["grid-operator"], "Levels quoted and hash-bound")
+    assert (grid_coverage.numerator, grid_coverage.denominator) == (
+        sum(
+            bool(
+                level["intent"]
+                and level["simulation"]
+                and level["simulation"]["agrees"]
+            )
+            for level in grid_result["levels"]
+        ),
+        grid_result["plan"]["requested_levels"],
+    )
+
+    route = runs["yield-router"]
+    route_result = route["agent_arm"]["output"]["result"]
+    route_coverage = _figure(SERVICES["yield-router"], "Pools clearing the stated gate")
+    assert (route_coverage.numerator, route_coverage.denominator) == (
+        route_result["universe"]["size"],
+        route_result["universe"]["considered"],
+    )
+
+
 def test_solvents_anchor_figure_is_the_one_the_manual_arm_recomputed():
     experiment = _experiment("02")
-    anchored = _figure(SERVICES["solvent-signal"], "Receipts covered by the last on-chain anchor")
+    anchored = _figure(
+        SERVICES["solvent-signal"], "Receipts covered by the last on-chain anchor"
+    )
     assert anchored.numerator == experiment["manual_arm"]["output"]["anchored_count"]
     assert (
         anchored.denominator
@@ -618,7 +716,9 @@ def test_warden_scans_record_carries_the_run_it_lost():
     the denominator attached, and the three that got through said in the limitations."""
     experiment = _experiment("03")
     named = _figure(SERVICES["warden-scan"], "Hostile vectors named")
-    assert named.numerator == len(experiment["agent_arm"]["output"]["result"]["detections"])
+    assert named.numerator == len(
+        experiment["agent_arm"]["output"]["result"]["detections"]
+    )
     assert named.denominator == len(experiment["manual_arm"]["output"]["vectors"])
     assert named.render().startswith("1 of 4")
     limitations = SERVICES["warden-scan"].limitations.lower()

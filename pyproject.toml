@@ -2,6 +2,9 @@
 name = "docket"
 version = "0.1.0"
 description = "Docket — trust-first agent marketplace for BSC (Build the Era)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "web3==7.16.0",
@@ -14,10 +17,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest==9.0.3"]
+dev = ["pytest==9.0.3", "pyyaml==6.0.2"]
 
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -25,28 +28,46 @@ packages = [
     "docket",
     "docket.advantage",
     "docket.advantage.v2",
+    "docket.advantage.v3",
+    "docket.advantage.v3.seats",
     "docket.api",
     "docket.agents",
     "docket.agents.grid",
     "docket.agents.pancake",
+    "docket.agents.venus",
+    "docket.agents.yield_router",
     "docket.escrow",
     "docket.execution",
     "docket.hire",
+    "docket.identity",
     "docket.marketplace",
     "experiments",
 ]
 
 [tool.setuptools.package-data]
-"docket.api" = ["static/*", "web/*"]
+"docket.api" = ["static/*", "static/agents/*.registration.json", "web/*"]
 # /advantage.json is served from these files, so an installed Docket must carry them.
 # The v2 files are the evidence a report cites — the labelled corpus, the pre-registration
 # that hashes it, and the run recorded against that hash — and an install that shipped the
 # scorer without them would carry the arithmetic and none of the observations.
 "docket.advantage" = [
     "experiments/*.json",
+    "recorded_runs/*.json",
     "v2/corpus/*/*.json",
     "v2/specs/*.json",
     "v2/runs/*.json",
+    # v3 registrations and artifacts let an installed report reconstruct the same state as
+    # the checkout instead of silently dropping a ledger or a prompt-blinded score sheet.
+    "v3/specs/*.json",
+    "v3/inputs/*.json",
+    "v3/runs/*.jsonl",
+    "v3/sheets/*/*.json",
+    "v3/mappings/*.json",
+    # The frozen vendor vocabulary an input lock validates labels against, and the page it
+    # was read from. Shipping the derived list without the page would leave an installed
+    # Docket asserting a vocabulary with no evidence of where it came from.
+    "v3/sources/*.json",
+    "v3/sources/*.html",
 ]
 
 [tool.pytest.ini_options]

@@ -1,7 +1,11 @@
 name: ci
 on:
   push:
-    branches: [main]
+    # The work happens on the deliberation branch, not on main. Filtering to main alone
+    # meant CI had nothing to say about any commit that has landed since Stage 4 — the
+    # package job below exists to catch a defect that has now shipped three times, and it
+    # was watching a branch nobody was pushing to.
+    branches: [main, "docs/**"]
   pull_request:
 
 jobs:
@@ -16,3 +20,27 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e ".[dev]"
       - run: python -m pytest -q
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build==1.5.0
+      - run: python -m build --wheel --outdir "$RUNNER_TEMP/dist"
+      - run: python -m venv "$RUNNER_TEMP/docket-venv"
+      # Block scalars, because a value that begins with a quote ends at its closing quote:
+      # `run: "$X/python" -m pip ...` is not a long command, it is a YAML syntax error with
+      # a command after it. That mistake failed every run at zero seconds, which reads as
+      # infrastructure trouble rather than as a file this repository controls.
+      - name: Install the built wheel into a venv outside the checkout
+        run: |
+          "$RUNNER_TEMP/docket-venv/bin/python" -m pip install "$RUNNER_TEMP"/dist/docket-*.whl
+      # -I so the source tree cannot shadow the installed package: without it this tests the
+      # checkout and reports it as having tested the wheel.
+      - name: Smoke-test the installed wheel outside the checkout
+        working-directory: ${{ runner.temp }}
+        run: |
+          "$RUNNER_TEMP/docket-venv/bin/python" -I "$GITHUB_WORKSPACE/tests/smoke_installed.py"

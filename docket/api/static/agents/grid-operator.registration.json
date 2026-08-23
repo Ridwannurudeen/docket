@@ -1,0 +1,42 @@
+{
+  "active": true,
+  "agent_type": "grid_trading",
+  "categories": [
+    "grid_trading"
+  ],
+  "description": "A deterministic PancakeSwap V2 grid, built from a band you give it — or drawn around the pair's current price if you give it none — and previewed against BSC mainnet as it stands right now. You get the exact price levels and their spacing, which token each level spends and how much of it, the condition each level fires on, and for every level the full action record that acting would commit to: the router's own live quote for that trade, the minimum output the action would insist on, a hash of the exact calldata that binds it, a deadline, a gas ceiling and a slippage bound. Nothing is signed, approved, submitted or held. This is a preview and structurally only a preview: the object that runs it holds no session key, no signer and no submitter, and has no method that sends a transaction, so it cannot move anything. Acting on a level needs a session the wallet's owner grants on chain, with a spend cap, a call allowlist and an expiry that the session validator enforces at validation time — Docket never holds the owner key and cannot grant or revoke on their behalf. Every figure comes back with the block it was read at, so you can check any of it against the chain yourself.",
+  "documentation": "https://docket.gudman.xyz/llms.txt",
+  "hireUrl": "https://docket.gudman.xyz/hire/grid-operator",
+  "image": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjAgMTIwIj48cmVjdCB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgcng9IjE4IiBmaWxsPSIjMGIxMjIwIi8+PHJlY3QgeD0iMjQiIHk9IjI0IiB3aWR0aD0iNzIiIGhlaWdodD0iNzIiIHJ4PSIxMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjRmMWU4IiBzdHJva2Utd2lkdGg9IjgiLz48cGF0aCBkPSJNNDAgNDhoNDBNNDAgNjRoMjQiIHN0cm9rZT0iI2Y0ZjFlOCIgc3Ryb2tlLXdpZHRoPSI4IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48Y2lyY2xlIGN4PSI3NiIgY3k9Ijc0IiByPSI3IiBmaWxsPSIjZjRiODYwIi8+PC9zdmc+",
+  "limitations": "PancakeSwap V2 exact-input swaps on BSC mainnet and nothing else: no V3, no limit orders, no adding or removing liquidity. What a hire returns is a preview and structurally only a preview — the object that produces it holds no session key, no signer and no submitter and has no method that sends a transaction, so it cannot move anything, and every figure in it is a read. Acting on a level needs a session the wallet's owner grants on chain, with a spend cap, a call allowlist and an expiry that the session validator enforces at validation time; Docket never holds the owner key and cannot grant or revoke on their behalf. Docket's own checks sit in front of the chain's and may only ever refuse more, never less. Each level's floor comes from a live router quote less the slippage the plan allows, and an action whose simulation disagrees with its own bounds is not submitted — but a level filling is a fill and not a gain. A confirmed transaction shows the action executed as it was authorised and shows nothing about whether it was worth taking. A single recorded read; no paired run against a person stands behind the metrics on this card. And the grid is deterministic rather than adaptive: it divides the band it was given, and it does not decide the band was wrong.",
+  "name": "Grid Operator Preview",
+  "registrations": [],
+  "services": [
+    {
+      "description": "A deterministic PancakeSwap V2 grid, built from a band you give it — or drawn around the pair's current price if you give it none — and previewed against BSC mainnet as it stands right now. You get the exact price levels and their spacing, which token each level spends and how much of it, the condition each level fires on, and for every level the full action record that acting would commit to: the router's own live quote for that trade, the minimum output the action would insist on, a hash of the exact calldata that binds it, a deadline, a gas ceiling and a slippage bound. Nothing is signed, approved, submitted or held. This is a preview and structurally only a preview: the object that runs it holds no session key, no signer and no submitter, and has no method that sends a transaction, so it cannot move anything. Acting on a level needs a session the wallet's owner grants on chain, with a spend cap, a call allowlist and an expiry that the session validator enforces at validation time — Docket never holds the owner key and cannot grant or revoke on their behalf. Every figure comes back with the block it was read at, so you can check any of it against the chain yourself.",
+      "endpoint": "https://docket.gudman.xyz/services/grid-operator",
+      "name": "grid-operator",
+      "protocol": "Web"
+    }
+  ],
+  "skills": [
+    {
+      "description": "A deterministic PancakeSwap V2 grid, built from a band you give it — or drawn around the pair's current price if you give it none — and previewed against BSC mainnet as it stands right now. You get the exact price levels and their spacing, which token each level spends and how much of it, the condition each level fires on, and for every level the full action record that acting would commit to: the router's own live quote for that trade, the minimum output the action would insist on, a hash of the exact calldata that binds it, a deadline, a gas ceiling and a slippage bound. Nothing is signed, approved, submitted or held. This is a preview and structurally only a preview: the object that runs it holds no session key, no signer and no submitter, and has no method that sends a transaction, so it cannot move anything. Acting on a level needs a session the wallet's owner grants on chain, with a spend cap, a call allowlist and an expiry that the session validator enforces at validation time — Docket never holds the owner key and cannot grant or revoke on their behalf. Every figure comes back with the block it was read at, so you can check any of it against the chain yourself.",
+      "id": "grid-operator",
+      "name": "Grid Operator Preview"
+    }
+  ],
+  "supportedTrust": [
+    "reputation"
+  ],
+  "tags": [
+    "grid-operator",
+    "bsc",
+    "erc-8004"
+  ],
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "updatedAt": "2026-08-22T14:57:44Z",
+  "url": "https://docket.gudman.xyz/services/grid-operator",
+  "version": "0.1.0",
+  "x402Support": true
+}

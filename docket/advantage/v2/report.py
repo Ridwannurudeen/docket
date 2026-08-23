@@ -565,4 +565,71 @@ def report() -> dict:
             ),
         },
         "experiments": built,
+        "decision_impact": decision_impact_section(),
+    }
+
+
+# The notional and switching cost a reader sees first. Inputs, not observations — chosen as
+# round numbers rather than derived from anything, and echoed on the output so a reader can
+# apply their own instead.
+DECISION_IMPACT_NOTIONALS_USD = (10_000.0, 100_000.0)
+DECISION_IMPACT_SWITCHING_COST_USD = 25.0
+
+
+def decision_impact_section() -> dict:
+    """Whether the liquidity finding changes a decision, computed from the same frozen run.
+
+    The liquidity experiment established that quoting gross overstates the rate a provider
+    keeps. That is a fact about a percentage, and a percentage is not a thing anyone acts on.
+    This section asks the harder question three ways and publishes all three answers,
+    including the one that does not support the thesis.
+
+    **It is post hoc and says so.** The registered experiment measured rate error; these three
+    measures were written after that run existed, against the same frozen snapshot, so their
+    result was knowable before the questions were fixed. That is a materially weaker footing
+    than the registered work beside it and the distinction is stated rather than blurred — a
+    genuinely pre-registered version needs a future snapshot nobody has seen yet.
+    """
+    from .decision_impact import (
+        break_even_shift,
+        dollars_at_notionals,
+        ranking_reversals,
+    )
+
+    record = run("01-liquidity-arithmetic")
+    pools = record["pools"]
+    reversals = ranking_reversals(pools)
+    dollars = dollars_at_notionals(pools, list(DECISION_IMPACT_NOTIONALS_USD))
+    moves = break_even_shift(
+        pools,
+        notional_usd=DECISION_IMPACT_NOTIONALS_USD[0],
+        switching_cost_usd=DECISION_IMPACT_SWITCHING_COST_USD,
+    )
+    return {
+        "registration_state": "post_hoc",
+        "registration_note": (
+            "These three measures were written after the run they read, against the same "
+            "frozen snapshot, so their outcome was already knowable when the questions were "
+            "fixed. They are published on that footing and not as pre-registered findings. "
+            "The experiments above are registered; this section is not."
+        ),
+        "dataset_ref": record["dataset_ref"],
+        "dataset_sha256": record["dataset_sha256"],
+        "ranking_reversals": reversals,
+        "dollars_at_notionals": dollars,
+        "break_even_shift": moves,
+        "finding": (
+            f"Over {reversals['denominator']} ordered pairs of the eligible pools, "
+            f"{reversals['numerator']} change order between the gross ranking and the net "
+            "one, and the pool ranked best is the same under both. So on the decision of "
+            "which pool to be in, subtracting the protocol's cut changes nothing here — the "
+            "measure that needs no assumption about position size is the one that found "
+            "no effect, and it is reported first for that reason. What the error does change "
+            "is what the position is worth and how long a move takes to repay: at a declared "
+            f"${DECISION_IMPACT_NOTIONALS_USD[0]:,.0f} the median pool overstates annual fees "
+            f"by ${dollars['notionals'][0]['median_annual_overstatement_usd']:,.2f}, and over "
+            f"{moves['n_moves']} candidate moves the real payback arrives a median "
+            f"{moves['median_days_later_than_gross_implies']:.2f} days later than the gross "
+            "figures imply."
+        ),
     }

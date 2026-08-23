@@ -1,9 +1,9 @@
-"""The work Docket sells, stated so a stranger's agent can hire it without asking anyone.
+"""The work Docket runs and may admit for sale, stated for a stranger's agent.
 
 Each entry answers, in the order a caller needs it: what arrives, what to send,
-how long to wait, and what it costs. A service that cannot say those four things
-in machine-readable form is not hireable by an agent that has never seen this
-site — which is the only kind of caller that matters here.
+how long to wait, and the term that applies after admission. A service that cannot
+say those four things in machine-readable form is not hireable by an agent that has
+never seen this site — which is the only kind of caller that matters here.
 
 What a service may claim is bounded the same way the rest of Docket is bounded.
 `what_you_get` describes work performed, never a result achieved: the Range
@@ -26,6 +26,10 @@ upstream fails, `run` raises: the hire route turns that into a 502 naming the
 failure, which is worth more than a half-result that looks like an answer.
 """
 
+import base64
+import hashlib
+import json
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -34,10 +38,14 @@ from datetime import datetime, timezone
 import httpx
 
 from ..agents.pancake import doctor
+from ..agents.pancake.positions import MAX_EXAMINED
 
 # $U (ERC-8183, 18 decimals) on BSC mainnet. Priced in the asset whose
 # TransferWithAuthorization this build can actually verify — see hire/x402.py.
-U_TOKEN = "0xcE24439F2D9C6a2289F741120FE202248B666666"
+USDT_TOKEN = "0x55d398326f99059fF775485246999027B3197955"
+HIRE_PRICE_DISPLAY = "0.50 USDT"
+HIRE_PRICE_ATOMIC = 5 * 10**17
+CONTROLLED_EXAMPLE_WALLET = "0xe55816904796341bf8535e25f6c8b647927fc946"
 # How many of a wallet's position NFTs a hire reads by default. Ten is the
 # measured point where the read finishes in tens of seconds rather than minutes.
 RANGE_DOCTOR_LIMIT = 10
@@ -86,19 +94,58 @@ UPSTREAM_RETRY_PAUSE_S = 1.0
 
 
 @dataclass(frozen=True)
+class PaidStockAdmission:
+    """The four facts every personalized paid hire must establish before it is sold."""
+
+    fresh_paired_benchmark: bool
+    cold_canary: bool
+    decision_grade_presenter: bool
+    true_settlement: bool
+
+    @property
+    def passes(self) -> bool:
+        return all(
+            (
+                self.fresh_paired_benchmark,
+                self.cold_canary,
+                self.decision_grade_presenter,
+                self.true_settlement,
+            )
+        )
+
+
+NO_PAID_ADMISSION = PaidStockAdmission(False, False, False, False)
+RANGE_ADMISSION = PaidStockAdmission(False, False, True, False)
+# Warden shares Range's position: a decision-grade presenter exists, and the other three
+# limbs are owner-gated or wait on a run that has not happened.
+WARDEN_ADMISSION = PaidStockAdmission(False, False, True, False)
+# Grid, Yield and Health each gained a decision-grade presenter. The limb is per service and
+# is the only one of the four they hold: none has a paired benchmark, a passing cold canary
+# or settlement, so none is paid stock and the flag changes nothing a buyer can reach.
+PREVIEW_ADMISSION = PaidStockAdmission(False, False, True, False)
+
+
+@dataclass(frozen=True)
 class Service:
     """One hireable unit of work. Frozen: the catalogue a caller reads at `GET /hire`
     and the terms a receipt is issued against must be the same object, unmutated."""
 
     id: str
     name: str
+    job_summary: str
     what_you_get: str
     input_schema: dict
     typical_seconds: int
     price_display: str
     price_atomic: int
     asset: str
+    stock_status: str
+    admission: PaidStockAdmission
     run: Callable[[dict], dict]
+
+    @property
+    def paid_stock(self) -> bool:
+        return self.admission.passes
 
 
 def _call_upstream(method: str, url: str, body: dict | None = None) -> dict:
@@ -115,7 +162,9 @@ def _call_upstream(method: str, url: str, body: dict | None = None) -> dict:
             resp = httpx.request(method, url, json=body, timeout=UPSTREAM_TIMEOUT_S)
             if resp.status_code == 429 or resp.status_code >= 500:
                 last = httpx.HTTPStatusError(
-                    f"{resp.status_code} from {url}", request=resp.request, response=resp
+                    f"{resp.status_code} from {url}",
+                    request=resp.request,
+                    response=resp,
                 )
             else:
                 resp.raise_for_status()
@@ -138,13 +187,208 @@ def _run_warden_scan(payload: dict) -> dict:
     return _call_upstream("POST", WARDEN_SCAN_URL, {"payload": payload["payload"]})
 
 
+def _declared_number(payload: dict, field: str, *, allow_zero: bool) -> float | None:
+    value = payload.get(field)
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be a finite number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be a finite number") from exc
+    if not math.isfinite(number) or number < 0 or (number == 0 and not allow_zero):
+        boundary = "zero or greater" if allow_zero else "greater than zero"
+        raise ValueError(f"{field} must be finite and {boundary}")
+    return number
+
+
+def _declared_integer(
+    payload: dict, field: str, default: int | None = None
+) -> int | None:
+    value = payload.get(field)
+    if value is None:
+        return default
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{field} must be an integer")
+    return value
+
+
+def _decode_source_snapshot(snapshot: dict, name: str) -> tuple[object, dict]:
+    required = {"url", "observed_at", "sha256", "body_base64"}
+    if not isinstance(snapshot, dict) or not required <= set(snapshot):
+        raise ValueError(f"{name} must carry url, observed_at, sha256 and body_base64")
+    if not all(
+        isinstance(snapshot[field], str) and snapshot[field].strip()
+        for field in ("url", "observed_at", "sha256", "body_base64")
+    ):
+        raise ValueError(f"{name} source fields must be nonblank strings")
+    try:
+        raw = base64.b64decode(snapshot["body_base64"], validate=True)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name}.body_base64 is invalid") from exc
+    digest = hashlib.sha256(raw).hexdigest()
+    if snapshot["sha256"] != digest:
+        raise ValueError(f"{name}.sha256 does not match the exact response bytes")
+    try:
+        body = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{name} is not a UTF-8 JSON response") from exc
+    return body, {
+        "url": snapshot["url"],
+        "observed_at": snapshot["observed_at"],
+        "sha256": digest,
+    }
+
+
+def _pool_rows(body: object, name: str) -> list[dict]:
+    if isinstance(body, list):
+        rows = body
+    elif isinstance(body, dict) and isinstance(body.get("rows"), list):
+        rows = body["rows"]
+    else:
+        raise ValueError(f"{name} must be an array or an object with a rows array")
+    if not all(isinstance(row, dict) for row in rows):
+        raise ValueError(f"{name} contains a non-object pool row")
+    return rows
+
+
+def _allowlist(body: object, name: str) -> set[str]:
+    if not isinstance(body, dict) or not isinstance(body.get("tokens"), list):
+        raise ValueError(f"{name} must contain a tokens array")
+    return {
+        str(token["address"]).lower()
+        for token in body["tokens"]
+        if isinstance(token, dict)
+        and token.get("chainId") == 56
+        and token.get("address")
+    }
+
+
 def _run_range_doctor(payload: dict) -> dict:
-    """`limit` is read explicitly rather than with `or`, so an explicit 0 stays 0
-    instead of silently becoming the default."""
-    limit = payload.get("limit")
-    return doctor.report(
-        payload["wallet"], limit=RANGE_DOCTOR_LIMIT if limit is None else int(limit)
+    """Validate declared economics before any upstream read, then time this exact run."""
+    raw_token_id = payload.get("token_id")
+    if isinstance(raw_token_id, bool):
+        raise ValueError("token_id must be a positive integer")
+    try:
+        token_id = None if raw_token_id is None else int(raw_token_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("token_id must be a positive integer") from exc
+    if token_id is not None and (
+        token_id <= 0 or (isinstance(raw_token_id, float) and raw_token_id != token_id)
+    ):
+        raise ValueError("token_id must be a positive integer")
+
+    position_value = _declared_number(
+        payload, "declared_position_value_usd", allow_zero=False
     )
+    recenter_cost = _declared_number(
+        payload, "estimated_recenter_cost_usd", allow_zero=True
+    )
+    if (position_value is not None or recenter_cost is not None) and token_id is None:
+        raise ValueError(
+            "token_id is required when declaring a position value or recenter cost"
+        )
+    if token_id is not None and payload.get("limit") is not None:
+        raise ValueError("limit cannot be combined with an exact token_id")
+
+    # A paired experiment needs both arms answering about the same chain state, and "latest"
+    # moves between them. Without this the buyer can ask *what is true now* but not *what was
+    # true at the moment we both looked*, and only the second is reproducible.
+    raw_block = payload.get("observation_block")
+    if isinstance(raw_block, bool):
+        raise ValueError("observation_block must be a positive integer block number")
+    try:
+        observation_block = None if raw_block is None else int(raw_block)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "observation_block must be a positive integer block number"
+        ) from exc
+    if observation_block is not None and (
+        observation_block <= 0
+        or (isinstance(raw_block, float) and raw_block != observation_block)
+    ):
+        raise ValueError("observation_block must be a positive integer block number")
+
+    snapshot_fields = ("pool_snapshot", "token_list_snapshot", "source_refs")
+    supplied_snapshots = [payload.get(field) is not None for field in snapshot_fields]
+    if any(supplied_snapshots) and not all(supplied_snapshots):
+        raise ValueError(
+            "pool_snapshot, token_list_snapshot and source_refs must be supplied together"
+        )
+    frozen = all(supplied_snapshots)
+    pool_rows = None
+    token_allowlist = None
+    source_evidence = None
+    if frozen:
+        from ..agents.pancake.positions import NPM
+
+        manager = payload.get("position_manager")
+        if not isinstance(manager, str) or manager.lower() != NPM.lower():
+            raise ValueError("position_manager must name PancakeSwap v3 NPM on BSC")
+        if (
+            not isinstance(payload["source_refs"], list)
+            or not payload["source_refs"]
+            or not all(isinstance(source, dict) for source in payload["source_refs"])
+        ):
+            raise ValueError("source_refs must be a nonempty array")
+        pools_body, pools_evidence = _decode_source_snapshot(
+            payload["pool_snapshot"], "pool_snapshot"
+        )
+        tokens_body, tokens_evidence = _decode_source_snapshot(
+            payload["token_list_snapshot"], "token_list_snapshot"
+        )
+        pool_rows = _pool_rows(pools_body, "pool_snapshot")
+        token_allowlist = _allowlist(tokens_body, "token_list_snapshot")
+        source_evidence = {
+            "pools": pools_evidence,
+            "token_list": tokens_evidence,
+            "source_refs": payload["source_refs"],
+        }
+
+    decision_horizon = _declared_integer(payload, "decision_horizon_days")
+    if decision_horizon is not None and decision_horizon <= 0:
+        raise ValueError("decision_horizon_days must be a positive integer")
+
+    limit = payload.get("limit")
+    started = time.perf_counter()
+    report_kwargs = {
+        "limit": (
+            None
+            if token_id is not None
+            else RANGE_DOCTOR_LIMIT
+            if limit is None
+            else int(limit)
+        ),
+        "token_id": token_id,
+        "observation_block": observation_block,
+        "declared_position_value_usd": position_value,
+        "estimated_recenter_cost_usd": recenter_cost,
+    }
+    if decision_horizon is not None:
+        report_kwargs["decision_horizon_days"] = decision_horizon
+    if frozen:
+        report_kwargs.update(
+            {
+                "pool_rows": pool_rows,
+                "token_allowlist": token_allowlist,
+                "source_evidence": source_evidence,
+            }
+        )
+    result = doctor.report(payload["wallet"], **report_kwargs)
+    elapsed = max(0.0, time.perf_counter() - started)
+    return result | {
+        "measured_value": {
+            "this_run_seconds": elapsed,
+            "paired_manual_seconds": None,
+            "quality_result": None,
+            "report_url": None,
+            "benchmark_unavailable_reason": (
+                "The preregistered v3 paired report has not run, so no paired manual time, "
+                "quality result, or v3 report link exists yet."
+            ),
+        }
+    }
 
 
 def _run_grid_operator(payload: dict) -> dict:
@@ -166,25 +410,49 @@ def _run_grid_operator(payload: dict) -> dict:
     reader = BscQuoteReader()
     base = payload.get("base") or GRID_BASE
     quote = payload.get("quote") or GRID_QUOTE
-    base_decimals = int(payload.get("base_decimals") or GRID_BASE_DECIMALS)
-    observed = observe_price(reader, base=base, quote=quote, base_decimals=base_decimals)
+    base_decimals = _declared_integer(payload, "base_decimals", GRID_BASE_DECIMALS)
+    observed = observe_price(
+        reader, base=base, quote=quote, base_decimals=base_decimals
+    )
 
     reference = payload.get("reference")
-    reference = observed.price if reference is None else int(reference)
+    reference = (
+        observed.price if reference is None else _declared_integer(payload, "reference")
+    )
     lower = payload.get("lower")
     upper = payload.get("upper")
     plan = build_plan(
-        lower=reference * (100 - GRID_BAND_PCT) // 100 if lower is None else int(lower),
-        upper=reference * (100 + GRID_BAND_PCT) // 100 if upper is None else int(upper),
-        levels=int(payload.get("levels") or GRID_LEVELS),
-        size_per_level=int(payload.get("size_per_level") or GRID_SIZE_PER_LEVEL),
+        lower=(
+            reference * (100 - GRID_BAND_PCT) // 100
+            if lower is None
+            else _declared_integer(payload, "lower")
+        ),
+        upper=(
+            reference * (100 + GRID_BAND_PCT) // 100
+            if upper is None
+            else _declared_integer(payload, "upper")
+        ),
+        levels=_declared_integer(payload, "levels", GRID_LEVELS),
+        size_per_level=_declared_integer(
+            payload, "size_per_level", GRID_SIZE_PER_LEVEL
+        ),
         base=base,
         quote=quote,
         base_decimals=base_decimals,
         reference=reference,
     )
-    filled = tuple(int(index) for index in payload.get("filled") or ())
-    return GridPreview(plan, reader=reader, wallet=payload["wallet"]).preview(filled=filled)
+    raw_filled = payload.get("filled")
+    if raw_filled is not None and not isinstance(raw_filled, list):
+        raise ValueError("filled must be an array of integer level indexes")
+    if any(
+        not isinstance(index, int) or isinstance(index, bool)
+        for index in (raw_filled or ())
+    ):
+        raise ValueError("filled must be an array of integer level indexes")
+    filled = tuple(raw_filled or ())
+    return GridPreview(plan, reader=reader, wallet=payload["wallet"]).preview(
+        filled=filled
+    )
 
 
 def _run_health_guard(payload: dict) -> dict:
@@ -202,15 +470,23 @@ def _run_health_guard(payload: dict) -> dict:
     policy = GuardPolicy(
         markets=(
             MarketPolicy(
-                vtoken=VENUS_VUSDT, underlying=VENUS_USDT, max_repay=GUARD_CAP, max_supply=0
+                vtoken=VENUS_VUSDT,
+                underlying=VENUS_USDT,
+                max_repay=GUARD_CAP,
+                max_supply=0,
             ),
             MarketPolicy(
-                vtoken=VENUS_VUSDC, underlying=VENUS_USDC, max_repay=0, max_supply=GUARD_CAP
+                vtoken=VENUS_VUSDC,
+                underlying=VENUS_USDC,
+                max_repay=0,
+                max_supply=GUARD_CAP,
             ),
         ),
         trigger_shortfall_usd=GUARD_TRIGGER_USD if trigger is None else int(trigger),
     )
-    return HealthGuardPreview(reader=VenusReader(), policy=policy).preview(payload["wallet"])
+    return HealthGuardPreview(reader=VenusReader(), policy=policy).preview(
+        payload["wallet"]
+    )
 
 
 def _run_yield_router(payload: dict) -> dict:
@@ -222,24 +498,65 @@ def _run_yield_router(payload: dict) -> dict:
     rather than implied, because a comparison against an unnamed baseline is a delta
     against nothing.
     """
+    draft_fields = ("wallet", "token_in", "token_out", "amount", "cap")
+    supplied = {field for field in draft_fields if payload.get(field) is not None}
+    if supplied and supplied != set(draft_fields):
+        raise ValueError(
+            "drafting requires wallet, token_in, token_out, amount and cap together"
+        )
+    amount = _declared_integer(payload, "amount")
+    cap = _declared_integer(payload, "cap")
+
     from ..agents.pancake.pools import PoolClient
     from ..agents.yield_router.router import YieldRouterPreview
     from ..agents.yield_router.universe import eligible_pools
+    from ..execution.simulate import BscQuoteReader
 
-    with PoolClient() as client:
-        rows = client.top_pools()
-        allowlist = client.token_allowlist()
+    pool_snapshot = payload.get("pool_snapshot")
+    token_snapshot = payload.get("token_list_snapshot")
+    if (pool_snapshot is None) != (token_snapshot is None):
+        raise ValueError(
+            "pool_snapshot and token_list_snapshot must be supplied together"
+        )
+    if pool_snapshot is not None:
+        pools_body, pools_evidence = _decode_source_snapshot(
+            pool_snapshot, "pool_snapshot"
+        )
+        tokens_body, tokens_evidence = _decode_source_snapshot(
+            token_snapshot, "token_list_snapshot"
+        )
+        rows = _pool_rows(pools_body, "pool_snapshot")
+        allowlist = _allowlist(tokens_body, "token_list_snapshot")
+    else:
+        with PoolClient() as client:
+            rows, pools_raw = client.top_pools_snapshot()
+            allowlist, tokens_raw = client.token_allowlist_snapshot()
+        observed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        pools_evidence = {
+            "url": (
+                "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top"
+            ),
+            "observed_at": observed_at,
+            "sha256": hashlib.sha256(pools_raw).hexdigest(),
+        }
+        tokens_evidence = {
+            "url": "https://tokens.pancakeswap.finance/pancakeswap-extended.json",
+            "observed_at": observed_at,
+            "sha256": hashlib.sha256(tokens_raw).hexdigest(),
+        }
+    sources = {"pools": pools_evidence, "token_list": tokens_evidence}
     universe = eligible_pools(
         rows,
         allowlist,
-        source="explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
-        observed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        source=pools_evidence["url"],
+        observed_at=pools_evidence["observed_at"],
     )
     if not universe.included:
         return {
             "current": None,
             "candidates": [],
             "universe": universe.as_record(),
+            "sources": sources,
             "note": (
                 "no pool in this snapshot cleared the gate, so there is nothing to compare "
                 "and no highest to name. Every row that was turned away is listed with its "
@@ -283,7 +600,12 @@ def _run_yield_router(payload: dict) -> dict:
             "deepest pool in the set and not a pool anybody is known to be in"
         )
     horizon = payload.get("horizon_days")
-    out = YieldRouterPreview(universe=universe, current=current).preview(
+    wallet = payload.get("wallet")
+    out = YieldRouterPreview(
+        universe=universe,
+        current=current,
+        reader=BscQuoteReader() if wallet is not None else None,
+    ).preview(
         position_size_usd=float(
             payload.get("position_size_usd")
             if payload.get("position_size_usd") is not None
@@ -295,48 +617,154 @@ def _run_yield_router(payload: dict) -> dict:
             else ROUTER_SWITCHING_COST_USD
         ),
         **({} if horizon is None else {"horizon_days": int(horizon)}),
+        wallet=wallet,
+        token_in=payload.get("token_in"),
+        token_out=payload.get("token_out"),
+        amount=amount,
+        cap=cap,
     )
-    return out | {"current_pool_chosen_by": chosen_by}
+    return out | {
+        "current_pool_chosen_by": chosen_by,
+        "sources": sources,
+    }
 
 
 SERVICES: dict[str, Service] = {
     "range-doctor": Service(
         id="range-doctor",
         name="Range Doctor",
+        job_summary=(
+            "Diagnoses one wallet's PancakeSwap v3 position range and fee economics."
+        ),
         what_you_get=(
             "A read-only diagnosis of the PancakeSwap v3 liquidity positions a BSC wallet holds "
             "or has staked: for each one, whether the current tick sits inside its range and "
-            "where in that range it sits, the pool's own 24h net fee rate when the pool's "
-            "reported figures clear a plausibility gate, and conditional next steps that each "
-            "name the belief they rest on and what acting costs in gas and realised impermanent "
-            "loss. Every finding carries the numbers it was computed from, so you can check it "
-            "against the chain yourself. Nothing is signed, approved, or moved."
+            "where in that range it sits, the pool's gross and protocol-adjusted net 24h fee "
+            "rates when its reported figures clear a plausibility gate, and conditional wait "
+            "and recenter paths. Name one token id and declare its USD value and estimated "
+            "recenter cost to add fixed-notional dollar effects and cost-only break-even; those "
+            "two inputs are labelled as the caller's rather than derived from an unverified "
+            "price feed. Every finding carries the numbers it was computed from, so you can "
+            "check it against the chain yourself. Nothing is signed, approved, or moved."
         ),
         input_schema={
             "wallet": {
                 "type": "string",
                 "required": True,
+                "default": CONTROLLED_EXAMPLE_WALLET,
+                "example_note": (
+                    "Docket's own controlled position — replace with your address"
+                ),
                 "description": "the 0x-prefixed BSC address whose v3 positions to read",
             },
             "limit": {
                 "type": "integer",
                 "required": False,
-                "default": RANGE_DOCTOR_LIMIT,
                 "description": (
-                    "how many of the wallet's position NFTs to read, newest first; the response "
-                    "reports positions_held and positions_examined so a bounded read is visible"
+                    "how many open positions to return. It bounds the answer, not the reading: "
+                    "closed positions no longer consume it, so a wallet whose older positions "
+                    "are all closed still gets its open ones back. Up to "
+                    f"{MAX_EXAMINED} position NFTs are read in one call whatever this is set to; "
+                    "the response carries positions_held, positions_examined, closed_skipped "
+                    "and scan_complete, so a bounded read always says what it did not reach"
                 ),
+            },
+            "token_id": {
+                "type": "integer",
+                "required": False,
+                "default": 7141050,
+                "description": (
+                    "one exact PancakeSwap v3 position NFT to diagnose. The wallet is still "
+                    "enumerated for coverage, the selected NFT is returned even when closed, "
+                    "and this cannot be combined with limit"
+                ),
+            },
+            "declared_position_value_usd": {
+                "type": "number",
+                "required": False,
+                "default": 50.55,
+                "description": (
+                    "the positive caller-declared USD value of the exact token_id, used for "
+                    "fixed-notional dollar effects. Requires token_id; it is not derived from "
+                    "a token price feed"
+                ),
+            },
+            "estimated_recenter_cost_usd": {
+                "type": "number",
+                "required": False,
+                "default": 1.0,
+                "description": (
+                    "the caller-declared non-negative USD cost of recentering the exact "
+                    "token_id, including every gas, swap fee and price-impact component the "
+                    "caller wants counted. Requires token_id and is not derived by Docket"
+                ),
+            },
+            "observation_block": {
+                "type": "integer",
+                "required": False,
+                "advanced": True,
+                "description": (
+                    "read the position and its pool at this BSC block instead of the latest "
+                    "one. Both are read at the same block either way, so a diagnosis never "
+                    "compares a position from one moment against a price from another. Give "
+                    "it when the answer has to be reproducible — two readers at different "
+                    "times get the same result only if they name the same block. Public "
+                    "dataseeds prune, so an older block may return a stated read failure "
+                    "naming an archive node as the remedy rather than an empty result"
+                ),
+            },
+            "position_manager": {
+                "type": "string",
+                "required": False,
+                "advanced": True,
+                "description": (
+                    "the PancakeSwap v3 NPM address; required with frozen source snapshots"
+                ),
+            },
+            "decision_horizon_days": {
+                "type": "integer",
+                "required": False,
+                "default": 30,
+                "description": "the positive horizon for the cost-only break-even comparison",
+            },
+            "pool_snapshot": {
+                "type": "object",
+                "required": False,
+                "advanced": True,
+                "description": (
+                    "exact top-pools HTTP response bytes as base64 with URL, observation "
+                    "time and bare SHA-256; supplied with token_list_snapshot and source_refs"
+                ),
+            },
+            "token_list_snapshot": {
+                "type": "object",
+                "required": False,
+                "advanced": True,
+                "description": (
+                    "exact token-list HTTP response bytes as base64 with URL, observation "
+                    "time and bare SHA-256; supplied with pool_snapshot and source_refs"
+                ),
+            },
+            "source_refs": {
+                "type": "array",
+                "items": {"type": "object"},
+                "required": False,
+                "advanced": True,
+                "description": "the frozen typed source references bound to this position",
             },
         },
         typical_seconds=30,
-        price_display="0.01 $U",
-        price_atomic=10**16,
-        asset=U_TOKEN,
+        price_display=HIRE_PRICE_DISPLAY,
+        price_atomic=HIRE_PRICE_ATOMIC,
+        asset=USDT_TOKEN,
+        stock_status="candidate",
+        admission=RANGE_ADMISSION,
         run=_run_range_doctor,
     ),
     "grid-operator": Service(
         id="grid-operator",
         name="Grid Operator Preview",
+        job_summary="Builds a read-only PancakeSwap V2 grid preview for one wallet.",
         what_you_get=(
             "A deterministic PancakeSwap V2 grid, built from a band you give it — or drawn "
             "around the pair's current price if you give it none — and previewed against BSC "
@@ -359,6 +787,10 @@ SERVICES: dict[str, Service] = {
             "wallet": {
                 "type": "string",
                 "required": True,
+                "default": CONTROLLED_EXAMPLE_WALLET,
+                "example_note": (
+                    "Docket's own controlled wallet — replace with your address"
+                ),
                 "description": (
                     "the 0x-prefixed BSC address the previewed swaps name as recipient; it is "
                     "read and never touched"
@@ -423,19 +855,25 @@ SERVICES: dict[str, Service] = {
             },
             "filled": {
                 "type": "array",
+                "items": {"type": "integer"},
                 "required": False,
                 "description": "level indexes already filled, which are not drafted again",
             },
         },
         typical_seconds=25,
-        price_display="0.01 $U",
-        price_atomic=10**16,
-        asset=U_TOKEN,
+        price_display=HIRE_PRICE_DISPLAY,
+        price_atomic=HIRE_PRICE_ATOMIC,
+        asset=USDT_TOKEN,
+        stock_status="preview",
+        admission=PREVIEW_ADMISSION,
         run=_run_grid_operator,
     ),
     "health-guard": Service(
         id="health-guard",
         name="Venus Health Guard Preview",
+        job_summary=(
+            "Reads one wallet's Venus Core Pool position and drafts bounded protective actions."
+        ),
         what_you_get=(
             "A read-only report on what Venus Core Pool publishes about one BSC address's "
             "lending position, and on what can honestly be derived from it. Venus publishes "
@@ -460,6 +898,11 @@ SERVICES: dict[str, Service] = {
             "wallet": {
                 "type": "string",
                 "required": True,
+                "default": CONTROLLED_EXAMPLE_WALLET,
+                "example_note": (
+                    "Docket's controlled wallet has no Venus position, so the honest result "
+                    "is no position — replace with your address"
+                ),
                 "description": (
                     "the 0x-prefixed BSC address whose Venus position to read; it is read "
                     "and never touched"
@@ -476,14 +919,19 @@ SERVICES: dict[str, Service] = {
             },
         },
         typical_seconds=40,
-        price_display="0.01 $U",
-        price_atomic=10**16,
-        asset=U_TOKEN,
+        price_display=HIRE_PRICE_DISPLAY,
+        price_atomic=HIRE_PRICE_ATOMIC,
+        asset=USDT_TOKEN,
+        stock_status="preview",
+        admission=PREVIEW_ADMISSION,
         run=_run_health_guard,
     ),
     "yield-router": Service(
         id="yield-router",
         name="Yield Router Preview",
+        job_summary=(
+            "Compares an eligible PancakeSwap v3 pool set and states switching break-even."
+        ),
         what_you_get=(
             "A comparison of PancakeSwap v3 pools on BSC at the rates they were observed at, "
             "bounded by a set you can reproduce. The eligible universe is built from "
@@ -499,8 +947,9 @@ SERVICES: dict[str, Service] = {
             "the input you supplied rather than a figure Docket derived. A pool with a higher "
             "rate whose break-even runs past that horizon is shown with that fact attached "
             "rather than dropped. Ordering is by one named observed metric and the payload "
-            "says which, so no order here is an opinion Docket formed. No wallet is needed "
-            "for any of it, and nothing is signed, approved, submitted or moved."
+            "says which, so no order here is an opinion Docket formed. The comparison needs "
+            "no wallet; drafting a swap leg requires the wallet, token pair, amount and cap "
+            "declared together. Nothing is signed, approved, submitted or moved."
         ),
         input_schema={
             "pool": {
@@ -510,6 +959,46 @@ SERVICES: dict[str, Service] = {
                     "the pool id your capital is in, as the explorer spells it. With none "
                     "given the first row of the eligible set stands in as the baseline and "
                     "the response says so"
+                ),
+            },
+            "wallet": {
+                "type": "string",
+                "required": False,
+                "description": (
+                    "the recipient for an optional drafted swap leg. Supply it together "
+                    "with token_in, token_out, amount and cap; omit all five for comparison only"
+                ),
+            },
+            "token_in": {
+                "type": "string",
+                "required": False,
+                "description": (
+                    "the token the optional draft would spend; supply it with wallet, "
+                    "token_out, amount and cap"
+                ),
+            },
+            "token_out": {
+                "type": "string",
+                "required": False,
+                "description": (
+                    "the token the optional draft would buy; it must be held by the "
+                    "destination pool and supplied with wallet, token_in, amount and cap"
+                ),
+            },
+            "amount": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "the exact atomic-unit input for the optional draft; supply it with "
+                    "wallet, token_in, token_out and cap"
+                ),
+            },
+            "cap": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "the maximum atomic-unit input the optional draft may name; the amount "
+                    "is refused rather than trimmed when it exceeds this"
                 ),
             },
             "position_size_usd": {
@@ -537,16 +1026,37 @@ SERVICES: dict[str, Service] = {
                     "response, so another horizon can be applied without asking"
                 ),
             },
+            "pool_snapshot": {
+                "type": "object",
+                "required": False,
+                "description": (
+                    "exact top-pools HTTP response bytes as base64 with URL, observation "
+                    "time and bare SHA-256; supplied together with token_list_snapshot"
+                ),
+            },
+            "token_list_snapshot": {
+                "type": "object",
+                "required": False,
+                "description": (
+                    "exact token-list HTTP response bytes as base64 with URL, observation "
+                    "time and bare SHA-256; supplied together with pool_snapshot"
+                ),
+            },
         },
         typical_seconds=12,
-        price_display="0.01 $U",
-        price_atomic=10**16,
-        asset=U_TOKEN,
+        price_display=HIRE_PRICE_DISPLAY,
+        price_atomic=HIRE_PRICE_ATOMIC,
+        asset=USDT_TOKEN,
+        stock_status="preview",
+        admission=PREVIEW_ADMISSION,
         run=_run_yield_router,
     ),
     "solvent-signal": Service(
         id="solvent-signal",
         name="SOLVENT Last Published Regime Signal",
+        job_summary=(
+            "Relays SOLVENT's last published historical regime signal and provenance."
+        ),
         what_you_get=(
             "SOLVENT's last published daily regime read, relayed byte for byte, together with "
             "the provenance chain that dates it: the regime and the thesis recorded with it, "
@@ -569,15 +1079,19 @@ SERVICES: dict[str, Service] = {
         ),
         input_schema={},
         typical_seconds=2,
-        price_display="0.01 $U",
-        price_atomic=10**16,
-        asset=U_TOKEN,
+        price_display=HIRE_PRICE_DISPLAY,
+        price_atomic=HIRE_PRICE_ATOMIC,
+        asset=USDT_TOKEN,
+        stock_status="research",
+        admission=NO_PAID_ADMISSION,
         run=_run_solvent_signal,
     ),
     "warden-scan": Service(
         id="warden-scan",
         name="Warden Payload Scan",
+        job_summary="Scans one untrusted payload and returns Warden's live telemetry.",
         what_you_get=(
+            "This hire makes a live upstream call; the recorded run is evidence, not freshness. "
             "Warden's verdict on one piece of untrusted text — ALLOW, SANITIZE or BLOCK — with "
             "the threat classes it matched, the individual detections and confidences behind "
             "them, its sanitized rendering of the text, and the per-layer checks that produced "
@@ -595,9 +1109,17 @@ SERVICES: dict[str, Service] = {
             },
         },
         typical_seconds=5,
-        price_display="0.01 $U",
-        price_atomic=10**16,
-        asset=U_TOKEN,
+        price_display=HIRE_PRICE_DISPLAY,
+        price_atomic=HIRE_PRICE_ATOMIC,
+        asset=USDT_TOKEN,
+        stock_status="beta",
+        # One of four limbs now holds: the result is presented as a decision with its
+        # detections, their sources and the sanitized text, rather than as raw JSON. The other
+        # three remain false and are the reason this is still beta rather than paid stock —
+        # settlement is owner-gated, the canary cannot exercise a paid leg until it is, and no
+        # paired benchmark has run. Flipping the presenter limb alone changes nothing a buyer
+        # can reach, which is the point of requiring all four.
+        admission=WARDEN_ADMISSION,
         run=_run_warden_scan,
     ),
 }

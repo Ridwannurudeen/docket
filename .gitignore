@@ -5,3 +5,9 @@ __pycache__/
 *.key
 node_modules/
 data/
+# The docs now tell a reader to build a wheel and install it outside the checkout, so these
+# appear the first time anyone follows them. build/ in particular holds a full copy of the
+# package, which is how a stale second copy of the source ends up in a diff.
+build/
+dist/
+*.whl

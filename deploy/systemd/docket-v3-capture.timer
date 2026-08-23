@@ -1,0 +1,15 @@
+[Unit]
+Description=Pre-arm the v3 Yield capture before its one registered moment
+
+[Timer]
+OnCalendar=2026-08-26 11:50:00 UTC
+# No RandomizedDelaySec, unlike the canary. The process uses these ten minutes to load and
+# persist armed.json, then sleeps to the registered first attempt inside the same process.
+AccuracySec=1s
+# A catch-up activation is safe because the capture refuses before HTTP when the registered
+# first-attempt tolerance has passed and persists that terminal refusal in its output path.
+Persistent=true
+Unit=docket-v3-capture.service
+
+[Install]
+WantedBy=timers.target

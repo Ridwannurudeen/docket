@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh Docket's targeted ERC-8004 snapshot every six hours
+
+[Timer]
+OnCalendar=*-*-* 01,07,13,19:41:00 UTC
+# A missed run should execute after downtime. The refresh records its actual completion time and
+# exposes nothing until ingestion, enrichment, and endpoint probes have all finished.
+Persistent=true
+Unit=docket-refresh.service
+
+[Install]
+WantedBy=timers.target

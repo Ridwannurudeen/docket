@@ -1,0 +1,17 @@
+[Unit]
+Description=Record the controlled LP once a day, every day it exists
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 UTC
+# Unlike the v3 capture, this observes no registered moment, so jitter is free and spreads
+# the read away from every other timer on a shared host.
+RandomizedDelaySec=20min
+# Unlike the v3 capture, a missed day SHOULD be caught up. A late observation is still a
+# true observation of the position, honestly timestamped by when it actually ran; the
+# capture refuses catch-up only because filing a later universe under a registered time
+# would be a false claim about which universe was seen.
+Persistent=true
+Unit=docket-lp-record.service
+
+[Install]
+WantedBy=timers.target

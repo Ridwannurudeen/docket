@@ -1,0 +1,181 @@
+{
+  "agent_arm": {
+    "cost": {
+      "amount": "0",
+      "note": "public read endpoints only; no API key, payment, or transaction",
+      "unit": "USD"
+    },
+    "error": null,
+    "name": "agent",
+    "output": {
+      "observation": {
+        "block": 117453014,
+        "does_not_show": "It does not show a liquidation, a future account state, or a paired run against a person; the block is a provenance stamp, not an atomic block-tagged snapshot of every RPC call.",
+        "method": "The catalogue health-guard runner read Unitroller.getAccountLiquidity, getAssetsIn, each entered vToken snapshot, and the current Venus oracle; the service stamped the read at BSC block 117453014.",
+        "observed_at": "2026-08-22T16:05:41.904205+00:00",
+        "population": "1 entered markets with a non-zero borrow balance of 2 entered, from 52 Venus Core Pool markets listed at block 117453014",
+        "time_source": "recorder completion time; the service reports a block but no block timestamp",
+        "window": "single recorded read; no paired run against a person; one wallet across 2 entered Venus Core Pool markets"
+      },
+      "receipt": {
+        "delivered_at": "2026-08-22T16:05:41.904205+00:00",
+        "input_hash": "0x28589bdddf2896ad7ebfc24e392976052545bcdb773e66a558dc957f8b767abc",
+        "output_hash": "0xef005f8c53f2217f82aac876af7bc1e8c9bca9760414d512372d13e9efa29011",
+        "payment": {
+          "note": "No payment, signature, transaction, or network write was made.",
+          "status": "read_only_recording"
+        },
+        "service": "health-guard"
+      },
+      "request": {
+        "wallet": "0x41eE916D25C38fED953098525Ea3A74d2148A32a"
+      },
+      "result": {
+        "account": {
+          "address": "0x41eE916D25C38fED953098525Ea3A74d2148A32a",
+          "as_of_block": 117453014,
+          "complete": true,
+          "error_code": 0,
+          "liquidity_usd": "67141209172843603297",
+          "markets_entered": 2,
+          "markets_listed": 52,
+          "note": "These rows are the markets getAssetsIn reports the account has entered, which is the same set the comptroller iterates when it computes liquidity and shortfall. A supply in a market the account never entered is not collateral, adds nothing to either figure, and is not read here.",
+          "oracle": "0x6592b5DE802159F3E74B2486b091D11a8256ab8A",
+          "reads": [
+            "eth_blockNumber",
+            "comptroller.getAccountLiquidity",
+            "comptroller.getAssetsIn",
+            "comptroller.getAllMarkets",
+            "comptroller.oracle",
+            "comptroller.markets",
+            "oracle.getUnderlyingPrice",
+            "vToken.getAccountSnapshot",
+            "vToken.symbol"
+          ],
+          "rows": [
+            {
+              "as_of_block": 117453014,
+              "borrow_balance": "0",
+              "collateral_factor_mantissa": "800000000000000000",
+              "exchange_rate_mantissa": "203810005310110868085106659",
+              "snapshot_error": 0,
+              "sources": {
+                "borrow_balance": "vToken.getAccountSnapshot",
+                "collateral_factor_mantissa": "comptroller.markets",
+                "exchange_rate_mantissa": "vToken.getAccountSnapshot",
+                "snapshot_error": "vToken.getAccountSnapshot",
+                "symbol": "vToken.symbol",
+                "underlying_price_mantissa": "oracle.getUnderlyingPrice",
+                "vtoken_balance": "vToken.getAccountSnapshot"
+              },
+              "symbol": "vBTC",
+              "underlying_price_mantissa": "77049959894180000000000",
+              "vtoken": "0x882C173bC7Ff3b7786CA16dfeD3DFFfb9Ee7847B",
+              "vtoken_balance": "26832836"
+            },
+            {
+              "as_of_block": 117453014,
+              "borrow_balance": "270000259137772521556",
+              "collateral_factor_mantissa": "800000000000000000",
+              "exchange_rate_mantissa": "264483036265854478027921354",
+              "snapshot_error": 0,
+              "sources": {
+                "borrow_balance": "vToken.getAccountSnapshot",
+                "collateral_factor_mantissa": "comptroller.markets",
+                "exchange_rate_mantissa": "vToken.getAccountSnapshot",
+                "snapshot_error": "vToken.getAccountSnapshot",
+                "symbol": "vToken.symbol",
+                "underlying_price_mantissa": "oracle.getUnderlyingPrice",
+                "vtoken_balance": "vToken.getAccountSnapshot"
+              },
+              "symbol": "vUSDT",
+              "underlying_price_mantissa": "999834145330154500",
+              "vtoken": "0xfD5840Cd36d94D7229439859C0112a4185BC0255",
+              "vtoken_balance": "0"
+            }
+          ],
+          "scale": "1e18 USD, as the comptroller reports both figures",
+          "shortfall_usd": "0"
+        },
+        "actions": [],
+        "address": "0x41eE916D25C38fED953098525Ea3A74d2148A32a",
+        "assessment": {
+          "address": "0x41eE916D25C38fED953098525Ea3A74d2148A32a",
+          "as_of_block": 117453014,
+          "borrowed_usd": "269955478333935026849",
+          "collateral_ratio": "1248712143975417194",
+          "collateral_ratio_is_derived": true,
+          "collateral_ratio_method": "collateral_ratio = weighted_collateral / borrowed, both in 1e18-scaled USD, computed here and not read from Venus — Venus publishes no such figure. Per market entered: weighted_collateral += vtoken_balance x exchange_rate / 1e18 x price / 1e18 x collateralFactor / 1e18, and borrowed += borrow_balance x price / 1e18. vtoken_balance, borrow_balance and exchange_rate come from vToken.getAccountSnapshot, collateralFactor from comptroller.markets, price from oracle.getUnderlyingPrice on the oracle comptroller.oracle names, and the set of markets from comptroller.getAssetsIn. Integer division throughout, truncating. A result below 1e18 means the weighted collateral no longer covers the debt. One debt Venus counts is missing from the denominator: VAI minted against this account. The comptroller adds VAIController.getVAIRepayAmount to the borrow side of its own figure and this sum walks the per-market rows only, so for an account that has minted VAI the ratio above is too favourable by exactly that amount. Venus's own liquidity and shortfall, printed beside this, do count it.",
+          "collateral_ratio_scale": "1e18",
+          "cross_check": {
+            "derived_headroom_usd": "67141205794342265563",
+            "difference_usd": "3378501337734",
+            "exactly_equal": false,
+            "method": "weighted_collateral - borrowed, derived here, against liquidity - shortfall, which is the same quantity the comptroller publishes. They are computed from the same inputs by two different parties, so the gap between them is what says whether the derived ratio can be leaned on. exactly_equal compares them for exact equality and nothing else — there is no tolerance here, because a tolerance is a judgement about how much disagreement is acceptable and this record does not make one. Read difference_usd against the two magnitudes printed beside it: three truncating integer divisions per market, in an order that need not match the comptroller's, put the last few units of 1e-18 USD beyond reach, and the two reads can also land at different blocks. There is one systematic cause besides those: minted VAI is a debt the comptroller counts on its borrow side and this derivation does not, so an account that has minted VAI shows a difference of about that debt, with the derived headroom the larger of the two. A difference of the size truncation explains is arithmetic; one that matches a VAI balance is this derivation's known gap; a difference near the magnitudes themselves is a reason to distrust the ratio.",
+            "venus_headroom_usd": "67141209172843603297"
+          },
+          "status": "borrowing_with_headroom",
+          "status_means": "Borrowing, and the comptroller reports liquidity rather than shortfall — more could be borrowed against this collateral at this block.",
+          "status_vocabulary": [
+            "borrowing_with_headroom",
+            "no_position",
+            "shortfall",
+            "supplied_no_borrow",
+            "unreadable"
+          ],
+          "venus": {
+            "error_code": 0,
+            "liquidity_usd": "67141209172843603297",
+            "publishes_health_factor": false,
+            "publishes_note": "Venus publishes liquidity and shortfall in USD. It does not publish a health factor, and no call in this package returns one. The ratio beside this was computed here from the inputs its method names.",
+            "scale": "1e18 USD",
+            "shortfall_usd": "0",
+            "source": "comptroller.getAccountLiquidity"
+          },
+          "weighted_collateral_usd": "337096684128277292412"
+        },
+        "note": "What an action of this kind does, exactly: it changes a balance Venus holds, at the block it lands in. It does not establish that a liquidation would otherwise have happened, because that is a claim about a world nobody observed. Whether the shortfall figure moves, and by how much, is arithmetic Venus performs at the next read — and the next read is a different observation from this one.",
+        "policy": {
+          "gas_ceiling": 400000,
+          "markets": [
+            {
+              "max_repay": "100000000000000000000",
+              "max_supply": "0",
+              "underlying": "0x55d398326f99059fF775485246999027B3197955",
+              "vtoken": "0xfD5840Cd36d94D7229439859C0112a4185BC0255"
+            },
+            {
+              "max_repay": "0",
+              "max_supply": "100000000000000000000",
+              "underlying": "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+              "vtoken": "0xecA88125a5ADbe82614ffC12D0DB554E2e2867C8"
+            }
+          ],
+          "slippage_bps": 50,
+          "trigger_scale": "1e18 USD, the scale the comptroller reports shortfall in",
+          "trigger_shortfall_usd": "1000000000000000000",
+          "version": "health-guard/1"
+        },
+        "submitted": false,
+        "why_not_submitted": "This is a preview. It holds no session, no signer and no submitter, and there is no method on it that sends anything — and unlike the grid there is no armed counterpart class in this build at all. Acting on any of these needs an execution path this stage did not build, on top of a session the wallet's owner grants on chain."
+      }
+    },
+    "output_hash": "0xfe1305c4f0ab08ba07772fea2b57c7cc74ba5a351613888e40fbc8663a7ce62d",
+    "seconds": 14.487968199999159
+  },
+  "category": "health factor",
+  "manual_arm": {
+    "cost": null,
+    "error": "single recorded read; no paired run against a person",
+    "name": "manual",
+    "output": null,
+    "output_hash": null,
+    "seconds": null
+  },
+  "manual_steps": [
+    "python -m docket.advantage.record_run health-guard --payload '{\"wallet\":\"0x41eE916D25C38fED953098525Ea3A74d2148A32a\"}' --out docket/advantage/recorded_runs/05-health-guard-read.json"
+  ],
+  "notes": "This is a single recorded read; no paired run against a person. It does not show a liquidation, a future account state, or a paired run against a person; the block is a provenance stamp, not an atomic block-tagged snapshot of every RPC call. Re-running reads new live state and is expected to produce different times, blocks, outputs, and hashes.",
+  "question": "What Venus Core Pool position does this wallet have at the recorded read?",
+  "task_id": "05-health-guard-read"
+}

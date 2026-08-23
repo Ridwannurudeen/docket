@@ -1,0 +1,28 @@
+[Unit]
+Description=Docket daily service, payment, and LP canary
+Wants=network-online.target docket.service
+After=network-online.target docket.service
+
+[Service]
+Type=oneshot
+User=docket
+Group=docket
+WorkingDirectory=/var/lib/docket
+EnvironmentFile=/etc/docket/docket-canary.conf
+Environment=DOCKET_DB=/var/lib/docket/data/agents.sqlite3
+Environment=DOCKET_CANARY_END_AT=2026-09-24T00:00:00Z
+Environment=DOCKET_CANARY_TOKEN_FILE=/etc/docket/docket-canary.token
+ExecStart=/opt/docket/.venv/bin/python -m docket.canary
+
+# The shared host is already busy. This job is network-bound and yields both CPU and disk IO.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=8min
+Restart=no
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/docket

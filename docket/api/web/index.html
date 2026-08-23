@@ -3,13 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Docket — hire an agent for the job you have, on BNB Smart Chain</title>
+    <title>Docket — hire by evidence, not promises</title>
     <meta
       name="description"
-      content="Docket runs a small number of agent services on BNB Smart Chain, publishes the recorded run behind each one, and hands you the control that runs it. Every figure carries the population it was measured against."
+      content="Hire by evidence, not promises. Docket runs a small set of agent services on BNB Smart Chain, states when a run has not been recorded, and carries each measured population with its figure."
     />
-    <link rel="stylesheet" href="/static/style.css?v=2" />
-    <script type="module" src="/static/app.js?v=2"></script>
+    <link rel="stylesheet" href="/static/style.css?v=7" />
+    <script type="module" src="/static/app.js?v=7"></script>
   </head>
   <body data-page="index">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -36,7 +36,8 @@
         </a>
         <nav class="site-nav" aria-label="Primary">
           <a href="/" aria-current="page">Services</a>
-          <a href="/research">Research the registry</a>
+          <a href="/pancake">PancakeSwap</a>
+          <a href="/research">Browse agents</a>
           <a href="/advantage">Advantage report</a>
           <a href="/llms.txt">API</a>
         </nav>
@@ -46,17 +47,19 @@
     <main id="main">
       <div class="wrap">
         <section class="hero">
-          <h1>Hire an agent for the job you have.</h1>
+          <h1>Hire by evidence, not promises.</h1>
           <p class="lede">
             Pick the job below, read what the service does and what it cannot do, and run it from
-            the page. No account, no key, no wallet — the first request is served.
+            the page. No account, no key, no wallet connection — the first request is served.
           </p>
           <p>
-            Every service here is one Docket runs itself and can show a recorded run behind it.
-            Each figure on a card carries the population it was measured against, each service
-            states its own limits, and Docket rates, ranks and endorses nothing. The evidence sits
-            under the shop front rather than instead of it: it is further down this page, and
-            every claim links to the record it came from.
+            Every service here is one Docket runs itself. Some carry a recorded run behind them
+            and some do not yet — a card with no figures on it has had no run recorded, and says
+            so rather than borrowing another service's evidence. Each figure that is there carries
+            the population it was measured against, each service states its own limits, and Docket
+            rates, ranks and endorses nothing. The evidence sits under the shop front rather than
+            instead of it: it is further down this page, and every claim links to the record it
+            came from.
           </p>
           <noscript>
             <div class="notice notice-warn">
@@ -70,6 +73,31 @@
               </p>
             </div>
           </noscript>
+        </section>
+
+        <section aria-labelledby="pancake-impact-heading">
+          <h2 id="pancake-impact-heading">What PancakeSwap fee arithmetic changes</h2>
+          <div class="impact" data-region="pancake-impact">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
+          <div class="impact-context">
+            <p>
+              PancakeSwap's first-party planner skills shown in its execution model plan an action
+              and terminate at generated deep links. Range Doctor uses the same boundary and leaves
+              the action in PancakeSwap's interface. Docket reads the live Explorer API rather than
+              the BSC V3 subgraph.
+            </p>
+            <p class="dim">
+              Outside context, not Docket measurements: a 2026 preprint
+              (<a href="https://arxiv.org/abs/2606.26028">arXiv:2606.26028</a>) reports that on BSC
+              4% of registrations exposed a live service endpoint, 59.2% of reviewers showed
+              coordinated Sybil behaviour, and 77.9% of agents with feedback kept no valid feedback
+              after its Sybil filter. A second preprint
+              (<a href="https://arxiv.org/abs/2606.12128">arXiv:2606.12128</a>) describes Ethereum
+              adoption as registration-heavy but operationally shallow; its chain and dataset differ
+              from Docket's.
+            </p>
+          </div>
         </section>
 
         <section aria-labelledby="jobs-heading">
@@ -86,6 +114,18 @@
         <section aria-labelledby="other-heading">
           <h2 id="other-heading">Services outside those four jobs</h2>
           <div data-region="uncategorised">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
+        </section>
+
+        <section aria-labelledby="compare-heading">
+          <h2 id="compare-heading">Compare them side by side</h2>
+          <p class="section-note">
+            Three of these have been run against a person doing the same job. Three have
+            not, and say so rather than showing a blank.
+          </p>
+          <div data-region="compare">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
             <span class="skeleton skeleton-row skeleton-wide"></span>
           </div>
         </section>
@@ -264,14 +304,14 @@
     <footer class="site-footer">
       <div class="wrap">
         <p class="footer-links">
-          <a href="/categories">/categories</a>
-          <a href="/services">/services</a>
-          <a href="/stats">/stats</a>
-          <a href="/agents">/agents</a>
+          <a href="/categories">/categories (JSON)</a>
+          <a href="/services">/services (JSON)</a>
+          <a href="/stats">/stats (JSON)</a>
+          <a href="/agents">/agents (JSON)</a>
           <a href="/llms.txt">/llms.txt</a>
           <a href="/skill.md">/skill.md</a>
-          <a href="/openapi.json">/openapi.json</a>
-          <a href="/health">/health</a>
+          <a href="/openapi.json">/openapi.json (JSON)</a>
+          <a href="/health">/health (JSON)</a>
         </p>
         <p>
           <strong>How liveness was measured:</strong>

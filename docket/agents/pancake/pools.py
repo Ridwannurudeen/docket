@@ -21,6 +21,7 @@ is not, so nothing here returns a per-position yield — that needs the position
 own range, which is the doctor's job.
 """
 
+import json
 import time
 
 import httpx
@@ -56,34 +57,51 @@ class PoolClient:
     def __exit__(self, *exc) -> None:
         self.close()
 
-    def _get(self, url: str) -> dict | list:
+    def _get_bytes(self, url: str) -> bytes:
         last: Exception | None = None
         for attempt in range(MAX_ATTEMPTS):
             try:
                 resp = self._client.get(url)
                 if resp.status_code == 429 or resp.status_code >= 500:
                     last = httpx.HTTPStatusError(
-                        f"{resp.status_code} from {url}", request=resp.request, response=resp
+                        f"{resp.status_code} from {url}",
+                        request=resp.request,
+                        response=resp,
                     )
                 else:
                     resp.raise_for_status()
-                    return resp.json()
+                    return resp.content
             except httpx.TransportError as exc:
                 last = exc
             if attempt < MAX_ATTEMPTS - 1:
                 time.sleep(BACKOFF_S[min(attempt, len(BACKOFF_S) - 1)])
         raise last  # type: ignore[misc]
 
+    def top_pools_snapshot(
+        self, chain: str = "bsc", version: str = "v3"
+    ) -> tuple[list[dict], bytes]:
+        raw = self._get_bytes(f"/pools/{version}/{chain}/list/top")
+        data = json.loads(raw)
+        rows = list(data.get("rows") or []) if isinstance(data, dict) else list(data)
+        return rows, raw
+
+    def token_allowlist_snapshot(self) -> tuple[set[str], bytes]:
+        raw = self._get_bytes(TOKEN_LIST_URL)
+        data = json.loads(raw)
+        allowlist = {
+            str(token["address"]).lower()
+            for token in data["tokens"]
+            if token.get("chainId") == BSC_CHAIN_ID
+        }
+        return allowlist, raw
+
     def top_pools(self, chain: str = "bsc", version: str = "v3") -> list[dict]:
         """The explorer's top pools by TVL, exactly as served — no coercion, no filtering.
 
         Callers get the raw rows so the plausibility gate can name what it rejected.
         """
-        data = self._get(f"/pools/{version}/{chain}/list/top")
-        # This route serves a bare list; sibling explorer routes wrap theirs in `rows`.
-        if isinstance(data, dict):
-            return list(data.get("rows") or [])
-        return list(data)
+        rows, _raw = self.top_pools_snapshot(chain=chain, version=version)
+        return rows
 
     def token_allowlist(self) -> set[str]:
         """Lowercased BSC addresses from PancakeSwap's extended token list.
@@ -94,12 +112,8 @@ class PoolClient:
         `.get`-ed on purpose: a changed shape must fail loudly, because an empty
         allowlist silently rejects everything and looks like a quiet market.
         """
-        data = self._get(TOKEN_LIST_URL)
-        return {
-            str(token["address"]).lower()
-            for token in data["tokens"]
-            if token.get("chainId") == BSC_CHAIN_ID
-        }
+        allowlist, _raw = self.token_allowlist_snapshot()
+        return allowlist
 
 
 def net_fee_apr(pool: dict) -> float:
@@ -112,7 +126,9 @@ def net_fee_apr(pool: dict) -> float:
     tvl = float(pool.get("tvlUSD") or 0)
     if tvl <= 0:
         return 0.0
-    lp_fees = float(pool.get("feeUSD24h") or 0) - float(pool.get("protocolFeeUSD24h") or 0)
+    lp_fees = float(pool.get("feeUSD24h") or 0) - float(
+        pool.get("protocolFeeUSD24h") or 0
+    )
     return lp_fees * 365 / tvl
 
 

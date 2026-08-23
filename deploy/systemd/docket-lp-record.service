@@ -1,0 +1,39 @@
+[Unit]
+Description=Docket controlled-LP daily record — state, diagnosis, and later state
+# Deliberately not Wants=docket.service. This reads the chain through the same library the
+# hire route uses; it does not need the API to be up, and coupling them would mean an API
+# restart could lose a day of a history that cannot be backfilled.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=docket
+Group=docket
+WorkingDirectory=/var/lib/docket
+# Environment=DOCKET_ARCHIVE_RPC=
+# The deployed venv, not /opt/docket/docket — that path is the previous release's source
+# tree, and it would still import, still run, and record against the wrong revision.
+#
+# The declared value is the mint-time notional Pancake quoted, not a figure derived from
+# spot; the recenter cost is measured gas for two legs priced at 1 gwei rather than the
+# 0.05 gwei that happened to prevail, because understating a cost flatters the break-even
+# it feeds and overstating one cannot.
+ExecStart=/opt/docket/.venv/bin/python -m docket.agents.pancake.lp_record \
+  0xe55816904796341bf8535e25f6c8b647927fc946 7141050 \
+  /var/lib/docket/lp-record/controlled.jsonl \
+  --declared-value-usd 50.55 --recenter-cost-usd 1.00 --horizon-days 30
+
+# This box carries roughly eighteen other live projects. A day's record is not urgent to
+# the minute, so it yields rather than competing with them.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=15min
+Restart=no
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/docket

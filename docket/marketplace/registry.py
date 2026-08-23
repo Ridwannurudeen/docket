@@ -1,15 +1,15 @@
 """The inventory: every service Docket runs, joined to its identity, its job and its record.
 
-This is the honest starting stock. One of BNB's four categories has a service in it;
-three do not, and they say so rather than showing a card for something that does not
-exist. Two of the three services do work that is not one of those four jobs at all,
-and they are listed as themselves rather than pushed into a shelf they do not belong on.
+This is the current stock. Each of BNB's four categories has one service in it, and
+two of the six services do work that is not one of those four jobs at all. Those two
+are listed as themselves rather than pushed into a shelf they do not belong on.
 
-Every figure here is transcribed from a recorded experiment under
-`docket/advantage/experiments/`, and each one names the arm and field it came from in
-its own `method`, so a reader can open /advantage and check it against the run. They
-are single observations, which is why every `window` says so: one run, one wallet, one
-payload. None of them is an average and none of them is a claim about the next run.
+Every figure here is derived from a recorded experiment under
+`docket/advantage/experiments/` or a category read under
+`docket/advantage/recorded_runs/`, and each one names the response fields it came from
+in its own `method`. They are single observations, which is why every `window` says so:
+one run, one wallet or source population, one payload. None of them is an average and
+none of them is a claim about the next run.
 
 The unflattering figures are here on purpose. warden-scan names one of the four hostile
 vectors a manual read of the same text found; solvent-signal serves a read that sits
@@ -18,6 +18,7 @@ flatter its own stock would be publishing a verdict, which is the one thing Dock
 promised not to do.
 """
 
+from ..advantage.record_run import load_record
 from ..advantage.v2.report import run as v2_run, security_scores
 from .models import CATEGORIES, Category, EvidenceRef, Metric, ServiceRecord
 
@@ -31,6 +32,19 @@ _WARDEN = _SECURITY["warden"]["decision_level"]
 _KEYWORD = _SECURITY["keyword_match"]["decision_level"]
 _EVERYTHING = _SECURITY["flag_everything"]["decision_level"]
 _SECURITY_COUNTS = _SECURITY["warden"]["counts"]
+
+_HEALTH_READ = load_record("health-guard")
+_GRID_READ = load_record("grid-operator")
+_YIELD_READ = load_record("yield-router")
+_HEALTH_OUTPUT = _HEALTH_READ["agent_arm"]["output"]
+_GRID_OUTPUT = _GRID_READ["agent_arm"]["output"]
+_YIELD_OUTPUT = _YIELD_READ["agent_arm"]["output"]
+_HEALTH_RESULT = _HEALTH_OUTPUT["result"]
+_GRID_RESULT = _GRID_OUTPUT["result"]
+_YIELD_RESULT = _YIELD_OUTPUT["result"]
+_HEALTH_OBSERVATION = _HEALTH_OUTPUT["observation"]
+_GRID_OBSERVATION = _GRID_OUTPUT["observation"]
+_YIELD_OBSERVATION = _YIELD_OUTPUT["observation"]
 
 # Said wherever a category is shown. The ERC-8004 record carries nothing that states
 # what job an agent does, so a category is a label Docket puts on its own work and
@@ -68,10 +82,32 @@ SERVICES: dict[str, ServiceRecord] = {
         agent_id=None,
         registration_uri=None,
         activation="one_shot",
-        # No recorded hired-versus-manual run stands behind this, so it carries no figures
-        # and cites no evidence. The grid set that precedent and it holds here.
-        metrics=(),
-        evidence=(),
+        evidence_modality="live_read",
+        metrics=(
+            Metric(
+                name="Entered markets carrying a borrow",
+                unit="entered markets read",
+                numerator=sum(
+                    int(row["borrow_balance"]) > 0
+                    for row in _HEALTH_RESULT["account"]["rows"]
+                ),
+                denominator=_HEALTH_RESULT["account"]["markets_entered"],
+                window=_HEALTH_OBSERVATION["window"],
+                observed_at=_HEALTH_OBSERVATION["observed_at"],
+                method=_HEALTH_OBSERVATION["method"],
+            ),
+        ),
+        evidence=(
+            EvidenceRef(
+                kind="advantage_task",
+                url="/services/health-guard",
+                label=(
+                    "Task 05 — single recorded read summary; the full committed JSON is "
+                    "docket/advantage/recorded_runs/05-health-guard-read.json and is not "
+                    "exposed by a public artifact route in this build"
+                ),
+            ),
+        ),
         limitations=(
             "Venus Core Pool on BSC and nothing else: no Isolated Pools, no other lending "
             "market, no other chain. Venus publishes no health factor — it publishes "
@@ -90,9 +126,9 @@ SERVICES: dict[str, ServiceRecord] = {
             "Drafted actions are repay and supply-collateral only; borrowing and withdrawing "
             "are not encoded and no argument produces one. An action changes a balance Venus "
             "holds at the block it lands in and establishes nothing about a liquidation that "
-            "did not happen, because that is a claim about a world nobody observed. No "
-            "recorded run stands behind this service yet, so it publishes no measured "
-            "figures."
+            "did not happen, because that is a claim about a world nobody observed. A "
+            "single recorded read; no paired run against a person stands behind the "
+            "metrics on this card."
         ),
     ),
     "yield-router": ServiceRecord(
@@ -104,8 +140,29 @@ SERVICES: dict[str, ServiceRecord] = {
         agent_id=None,
         registration_uri=None,
         activation="one_shot",
-        metrics=(),
-        evidence=(),
+        evidence_modality="live_read",
+        metrics=(
+            Metric(
+                name="Pools clearing the stated gate",
+                unit="top-list pools considered",
+                numerator=_YIELD_RESULT["universe"]["size"],
+                denominator=_YIELD_RESULT["universe"]["considered"],
+                window=_YIELD_OBSERVATION["window"],
+                observed_at=_YIELD_OBSERVATION["observed_at"],
+                method=_YIELD_OBSERVATION["method"],
+            ),
+        ),
+        evidence=(
+            EvidenceRef(
+                kind="advantage_task",
+                url="/services/yield-router",
+                label=(
+                    "Task 07 — single recorded read summary; the full committed JSON is "
+                    "docket/advantage/recorded_runs/07-yield-router-read.json and is not "
+                    "exposed by a public artifact route in this build"
+                ),
+            ),
+        ),
         limitations=(
             "PancakeSwap v3 pools on BSC, read from PancakeSwap's own explorer snapshot, and "
             "nothing else: no other venue, no v2 pools, no farms, no lending. Every rate is "
@@ -124,8 +181,8 @@ SERVICES: dict[str, ServiceRecord] = {
             "drafted move gets the caller into the right asset and no further. Nothing is "
             "signed, approved, submitted or held and there is no execution guarantee of any "
             "kind: a drafted swap is a record of what acting would commit to, and acting "
-            "needs a session the wallet's owner grants on chain. No recorded run stands "
-            "behind this service yet, so it publishes no measured figures."
+            "needs a session the wallet's owner grants on chain. A single recorded read; "
+            "no paired run against a person stands behind the metrics on this card."
         ),
     ),
     "grid-operator": ServiceRecord(
@@ -142,11 +199,36 @@ SERVICES: dict[str, ServiceRecord] = {
         # it did would be claiming the half of this service that needs a session nobody
         # has granted yet.
         activation="one_shot",
-        # No recorded hired-versus-manual run stands behind this yet, so it carries no
-        # figures. An invented one would be the same class of fabrication as an invented
-        # category, and this stage exists partly to refuse that.
-        metrics=(),
-        evidence=(),
+        evidence_modality="live_read",
+        metrics=(
+            Metric(
+                name="Levels quoted and hash-bound",
+                unit="requested grid levels",
+                numerator=sum(
+                    bool(
+                        level["intent"]
+                        and level["simulation"]
+                        and level["simulation"]["agrees"]
+                    )
+                    for level in _GRID_RESULT["levels"]
+                ),
+                denominator=_GRID_RESULT["plan"]["requested_levels"],
+                window=_GRID_OBSERVATION["window"],
+                observed_at=_GRID_OBSERVATION["observed_at"],
+                method=_GRID_OBSERVATION["method"],
+            ),
+        ),
+        evidence=(
+            EvidenceRef(
+                kind="advantage_task",
+                url="/services/grid-operator",
+                label=(
+                    "Task 06 — single recorded read summary; the full committed JSON is "
+                    "docket/advantage/recorded_runs/06-grid-preview-read.json and is not "
+                    "exposed by a public artifact route in this build"
+                ),
+            ),
+        ),
         limitations=(
             "PancakeSwap V2 exact-input swaps on BSC mainnet and nothing else: no V3, no "
             "limit orders, no adding or removing liquidity. What a hire returns is a "
@@ -162,8 +244,8 @@ SERVICES: dict[str, ServiceRecord] = {
             "simulation disagrees with its own bounds is not submitted — but a level "
             "filling is a fill and not a gain. A confirmed transaction shows the action "
             "executed as it was authorised and shows nothing about whether it was worth "
-            "taking. No recorded run stands behind this service yet, so it publishes no "
-            "measured figures. And the grid is deterministic rather than adaptive: it "
+            "taking. A single recorded read; no paired run against a person stands behind "
+            "the metrics on this card. And the grid is deterministic rather than adaptive: it "
             "divides the band it was given, and it does not decide the band was wrong."
         ),
     ),
@@ -175,6 +257,7 @@ SERVICES: dict[str, ServiceRecord] = {
         agent_id=None,
         registration_uri=None,
         activation="one_shot",
+        evidence_modality="live_read",
         metrics=(
             Metric(
                 name="Position NFTs read",
@@ -246,6 +329,7 @@ SERVICES: dict[str, ServiceRecord] = {
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:136384",
         registration_uri=None,
         activation="one_shot",
+        evidence_modality="historical",
         metrics=(
             Metric(
                 name="Receipts covered by the last on-chain anchor",
@@ -302,6 +386,7 @@ SERVICES: dict[str, ServiceRecord] = {
         agent_id=None,
         registration_uri=None,
         activation="one_shot",
+        evidence_modality="live_read",
         metrics=(
             Metric(
                 name="Hostile vectors named",

@@ -58,6 +58,16 @@ def test_static_assets_are_served(client):
         assert ctype in resp.headers["content-type"]
 
 
+def test_snapshot_age_is_rendered_as_an_exact_server_value():
+    """Relative prose may remain, but operational freshness must also be inspectable
+    without trusting the browser clock or deriving seconds from a timestamp."""
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "coverage.snapshot_age_seconds" in js
+    assert "cov.snapshot_age_seconds" in js
+    assert "Snapshot age" in js
+
+
 def test_no_external_requests_anywhere_in_the_ui():
     """Zero third-party surface: no CDN, no web fonts, no remote anything."""
     for f in WEB_DIR.glob("*"):
@@ -173,7 +183,59 @@ def test_registry_text_is_wrapped_rather_than_left_to_break_the_layout():
 
 
 def test_pages_declare_viewport_and_language():
-    for name in ("index.html", "research.html", "agent.html", "advantage.html", "service.html"):
+    for name in (
+        "index.html",
+        "research.html",
+        "agent.html",
+        "advantage.html",
+        "advantage-v2.html",
+        "advantage-v3.html",
+        "service.html",
+    ):
         text = (WEB_DIR / name).read_text(encoding="utf-8")
         assert 'lang="en"' in text
         assert "width=device-width" in text
+
+
+def test_coverage_uses_days_and_treats_a_week_old_snapshot_as_stale():
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "ageSeconds / 86400" in js
+    assert "ageDays >= 7" in js
+    assert '"Stale snapshot"' in js
+    assert 'data-state="${incomplete || stale || ageUnavailable ? "partial" : "complete"}"' in js
+    assert "This snapshot is stale" in js
+
+
+def test_sampled_metric_names_the_filter_and_registry_population_from_the_api():
+    js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
+    sampled = js.split("const sampledPopulation", 1)[1].split(
+        'fill(\n    "sampled-note"', 1
+    )[0]
+
+    assert "stats.registry_total" in sampled
+    assert 'cov.population === "min_feedbacks>=1"' in sampled
+    assert "BSC agents" in sampled
+    assert "the ones carrying at least one feedback record" in sampled
+
+
+def test_json_footer_links_are_labelled_as_json():
+    for page in WEB_DIR.glob("*.html"):
+        text = page.read_text(encoding="utf-8")
+        footer = re.search(r'<footer class="site-footer">(.*?)</footer>', text, re.S)
+        assert footer, page.name
+        for href in re.findall(r'href="(/[^"]+)"', footer.group(1)):
+            if href in {"/llms.txt", "/skill.md"}:
+                continue
+            if href.endswith(".json") or href in {
+                "/agents",
+                "/categories",
+                "/health",
+                "/hire",
+                "/services",
+                "/stats",
+            }:
+                link = re.search(
+                    rf'<a href="{re.escape(href)}">(.*?)</a>', footer.group(1)
+                )
+                assert link and "(JSON)" in link.group(1), (page.name, href)

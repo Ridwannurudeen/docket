@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the Docket governing canary once daily
+
+[Timer]
+OnCalendar=*-*-* 04:17:00 UTC
+RandomizedDelaySec=30m
+Persistent=true
+Unit=docket-canary.service
+
+[Install]
+WantedBy=timers.target
+

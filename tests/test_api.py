@@ -1,7 +1,10 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 
 from docket.api import create_app
+from docket.api.routes import _snapshot_age_seconds
 from docket.store import Store
 
 PUBLIC_HOST = "https://docket.gudman.xyz"
@@ -65,6 +68,16 @@ def test_health_names_the_snapshot_it_serves(client):
     body = client.get("/health").json()
     assert body["status"] == "ok"
     assert body["snapshot_id"] == 1
+    assert body["snapshot_captured_at"]
+    assert body["snapshot_age_seconds"] >= 0
+
+
+def test_snapshot_age_never_turns_bad_or_future_time_into_freshness():
+    future = (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat()
+
+    assert _snapshot_age_seconds("not-a-timestamp") is None
+    assert _snapshot_age_seconds("2026-08-15T12:00:00") is None
+    assert _snapshot_age_seconds(future) is None
 
 
 def test_root_points_an_agent_at_its_documentation(client):
@@ -78,6 +91,7 @@ def test_stats_never_reports_a_number_without_coverage(client):
     cov = body["coverage"]
     assert cov["sampled"] == 2 and cov["expected"] == 2 and cov["dropped"] == 0
     assert cov["complete"] is True and cov["snapshot_id"] == 1
+    assert cov["snapshot_age_seconds"] >= 0
     assert body["with_feedback"] == 1
     assert "probe_method" in body and body["probe_method"]
 

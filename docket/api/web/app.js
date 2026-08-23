@@ -116,7 +116,7 @@ export async function postJSON(path, body) {
         "content-type": "application/json",
         accept: "application/json",
       },
-      body: JSON.stringify(body),
+      body: encodeJSON(body),
     });
   } catch (cause) {
     const err = new Error(
@@ -144,6 +144,33 @@ export async function postJSON(path, body) {
     throw err;
   }
   return payload;
+}
+
+/** Encode request bodies without routing integers through JavaScript's lossy Number type. */
+export function encodeJSON(value) {
+  if (typeof value === "bigint") return value.toString();
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value))
+      throw new TypeError("JSON numbers must be finite.");
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => encodeJSON(item)).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const fields = Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .map(([key, item]) => `${JSON.stringify(key)}:${encodeJSON(item)}`);
+    return `{${fields.join(",")}}`;
+  }
+  throw new TypeError(`Cannot encode ${typeof value} as JSON.`);
 }
 
 /* -------------------------------------------------------------- formatting */
@@ -236,22 +263,51 @@ function populationLabel(coverage) {
 function paintCoverage(coverage) {
   const target = region("snapshot");
   if (!target) return;
-  const partial = coverage.complete !== true || coverage.dropped > 0;
+  const incomplete = coverage.complete !== true || coverage.dropped > 0;
+  const ageSeconds = Number(coverage.snapshot_age_seconds);
+  const ageUnavailable =
+    coverage.snapshot_age_seconds === null || !Number.isFinite(ageSeconds);
+  const ageDays = ageUnavailable ? null : ageSeconds / 86400;
+  const stale = ageDays !== null && ageDays >= 7;
+  const status = incomplete
+    ? "Partial snapshot"
+    : ageUnavailable
+      ? "Snapshot freshness unavailable"
+      : stale
+        ? "Stale snapshot"
+        : "Complete snapshot";
+  const age = ageDays === null ? "unavailable" : `${ageDays.toFixed(1)} days`;
   const captured = coverage.captured_at;
-  target.innerHTML = `<span class="status-dot" data-state="${partial ? "partial" : "complete"}" aria-hidden="true"></span>
-    <span>${partial ? "Partial snapshot" : "Complete snapshot"}</span>
+  target.innerHTML = `<span class="status-dot" data-state="${incomplete || stale || ageUnavailable ? "partial" : "complete"}" aria-hidden="true"></span>
+    <span>${status}</span>
     <span><span class="status-key">id</span> <strong class="num">${escapeHTML(coverage.snapshot_id)}</strong></span>
     <span><span class="status-key">captured</span> <strong title="${escapeHTML(captured || "")}">${escapeHTML(relativeTime(captured))}</strong></span>
+    <span><span class="status-key">age</span> <strong class="num">${escapeHTML(age)}</strong></span>
     <span><span class="status-key">sampled</span> <strong class="num">${escapeHTML(fmtInt(coverage.sampled))} of ${escapeHTML(fmtInt(coverage.expected))}</strong></span>
     <span><span class="status-key">dropped</span> <strong class="num">${escapeHTML(fmtInt(coverage.dropped))}</strong></span>
     <span><span class="status-key">population</span> <strong class="mono">${escapeHTML(populationLabel(coverage))}</strong></span>`;
 
   const banner = region("partial");
   if (!banner) return;
-  if (partial) {
+  if (incomplete || stale || ageUnavailable) {
+    const completeness = incomplete
+      ? `${escapeHTML(fmtInt(coverage.sampled))} of ${escapeHTML(fmtInt(coverage.expected))} expected agents were stored and ${escapeHTML(fmtInt(coverage.dropped))} were dropped. Every count on this page therefore understates its population.`
+      : "All agents returned by this snapshot's query were stored.";
+    const freshness = ageUnavailable
+      ? "Its age is unavailable, so this page does not present it as current."
+      : stale
+        ? `This snapshot is ${escapeHTML(age)} old, at or beyond the seven-day freshness boundary.`
+        : `Its age is ${escapeHTML(age)}.`;
+    const heading = incomplete
+      ? stale || ageUnavailable
+        ? "This snapshot is partial and its freshness needs attention"
+        : "This snapshot is partial"
+      : ageUnavailable
+        ? "This snapshot's freshness is unavailable"
+        : "This snapshot is stale";
     banner.innerHTML = `<div class="notice notice-warn">
-        <h3>This snapshot is partial</h3>
-        <p>${escapeHTML(fmtInt(coverage.sampled))} of ${escapeHTML(fmtInt(coverage.expected))} expected agents were stored and ${escapeHTML(fmtInt(coverage.dropped))} were dropped. Every count on this page therefore understates its population.</p>
+        <h3>${heading}</h3>
+        <p>${completeness} ${freshness}</p>
       </div>`;
     banner.hidden = false;
   } else {
@@ -278,7 +334,8 @@ function summarise(text, limit = 260) {
 }
 
 function metricLines(metrics) {
-  if (!metrics.length) return "";
+  if (!metrics.length)
+    return `<p class="metric-note">No run recorded yet.</p>`;
   /* `display` is the figure with its denominator already inside the string. The page
      never touches the numerator on its own, so no template here can print a share
      stripped of the population it was measured against. */
@@ -304,17 +361,31 @@ function serviceCard(card) {
   const identity = card.agent_id
     ? `${card.identity} Whether Docket's snapshot holds that agent is stated on the service page.`
     : card.identity;
+  const action = card.paid_stock
+    ? `Pay ${escapeHTML(card.price_display)} and hire`
+    : "Run it free";
+  const admission = card.paid_stock
+    ? ""
+    : `<details class="admission">
+        <summary>Why this isn't for sale yet</summary>
+        <ul class="facts">
+          <li><span class="fact-key">Price after admission</span> <span class="num">${escapeHTML(card.price_display)}</span></li>
+          <li><span class="fact-key">Paid-stock status</span> ${escapeHTML(card.stock_status)}</li>
+        </ul>
+      </details>`;
   return `<div class="service">
       <h4><a href="${href}">${escapeHTML(card.name)}</a></h4>
       <p>${escapeHTML(summary.text)}${more}</p>
       <ul class="facts">
-        <li><span class="fact-key">Price</span> <span class="num">${escapeHTML(card.price_display)}</span></li>
-        <li><span class="fact-key">Typical run</span> <span class="num">${escapeHTML(fmtInt(card.typical_seconds))} seconds</span></li>
+        ${card.paid_stock ? `<li><span class="fact-key">Price</span> <span class="num">${escapeHTML(card.price_display)}</span></li>` : ""}
+        <li><span class="fact-key">Typical run, declared</span> <span class="num">${escapeHTML(fmtInt(card.typical_seconds))} seconds</span></li>
+        <li><span class="fact-key">Evidence modality</span> ${escapeHTML(card.evidence_modality.replaceAll("_", " "))}</li>
         <li><span class="fact-key">What activating does</span> ${escapeHTML(card.activation_means)}</li>
       </ul>
       ${metricLines(card.metrics)}
       <p class="dim">${escapeHTML(identity)}</p>
-      <p class="btn-row"><a class="btn btn-primary" href="${href}">Open and run it</a></p>
+      <p class="btn-row"><a class="btn btn-primary" href="${href}">${action}</a></p>
+      ${admission}
     </div>`;
 }
 
@@ -389,7 +460,15 @@ async function paintJobs() {
    pasted. */
 const TEXTAREA_FIELDS = new Set(["payload"]);
 
-function inputControl(name, field) {
+function arrayItemControl(name, value, index) {
+  return `<div data-array-item>
+      <input id="field-${escapeHTML(name)}${index === 0 ? "" : `-${index}`}" name="${escapeHTML(name)}" type="number"
+        step="1" value="${escapeHTML(value)}" aria-label="${escapeHTML(name)} item ${index + 1}" />
+      <button type="button" class="btn" data-array-remove>Remove</button>
+    </div>`;
+}
+
+export function inputControl(name, field) {
   const id = `field-${name}`;
   const required = field.required ? " required" : "";
   const value =
@@ -399,42 +478,80 @@ function inputControl(name, field) {
   if (TEXTAREA_FIELDS.has(name)) {
     return `<textarea id="${id}" name="${escapeHTML(name)}" rows="6"${required}></textarea>`;
   }
-  const type = field.type === "integer" ? "number" : "text";
-  return `<input id="${id}" name="${escapeHTML(name)}" type="${type}" value="${value}"${required} />`;
+  if (field.type === "array") {
+    const values =
+      Array.isArray(field.default) && field.default.length
+        ? field.default
+        : [""];
+    return `<div id="${id}-array" data-array-control="${escapeHTML(name)}" data-next-index="${values.length}">
+        <div data-array-items>
+          ${values.map((item, index) => arrayItemControl(name, item, index)).join("")}
+        </div>
+        <button type="button" class="btn" data-array-add>Add ${escapeHTML(name)} item</button>
+      </div>`;
+  }
+  const numeric = field.type === "integer" || field.type === "number";
+  const type = numeric ? "number" : "text";
+  const step =
+    field.type === "number" ? ' step="any"' : numeric ? ' step="1"' : "";
+  return `<input id="${id}" name="${escapeHTML(name)}" type="${type}" value="${value}"${step}${required} />`;
 }
 
 function activationForm(record) {
   const fields = Object.entries(record.input_schema);
-  const controls = fields.length
-    ? fields
-        .map(
-          ([name, field]) => `<div class="field">
+  const fieldMarkup = ([name, field]) => `<div class="field">
             <label for="field-${escapeHTML(name)}">
               ${escapeHTML(name)}${field.required ? "" : " (optional)"}
             </label>
             ${inputControl(name, field)}
             <p class="dim">${escapeHTML(field.description || "")}</p>
-          </div>`,
-        )
-        .join("")
+            ${field.example_note ? `<p class="example-note">${escapeHTML(field.example_note)}</p>` : ""}
+          </div>`;
+  const regular = fields.filter(([, field]) => field.advanced !== true);
+  const advanced = fields.filter(([, field]) => field.advanced === true);
+  const controls = regular.length
+    ? regular.map(fieldMarkup).join("")
     : `<p class="dim">This service takes no arguments: what arrives is whatever was last
          published, so there is nothing for you to supply.</p>`;
+  const reproducibility = advanced.length
+    ? `<details class="advanced">
+        <summary>Advanced — reproducibility</summary>
+        <div class="advanced-fields">${advanced.map(fieldMarkup).join("")}</div>
+      </details>`
+    : "";
+  const hasWorkedExample = fields.some(
+    ([, field]) => Boolean(field.example_note),
+  );
+  const runLabel = record.paid_stock
+    ? "Run a free preview"
+    : "Run it free";
+  const availability = record.paid_stock
+    ? `<p class="section-note">This service has passed all four paid-stock gates. Agents can submit its exact x402
+       authorization to <span class="mono">${escapeHTML(record.hire_path)}</span>; this page
+       runs only the free preview because it holds no signing key.</p>`
+    : `<section class="admission-info" aria-labelledby="admission-heading">
+        <h3 id="admission-heading">Why this isn't for sale yet</h3>
+        <p>This service is <strong>not admitted to paid stock</strong>. Its status is
+          <span class="mono">${escapeHTML(record.stock_status)}</span>, so this form runs it
+          free and does not use a payment authorization.</p>
+        <dl class="deflist">
+          <dt>Price after admission</dt><dd class="num">${escapeHTML(record.price_display)}</dd>
+          <dt>Paid-stock status</dt><dd>${escapeHTML(record.stock_status)}</dd>
+        </dl>
+      </section>`;
   return `<form class="activate" data-activate novalidate>
       ${controls}
+      ${reproducibility}
       <p class="btn-row">
-        <button type="submit" class="btn btn-primary" data-run>Run it now</button>
+        <button type="submit" class="btn btn-primary" data-run>${runLabel}</button>
+        ${hasWorkedExample ? '<button type="submit" class="btn" data-example>Try the worked example</button>' : ""}
         <span class="dim">
           Typical run ${escapeHTML(fmtInt(record.typical_seconds))} seconds. One attempt, and the
           result is whatever it returns.
         </span>
       </p>
-      <p class="dim">
-        No account, key or wallet is needed. Docket verifies payment authorizations and does not
-        settle them, so nothing here moves any funds; the receipt states which tier served the
-        run. Where a payment recipient is configured, a caller has an allowance of 20 hires an
-        hour and the response says so when it is spent.
-      </p>
-    </form>`;
+    </form>
+    ${availability}`;
 }
 
 function paintServiceRecord(record) {
@@ -464,8 +581,9 @@ function paintServiceRecord(record) {
     <p class="lede">${escapeHTML(record.what_you_get)}</p>
     <div class="panel">
       <dl class="deflist">
-        <dt>Price</dt><dd class="num">${escapeHTML(record.price_display)} (${escapeHTML(record.price_atomic)} atomic units of <span class="mono">${escapeHTML(record.asset)}</span>)</dd>
-        <dt>Typical run</dt><dd class="num">${escapeHTML(fmtInt(record.typical_seconds))} seconds</dd>
+        ${record.paid_stock ? `<dt>Price</dt><dd class="num">${escapeHTML(record.price_display)} (${escapeHTML(record.price_atomic)} atomic units of <span class="mono">${escapeHTML(record.asset)}</span>)</dd>` : ""}
+        <dt>Typical run, declared</dt><dd class="num">${escapeHTML(fmtInt(record.typical_seconds))} seconds</dd>
+        <dt>Evidence modality</dt><dd>${escapeHTML(record.evidence_modality.replaceAll("_", " "))}</dd>
         <dt>What activating does</dt><dd>${escapeHTML(record.activation_means)}</dd>
         <dt>How an agent calls it</dt><dd class="mono">${escapeHTML(record.hire_method)} ${escapeHTML(record.hire_path)}</dd>
       </dl>
@@ -477,7 +595,7 @@ function paintServiceRecord(record) {
         it was measured against and the record it came from.
       </p>
       <div class="panel">
-        ${metricLines(record.metrics) || '<p class="dim">Nothing has been recorded for this service yet.</p>'}
+        ${metricLines(record.metrics)}
         ${record.metrics
           .map(
             (metric) =>
@@ -514,9 +632,77 @@ function paintRunFailure(container, err) {
     </div>`;
 }
 
-function readForm(record, form) {
+function wireArrayControls(form) {
+  for (const control of form.querySelectorAll("[data-array-control]")) {
+    control.addEventListener("click", (event) => {
+      if (event.target.matches("[data-array-add]")) {
+        const items = control.querySelector("[data-array-items]");
+        const index = Number(control.dataset.nextIndex);
+        items.insertAdjacentHTML(
+          "beforeend",
+          arrayItemControl(control.dataset.arrayControl, "", index),
+        );
+        control.dataset.nextIndex = String(index + 1);
+      }
+      if (event.target.matches("[data-array-remove]")) {
+        const item = event.target.closest("[data-array-item]");
+        const items = control.querySelector("[data-array-items]");
+        if (items.children.length === 1) item.querySelector("input").value = "";
+        else {
+          item.remove();
+          Array.from(items.children).forEach((row, index) => {
+            const input = row.querySelector("input");
+            input.id = `field-${control.dataset.arrayControl}${index === 0 ? "" : `-${index}`}`;
+            input.setAttribute(
+              "aria-label",
+              `${control.dataset.arrayControl} item ${index + 1}`,
+            );
+          });
+        }
+      }
+    });
+  }
+}
+
+function integerValue(raw, name) {
+  if (!/^-?\d+$/.test(raw)) {
+    const err = new Error(`${name} must be an integer written in base 10.`);
+    err.code = "invalid_field";
+    throw err;
+  }
+  return BigInt(raw);
+}
+
+function typedFieldValue(raw, name, field) {
+  if (field.type === "integer") return integerValue(raw, name);
+  if (field.type === "number") {
+    const number = Number(raw);
+    if (!Number.isFinite(number)) {
+      const err = new Error(`${name} must be a finite number.`);
+      err.code = "invalid_field";
+      throw err;
+    }
+    return number;
+  }
+  return raw;
+}
+
+export function readForm(record, form) {
   const body = {};
   for (const [name, field] of Object.entries(record.input_schema)) {
+    if (field.type === "array") {
+      const container = form.querySelector(`[data-array-control="${name}"]`);
+      const values = container
+        ? Array.from(container.querySelectorAll("input"), (input) =>
+            input.value.trim(),
+          ).filter(Boolean)
+        : [];
+      if (!values.length && !field.required) continue;
+      body[name] = values.map((raw) =>
+        typedFieldValue(raw, name, field.items || {}),
+      );
+      continue;
+    }
     const control = form.elements.namedItem(name);
     if (!control) continue;
     const raw = control.value.trim();
@@ -524,22 +710,539 @@ function readForm(record, form) {
        `limit` explicitly so that an explicit 0 stays 0, and a blank sent as one would
        turn "use the default" into "read nothing". */
     if (!raw && !field.required) continue;
-    body[name] = field.type === "integer" ? Number.parseInt(raw, 10) : raw;
+    body[name] = typedFieldValue(raw, name, field);
   }
   return body;
 }
 
+export function exampleBody(record) {
+  const body = {};
+  for (const [name, field] of Object.entries(record.input_schema)) {
+    if (field.type === "array") {
+      const values = Array.isArray(field.default) ? field.default : [];
+      if (!values.length) continue;
+      body[name] = values.map((value) =>
+        typedFieldValue(String(value), name, field.items || {}),
+      );
+      continue;
+    }
+    if (
+      field.default === undefined ||
+      field.default === null ||
+      field.default === ""
+    ) {
+      continue;
+    }
+    body[name] = typedFieldValue(String(field.default), name, field);
+  }
+  return body;
+}
+
+function resetFormToExample(record, form) {
+  for (const [name, field] of Object.entries(record.input_schema)) {
+    if (field.type === "array") {
+      const control = form.querySelector(`[data-array-control="${name}"]`);
+      const values =
+        Array.isArray(field.default) && field.default.length
+          ? field.default
+          : [""];
+      control.querySelector("[data-array-items]").innerHTML = values
+        .map((value, index) => arrayItemControl(name, value, index))
+        .join("");
+      control.dataset.nextIndex = String(values.length);
+      continue;
+    }
+    form.elements.namedItem(name).value =
+      field.default === undefined || field.default === null
+        ? ""
+        : String(field.default);
+  }
+}
+
+export function submissionBody(record, form, submitter) {
+  if (!submitter || !submitter.matches("[data-example]")) {
+    return readForm(record, form);
+  }
+  resetFormToExample(record, form);
+  return exampleBody(record);
+}
+
+/* A buyer paid for an answer, not for a payload. Dumping the response into a <pre> made
+   every service look identical and left the reader to do the interpreting they had just
+   paid to have done — and it hid the one thing that matters most when a scan finds
+   nothing, which is why it found nothing. A presenter states the finding first and keeps
+   the raw JSON one click away, never instead of it: the evidence is still the point, it
+   just stops being the only thing offered. Services with no presenter yet fall back to the
+   payload, so an unpresented service reads as unpolished rather than broken. */
+const VERDICT_WORDS = {
+  ALLOW: "nothing was detected in this payload",
+  SANITIZE: "this payload carries something that must be removed before use",
+  BLOCK: "this payload should not be passed downstream",
+};
+
+function presentWardenScan(result, _receipt, _record) {
+  const verdict = result.verdict;
+  const classes = result.threat_classes || [];
+  const detections = result.detections || [];
+  const rows = detections
+    .map(
+      (d) => `<tr>
+        <td class="mono">${escapeHTML(String(d.class))}</td>
+        <td class="mono">${escapeHTML(String(d.match))}</td>
+        <td>${escapeHTML(String(d.source))}</td>
+        <td class="mono">${escapeHTML(String(d.confidence))}</td>
+      </tr>`,
+    )
+    .join("");
+
+  /* The sanitized payload is the part a buyer actually acts on, and the part most likely to
+     be accepted without a second look. It is shown as the text it is, never rendered, and it
+     is labelled as the scanner's output rather than as a safe string — a classifier that
+     removed what it recognised has not established that nothing else is there. */
+  const sanitized =
+    result.sanitized_payload === undefined || result.sanitized_payload === null
+      ? ""
+      : `<h4>What the scanner would pass downstream</h4>
+         <pre>${escapeHTML(String(result.sanitized_payload))}</pre>
+         <p class="dim">This is what the scanner returned after removing what it matched. It
+           is not a statement that the remaining text is safe: a classifier establishes what it
+           recognised, never the absence of everything it did not.</p>`;
+
+  return `<section aria-labelledby="result-heading">
+      <h3 id="result-heading">What came back</h3>
+      <p class="lede">${escapeHTML(verdict || "no verdict")} — ${escapeHTML(
+        VERDICT_WORDS[verdict] ||
+          "the scanner returned a verdict this page does not recognise",
+      )}.</p>
+      <dl class="deflist">
+        <dt>Risk level</dt><dd class="mono">${escapeHTML(String(result.risk_level))}</dd>
+        <dt>Threat classes</dt><dd class="mono">${
+          classes.length ? escapeHTML(classes.join(", ")) : "none returned"
+        }</dd>
+        <dt>Recommendation</dt><dd>${escapeHTML(String(result.recommendation ?? "none given"))}</dd>
+        <dt>Scan time</dt><dd class="mono">${escapeHTML(String(result.latency_ms))} ms</dd>
+      </dl>
+      ${
+        rows
+          ? `<p class="status-key">What it matched, and where</p>
+             <table><thead><tr><th>Class</th><th>Match</th><th>Source</th><th>Confidence</th></tr></thead>
+             <tbody>${rows}</tbody></table>`
+          : `<p class="dim">No individual detection was returned. An empty detection list with
+               an ALLOW verdict means nothing matched — it does not mean the payload is safe.</p>`
+      }
+      ${sanitized}
+      <p class="dim">A scan reports what this scanner recognised in this text. It is not a
+        guarantee about the payload, and a clean result is the weaker of the two answers it can
+        give: a miss and an absence look identical from here.</p>
+    </section>`;
+}
+
+function presentYieldRouter(result, _receipt, _record) {
+  const current = result.current || {};
+  const universe = result.universe || {};
+  const decision = result.decision;
+  const candidates = (result.candidates || []).slice(0, 5);
+  const rows = candidates
+    .map(
+      (c) => `<tr>
+        <td>${escapeHTML(String(c.pair))}</td>
+        <td class="mono">${escapeHTML(String(c.fee_tier))}</td>
+        <td class="mono">${pct(c.net_fee_apr) ?? "—"}</td>
+        <td class="mono">${pct(c.gross_fee_apr) ?? "—"}</td>
+      </tr>`,
+    )
+    .join("");
+
+  /* The decision is the product. A reader who has to derive MOVE from a table of rates has
+     been handed the raw material for an answer rather than the answer, which is the thing
+     they paid to avoid — and the destination is meaningless without the pool it is measured
+     against, so the baseline travels beside it. */
+  return `<section aria-labelledby="result-heading">
+      <h3 id="result-heading">What came back</h3>
+      <p class="lede">${escapeHTML(String(decision))} — ${
+        decision === "MOVE"
+          ? "a pool in the eligible set earns more than the one this compares against, by enough to clear the switching cost over the stated horizon"
+          : "no pool in the eligible set beats the current one by enough to repay the switching cost over the stated horizon"
+      }.</p>
+      <dl class="deflist">
+        <dt>Compared against</dt><dd>${escapeHTML(String(current.pair))} <span class="mono">${escapeHTML(String(current.pool_id))}</span></dd>
+        <dt>Its net rate</dt><dd class="mono">${pct(current.net_fee_apr) ?? "—"} <span class="dim">(gross ${pct(current.gross_fee_apr) ?? "—"})</span></dd>
+        ${
+          result.destination_pool_id
+            ? `<dt>Destination</dt><dd class="mono">${escapeHTML(String(result.destination_pool_id))}</dd>`
+            : ""
+        }
+        <dt>Eligible universe</dt><dd>${escapeHTML(String(universe.size))} of ${escapeHTML(String(universe.considered))} pools considered; ${escapeHTML(String(universe.excluded_count))} excluded, each with its reason in the payload below</dd>
+      </dl>
+      ${
+        rows
+          ? `<p class="status-key">The eligible set, by the source's own order</p>
+             <table><thead><tr><th>Pair</th><th>Fee tier</th><th>Net APR</th><th>Gross APR</th></tr></thead>
+             <tbody>${rows}</tbody></table>`
+          : ""
+      }
+      <p class="dim">Net is the fee less the protocol's own reported cut — the part a liquidity
+        provider keeps. Both rates annualise one 24-hour observation of the pool, so they
+        describe today's figures and are not a forecast. Which pool your capital is in was not
+        read from any wallet: ${escapeHTML(String(result.current_pool_chosen_by || "it was supplied by the caller"))}</p>
+    </section>`;
+}
+
+function presentGridOperator(result, _receipt, _record) {
+  const plan = result.plan || {};
+  const levels = (plan.levels || []).slice(0, 8);
+  const rows = levels
+    .map(
+      (l) => `<tr>
+        <td class="mono">${escapeHTML(String(l.index))}</td>
+        <td class="mono">${escapeHTML(String(l.price))}</td>
+        <td>${escapeHTML(String(l.side ?? "—"))}</td>
+      </tr>`,
+    )
+    .join("");
+
+  /* Grid is a preview and the single most important thing on this page is that it stays one.
+     A grid of prices reads like an order book, and a reader who skims could believe something
+     is working on their behalf. Nothing is: the object that produced this holds no key, no
+     signer and no submitter. */
+  return `<section aria-labelledby="result-heading">
+      <h3 id="result-heading">What came back</h3>
+      <p class="lede">A plan, and only a plan. ${escapeHTML(String(plan.requested_levels ?? levels.length))}
+        levels drawn ${escapeHTML(String(plan.side_rule || "around the observed price"))}.
+        Nothing was signed, submitted or held.</p>
+      <dl class="deflist">
+        <dt>Band</dt><dd class="mono">${escapeHTML(String(plan.lower))} to ${escapeHTML(String(plan.upper))}</dd>
+        <dt>Reference price</dt><dd class="mono">${escapeHTML(String(plan.reference))}</dd>
+        <dt>Size per level</dt><dd class="mono">${escapeHTML(String(plan.size_per_level))}</dd>
+        <dt>Submitted</dt><dd>${result.submitted ? "yes" : "no"} — ${escapeHTML(String(result.why_not_submitted || "no submitter exists on this path"))}</dd>
+      </dl>
+      ${
+        rows
+          ? `<p class="status-key">The levels this plan would place, if something could place them</p>
+             <table><thead><tr><th>#</th><th>Price</th><th>Side</th></tr></thead><tbody>${rows}</tbody></table>`
+          : ""
+      }
+      <p class="dim">Prices are integers in the pair's own base units, not decimals — they are
+        shown as returned so they can be checked against the router's quote without a
+        conversion this page invented. Acting on any level requires a session the wallet's
+        owner grants on chain, with a spend cap and an expiry.</p>
+    </section>`;
+}
+
+function presentHealthGuard(result, _receipt, _record) {
+  const account = result.account || {};
+  const assessment = result.assessment || {};
+  const entered = Number(account.markets_entered ?? 0);
+
+  /* The empty case is the one that matters, and it is the common one: most wallets a judge
+     tries have no Venus borrow at all. "No shortfall" on an account with nothing in it is not
+     a health report, and saying so is the difference between an answer and a reassurance. */
+  if (!entered) {
+    return `<section aria-labelledby="result-heading">
+        <h3 id="result-heading">What came back</h3>
+        <p class="lede">This account has entered no Venus markets, so there is no lending
+          position here to protect.</p>
+        <dl class="deflist">
+          <dt>Markets listed</dt><dd class="mono">${escapeHTML(String(account.markets_listed))}</dd>
+          <dt>Markets entered</dt><dd class="mono">0</dd>
+          <dt>Read at block</dt><dd class="mono">${escapeHTML(String(account.as_of_block))}</dd>
+        </dl>
+        <p class="dim">A zero shortfall on an account holding nothing is not a statement that
+          the account is healthy — there is simply nothing borrowed to be liquidated. This is a
+          fact about the address, not a diagnosis of a position.</p>
+      </section>`;
+  }
+
+  return `<section aria-labelledby="result-heading">
+      <h3 id="result-heading">What came back</h3>
+      <p class="lede">${escapeHTML(String(assessment.summary || "The account's Venus position, as the comptroller reports it."))}</p>
+      <dl class="deflist">
+        <dt>Liquidity</dt><dd class="mono">${escapeHTML(String(account.liquidity_usd))} <span class="dim">(${escapeHTML(String(account.scale))})</span></dd>
+        <dt>Shortfall</dt><dd class="mono">${escapeHTML(String(account.shortfall_usd))}</dd>
+        <dt>Markets entered</dt><dd class="mono">${escapeHTML(String(account.markets_entered))} of ${escapeHTML(String(account.markets_listed))}</dd>
+        <dt>Read at block</dt><dd class="mono">${escapeHTML(String(account.as_of_block))}</dd>
+        <dt>Submitted</dt><dd>${result.submitted ? "yes" : "no"} — ${escapeHTML(String(result.why_not_submitted || "no submitter exists on this path"))}</dd>
+      </dl>
+      <p class="dim">Both figures are the comptroller's own, at the block named above, and a
+        shortfall is what makes an account liquidatable rather than a prediction that it will
+        be. Nothing here was signed or submitted.</p>
+    </section>`;
+}
+
+const PRESENTERS = {
+  "range-doctor": presentRangeDoctor,
+  "warden-scan": presentWardenScan,
+  "yield-router": presentYieldRouter,
+  "grid-operator": presentGridOperator,
+  "health-guard": presentHealthGuard,
+};
+
+function presentResult(record, answer) {
+  const result = answer.result;
+  const presenter = PRESENTERS[record.service_id];
+  const raw = `<details class="raw">
+      <summary>The full response, exactly as the service returned it</summary>
+      <pre>${escapeHTML(JSON.stringify(answer, null, 2))}</pre>
+    </details>`;
+  if (!presenter)
+    return `<pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>`;
+  return presenter(result, answer.receipt || {}, record) + raw;
+}
+
+function pct(value) {
+  return value === null || value === undefined
+    ? null
+    : `${(value * 100).toFixed(2)}%`;
+}
+
+function usd(value) {
+  if (value === null || value === undefined) return null;
+  return `$${Number(value).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function presentRangeDoctor(result, receipt, record) {
+  const positions = result.positions || [];
+  const payment = receipt.payment || {};
+  const incomplete =
+    result.scan_complete === false
+      ? `<p class="notice notice-warn">This scan is incomplete: unread positions are unknown, not absent.</p>`
+      : "";
+  const decisions = positions.length
+    ? `<ul>${positions
+        .map(
+          (entry) =>
+            `<li><strong>${escapeHTML((entry.diagnosis || {}).decision || "No decision was returned for this position.")}</strong></li>`,
+        )
+        .join("")}</ul>`
+    : `<p class="lede">${escapeHTML(result.decision || "No position decision was returned.")}</p>${incomplete}`;
+
+  const facts = positions.length
+    ? positions
+        .map((entry) => {
+          const d = entry.diagnosis || {};
+          const f = d.verifiable_facts || {};
+          return `<article class="panel">
+              <h4>Position ${escapeHTML(f.position_id ?? DASH)} — ${escapeHTML(STATUS_WORDS[d.status] || d.status || "status unavailable")}</h4>
+              <dl class="deflist">
+                <dt>Pair</dt><dd>${escapeHTML(f.pair || DASH)}</dd>
+                <dt>Position ID</dt><dd class="mono">${escapeHTML(f.position_id ?? DASH)}</dd>
+                <dt>Token 0</dt><dd class="mono">${escapeHTML(f.token0 || DASH)}</dd>
+                <dt>Token 1</dt><dd class="mono">${escapeHTML(f.token1 || DASH)}</dd>
+                <dt>Current tick</dt><dd class="mono">${escapeHTML(f.current_tick ?? DASH)}</dd>
+                <dt>Range bounds</dt><dd class="mono">[${escapeHTML(f.lower_tick ?? DASH)}, ${escapeHTML(f.upper_tick ?? DASH)})</dd>
+                <dt>BSC block</dt><dd class="mono">${escapeHTML(f.bsc_block ?? DASH)}</dd>
+                <dt>Observation time</dt><dd>${escapeHTML(f.observation_time || DASH)}</dd>
+              </dl>
+            </article>`;
+        })
+        .join("")
+    : `<div class="panel">
+        <p>No position-specific facts are available because no active position was diagnosed.</p>
+        <dl class="deflist">
+          <dt>Wallet read at BSC block</dt><dd class="mono">${escapeHTML((result.observation || {}).bsc_block ?? DASH)}</dd>
+          <dt>Observation time</dt><dd>${escapeHTML((result.observation || {}).observation_time || DASH)}</dd>
+        </dl>
+      </div>`;
+
+  const economics = positions.length
+    ? positions
+        .map((entry) => {
+          const d = entry.diagnosis || {};
+          const e = d.economic_consequence || {};
+          const rates =
+            e.gross_apr === null || e.gross_apr === undefined
+              ? `<p>Rate figures are unavailable: ${escapeHTML(e.unavailable_reason || "the required pool evidence is missing")}</p>`
+              : `<dl class="deflist">
+                  <dt>Gross APR</dt><dd class="num">${escapeHTML(pct(e.gross_apr))}</dd>
+                  <dt>Protocol-adjusted net APR</dt><dd class="num">${escapeHTML(pct(e.net_apr))}</dd>
+                  <dt>Gross overstatement</dt><dd><span class="num">${escapeHTML(e.overstatement_relative === null ? "not defined because net APR is zero" : pct(e.overstatement_relative))}</span> relative; <span class="num">${escapeHTML(e.overstatement_percentage_points === null ? DASH : `${Number(e.overstatement_percentage_points).toFixed(2)} percentage points`)}</span></dd>
+                  <dt>Pool net rate while in range</dt><dd class="num">${escapeHTML(pct(e.pool_net_apr_if_in_range))}</dd>
+                  <dt>Raw 24h inputs</dt><dd>${escapeHTML(usd(e.fee_usd_24h) || DASH)} fees − ${escapeHTML(usd(e.protocol_fee_usd_24h) || DASH)} protocol cut, over ${escapeHTML(usd(e.tvl_usd) || DASH)} TVL</dd>
+                </dl>`;
+          const dollars =
+            e.annual_overstatement_usd === null ||
+            e.annual_overstatement_usd === undefined
+              ? `<p class="dim">Dollar effect is unavailable: ${escapeHTML(e.unavailable_reason || "declared position value is missing")}</p>`
+              : `<dl class="deflist">
+                  <dt>Declared position value</dt><dd class="num">${escapeHTML(usd(e.declared_position_value_usd))} — caller-declared, not derived</dd>
+                  <dt>Annualised gross dollars</dt><dd class="num">${escapeHTML(usd(e.annual_gross_usd))}</dd>
+                  <dt>Annualised net dollars</dt><dd class="num">${escapeHTML(usd(e.annual_net_usd))}</dd>
+                  <dt>Annual overstatement</dt><dd class="num">${escapeHTML(usd(e.annual_overstatement_usd))}</dd>
+                  <dt>Pool rate at your declared value</dt><dd class="num">${escapeHTML(usd(e.pool_rate_at_declared_value_usd))}</dd>
+                </dl>`;
+          return `<article class="panel">
+              <h4>Position ${escapeHTML((d.verifiable_facts || {}).position_id ?? DASH)}</h4>
+              ${rates}
+              ${dollars}
+              <p class="dim">An observation, not a forecast. ${escapeHTML(e.limitation || "The response supplied no further rate limitation.")}</p>
+            </article>`;
+        })
+        .join("")
+    : `<div class="panel"><p>No position-level economic consequence is available because no position was diagnosed.</p></div>`;
+
+  const actions = positions.length
+    ? positions
+        .map((entry) => {
+          const d = entry.diagnosis || {};
+          const conditional = d.conditional_actions || {};
+          const alternatives = (conditional.actions || [])
+            .map(
+              (action) =>
+                `<li><strong>${escapeHTML(action.kind || "conditional")}</strong>: ${escapeHTML(action.text)}${
+                  action.link
+                    ? ` <a href="${escapeHTML(action.link)}" rel="noopener">open it on PancakeSwap</a>`
+                    : ""
+                }</li>`,
+            )
+            .join("");
+          const switching =
+            conditional.estimated_recenter_cost_usd === null ||
+            conditional.estimated_recenter_cost_usd === undefined
+              ? `<p class="dim">Numeric switching cost and break-even are unavailable: ${escapeHTML(conditional.unavailable_reason || "the required declared inputs are missing")}</p>`
+              : `<dl class="deflist">
+                  <dt>Estimated recenter cost</dt><dd class="num">${escapeHTML(usd(conditional.estimated_recenter_cost_usd))} — caller-declared</dd>
+                  <dt>Cost-only break-even</dt><dd class="num">${
+                    conditional.cost_only_break_even_days === null ||
+                    conditional.cost_only_break_even_days === undefined
+                      ? `unavailable — ${escapeHTML(conditional.unavailable_reason || "the required rate or value is missing")}`
+                      : `${escapeHTML(Number(conditional.cost_only_break_even_days).toFixed(2))} days`
+                  }</dd>
+                </dl>`;
+          return `<article class="panel">
+              <h4>Position ${escapeHTML((d.verifiable_facts || {}).position_id ?? DASH)}</h4>
+              ${alternatives ? `<ul>${alternatives}</ul>` : `<p>No wait-versus-recenter alternatives apply to this position.</p>`}
+              ${switching}
+              <p class="dim">${escapeHTML(conditional.limitation || "Costs and future rates remain uncertain.")}</p>
+            </article>`;
+        })
+        .join("")
+    : `<div class="panel"><p>No position-specific action is available because no position was diagnosed.</p></div>`;
+
+  const measured = result.measured_value || {};
+  const benchmarkReason =
+    measured.benchmark_unavailable_reason ||
+    "The preregistered v3 paired report has not run, so paired manual time, quality, and its report link are unavailable.";
+  const pairedTime =
+    measured.paired_manual_seconds === null ||
+    measured.paired_manual_seconds === undefined
+      ? `unavailable — ${escapeHTML(benchmarkReason)}`
+      : `${escapeHTML(Number(measured.paired_manual_seconds).toFixed(3))} seconds`;
+  const quality =
+    measured.quality_result === null || measured.quality_result === undefined
+      ? `unavailable — ${escapeHTML(benchmarkReason)}`
+      : escapeHTML(
+          typeof measured.quality_result === "string"
+            ? measured.quality_result
+            : JSON.stringify(measured.quality_result),
+        );
+  const reportLink = measured.report_url
+    ? `<a href="${escapeHTML(measured.report_url)}">Open the v3 paired report</a>`
+    : `unavailable — ${escapeHTML(benchmarkReason)}`;
+  const proofId =
+    receipt.transaction_id ||
+    receipt.payment_id ||
+    payment.transaction_id ||
+    payment.payment_id;
+  const proofNonce = receipt.nonce || payment.nonce;
+  const settled = payment.status === "settled";
+  const proofMissing = record.paid_stock
+    ? "This preview used no payment authorization, so it has no settlement record."
+    : `This ${record.stock_status} is not admitted to paid stock, so no payment occurred.`;
+  const settlementNote = settled
+    ? "The configured facilitator reported this settlement and transaction binding. The receipt does not prove chain finality or result correctness."
+    : "No payment authorization was used for this preview. The input/output hashes bind delivery, not correctness.";
+
+  return `<section aria-labelledby="range-decision-heading">
+      <h3 id="range-decision-heading">1. Decision</h3>
+      ${decisions}
+    </section>
+    <section aria-labelledby="range-facts-heading">
+      <h3 id="range-facts-heading">2. Verifiable facts</h3>
+      ${facts}
+    </section>
+    <section aria-labelledby="range-economics-heading">
+      <h3 id="range-economics-heading">3. Economic consequence</h3>
+      ${economics}
+    </section>
+    <section aria-labelledby="range-actions-heading">
+      <h3 id="range-actions-heading">4. Conditional actions</h3>
+      ${actions}
+    </section>
+    <section aria-labelledby="range-coverage-heading">
+      <h3 id="range-coverage-heading">5. Coverage</h3>
+      <div class="panel">
+        <p class="lede">${escapeHTML(result.coverage || "Coverage sentence unavailable.")}</p>
+        <dl class="deflist">
+          <dt>Positions held</dt><dd class="num">${escapeHTML(fmtInt(result.positions_held))}</dd>
+          <dt>Positions examined</dt><dd class="num">${escapeHTML(fmtInt(result.positions_examined))}</dd>
+          <dt>Closed skipped</dt><dd class="num">${escapeHTML(fmtInt(result.closed_skipped))}</dd>
+          <dt>Other open positions not selected</dt><dd class="num">${escapeHTML(fmtInt(result.open_skipped || 0))}</dd>
+          <dt>Scan complete</dt><dd>${result.scan_complete === true ? "yes" : "no"}</dd>
+          <dt>Stopped by</dt><dd>${escapeHTML(result.stopped_by || "nothing; the scan reached its end")}</dd>
+        </dl>
+        ${incomplete}
+      </div>
+    </section>
+    <section aria-labelledby="range-value-heading">
+      <h3 id="range-value-heading">6. Measured value</h3>
+      <div class="panel">
+        <dl class="deflist">
+          <dt>${record.paid_stock ? "Current catalogue offer" : "Price after admission"}</dt><dd class="num">${escapeHTML(record.price_display)}</dd>
+          <dt>This-run time</dt><dd class="num">${measured.this_run_seconds === null || measured.this_run_seconds === undefined ? "unavailable — the backend did not return a duration" : `${escapeHTML(Number(measured.this_run_seconds).toFixed(3))} seconds`}</dd>
+          <dt>Paired manual time</dt><dd>${pairedTime}</dd>
+          <dt>Quality result</dt><dd>${quality}</dd>
+          <dt>V3 report</dt><dd>${reportLink}</dd>
+          <dt>Payment state for this run</dt><dd class="mono">${escapeHTML(payment.status || "not recorded")}</dd>
+        </dl>
+        <p class="dim">${record.paid_stock ? "This service has passed the catalogue admission gate; this browser form still ran its free preview." : `This service is not admitted to paid stock: its current status is ${escapeHTML(record.stock_status)}. This response makes no $0.50 paid-value claim.`}</p>
+      </div>
+    </section>
+    <section aria-labelledby="range-proof-heading">
+      <h3 id="range-proof-heading">7. Proof</h3>
+      <div class="panel">
+        <dl class="deflist">
+          <dt>Input hash</dt><dd class="mono">${escapeHTML(receipt.input_hash || DASH)}</dd>
+          <dt>Output hash</dt><dd class="mono">${escapeHTML(receipt.output_hash || DASH)}</dd>
+          <dt>Delivery time</dt><dd>${escapeHTML(receipt.delivered_at || DASH)}</dd>
+          <dt>Payment status</dt><dd class="mono">${escapeHTML(payment.status || "not recorded")}</dd>
+          <dt>Settlement transaction / payment ID</dt><dd class="mono">${proofId ? escapeHTML(proofId) : `unavailable — ${escapeHTML(proofMissing)}`}</dd>
+          <dt>Unique settlement nonce</dt><dd class="mono">${proofNonce ? escapeHTML(proofNonce) : `unavailable — ${escapeHTML(proofMissing)}`}</dd>
+        </dl>
+        <p class="dim">${escapeHTML(settlementNote)}</p>
+      </div>
+    </section>
+    <section aria-labelledby="range-limitation-heading">
+      <h3 id="range-limitation-heading">8. Primary limitation</h3>
+      <div class="notice notice-warn">
+        <p><strong>${escapeHTML(result.primary_limitation || "The result did not supply a primary limitation.")}</strong></p>
+      </div>
+    </section>`;
+}
+
+const STATUS_WORDS = {
+  in_range: "earning fees",
+  out_of_range_above: "above its range, earning nothing",
+  out_of_range_below: "below its range, earning nothing",
+  closed: "closed, holding nothing",
+  unknown_pool: "its pool could not be read",
+};
+
 function paintOutcome(record, answer) {
   const receipt = answer.receipt || {};
   const payment = receipt.payment || {};
-  const rejected = payment.authorization_rejected
-    ? `<dt>Authorization</dt><dd>not accepted: ${escapeHTML(payment.authorization_rejected)}</dd>`
-    : "";
-  region("outcome").innerHTML = `<section aria-labelledby="result-heading">
-      <h3 id="result-heading">What came back</h3>
-      <pre>${escapeHTML(JSON.stringify(answer.result, null, 2))}</pre>
-    </section>
-    <section aria-labelledby="receipt-heading">
+  const paymentProof =
+    payment.status === "settled"
+      ? `<dt>Payment ID</dt><dd class="mono">${escapeHTML(payment.payment_id || DASH)}</dd>
+         <dt>Nonce</dt><dd class="mono">${escapeHTML(payment.nonce || DASH)}</dd>
+         <dt>Settlement transaction</dt><dd class="mono">${escapeHTML(payment.transaction_id || DASH)}</dd>`
+      : `<dt>Paid-stock status</dt><dd>${escapeHTML(record.stock_status)}</dd>`;
+  const receiptSection =
+    record.service_id === "range-doctor"
+      ? ""
+      : `<section aria-labelledby="receipt-heading">
       <h3 id="receipt-heading">The receipt</h3>
       <div class="panel">
         <dl class="deflist">
@@ -548,18 +1251,20 @@ function paintOutcome(record, answer) {
           <dt>Input hash</dt><dd class="mono">${escapeHTML(receipt.input_hash)}</dd>
           <dt>Output hash</dt><dd class="mono">${escapeHTML(receipt.output_hash)}</dd>
           <dt>Payment</dt><dd class="mono">${escapeHTML(payment.status)}</dd>
-          ${rejected}
+          ${paymentProof}
         </dl>
         <p class="dim">
           A receipt records delivery and nothing else. It does not assert the work is correct,
           and Docket does not sign it — it is a self-check for you. Both hashes are plain
           SHA-256 over canonical JSON and need none of Docket's code to recompute;
-          <a href="/llms.txt">/llms.txt</a> carries the exact recipe. A payment status of
-          <span class="mono">verified_unsettled</span> means a signature was checked and
-          nothing was settled, broadcast or moved.
+          <a href="/llms.txt">/llms.txt</a> carries the exact recipe. A
+          <span class="mono">settled</span> status records what the configured facilitator
+          reported; it does not prove chain finality or that the result is correct.
         </p>
       </div>
     </section>`;
+  region("outcome").innerHTML =
+    `${presentResult(record, answer)}${receiptSection}`;
 }
 
 function wireActivation(record) {
@@ -567,12 +1272,32 @@ function wireActivation(record) {
   if (!target) return;
   target.innerHTML = activationForm(record);
   const form = target.querySelector("[data-activate]");
-  const button = form.querySelector("[data-run]");
+  wireArrayControls(form);
+  const buttons = form.querySelectorAll('button[type="submit"]');
   const outcome = region("outcome");
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    let body;
+    try {
+      body = submissionBody(record, form, event.submitter);
+    } catch (err) {
+      paintRunFailure(outcome, err);
+      return;
+    }
     const missing = Object.entries(record.input_schema)
       .filter(([name, field]) => {
+        if (field.type === "array") {
+          const container = form.querySelector(
+            `[data-array-control="${name}"]`,
+          );
+          return (
+            field.required &&
+            container &&
+            !Array.from(container.querySelectorAll("input")).some((input) =>
+              input.value.trim(),
+            )
+          );
+        }
         const control = form.elements.namedItem(name);
         return field.required && control && !control.value.trim();
       })
@@ -584,7 +1309,9 @@ function wireActivation(record) {
       });
       return;
     }
-    button.disabled = true;
+    buttons.forEach((button) => {
+      button.disabled = true;
+    });
     outcome.innerHTML = `<div class="notice" role="status">
         <p>Running ${escapeHTML(record.name)}. It usually takes about
         ${escapeHTML(fmtInt(record.typical_seconds))} seconds, and this is one attempt.</p>
@@ -592,12 +1319,14 @@ function wireActivation(record) {
     try {
       paintOutcome(
         record,
-        await postJSON(record.hire_path, readForm(record, form)),
+        await postJSON(record.hire_path, body),
       );
     } catch (err) {
       paintRunFailure(outcome, err);
     } finally {
-      button.disabled = false;
+      buttons.forEach((button) => {
+        button.disabled = false;
+      });
     }
   });
 }
@@ -724,9 +1453,13 @@ function paintStats(stats) {
   paintSlice(stats);
 
   fill("sampled", fmtInt(cov.sampled));
+  const sampledPopulation =
+    stats.registry_total !== null && cov.population === "min_feedbacks>=1"
+      ? `${fmtInt(cov.sampled)} of ${fmtInt(stats.registry_total)} BSC agents — the ones carrying at least one feedback record`
+      : `of ${fmtInt(cov.expected)} the registry said to expect, ${fmtInt(cov.dropped)} dropped`;
   fill(
     "sampled-note",
-    `of ${fmtInt(cov.expected)} the registry said to expect, ${fmtInt(cov.dropped)} dropped`,
+    sampledPopulation,
   );
 
   fill("with-feedback", fmtInt(stats.with_feedback));
@@ -776,11 +1509,122 @@ function paintStats(stats) {
   paintNameFamilies(stats);
 }
 
+/* The comparison surface. A judge is asked to find, compare and hire without
+   instructions, and comparison was the part this page did worst: every service was
+   described on its own terms, so which of them had ever been measured against a person
+   was left for the reader to work out. The empty cells are the point of the table — a
+   row that says no paired run exists is doing more work than a row showing a zero. */
+function comparisonRow(row) {
+  const measured = row.measured || {};
+  const saving = measured.available
+    ? `<strong>${escapeHTML(seconds(measured.seconds_saved))}</strong> faster
+       <span class="metric-note">(agent ${escapeHTML(seconds(measured.agent_seconds))},
+       by hand ${escapeHTML(seconds(measured.manual_seconds))}, n=${escapeHTML(
+         String(measured.sample_size),
+       )})</span><br><span class="metric-note">${escapeHTML(measured.basis)}</span>`
+    : `<span class="metric-note">${escapeHTML(measured.reason || "not measured")}</span>`;
+  const evidence = row.evidence.available
+    ? `<a href="${escapeHTML(row.evidence.url)}">${escapeHTML(row.evidence.label)}</a>`
+    : `<span class="metric-note">${escapeHTML(row.evidence.reason)}</span>`;
+  return `<tr>
+      <th scope="row">${escapeHTML(row.name)}<br><span class="metric-note">${escapeHTML(
+        row.job,
+      )}</span></th>
+      <td>${row.paid_stock ? `<span class="num">${escapeHTML(row.price_display)}</span>` : "Free"}</td>
+      <td class="num">${escapeHTML(String(row.typical_seconds))}s<br><span class="metric-note">${escapeHTML(row.typical_seconds_basis)}</span></td>
+      <td>${saving}</td>
+      <td>${escapeHTML(row.freshness)}</td>
+      <td>${evidence}</td>
+    </tr>`;
+}
+
+function comparisonAdmission(rows) {
+  const pending = rows.filter((row) => !row.paid_stock);
+  if (!pending.length) return "";
+  return `<section class="admission-info" aria-labelledby="comparison-admission-heading">
+      <h3 id="comparison-admission-heading">Why this isn't for sale yet</h3>
+      <ul class="facts">${pending
+        .map(
+          (row) => `<li><strong>${escapeHTML(row.name)}</strong>
+            <span>${escapeHTML(row.stock_status)}</span>
+            <span class="metric-note">${escapeHTML(
+              (row.admission_failing || []).length
+                ? row.admission_failing.join(", ")
+                : "No failing admission reason was returned.",
+            )}</span></li>`,
+        )
+        .join("")}</ul>
+    </section>`;
+}
+
+function seconds(value) {
+  return `${Number(value).toFixed(1)}s`;
+}
+
+async function paintCompare() {
+  const target = region("compare");
+  if (!target) return;
+  let table;
+  try {
+    table = await fetchJSON("/compare");
+  } catch (err) {
+    renderError(target, err);
+    return;
+  }
+  target.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr>
+        <th scope="col">Service</th>
+        <th scope="col">Run</th>
+        <th scope="col">Declared time</th>
+        <th scope="col">Measured against a person</th>
+        <th scope="col">Freshness</th>
+        <th scope="col">Evidence</th>
+      </tr></thead>
+      <tbody>${table.rows.map(comparisonRow).join("")}</tbody>
+    </table></div>
+    <p class="section-note">${escapeHTML(table.summary.reading)}
+    ${escapeHTML(
+      String(table.summary.services_with_a_paired_measurement),
+    )} of ${escapeHTML(String(table.summary.services))} services have one.</p>
+    ${comparisonAdmission(table.rows)}`;
+}
+
+async function paintPancakeImpact() {
+  const target = region("pancake-impact");
+  if (!target) return;
+  let report;
+  try {
+    report = await fetchJSON("/advantage/v2.json");
+  } catch (err) {
+    renderError(target, err);
+    return;
+  }
+  const impact = report.decision_impact;
+  const shift = impact.break_even_shift;
+  const dollars = impact.dollars_at_notionals.notionals.find(
+    (item) => item.notional_usd === shift.notional_usd,
+  );
+  const reversals = impact.ranking_reversals;
+  const notional =
+    dollars.notional_usd % 1000 === 0
+      ? `$${fmtInt(dollars.notional_usd / 1000)}k`
+      : usd(dollars.notional_usd);
+  target.innerHTML = `<div class="panel impact-panel">
+      <p class="impact-value"><strong>${escapeHTML(usd(dollars.median_annual_overstatement_usd))} median annual overstatement at ${escapeHTML(notional)} notional (n=${escapeHTML(fmtInt(dollars.n_pools))}) and payback arriving a median ${escapeHTML(Number(shift.median_days_later_than_gross_implies).toFixed(2))} days later than gross implies.</strong></p>
+      <p>Ranking reversals were <strong class="num">${escapeHTML(fmtInt(reversals.numerator))}/${escapeHTML(fmtInt(reversals.denominator))}</strong>; the corresponding share was ${escapeHTML(pct(reversals.value))}.</p>
+      <p class="metric-note">${escapeHTML(impact.registration_note)}</p>
+      <p><a href="/advantage/v2">Read the measurements and their limits</a></p>
+    </div>`;
+}
+
 async function initIndex() {
   paintVocabulary();
   /* The jobs first, and awaited separately: a /stats that cannot be read must not leave
      the shop front empty, and an empty shelf must not be hidden by a failing statistic. */
+  const impact = paintPancakeImpact();
   await paintJobs();
+  await impact;
+  await paintCompare();
   try {
     paintStats(await fetchJSON("/stats"));
   } catch (err) {
@@ -1067,6 +1911,258 @@ async function initBrowse() {
   goToBrowse(state, false);
 }
 
+/* ---------------------------------------------------------- Pancake record */
+
+function rangeLabel(status) {
+  return {
+    in_range: "in range",
+    out_of_range_below: "below range",
+    out_of_range_above: "above range",
+    closed: "closed",
+    unknown_pool: "range unavailable",
+  }[status] || "range unavailable";
+}
+
+function recordReference(line) {
+  const references = [];
+  if (line.prior_observation_sha256) {
+    references.push(
+      `prior observation <code>${escapeHTML(line.prior_observation_sha256)}</code>`,
+    );
+  }
+  if (line.supersedes_decision_sha256) {
+    references.push(
+      `supersedes decision <code>${escapeHTML(line.supersedes_decision_sha256)}</code>`,
+    );
+  }
+  if (line.answers_decision_sha256) {
+    references.push(
+      `answers decision <code>${escapeHTML(line.answers_decision_sha256)}</code>`,
+    );
+  }
+  return references.length
+    ? references.join("; ")
+    : '<span class="dim">No digest reference on this row</span>';
+}
+
+function recordRow(line) {
+  if (line.kind === "owner_decision") {
+    const rationale = line.rationale ? ` — ${escapeHTML(line.rationale)}` : "";
+    return `<tr class="owner-decision-row">
+        <td>${escapeHTML(line.decided_at || DASH)}</td>
+        <td class="num">${DASH}</td>
+        <td><strong>Owner decision: ${escapeHTML(line.decision || DASH)}</strong>${rationale}</td>
+        <td><span class="badge">owner decision</span></td>
+        <td class="record-link">${recordReference(line)}</td>
+      </tr>`;
+  }
+  const report = line.report || {};
+  const entry = (report.positions || [])[0] || {};
+  const diagnosis = entry.diagnosis || {};
+  const facts = diagnosis.verifiable_facts || {};
+  const decision =
+    diagnosis.decision ||
+    report.decision ||
+    line.error ||
+    "No position decision was recorded on this observation.";
+  return `<tr>
+      <td>${escapeHTML(line.observed_at || DASH)}</td>
+      <td class="num mono">${escapeHTML(facts.bsc_block ?? (report.observation || {}).bsc_block ?? DASH)}</td>
+      <td>${escapeHTML(decision)}</td>
+      <td>${escapeHTML(rangeLabel(diagnosis.status))}</td>
+      <td class="record-link">${recordReference(line)}</td>
+    </tr>`;
+}
+
+export function paintPancakeRecord(history) {
+  const target = region("pancake-record");
+  const lines = Array.isArray(history.lines) ? history.lines : [];
+  const dates = lines
+    .map((line) => line.decided_at || line.observed_at)
+    .filter(Boolean)
+    .sort();
+  const window = dates.length
+    ? `${dates[0]} to ${dates[dates.length - 1]}`
+    : "no stored observation dates";
+  const completeness = history.truncated
+    ? "The response was truncated; later stored rows may be absent."
+    : "The response was not truncated.";
+  const parseNote = history.skipped_unparsable
+    ? `${fmtInt(history.skipped_unparsable)} stored lines could not be parsed and are not in the table.`
+    : "No stored lines were skipped as unparsable.";
+  const table = lines.length
+    ? `<div class="table-wrap">
+        <table class="record-table">
+          <caption>
+            ${escapeHTML(fmtInt(lines.length))} parsed rows returned by /lp-record for ${escapeHTML(window)}.
+            ${escapeHTML(completeness)} ${escapeHTML(parseNote)}
+          </caption>
+          <thead><tr>
+            <th scope="col">Date</th>
+            <th scope="col" class="num">BSC block</th>
+            <th scope="col">Decision sentence</th>
+            <th scope="col">Range state</th>
+            <th scope="col">Digest link</th>
+          </tr></thead>
+          <tbody>${lines.map((line) => recordRow(line)).join("")}</tbody>
+        </table>
+      </div>`
+    : `<div class="panel"><p>No record lines are mounted on this host.</p></div>`;
+  target.innerHTML = `${table}
+    <div class="notice">
+      <h3>What the digest chain anchors</h3>
+      <p>
+        A surviving digest reference can expose removal or editing of the observation or owner
+        decision it names. The intended sequence is observation, owner decision, optional
+        superseding decisions, then a later observation that answers the decision.
+      </p>
+      <p class="dim">
+        This is not a running hash. It does not anchor an unreferenced observation or the final
+        row, authenticate who typed a decision, supply an external timestamp, establish causality
+        or returns, or stop the file's controller rewriting the entire chain. /lp-record publishes
+        parsed rows; it does not run verify_history on this response.
+      </p>
+    </div>`;
+}
+
+export function paintPancakeLive(record, answer) {
+  const result = answer.result || {};
+  const entry = (result.positions || [])[0] || {};
+  const diagnosis = entry.diagnosis || {};
+  const facts = diagnosis.verifiable_facts || {};
+  const economics = diagnosis.economic_consequence || {};
+  const conditional = diagnosis.conditional_actions || {};
+  const headline = result.pancake_headline || {};
+  const decision =
+    diagnosis.decision || result.decision || "No position decision was returned.";
+
+  region("pancake-decision").innerHTML = `<p class="decision-sentence">${escapeHTML(decision)}</p>
+    <dl class="decision-facts">
+      <div><dt>Position</dt><dd class="mono">${escapeHTML(facts.position_id ?? DASH)}</dd></div>
+      <div><dt>Range state</dt><dd>${escapeHTML(rangeLabel(diagnosis.status))}</dd></div>
+      <div><dt>BSC block</dt><dd class="mono">${escapeHTML(facts.bsc_block ?? (result.observation || {}).bsc_block ?? DASH)}</dd></div>
+      <div><dt>Observed</dt><dd>${escapeHTML(facts.observation_time || (result.observation || {}).observation_time || DASH)}</dd></div>
+    </dl>`;
+
+  const ratesAvailable = economics.gross_apr !== null && economics.gross_apr !== undefined;
+  const rates = ratesAvailable
+    ? `<dl class="deflist">
+        <dt>Gross pool APR</dt><dd class="num">${escapeHTML(pct(economics.gross_apr))}</dd>
+        <dt>Protocol-adjusted net pool APR</dt><dd class="num">${escapeHTML(pct(economics.net_apr))}</dd>
+        <dt>Gross-to-net overstatement</dt><dd class="num">${escapeHTML(economics.overstatement_relative === null ? "not defined because net APR is zero" : pct(economics.overstatement_relative))}</dd>
+        <dt>Declared fixed notional</dt><dd class="num">${escapeHTML(usd(economics.declared_position_value_usd) || DASH)} — caller-declared</dd>
+        <dt>Annual gross dollars at that notional</dt><dd class="num">${escapeHTML(usd(economics.annual_gross_usd) || DASH)}</dd>
+        <dt>Annual net dollars at that notional</dt><dd class="num">${escapeHTML(usd(economics.annual_net_usd) || DASH)}</dd>
+        <dt>Annual overstatement at that notional</dt><dd class="num">${escapeHTML(usd(economics.annual_overstatement_usd) || DASH)}</dd>
+        <dt>Cost-only recenter payback</dt><dd class="num">${conditional.cost_only_break_even_days === null || conditional.cost_only_break_even_days === undefined ? escapeHTML(conditional.unavailable_reason || DASH) : `${escapeHTML(Number(conditional.cost_only_break_even_days).toFixed(2))} days`}</dd>
+        <dt>Post-hoc median payback delay</dt><dd class="num">${headline.median_payback_delay_days === null || headline.median_payback_delay_days === undefined ? DASH : `${escapeHTML(Number(headline.median_payback_delay_days).toFixed(2))} days across ${escapeHTML(fmtInt(headline.n_candidate_moves))} candidate moves`}</dd>
+      </dl>`
+    : `<p>Rate figures are unavailable: ${escapeHTML(economics.unavailable_reason || "the required pool evidence is missing")}</p>`;
+  region("pancake-economics").innerHTML = `<div class="panel">${rates}
+      <p class="dim">Fixed-notional proxy, not this position's earnings. ${escapeHTML(economics.limitation || "The live response supplied no further rate limitation.")}</p>
+      <p class="dim">${escapeHTML(conditional.limitation || "Future rates and unmeasured costs remain outside this calculation.")}</p>
+    </div>`;
+
+  const actions = (conditional.actions || [])
+    .map(
+      (action) => `<article class="action-card">
+        <p class="eyebrow">${escapeHTML(action.kind || "conditional")}</p>
+        <p>${escapeHTML(action.text || "No action sentence was returned.")}</p>
+        ${action.link ? `<p><a class="btn" href="${escapeHTML(action.link)}" rel="noopener">Open position in PancakeSwap</a></p>` : ""}
+      </article>`,
+    )
+    .join("");
+  region("pancake-actions").innerHTML = actions
+    ? `<div class="action-grid">${actions}</div>`
+    : `<div class="panel"><p>No position-specific wait-versus-recenter actions were returned.</p></div>`;
+}
+
+export function paintPancakeDecisionImpact(report) {
+  const impact = report.decision_impact || {};
+  const payback = impact.break_even_shift || {};
+  const reversal = impact.ranking_reversals || {};
+  const notionals = ((impact.dollars_at_notionals || {}).notionals || []);
+  const fixed = notionals.find(
+    (item) => item.notional_usd === payback.notional_usd,
+  ) || notionals[0] || {};
+  region("pancake-impact").innerHTML = `<div class="impact-grid">
+      <article class="impact-stat">
+        <p class="metric-label">Annual overstatement</p>
+        <p class="metric-value">${escapeHTML(usd(fixed.median_annual_overstatement_usd) || DASH)}</p>
+        <p class="metric-note">Median at ${escapeHTML(usd(fixed.notional_usd) || DASH)} fixed notional across ${escapeHTML(fmtInt(fixed.n_pools))} eligible pools.</p>
+      </article>
+      <article class="impact-stat">
+        <p class="metric-label">Payback delay</p>
+        <p class="metric-value">${payback.median_days_later_than_gross_implies === null || payback.median_days_later_than_gross_implies === undefined ? DASH : `${escapeHTML(Number(payback.median_days_later_than_gross_implies).toFixed(2))} days`}</p>
+        <p class="metric-note">Median across ${escapeHTML(fmtInt(payback.n_moves))} candidate moves; net rather than gross pool rates.</p>
+      </article>
+      <article class="impact-stat">
+        <p class="metric-label">Ranking reversals</p>
+        <p class="metric-value">${escapeHTML(fmtInt(reversal.numerator))}/${escapeHTML(fmtInt(reversal.denominator))}</p>
+        <p class="metric-note">Ordered eligible-pool pairs in the frozen corpus.</p>
+      </article>
+    </div>
+    <div class="notice">
+      <p><strong>${escapeHTML(impact.registration_state || "registration state unavailable")}</strong> — ${escapeHTML(impact.registration_note || "No registration note was returned.")}</p>
+      <p class="dim">${escapeHTML(reversal.what_this_measures || "The response supplied no further reversal method.")}</p>
+      <p class="dim">${escapeHTML(payback.what_it_does_not_measure || "The response supplied no further payback limitation.")}</p>
+    </div>`;
+}
+
+function paintPancakeContext(orientation) {
+  const context = orientation.pancake_context || {};
+  const meta = context.subgraph_meta || {};
+  region("pancake-context").innerHTML = `<p>${escapeHTML(context.first_party_skills || "First-party skill context is unavailable.")}</p>
+    <p>
+      On ${escapeHTML(meta.query_observed_at || DASH)}, the read-only PancakeSwap BSC V3
+      subgraph query returned an indexed time of ${escapeHTML(meta.indexed_at || DASH)} and
+      <code>hasIndexingErrors: ${escapeHTML(String(meta.has_indexing_errors))}</code>.
+    </p>
+    <p class="dim">${escapeHTML(meta.method || "The source method is unavailable.")}</p>`;
+}
+
+async function initPancake() {
+  const [recordResult, historyResult, advantageResult, orientationResult] =
+    await Promise.allSettled([
+      fetchJSON("/services/range-doctor"),
+      fetchJSON("/lp-record"),
+      fetchJSON("/advantage/v2.json"),
+      fetchJSON("/pancake"),
+    ]);
+
+  if (historyResult.status === "fulfilled") {
+    paintPancakeRecord(historyResult.value);
+  } else {
+    renderError(region("pancake-record"), historyResult.reason);
+  }
+  if (advantageResult.status === "fulfilled") {
+    paintPancakeDecisionImpact(advantageResult.value);
+  } else {
+    renderError(region("pancake-impact"), advantageResult.reason);
+  }
+  if (orientationResult.status === "fulfilled") {
+    paintPancakeContext(orientationResult.value);
+  } else {
+    renderError(region("pancake-context"), orientationResult.reason);
+  }
+
+  if (recordResult.status !== "fulfilled") {
+    for (const name of ["pancake-decision", "pancake-economics", "pancake-actions"]) {
+      renderError(region(name), recordResult.reason);
+    }
+    return;
+  }
+  const record = recordResult.value;
+  try {
+    const answer = await postJSON(record.hire_path, exampleBody(record));
+    paintPancakeLive(record, answer);
+  } catch (err) {
+    for (const name of ["pancake-decision", "pancake-economics", "pancake-actions"]) {
+      renderError(region(name), err);
+    }
+  }
+}
+
 /* ------------------------------------------------------------ agent detail */
 
 /* A pointer to one agent, not a figure: every number in the note below is read
@@ -1105,7 +2201,7 @@ async function workedExample(currentId) {
 }
 
 function observationRows(detail) {
-  return detail.observations
+  return detail.latest_on_demand_observation || detail.observations
     .map((obs) => {
       const outcome = outcomeLabel(obs.outcome);
       return `<tr>
@@ -1126,9 +2222,9 @@ function observationSection(detail) {
     return `<div class="table-wrap">
         <table>
           <caption>
-            Every probe Docket made of this agent's endpoints in snapshot
+            Latest sweep observation for each probed URL in snapshot
             ${escapeHTML(detail.coverage.snapshot_id)}. One GET each, one attempt, at the moment
-            of the sweep.
+            of that sweep.
           </caption>
           <thead>
             <tr>
@@ -1159,6 +2255,149 @@ function observationSection(detail) {
   return `<div class="panel"><h3>No observations</h3><p class="dim">${escapeHTML(why)}</p></div>`;
 }
 
+function lastAgentProbe(detail) {
+  if (detail.latest_on_demand_observation) {
+    return detail.latest_on_demand_observation;
+  }
+  return detail.observations
+    .filter((observation) => observation.kind === "a2a" || observation.kind === "mcp")
+    .reduce((latest, observation) => {
+      if (!latest) return observation;
+      return String(observation.observed_at || "") >= String(latest.observed_at || "")
+        ? observation
+        : latest;
+    }, null);
+}
+
+export function agentActionBlock(detail, associatedServices) {
+  const latest = lastAgentProbe(detail);
+  const canReprobe =
+    detail.declares_callable && latest && latest.outcome === "responded";
+  const observedProbeable = new Set(
+    detail.observations
+      .filter((row) => row.kind === "a2a" || row.kind === "mcp")
+      .map((row) => row.url),
+  );
+  const actionEndpoints = detail.endpoints.filter((url) =>
+    observedProbeable.has(url),
+  );
+  const endpoints = actionEndpoints.length
+    ? actionEndpoints
+        .map((url) => {
+          const observation = detail.observations.find((row) => row.url === url);
+          const outcome = outcomeLabel(observation && observation.outcome);
+          const recorded = observation
+            ? `<p>
+                <span class="outcome ${outcome.className}">${escapeHTML(outcome.label)}</span>
+                ${observation.status_code === null ? "No HTTP status was returned." : `HTTP status ${escapeHTML(observation.status_code)}.`}
+                Observed <time datetime="${escapeHTML(observation.observed_at || "")}">${escapeHTML(observation.observed_at || DASH)}</time>.
+              </p>
+              <p class="dim">${escapeHTML(outcome.means)}</p>`
+            : `<p class="dim">Docket has no probe outcome for this declared URL in the served snapshot.</p>`;
+          return `<li class="endpoint-action">
+              <div class="endpoint-copy">
+                <code>${escapeHTML(url)}</code>
+                <button type="button" class="btn" data-copy-endpoint="${escapeHTML(url)}">Copy endpoint</button>
+              </div>
+              ${recorded}
+            </li>`;
+        })
+        .join("")
+    : `<li><p class="dim">No A2A or MCP endpoint has a recorded probe outcome in the served snapshot.</p></li>`;
+  const onDemand = detail.latest_on_demand_observation;
+  const onDemandResult = onDemand ? outcomeLabel(onDemand.outcome) : null;
+  const onDemandSection = onDemand
+    ? `<section aria-labelledby="on-demand-probe-heading">
+        <h3 id="on-demand-probe-heading">Latest on-demand re-probe</h3>
+        <p>
+          <span class="outcome ${onDemandResult.className}">${escapeHTML(onDemandResult.label)}</span>
+          ${onDemand.status_code === null ? "No HTTP status was returned." : `HTTP status ${escapeHTML(onDemand.status_code)}.`}
+          ${onDemand.elapsed_ms === null ? "" : `Elapsed ${escapeHTML(fmtInt(onDemand.elapsed_ms))} ms.`}
+        </p>
+        <p>
+          Re-probed on request at <time datetime="${escapeHTML(onDemand.observed_at || "")}">${escapeHTML(onDemand.observed_at || DASH)}</time>;
+          not part of the snapshot's coverage figures.
+        </p>
+        <p class="dim">${escapeHTML(onDemandResult.means)}${onDemand.detail ? ` Detail: ${escapeHTML(onDemand.detail)}.` : ""}</p>
+      </section>`
+    : `<section aria-labelledby="on-demand-probe-heading">
+        <h3 id="on-demand-probe-heading">Latest on-demand re-probe</h3>
+        <p class="dim">No on-demand re-probe has been requested for this agent in the served snapshot.</p>
+      </section>`;
+  const control = canReprobe
+    ? `<p class="btn-row">
+        <button type="button" class="btn btn-primary" data-reprobe>Re-probe now</button>
+        <span class="dim">Repeats one pinned GET to the endpoint in the latest probe observation that answered. Any HTTP status counts as an answer; it does not show what the agent does behind it.</span>
+      </p>`
+    : `<p class="dim">Re-probe is available only when this agent declares a callable protocol and its latest sweep or on-demand probe observation answered.</p>`;
+  return `<section aria-labelledby="agent-actions-heading">
+      <h2 id="agent-actions-heading">What you can do with this agent</h2>
+      <p class="section-note">
+        Copy the endpoints the publisher declared, inspect Docket's sweep and on-demand probe
+        outcomes separately, and see whether Docket binds a service action to this identity. A
+        probe reads reachability only.
+      </p>
+      <div class="panel">
+        <dl class="deflist">
+          <dt>Declares x402 payments</dt><dd>${detail.x402 ? "yes" : "no"}</dd>
+        </dl>
+        <ul class="endpoint-actions">${endpoints}</ul>
+        ${onDemandSection}
+        ${control}
+        <div data-region="agent-probe-result" aria-live="polite"></div>
+      </div>
+      <div class="panel agent-services">
+        <h3>Docket-run services associated with this identity</h3>
+        <p class="dim">These are Docket's own bindings. The ERC-8004 registration does not declare them.</p>
+        ${associatedServices}
+      </div>
+    </section>`;
+}
+
+function bindAgentActions(detail) {
+  for (const button of document.querySelectorAll("[data-copy-endpoint]")) {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copyEndpoint);
+        button.textContent = "Copied";
+      } catch (err) {
+        button.textContent = "Select the endpoint text to copy";
+      }
+    });
+  }
+  const reprobe = document.querySelector("[data-reprobe]");
+  if (!reprobe) return;
+  reprobe.addEventListener("click", async () => {
+    reprobe.disabled = true;
+    reprobe.textContent = "Re-probing…";
+    const target = region("agent-probe-result");
+    try {
+      const response = await postJSON(`/agents/${detail.agent_id}/probe`, {});
+      const observation = response.observation || {};
+      const outcome = outcomeLabel(observation.outcome);
+      target.innerHTML = `<div class="notice">
+          <p><strong>Latest on-demand re-probe:</strong>
+            <span class="outcome ${outcome.className}">${escapeHTML(outcome.label)}</span>
+            ${observation.status_code === null || observation.status_code === undefined ? "No HTTP status was returned." : `HTTP status ${escapeHTML(observation.status_code)}.`}
+            Recorded <time datetime="${escapeHTML(observation.observed_at || "")}">${escapeHTML(observation.observed_at || DASH)}</time>.
+          </p>
+          <p>${escapeHTML(response.coverage_note || "This requested probe is not part of the snapshot's coverage figures.")}</p>
+          <p class="dim">${escapeHTML(outcome.means)}</p>
+        </div>`;
+      if (observation.outcome === "responded") {
+        reprobe.disabled = false;
+        reprobe.textContent = "Re-probe now";
+      } else {
+        reprobe.textContent = "Re-probe recorded";
+      }
+    } catch (err) {
+      renderError(target, err);
+      reprobe.disabled = false;
+      reprobe.textContent = "Re-probe now";
+    }
+  });
+}
+
 function paintAgent(detail, example) {
   const name = displayName(detail);
   const placeholder = detail.placeholder_name
@@ -1173,6 +2412,10 @@ function paintAgent(detail, example) {
     ? `<ul>${detail.endpoints.map((url) => `<li class="mono">${escapeHTML(url)}</li>`).join("")}</ul>`
     : `<p class="dim">No endpoint URL resolved from this agent's card.</p>`;
   const cov = detail.coverage;
+  const associatedServices = detail.associated_services.length
+    ? detail.associated_services.map((service) => serviceCard(service)).join("")
+    : `<p class="dim">Docket binds no service in its own marketplace to this identity.</p>`;
+  const actions = agentActionBlock(detail, associatedServices);
 
   region("agent").innerHTML = `<h1>${escapeHTML(name)}</h1>
     ${placeholder}
@@ -1194,6 +2437,7 @@ function paintAgent(detail, example) {
         </dl>
       </div>
     </section>
+    ${actions}
     <section aria-labelledby="observed-heading">
       <h2 id="observed-heading">What Docket observed</h2>
       <div class="notice">
@@ -1213,6 +2457,7 @@ function paintAgent(detail, example) {
         <dl class="deflist">
           <dt>Snapshot</dt><dd class="num">${escapeHTML(cov.snapshot_id)}</dd>
           <dt>Captured</dt><dd title="${escapeHTML(cov.captured_at || "")}">${escapeHTML(relativeTime(cov.captured_at))}</dd>
+          <dt>Snapshot age</dt><dd class="num">${escapeHTML(fmtInt(cov.snapshot_age_seconds))} seconds</dd>
           <dt>Population swept</dt><dd class="mono">${escapeHTML(populationLabel(cov))}</dd>
           <dt>Agents sampled</dt><dd class="num">${escapeHTML(fmtInt(cov.sampled))}</dd>
           <dt>Agents expected</dt><dd class="num">${escapeHTML(fmtInt(cov.expected))}</dd>
@@ -1221,6 +2466,7 @@ function paintAgent(detail, example) {
         </dl>
       </div>
     </section>`;
+  bindAgentActions(detail);
 }
 
 async function initAgent() {
@@ -1256,6 +2502,7 @@ const PAGES = {
   research: initBrowse,
   agent: initAgent,
   service: initService,
+  pancake: initPancake,
 };
 
 const page = document.body.dataset.page;

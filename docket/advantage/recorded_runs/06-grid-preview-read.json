@@ -1,0 +1,491 @@
+{
+  "agent_arm": {
+    "cost": {
+      "amount": "0",
+      "note": "public read endpoints only; no API key, payment, or transaction",
+      "unit": "USD"
+    },
+    "error": null,
+    "name": "agent",
+    "output": {
+      "observation": {
+        "block": 117453016,
+        "does_not_show": "It does not show a submitted transaction, fill, gain, adaptive trading decision, or paired run against a person.",
+        "method": "The catalogue grid-operator runner built its deterministic WBNB/USDT band, asked PancakeSwap V2 Router.getAmountsOut for the observation and each level, and hash-bound every usable action; the service reported BSC block 117453016.",
+        "observed_at": "2026-08-22T16:05:45.744877+00:00",
+        "population": "6 quoted and simulation-matched levels of 6 requested levels for the recorded wallet at BSC block 117453016",
+        "time_source": "recorder completion time; the service reports a block but no block timestamp",
+        "window": "single recorded read; no paired run against a person; one 6-level grid preview"
+      },
+      "receipt": {
+        "delivered_at": "2026-08-22T16:05:45.744877+00:00",
+        "input_hash": "0x4e7695c67a066cdf625becc8163c9cf9131d5e6fa65143f0c1e23062d998051b",
+        "output_hash": "0x928dd0cdeb2df65fda79cb7cffe3a0e14e84b21712214b989cd0c89956a4062d",
+        "payment": {
+          "note": "No payment, signature, transaction, or network write was made.",
+          "status": "read_only_recording"
+        },
+        "service": "grid-operator"
+      },
+      "request": {
+        "wallet": "0xe55816904796341bf8535e25f6c8b647927fc946"
+      },
+      "result": {
+        "authority": null,
+        "levels": [
+          {
+            "condition_holds": false,
+            "intent": {
+              "calldata_hash": "0x51d095d71a02708ec77218af85d3de77935ea07031cbc3436f5435b05d328ba5",
+              "chain_id": "56",
+              "condition": {
+                "kind": "price_at_or_below",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "619294300664346184581"
+              },
+              "deadline": "1787415332",
+              "evidence_block": "117453016",
+              "gas_ceiling": "300000",
+              "intent_id": "0x157dc302-level-0-0",
+              "max_input": "25000000000000000000",
+              "min_output": "35968767018283165",
+              "nonce": "0",
+              "policy_version": "grid-operator/1",
+              "route": [
+                "0x55d398326f99059fF775485246999027B3197955",
+                "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+              ],
+              "selector": "0x38ed1739",
+              "slippage_bps": "50",
+              "target": "0x10ED43C718714eb63d5aA57B78B54704E256024E",
+              "token_in": "0x55d398326f99059fF775485246999027B3197955",
+              "token_out": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+            },
+            "intent_key": "0x795f250d8a2381047f6d86c5de6a369f0a0743f87b852388e4a26fcccbe72a13",
+            "level": {
+              "condition": {
+                "kind": "price_at_or_below",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "619294300664346184581"
+              },
+              "index": 0,
+              "price": "619294300664346184581",
+              "side": "buy",
+              "size": "25000000000000000000",
+              "token_in": "0x55d398326f99059fF775485246999027B3197955",
+              "token_out": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+            },
+            "simulation": {
+              "agrees": true,
+              "block_number": 117453020,
+              "checks": [
+                "intent.matches",
+                "router.getAmountsOut"
+              ],
+              "expected_output": "36149575806099245",
+              "gas": null,
+              "reason": "the router quotes 36149575806099245 out against a floor of 35968767018283165, at block 117453020"
+            },
+            "skipped": null
+          },
+          {
+            "condition_holds": false,
+            "intent": {
+              "calldata_hash": "0x8a6baab89a8f8ee58238d3ab8198fba3778c65f3df482688e89515cf689509bc",
+              "chain_id": "56",
+              "condition": {
+                "kind": "price_at_or_below",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "646818491804983792784"
+              },
+              "deadline": "1787415335",
+              "evidence_block": "117453016",
+              "gas_ceiling": "300000",
+              "intent_id": "0x157dc302-level-1-1",
+              "max_input": "25000000000000000000",
+              "min_output": "35969450344740177",
+              "nonce": "1",
+              "policy_version": "grid-operator/1",
+              "route": [
+                "0x55d398326f99059fF775485246999027B3197955",
+                "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+              ],
+              "selector": "0x38ed1739",
+              "slippage_bps": "50",
+              "target": "0x10ED43C718714eb63d5aA57B78B54704E256024E",
+              "token_in": "0x55d398326f99059fF775485246999027B3197955",
+              "token_out": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+            },
+            "intent_key": "0x4d3f3ea5b7ce1efb1e16b3fdfbd61ed9d87ec975703a2e3e00171d290d84d8c9",
+            "level": {
+              "condition": {
+                "kind": "price_at_or_below",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "646818491804983792784"
+              },
+              "index": 1,
+              "price": "646818491804983792784",
+              "side": "buy",
+              "size": "25000000000000000000",
+              "token_in": "0x55d398326f99059fF775485246999027B3197955",
+              "token_out": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+            },
+            "simulation": {
+              "agrees": true,
+              "block_number": 117453027,
+              "checks": [
+                "intent.matches",
+                "router.getAmountsOut"
+              ],
+              "expected_output": "36150269765262209",
+              "gas": null,
+              "reason": "the router quotes 36150269765262209 out against a floor of 35969450344740177, at block 117453027"
+            },
+            "skipped": null
+          },
+          {
+            "condition_holds": false,
+            "intent": {
+              "calldata_hash": "0x39af79b9e747d5067842833cc6ccf11cae874c46c28661646b8cb9485f0b158a",
+              "chain_id": "56",
+              "condition": {
+                "kind": "price_at_or_below",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "674342682945621400988"
+              },
+              "deadline": "1787415337",
+              "evidence_block": "117453016",
+              "gas_ceiling": "300000",
+              "intent_id": "0x157dc302-level-2-2",
+              "max_input": "25000000000000000000",
+              "min_output": "35969040994305230",
+              "nonce": "2",
+              "policy_version": "grid-operator/1",
+              "route": [
+                "0x55d398326f99059fF775485246999027B3197955",
+                "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+              ],
+              "selector": "0x38ed1739",
+              "slippage_bps": "50",
+              "target": "0x10ED43C718714eb63d5aA57B78B54704E256024E",
+              "token_in": "0x55d398326f99059fF775485246999027B3197955",
+              "token_out": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+            },
+            "intent_key": "0xddfd404207127ca8c29366c4bfe3caa040b1a78619940dd7fdf7e357792198d6",
+            "level": {
+              "condition": {
+                "kind": "price_at_or_below",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "674342682945621400988"
+              },
+              "index": 2,
+              "price": "674342682945621400988",
+              "side": "buy",
+              "size": "25000000000000000000",
+              "token_in": "0x55d398326f99059fF775485246999027B3197955",
+              "token_out": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+            },
+            "simulation": {
+              "agrees": true,
+              "block_number": 117453032,
+              "checks": [
+                "intent.matches",
+                "router.getAmountsOut"
+              ],
+              "expected_output": "36149776265846499",
+              "gas": null,
+              "reason": "the router quotes 36149776265846499 out against a floor of 35969040994305230, at block 117453032"
+            },
+            "skipped": null
+          },
+          {
+            "condition_holds": false,
+            "intent": {
+              "calldata_hash": "0xcb2e5b771c8d11184e37ab5ddc95b725293871927978c9ecaada1f3702ae58b6",
+              "chain_id": "56",
+              "condition": {
+                "kind": "price_at_or_above",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "701866874086259009191"
+              },
+              "deadline": "1787415339",
+              "evidence_block": "117453016",
+              "gas_ceiling": "300000",
+              "intent_id": "0x157dc302-level-3-3",
+              "max_input": "35619290385440694",
+              "min_output": "24387514392117638885",
+              "nonce": "3",
+              "policy_version": "grid-operator/1",
+              "route": [
+                "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+                "0x55d398326f99059fF775485246999027B3197955"
+              ],
+              "selector": "0x38ed1739",
+              "slippage_bps": "50",
+              "target": "0x10ED43C718714eb63d5aA57B78B54704E256024E",
+              "token_in": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+              "token_out": "0x55d398326f99059fF775485246999027B3197955"
+            },
+            "intent_key": "0xf46b11d8c47350bf04524a8c0c0703408fb0f4c3e551dda753b0c41cc1cf9769",
+            "level": {
+              "condition": {
+                "kind": "price_at_or_above",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "701866874086259009191"
+              },
+              "index": 3,
+              "price": "701866874086259009191",
+              "side": "sell",
+              "size": "35619290385440694",
+              "token_in": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+              "token_out": "0x55d398326f99059fF775485246999027B3197955"
+            },
+            "simulation": {
+              "agrees": true,
+              "block_number": 117453037,
+              "checks": [
+                "intent.matches",
+                "router.getAmountsOut"
+              ],
+              "expected_output": "24510064715696119483",
+              "gas": null,
+              "reason": "the router quotes 24510064715696119483 out against a floor of 24387514392117638885, at block 117453037"
+            },
+            "skipped": null
+          },
+          {
+            "condition_holds": false,
+            "intent": {
+              "calldata_hash": "0x55e8d3944b5cb437c496b4ba6c9d7713aadc806296ed72c6117cf0bb182e016d",
+              "chain_id": "56",
+              "condition": {
+                "kind": "price_at_or_above",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "729391065226896617395"
+              },
+              "deadline": "1787415342",
+              "evidence_block": "117453016",
+              "gas_ceiling": "300000",
+              "intent_id": "0x157dc302-level-4-4",
+              "max_input": "34275166219952366",
+              "min_output": "23466794509440876231",
+              "nonce": "4",
+              "policy_version": "grid-operator/1",
+              "route": [
+                "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+                "0x55d398326f99059fF775485246999027B3197955"
+              ],
+              "selector": "0x38ed1739",
+              "slippage_bps": "50",
+              "target": "0x10ED43C718714eb63d5aA57B78B54704E256024E",
+              "token_in": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+              "token_out": "0x55d398326f99059fF775485246999027B3197955"
+            },
+            "intent_key": "0x2543085014e1e4a96be882be0fa1f47dfb07fed5c32d293c8e9b40fd9c81bcd4",
+            "level": {
+              "condition": {
+                "kind": "price_at_or_above",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "729391065226896617395"
+              },
+              "index": 4,
+              "price": "729391065226896617395",
+              "side": "sell",
+              "size": "34275166219952366",
+              "token_in": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+              "token_out": "0x55d398326f99059fF775485246999027B3197955"
+            },
+            "simulation": {
+              "agrees": true,
+              "block_number": 117453043,
+              "checks": [
+                "intent.matches",
+                "router.getAmountsOut"
+              ],
+              "expected_output": "23586686964860707072",
+              "gas": null,
+              "reason": "the router quotes 23586686964860707072 out against a floor of 23466794509440876231, at block 117453043"
+            },
+            "skipped": null
+          },
+          {
+            "condition_holds": false,
+            "intent": {
+              "calldata_hash": "0xff85573695ef085b0920fffe3474a03ec1a736ce4ca05fd073e27bd657eb1939",
+              "chain_id": "56",
+              "condition": {
+                "kind": "price_at_or_above",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "756915256367534225599"
+              },
+              "deadline": "1787415344",
+              "evidence_block": "117453016",
+              "gas_ceiling": "300000",
+              "intent_id": "0x157dc302-level-5-5",
+              "max_input": "33028796539226825",
+              "min_output": "22615344794610672192",
+              "nonce": "5",
+              "policy_version": "grid-operator/1",
+              "route": [
+                "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+                "0x55d398326f99059fF775485246999027B3197955"
+              ],
+              "selector": "0x38ed1739",
+              "slippage_bps": "50",
+              "target": "0x10ED43C718714eb63d5aA57B78B54704E256024E",
+              "token_in": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+              "token_out": "0x55d398326f99059fF775485246999027B3197955"
+            },
+            "intent_key": "0xbd5e667e4628a5e4891eb0734bfef47c502d000063d7054a880a15b84ad51e1d",
+            "level": {
+              "condition": {
+                "kind": "price_at_or_above",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "756915256367534225599"
+              },
+              "index": 5,
+              "price": "756915256367534225599",
+              "side": "sell",
+              "size": "33028796539226825",
+              "token_in": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+              "token_out": "0x55d398326f99059fF775485246999027B3197955"
+            },
+            "simulation": {
+              "agrees": true,
+              "block_number": 117453048,
+              "checks": [
+                "intent.matches",
+                "router.getAmountsOut"
+              ],
+              "expected_output": "22729078726401498542",
+              "gas": null,
+              "reason": "the router quotes 22729078726401498542 out against a floor of 22615344794610672192, at block 117453048"
+            },
+            "skipped": null
+          }
+        ],
+        "next_level": null,
+        "note": "A confirmed transaction shows this action executed exactly as it was authorised: the calldata matches the commitment, the output cleared the floor the intent set, and the session permitted it on chain. It does not show the action was worth taking. A grid level filling at its own price is a fill, not a gain, and whether the position ends up ahead depends on what the market does next. Docket records what happened and does not grade it.",
+        "observation": {
+          "block_number": 117453016,
+          "note": "the quote the router gives for one whole base token right now, in atomic units of the quote token. It is an execution price for that size and already carries the pool's fee — not a mid price",
+          "price": "688106468616184931725",
+          "source": "router.getAmountsOut"
+        },
+        "plan": {
+          "base": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+          "base_decimals": 18,
+          "levels": [
+            {
+              "condition": {
+                "kind": "price_at_or_below",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "619294300664346184581"
+              },
+              "index": 0,
+              "price": "619294300664346184581",
+              "side": "buy",
+              "size": "25000000000000000000",
+              "token_in": "0x55d398326f99059fF775485246999027B3197955",
+              "token_out": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+            },
+            {
+              "condition": {
+                "kind": "price_at_or_below",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "646818491804983792784"
+              },
+              "index": 1,
+              "price": "646818491804983792784",
+              "side": "buy",
+              "size": "25000000000000000000",
+              "token_in": "0x55d398326f99059fF775485246999027B3197955",
+              "token_out": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+            },
+            {
+              "condition": {
+                "kind": "price_at_or_below",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "674342682945621400988"
+              },
+              "index": 2,
+              "price": "674342682945621400988",
+              "side": "buy",
+              "size": "25000000000000000000",
+              "token_in": "0x55d398326f99059fF775485246999027B3197955",
+              "token_out": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+            },
+            {
+              "condition": {
+                "kind": "price_at_or_above",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "701866874086259009191"
+              },
+              "index": 3,
+              "price": "701866874086259009191",
+              "side": "sell",
+              "size": "35619290385440694",
+              "token_in": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+              "token_out": "0x55d398326f99059fF775485246999027B3197955"
+            },
+            {
+              "condition": {
+                "kind": "price_at_or_above",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "729391065226896617395"
+              },
+              "index": 4,
+              "price": "729391065226896617395",
+              "side": "sell",
+              "size": "34275166219952366",
+              "token_in": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+              "token_out": "0x55d398326f99059fF775485246999027B3197955"
+            },
+            {
+              "condition": {
+                "kind": "price_at_or_above",
+                "subject": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c/0x55d398326f99059fF775485246999027B3197955",
+                "threshold": "756915256367534225599"
+              },
+              "index": 5,
+              "price": "756915256367534225599",
+              "side": "sell",
+              "size": "33028796539226825",
+              "token_in": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+              "token_out": "0x55d398326f99059fF775485246999027B3197955"
+            }
+          ],
+          "lower": "619294300664346184581",
+          "plan_hash": "0x157dc30219ed954aded57d097e2062a4d44c993868377ac78375a4e95fab21b7",
+          "quote": "0x55d398326f99059fF775485246999027B3197955",
+          "reference": "688104778515940205090",
+          "requested_levels": 6,
+          "side_rule": "buy_below_sell_above",
+          "size_per_level": "25000000000000000000",
+          "skipped_at_reference": 0,
+          "upper": "756915256367534225599"
+        },
+        "submitted": false,
+        "wallet": "0xe55816904796341BF8535e25f6c8b647927fc946",
+        "why_not_submitted": "This is a preview. It holds no session, no signer and no submitter, and there is no method on it that sends anything — so nothing here can be submitted by changing a setting. Acting on any of these levels needs a session the wallet's owner granted, and the grant is theirs to make."
+      }
+    },
+    "output_hash": "0xaf0cdb2e91710624fc63b1f24bcede3f093b1e8360e88debc3b4ff4fdb23cc95",
+    "seconds": 18.380836000000272
+  },
+  "category": "grid trading",
+  "manual_arm": {
+    "cost": null,
+    "error": "single recorded read; no paired run against a person",
+    "name": "manual",
+    "output": null,
+    "output_hash": null,
+    "seconds": null
+  },
+  "manual_steps": [
+    "python -m docket.advantage.record_run grid-operator --payload '{\"wallet\":\"0xe55816904796341bf8535e25f6c8b647927fc946\"}' --out docket/advantage/recorded_runs/06-grid-preview-read.json"
+  ],
+  "notes": "This is a single recorded read; no paired run against a person. It does not show a submitted transaction, fill, gain, adaptive trading decision, or paired run against a person. Re-running reads new live state and is expected to produce different times, blocks, outputs, and hashes.",
+  "question": "What hash-bound grid actions do live PancakeSwap V2 quotes produce?",
+  "task_id": "06-grid-preview-read"
+}

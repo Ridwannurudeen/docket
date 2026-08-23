@@ -1,26 +1,34 @@
-"""Read-only handlers over one stored snapshot.
+"""Evidence handlers over one stored snapshot.
 
-Nothing here writes, sweeps, or probes: a caller can hammer this API without
-changing what Docket has observed. Every figure is drawn from `coverage_report`
-so `/stats` and `/agents` can never disagree about what was measured, and every
-response that carries a count carries the snapshot it was counted in.
+Most handlers only read. Every figure is drawn from `coverage_report` so `/stats`
+and `/agents` can never disagree about what was measured, and every response that
+carries a count carries the snapshot it was counted in.
 
 Errors are `{"error": {"code", "message"}}` at every status. FastAPI's default
 `{"detail": ...}` is registered away deliberately — an agent that has been told
 one error shape should never receive two.
 
-The hire routes are the one exception to "nothing here writes": they run work.
-They still write nothing Docket has observed, and they are deliberately built so
-a caller with no account, no key and no wallet gets real work back on the first
-request — payment is additive, and a missing `DOCKET_PAY_TO` disables the priced
-tier rather than the service.
+The hire routes run work and persist payment state. The agent re-probe route repeats
+the hardened pinned liveness probe and stores its observation outside the sweep table.
+Unadmitted services
+remain free previews/research/beta. An admitted service settles only after a
+facilitator verifies the authorization and Docket has durably bound a non-empty result
+to its input; missing owner settlement configuration disables paid stock rather than
+preview access.
 """
 
+import hashlib
+import hmac
+import json
 import os
 import time
-from dataclasses import asdict
+from collections import OrderedDict
+from dataclasses import asdict, replace
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,20 +38,42 @@ from fastapi.responses import (
     JSONResponse,
     PlainTextResponse,
     RedirectResponse,
+    Response,
 )
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.concurrency import run_in_threadpool
 
 from ..advantage.harness import compare, load
 from ..advantage.v2.page import fill as fill_v2_page
 from ..advantage.v2.report import report as advantage_v2_report
+from ..advantage.v3.page import fill as fill_v3_page
+from ..advantage.v3.report import report as advantage_v3_report
 from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
 from ..escrow import constants as escrow_constants
 from ..escrow.chain import JobNotFound, JobReader
 from ..escrow.flow import hire_calls
-from ..hire.catalogue import SERVICES, get_service
-from ..hire.receipts import build_receipt
-from ..hire.x402 import build_challenge, parse_payment_header, verify_authorization
+from ..hire.admission import CANARY_MAX_AGE_SECONDS, resolve_admission
+from ..hire.catalogue import SERVICES, PaidStockAdmission, get_service
+from ..hire.comparison import compare as compare_services_table
+from ..hire.receipts import (
+    build_receipt,
+    canonical_hash,
+    is_human_readable_result,
+)
+from ..hire.x402 import (
+    B402_FACILITATOR,
+    B402_NETWORK,
+    FACILITATOR_KINDS,
+    GENERIC_FACILITATOR,
+    Facilitator,
+    FacilitatorClient,
+    build_challenge,
+    facilitator_envelope,
+    parse_payment_header,
+    verify_payment,
+)
+from ..liveness import probe_one
 from ..marketplace.models import CATEGORIES, Category, ServiceRecord
 from ..marketplace.registry import (
     CATEGORY_DECLARATION,
@@ -52,6 +82,7 @@ from ..marketplace.registry import (
     get_record,
     records_in,
 )
+from ..refresh import LAST_REFRESH_FILENAME
 from ..signals import signals_for
 from ..store import Store
 from .models import (
@@ -73,12 +104,25 @@ from .models import (
 )
 
 DEFAULT_DB_PATH = "data/agents.sqlite3"
+DEFAULT_LP_RECORD_PATH = "lp-record/controlled.jsonl"
+LP_RECORD_MAX_BYTES = 8 * 1024 * 1024
+LP_RECORD_MAX_LINES = 10_000
 # Ships inside the package (see pyproject's package-data), so an installed Docket serves the
 # same documents a checkout does.
 STATIC_DIR = Path(__file__).parent / "static"
 # The human pages and their assets. Ships in the package too, so an installed Docket serves the
 # same web UI a checkout does. Everything here is authored as served: no build step, no bundler.
 WEB_DIR = Path(__file__).parent / "web"
+REGISTRATION_SERVICE_IDS = (
+    "range-doctor",
+    "grid-operator",
+    "yield-router",
+    "health-guard",
+)
+REGISTRATION_DOCUMENTS = {
+    service_id: (STATIC_DIR / "agents" / f"{service_id}.registration.json").read_bytes()
+    for service_id in REGISTRATION_SERVICE_IDS
+}
 # The recorded experiments behind /advantage. Ships in the package too, so the report an
 # installed Docket serves is the one committed to the repository.
 EXPERIMENTS_DIR = Path(__file__).parent.parent / "advantage" / "experiments"
@@ -109,15 +153,14 @@ CHAIN_ID = 56
 RETIRED_FILTER = "publisher"
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
-# How much work one caller may take per hour. The allowance counts EVERY hire, not
-# only the ones served without an authorization: hire/x402.py never remembers a
-# nonce, so one valid signature verifies for ever, and an allowance that a payer
-# stepped past would let a single replayed signature buy unlimited work. So the
-# allowance is what bounds this service, and an authorization changes the receipt
-# rather than the allowance — Docket does not settle, and a signature it cannot
-# mark as spent must not buy work a free caller could not have had.
+# How much free work one peer may request before receiving a 429. Payment for admitted
+# stock bypasses this allowance because nginx supplies its separate request bound and
+# the authorization nonce has a durable database state.
 FREE_TIER_HIRES = 20
 FREE_TIER_WINDOW_S = 3600
+MAX_ALLOWANCE_CLIENTS = 10_000
+RECOVERY_ATTEMPTS = 10
+RECOVERY_WINDOW_S = 60
 # Stated on every /stats response: a number about liveness is unreadable without it.
 PROBE_METHOD = (
     "One GET per declared A2A or MCP endpoint, single attempt, 8s timeout, redirects not "
@@ -181,7 +224,7 @@ def _category_job(category: Category | None) -> str | None:
     return next(entry.job for entry in CATEGORIES if entry.category is category)
 
 
-def _card(record: ServiceRecord) -> ServiceCard:
+def _card(record: ServiceRecord, admission: PaidStockAdmission) -> ServiceCard:
     return ServiceCard(
         service_id=record.service_id,
         name=record.name,
@@ -191,9 +234,13 @@ def _card(record: ServiceRecord) -> ServiceCard:
         price_display=record.price_display,
         price_atomic=record.price_atomic,
         asset=record.asset,
+        paid_stock=admission.passes,
+        stock_status=record.stock_status,
+        admission=asdict(admission),
         typical_seconds=record.typical_seconds,
         activation=record.activation,
         activation_means=record.activation_means,
+        evidence_modality=record.evidence_modality,
         metrics=[_metric_figure(metric) for metric in record.metrics],
         agent_id=record.agent_id,
         identity=record.identity_line,
@@ -241,16 +288,34 @@ async def _http_error(request: Request, exc: StarletteHTTPException) -> JSONResp
     return _error(exc.status_code, code, str(exc.detail))
 
 
-async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+async def _validation_error(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
     first = exc.errors()[0]
     where = ".".join(str(part) for part in first["loc"][1:])
     return _error(422, "invalid_query_parameter", f"{where}: {first['msg']}")
+
+
+def _snapshot_age_seconds(captured_at: str | None) -> int | None:
+    if captured_at is None:
+        return None
+    try:
+        captured = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if captured.tzinfo is None:
+        return None
+    age = (
+        datetime.now(timezone.utc) - captured.astimezone(timezone.utc)
+    ).total_seconds()
+    return None if age < 0 else int(age)
 
 
 def _coverage(report: dict, applied_filter: str | None = None) -> Coverage:
     return Coverage(
         snapshot_id=report["snapshot_id"],
         captured_at=report["captured_at"],
+        snapshot_age_seconds=_snapshot_age_seconds(report["captured_at"]),
         sampled=report["sampled"],
         expected=report["expected"],
         dropped=report["dropped"],
@@ -277,6 +342,20 @@ def _summary(agent: dict, signals: dict) -> AgentSummary:
     )
 
 
+def _endpoint_observation(
+    observation: dict, kinds: dict[str, str]
+) -> EndpointObservation:
+    return EndpointObservation(
+        url=observation["url"],
+        kind=kinds.get(observation["url"], "unknown"),
+        observed_at=observation["observed_at"],
+        outcome=observation["outcome"],
+        status_code=observation["status_code"],
+        elapsed_ms=observation["elapsed_ms"],
+        detail=observation["detail"],
+    )
+
+
 def _responding_agent_ids(store: Store, snapshot_id: int) -> set[str]:
     return {
         obs["agent_id"]
@@ -285,14 +364,74 @@ def _responding_agent_ids(store: Store, snapshot_id: int) -> set[str]:
     }
 
 
-def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = None) -> FastAPI:
-    """Serve one snapshot read-only. Resolved once here rather than per request: a listing and
-    the stats beside it must describe the same capture, even mid-sweep."""
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON constant {value}")
+
+
+def _read_lp_record_lines(path: Path) -> dict:
+    try:
+        handle = path.open("rb")
+    except FileNotFoundError:
+        return {"lines": [], "skipped_unparsable": 0, "truncated": False}
+
+    lines = []
+    skipped_unparsable = 0
+    bytes_read = 0
+    physical_lines = 0
+    truncated = False
+    with handle:
+        while physical_lines < LP_RECORD_MAX_LINES and bytes_read < LP_RECORD_MAX_BYTES:
+            remaining = LP_RECORD_MAX_BYTES - bytes_read
+            raw_line = handle.readline(remaining + 1)
+            if not raw_line:
+                break
+            if len(raw_line) > remaining:
+                truncated = True
+                break
+            bytes_read += len(raw_line)
+            physical_lines += 1
+            if not raw_line.strip():
+                continue
+            try:
+                parsed = json.loads(raw_line, parse_constant=_reject_json_constant)
+                json.dumps(parsed, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            except (
+                UnicodeDecodeError,
+                UnicodeEncodeError,
+                ValueError,
+                RecursionError,
+            ):
+                skipped_unparsable += 1
+                continue
+            lines.append(parsed)
+        if not truncated and handle.read(1):
+            truncated = True
+    return {
+        "lines": lines,
+        "skipped_unparsable": skipped_unparsable,
+        "truncated": truncated,
+    }
+
+
+def create_app(
+    db_path: str | Path = DEFAULT_DB_PATH,
+    snapshot_id: int | None = None,
+    facilitator: Facilitator | None = None,
+) -> FastAPI:
+    """Serve promoted observation snapshots plus persistent paid-hire state.
+
+    An explicitly named snapshot stays pinned for inspection. The normal application
+    resolves the newest promoted snapshot once per request, so a completed refresh becomes
+    visible without a process restart and no request can cross between two snapshots.
+    """
     db_path = Path(db_path)
-    if snapshot_id is None:
-        # The newest COMPLETE sweep, never merely the newest row. An explicit snapshot_id is
-        # still honoured, so an operator can inspect a partial capture on purpose.
-        snapshot_id = Store(db_path).latest_complete_snapshot_id(CHAIN_ID)
+    store = Store(db_path)
+    refresh_status_path = db_path.parent / LAST_REFRESH_FILENAME
+    follow_latest_snapshot = snapshot_id is None
+    pinned_snapshot_id = snapshot_id
+    lp_record_path = Path(
+        os.environ.get("DOCKET_LP_RECORD_PATH", DEFAULT_LP_RECORD_PATH)
+    )
     # Read once, at startup: a missing document should fail the app that ships it, not the one
     # request that happened to ask for it.
     llms_body = (STATIC_DIR / "llms.txt").read_text(encoding="utf-8")
@@ -312,12 +451,43 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
     advantage_v2_page = fill_v2_page(
         (WEB_DIR / "advantage-v2.html").read_text(encoding="utf-8"), advantage_v2
     )
+    # V3 follows the same one-object boundary. Its state is reconstructed once from the durable
+    # artifacts, then both representations stay pinned to that startup view until restart.
+    advantage_v3 = advantage_v3_report()
+    advantage_v3_page = fill_v3_page(
+        (WEB_DIR / "advantage-v3.html").read_text(encoding="utf-8"), advantage_v3
+    )
     # Unset means no recipient exists to name in a challenge, so the priced tier is
-    # off and the free tier serves unmetered. Read once here rather than per
+    # off and only the bounded free tier remains. Read once here rather than per
     # request: the terms a caller is quoted must not change under it mid-session.
     pay_to = os.environ.get("DOCKET_PAY_TO") or None
-    # Per app instance, so one process's allowances never outlive it. {ip: (window_start, used)}.
-    hires: dict[str, tuple[float, int]] = {}
+    facilitator_kind = (
+        os.environ.get("DOCKET_FACILITATOR_KIND") or GENERIC_FACILITATOR
+    )
+    if facilitator_kind not in FACILITATOR_KINDS:
+        raise RuntimeError(
+            "DOCKET_FACILITATOR_KIND must be either b402 or generic"
+        )
+    if facilitator is None and os.environ.get("DOCKET_ENABLE_SETTLEMENT") == "1":
+        facilitator_url = os.environ.get("DOCKET_FACILITATOR_URL")
+        if not facilitator_url or not pay_to:
+            raise RuntimeError(
+                "DOCKET_ENABLE_SETTLEMENT=1 requires DOCKET_FACILITATOR_URL and DOCKET_PAY_TO"
+            )
+        facilitator = FacilitatorClient(facilitator_url, kind=facilitator_kind)
+    canary_token = None
+    canary_token_file = os.environ.get("DOCKET_CANARY_TOKEN_FILE")
+    canary_service_id = os.environ.get("DOCKET_CANARY_SERVICE_ID") or "range-doctor"
+    if canary_token_file:
+        canary_token = Path(canary_token_file).read_text(encoding="ascii").strip()
+        if not canary_token:
+            raise RuntimeError(
+                "DOCKET_CANARY_TOKEN_FILE must contain a non-empty token"
+            )
+    # Per app instance, so one process's allowances never outlive it. Ordered by window
+    # start, which makes expired-window eviction bounded to the expired prefix.
+    hires: OrderedDict[str, tuple[float, int]] = OrderedDict()
+    recoveries: OrderedDict[str, tuple[float, int]] = OrderedDict()
 
     app = FastAPI(
         title="Docket",
@@ -328,6 +498,8 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             "endorse, or vouch for any agent."
         ),
     )
+    app.state.hire_allowances = hires
+    app.state.recovery_allowances = recoveries
     # GET only. `HEAD` was advertised here while no route served it, so a preflight promised a
     # method that 405s — the wrong inconsistency for a project whose claim is honest description.
     app.add_middleware(
@@ -339,8 +511,14 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
     app.add_exception_handler(StarletteHTTPException, _http_error)
     app.add_exception_handler(RequestValidationError, _validation_error)
 
+    def _current_snapshot_id() -> int | None:
+        if follow_latest_snapshot:
+            return store.latest_complete_snapshot_id(CHAIN_ID)
+        return pinned_snapshot_id
+
     def _serving() -> int:
-        if snapshot_id is None:
+        current_snapshot_id = _current_snapshot_id()
+        if current_snapshot_id is None:
             raise HTTPException(
                 503,
                 detail={
@@ -352,28 +530,40 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
                     ),
                 },
             )
-        return snapshot_id
+        return current_snapshot_id
 
-    def _spend_allowance(client_ip: str) -> int | None:
-        """Take one hire from this IP's allowance. Returns None when it was there to take,
-        or the seconds until the allowance resets when it was not.
+    def _spend_window(
+        windows: OrderedDict[str, tuple[float, int]],
+        client_ip: str,
+        *,
+        attempts: int,
+        window_seconds: int,
+    ) -> int | None:
+        """Take one attempt from an IP window, or return seconds until it resets.
 
         Keyed on the peer address only. `X-Forwarded-For` is caller-controlled, and reading
-        it here would turn the allowance into a header anyone can rewrite.
+        it here would turn either bound into a header anyone can rewrite.
         """
-        if pay_to is None:
-            return None
         now = time.monotonic()
-        started, used = hires.get(client_ip, (now, 0))
-        if now - started >= FREE_TIER_WINDOW_S:
+        while windows:
+            _, (oldest_started, _) = next(iter(windows.items()))
+            if now - oldest_started < window_seconds:
+                break
+            windows.popitem(last=False)
+        current = windows.get(client_ip)
+        if current is None:
+            if len(windows) >= MAX_ALLOWANCE_CLIENTS:
+                windows.popitem(last=False)
             started, used = now, 0
-        if used >= FREE_TIER_HIRES:
-            hires[client_ip] = (started, used)
-            return int(FREE_TIER_WINDOW_S - (now - started)) + 1
-        hires[client_ip] = (started, used + 1)
+            windows[client_ip] = (started, used)
+        else:
+            started, used = current
+        if used >= attempts:
+            return int(window_seconds - (now - started)) + 1
+        windows[client_ip] = (started, used + 1)
         return None
 
-    def _refund_allowance(client_ip: str) -> None:
+    def _refund_allowance(client_ip: str, *, spent: bool) -> None:
         """Give back a hire that was debited and then never ran.
 
         The debit lands before the work rather than after, so that concurrent requests
@@ -382,10 +572,39 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         caller nothing, and an allowance charged for work that never ran is the same
         class of overclaim as reporting a settlement that never happened.
         """
-        if client_ip not in hires:
+        if not spent or client_ip not in hires:
             return
         started, used = hires[client_ip]
         hires[client_ip] = (started, max(used - 1, 0))
+
+    def _effective_admission(service_id: str) -> PaidStockAdmission:
+        service = get_service(service_id)
+        if service is None:
+            raise KeyError(service_id)
+        return resolve_admission(service, store.latest_canary_run(service_id))
+
+    def _canary_authorized(request: Request, service_id: str) -> tuple[bool, bool]:
+        supplied = request.headers.get("x-docket-canary")
+        if supplied is None:
+            return False, False
+        if canary_token is None or service_id != canary_service_id:
+            return True, False
+        return True, hmac.compare_digest(
+            supplied.encode("utf-8"), canary_token.encode("ascii")
+        )
+
+    def _operator_authorized(request: Request) -> tuple[bool, bool]:
+        authorization = request.headers.get("authorization")
+        if authorization is None:
+            return False, False
+        scheme, separator, supplied = authorization.partition(" ")
+        if separator != " " or scheme.lower() != "bearer" or not supplied:
+            return True, False
+        if canary_token is None:
+            return True, False
+        return True, hmac.compare_digest(
+            supplied.encode("utf-8"), canary_token.encode("ascii")
+        )
 
     @app.get("/")
     def root(request: Request):
@@ -400,8 +619,9 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
                 "Read-only observations about ERC-8004 agents on BSC. Docket reports what it "
                 "measured; a reader judges."
             ),
-            "snapshot_id": snapshot_id,
+            "snapshot_id": _current_snapshot_id(),
             "llms_txt": "/llms.txt",
+            "canary": "/canary",
             "openapi": "/openapi.json",
             "stats": "/stats",
             "agents": "/agents",
@@ -411,8 +631,57 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             "escrow": "/escrow",
             "advantage": "/advantage.json",
             "advantage_v2": "/advantage/v2.json",
+            "advantage_v3": "/advantage/v3.json",
+            "lp_record": "/lp-record",
+            "pancake": "/pancake",
+            "registrations": "/registrations/{service_id}.json",
+            "agent_probe": "/agents/{agent_id}/probe",
             "health": "/health",
         }
+
+    @app.get("/pancake", response_model=None)
+    def pancake(request: Request) -> FileResponse | JSONResponse:
+        """The controlled PancakeSwap position for humans and its source routes for agents."""
+        if "text/html" in request.headers.get("accept", ""):
+            return FileResponse(WEB_DIR / "pancake.html", headers={"Vary": "Accept"})
+        return JSONResponse(
+            headers={"Vary": "Accept"},
+            content={
+                "page": "/pancake",
+                "live_service": "/services/range-doctor",
+                "live_hire": "/hire/range-doctor",
+                "fixed_window_record": "/lp-record",
+                "decision_impact": "/advantage/v2.json",
+                "pancake_context": {
+                    "first_party_skills": (
+                        "PancakeSwap's first-party planner skills stop at generated deep "
+                        "links; Range Doctor keeps the same plan-only boundary."
+                    ),
+                    "subgraph_meta": {
+                        "query_observed_at": "2026-08-22",
+                        "indexed_at": "2026-04-28T15:23:43Z",
+                        "has_indexing_errors": True,
+                        "method": (
+                            "Read-only _meta { block { number timestamp } "
+                            "hasIndexingErrors } query. Docket instead reads "
+                            "PancakeSwap's Explorer API and SHA-pins the response bytes."
+                        ),
+                    },
+                },
+            },
+        )
+
+    @app.get("/registrations/{service_id}.json", response_model=None)
+    def registration_document(service_id: str) -> Response | JSONResponse:
+        body = REGISTRATION_DOCUMENTS.get(service_id)
+        if body is None:
+            return _error(
+                404,
+                "registration_not_found",
+                f"No registration document for {service_id!r}. "
+                "GET /services lists the four category services.",
+            )
+        return Response(content=body, media_type="application/json")
 
     # Kept out of the schema: /llms.txt and the OpenAPI document describe the machine contract,
     # and a page a human reads is not an endpoint an agent should be told to call.
@@ -435,7 +704,9 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         browser would go on applying the broken mapping from its own cache.
         """
         query = request.url.query
-        return RedirectResponse(f"/research?{query}" if query else "/research", status_code=308)
+        return RedirectResponse(
+            f"/research?{query}" if query else "/research", status_code=308
+        )
 
     @app.get("/agent", include_in_schema=False)
     def agent_page() -> FileResponse:
@@ -456,9 +727,59 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
 
     @app.get("/health")
     def health() -> dict:
+        current_snapshot_id = _current_snapshot_id()
+        served_snapshot = (
+            store.snapshot(current_snapshot_id)
+            if current_snapshot_id is not None
+            else {}
+        )
+        snapshot_captured_at = served_snapshot.get(
+            "finished_at"
+        ) or served_snapshot.get("started_at")
         return {
-            "status": "ok" if snapshot_id is not None else "no_snapshot",
-            "snapshot_id": snapshot_id,
+            "status": "ok" if current_snapshot_id is not None else "no_snapshot",
+            "snapshot_id": current_snapshot_id,
+            "snapshot_captured_at": snapshot_captured_at,
+            "snapshot_age_seconds": _snapshot_age_seconds(snapshot_captured_at),
+        }
+
+    @app.get("/lp-record", response_model=None)
+    def lp_record() -> JSONResponse | dict:
+        try:
+            return _read_lp_record_lines(lp_record_path)
+        except OSError:
+            return _error(
+                500,
+                "lp_record_unavailable",
+                "The controlled LP record could not be read just now. Retry.",
+            )
+
+    @app.get("/canary", response_model=None)
+    def canary_history(service_id: str = "range-doctor", limit: int = 30) -> dict:
+        service = get_service(service_id)
+        if service is None:
+            raise HTTPException(
+                404,
+                detail={
+                    "code": "service_not_found",
+                    "message": f"No service {service_id!r}. GET /hire lists every service.",
+                },
+            )
+        try:
+            history = list(store.iter_canary_runs(service_id, limit))
+        except ValueError as exc:
+            raise HTTPException(
+                422,
+                detail={"code": "invalid_query_parameter", "message": str(exc)},
+            ) from exc
+        admission = resolve_admission(service, history[0] if history else {})
+        return {
+            "service_id": service_id,
+            "admission_max_age_seconds": CANARY_MAX_AGE_SECONDS,
+            "latest": history[0] if history else None,
+            "history": history,
+            "admission": asdict(admission),
+            "paid_stock": admission.passes,
         }
 
     @app.get("/llms.txt", response_class=PlainTextResponse)
@@ -511,11 +832,33 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         beside it. Reads no live data and needs no scripting, as v1's page does not."""
         return HTMLResponse(advantage_v2_page)
 
+    @app.get("/advantage/v3.json")
+    def advantage_v3_json() -> dict:
+        """The paired v3 evaluation reconstructed from its registered specifications and
+        whatever durable input, ledger, model-seat and mapping artifacts exist at startup.
+
+        Its state vocabulary is closed: registered_waiting_for_inputs, locked_not_run,
+        running, complete_unscored, refuted and not_refuted. The two terminal claim states
+        remain bounded to the registered falsifier and frozen inputs.
+        """
+        return advantage_v3
+
+    @app.get("/advantage/v3", include_in_schema=False)
+    def advantage_v3_page_route() -> HTMLResponse:
+        """The v3 page rendered from the exact object returned by the JSON route."""
+        return HTMLResponse(advantage_v3_page)
+
     @app.get("/stats", response_model=StatsResponse)
     def stats() -> StatsResponse:
         report = coverage_report(Store(db_path), _serving())
+        refresh_status = (
+            json.loads(refresh_status_path.read_text(encoding="utf-8"))
+            if refresh_status_path.exists()
+            else None
+        )
         return StatsResponse(
             coverage=_coverage(report),
+            refresh_status=refresh_status,
             registry_total=report["registry_total"],
             with_feedback=report["with_feedback"],
             callable_declared=report["callable"],
@@ -562,14 +905,19 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         limit = min(max(limit, 1), MAX_LIMIT)
         offset = max(offset, 0)
         store = Store(db_path)
-        responders = _responding_agent_ids(store, sid) if responded is not None else set()
+        responders = (
+            _responding_agent_ids(store, sid) if responded is not None else set()
+        )
 
         matched: list[AgentSummary] = []
         for agent in store.iter_agents(sid):
             signals = signals_for(agent)
             if has_feedback is not None and signals["has_feedback"] != has_feedback:
                 continue
-            if declares_callable is not None and signals["callable"] != declares_callable:
+            if (
+                declares_callable is not None
+                and signals["callable"] != declares_callable
+            ):
                 continue
             if name_family is not None and signals["name_family"] != name_family:
                 continue
@@ -600,11 +948,8 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
     def get_agent(agent_id: str) -> AgentDetail:
         sid = _serving()
         store = Store(db_path)
-        # Drained into a dict rather than short-circuited: a suspended iter_agents generator
-        # holds its sqlite connection open for the rest of the request.
-        agents = {row["agent_id"]: row for row in store.iter_agents(sid)}
-        agent = agents.get(agent_id)
-        if agent is None:
+        agent = store.agent_by_id(sid, agent_id)
+        if not agent:
             raise HTTPException(
                 404,
                 detail={
@@ -626,24 +971,119 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
             if kinds.get(row["url"]) not in _PROBE_KINDS:
                 kinds[row["url"]] = row["kind"]
         observations = [
-            EndpointObservation(
-                url=obs["url"],
-                kind=kinds.get(obs["url"], "unknown"),
-                observed_at=obs["observed_at"],
-                outcome=obs["outcome"],
-                status_code=obs["status_code"],
-                elapsed_ms=obs["elapsed_ms"],
-                detail=obs["detail"],
-            )
+            _endpoint_observation(obs, kinds)
             for obs in _latest_observations(store, sid)
             if obs["agent_id"] == agent_id
         ]
+        latest_on_demand = store.latest_on_demand_liveness(sid, agent_id)
         return AgentDetail(
             **_summary(agent, signals_for(agent)).model_dump(),
             endpoints=sorted(kinds),
             observations=observations,
+            latest_on_demand_observation=(
+                _endpoint_observation(latest_on_demand, kinds)
+                if latest_on_demand
+                else None
+            ),
             coverage=_coverage(coverage_report(store, sid)),
+            associated_services=[
+                _card(record, _effective_admission(record.service_id))
+                for record in all_records()
+                if record.agent_id is not None
+                and record.agent_id.lower() == agent["agent_id"].lower()
+            ],
         )
+
+    @app.post("/agents/{agent_id:path}/probe", response_model=None)
+    async def probe_agent(agent_id: str, request: Request) -> JSONResponse | dict:
+        """Repeat the most recently answered A2A/MCP endpoint with the pinned probe."""
+        sid = _serving()
+        probe_store = Store(db_path)
+        agent = probe_store.agent_by_id(sid, agent_id)
+        if not agent:
+            return _error(
+                404,
+                "agent_not_found",
+                f"No agent {agent_id!r} in snapshot {sid}. "
+                "List the ids this snapshot holds at GET /agents.",
+            )
+
+        targets = {
+            row["url"]: row
+            for row in probe_store.iter_endpoints(sid)
+            if row["agent_id"] == agent_id and row["kind"] in _PROBE_KINDS
+        }
+        latest_sweep = None
+        for row in probe_store.iter_liveness(sid):
+            if row["agent_id"] == agent_id and row["url"] in targets:
+                latest_sweep = row
+        latest_on_demand = probe_store.latest_on_demand_liveness(sid, agent_id)
+        latest = latest_on_demand or latest_sweep
+        if (
+            not signals_for(agent)["callable"]
+            or latest is None
+            or latest["outcome"] != "responded"
+        ):
+            return _error(
+                409,
+                "probe_not_available",
+                "Re-probe is available only when this agent declares an A2A or MCP "
+                "endpoint and its last recorded probe answered.",
+            )
+
+        client_ip = request.client.host if request.client else "unknown"
+        requested_from_ip_hash = hashlib.sha256(client_ip.encode("utf-8")).hexdigest()
+        resets_in = _spend_window(
+            hires,
+            client_ip,
+            attempts=FREE_TIER_HIRES,
+            window_seconds=FREE_TIER_WINDOW_S,
+        )
+        if resets_in is not None:
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(resets_in)},
+                content={
+                    "error": {
+                        "code": "probe_rate_limited",
+                        "message": (
+                            f"This caller has used its shared free-work allowance of "
+                            f"{FREE_TIER_HIRES} attempts per {FREE_TIER_WINDOW_S} seconds; "
+                            f"retry in {resets_in}s."
+                        ),
+                    }
+                },
+            )
+
+        target = targets[latest["url"]]
+
+        def run_probe() -> dict:
+            with httpx.Client(trust_env=False) as client:
+                observation = probe_one(
+                    client,
+                    target,
+                    now=datetime.now(timezone.utc).isoformat(),
+                )
+            Store(db_path).record_on_demand_liveness(
+                observation, requested_from_ip_hash=requested_from_ip_hash
+            )
+            return observation
+
+        observation = await run_in_threadpool(run_probe)
+        return {
+            "agent_id": agent_id,
+            "observation": {**observation, "kind": target["kind"]},
+            "probe_method": PROBE_METHOD,
+            "coverage_note": (
+                f"Re-probed on request at {observation['observed_at']}; "
+                "not part of the snapshot's coverage figures."
+            ),
+            "allowance": {
+                "attempts": FREE_TIER_HIRES,
+                "window_seconds": FREE_TIER_WINDOW_S,
+                "shared_with": "free service hires from the same peer address",
+            },
+        }
 
     def _identity_link(record: ServiceRecord) -> tuple[str | None, str]:
         """Where this service's bound identity can be inspected, and why it cannot be when
@@ -651,7 +1091,8 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         depend on a snapshot, and a service should not 503 because no sweep has landed."""
         if record.agent_id is None:
             return None, IDENTITY_UNBOUND
-        if snapshot_id is None:
+        current_snapshot_id = _current_snapshot_id()
+        if current_snapshot_id is None:
             return None, IDENTITY_NO_SNAPSHOT
         # Drained into a dict rather than short-circuited with any(): a suspended
         # iter_agents generator holds its sqlite connection open for the whole request.
@@ -663,7 +1104,7 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         # would answer "not in the served snapshot" about an agent that is in it.
         held = {
             row["agent_id"].lower(): row["agent_id"]
-            for row in Store(db_path).iter_agents(snapshot_id)
+            for row in Store(db_path).iter_agents(current_snapshot_id)
         }
         stored = held.get(record.agent_id.lower())
         if stored is not None:
@@ -705,7 +1146,10 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         """
         records = all_records() if category is None else records_in(category)
         return ServicesResponse(
-            services=[_card(record) for record in records],
+            services=[
+                _card(record, _effective_admission(record.service_id))
+                for record in records
+            ],
             total=len(records),
             category=None if category is None else category.value,
             ordering=SERVICE_ORDERING,
@@ -713,7 +1157,9 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         )
 
     @app.get("/services/{service_id}", response_model=ServiceDetail)
-    def get_service_detail(service_id: str) -> ServiceDetail:
+    def get_service_detail(
+        service_id: str, request: Request
+    ) -> ServiceDetail | RedirectResponse:
         """One service in full: what arrives, what to send, what it costs, what has been
         observed of it, what it cannot do, and where its identity can be read."""
         record = get_record(service_id)
@@ -728,14 +1174,19 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
                     ),
                 },
             )
+        if "text/html" in request.headers.get("accept", ""):
+            return RedirectResponse(
+                f"/service?id={quote(service_id, safe='')}", status_code=302
+            )
         agent_path, identity_note = _identity_link(record)
         return ServiceDetail(
-            **_card(record).model_dump(),
+            **_card(record, _effective_admission(record.service_id)).model_dump(),
             registration_uri=record.registration_uri,
             input_schema=record.input_schema,
             limitations=record.limitations,
             evidence=[
-                EvidenceLink(kind=ref.kind, url=ref.url, label=ref.label) for ref in record.evidence
+                EvidenceLink(kind=ref.kind, url=ref.url, label=ref.label)
+                for ref in record.evidence
             ],
             agent_path=agent_path,
             identity_note=identity_note,
@@ -756,10 +1207,32 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
                     price_display=svc.price_display,
                     price_atomic=svc.price_atomic,
                     asset=svc.asset,
+                    paid_stock=(admission := _effective_admission(svc.id)).passes,
+                    stock_status=svc.stock_status,
+                    admission=asdict(admission),
                 )
                 for svc in SERVICES.values()
             ]
         )
+
+    @app.get("/compare", response_model=None)
+    def compare_services() -> dict:
+        """Every service side by side, including the ones with nothing to show.
+
+        `/hire` says what each service does and what it costs, which leaves a buyer to work
+        out for themselves which have ever been run against a human. Three have and three
+        have not, and a table where those look the same is worse than no table. Live
+        admission is read the same way `/hire` reads it, so the two cannot disagree about
+        which services are actually for sale.
+        """
+        table = compare_services_table(
+            [
+                replace(svc, admission=_effective_admission(svc.id))
+                for svc in SERVICES.values()
+            ]
+        )
+        table["admission_max_age_seconds"] = CANARY_MAX_AGE_SECONDS
+        return table
 
     @app.get("/escrow", response_model=None)
     def escrow_terms() -> dict:
@@ -871,6 +1344,163 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
                 "well exist; Docket could not reach a node to check. Retry.",
             )
 
+    @app.post("/hire/{service_id}/recover", response_model=None)
+    async def recover_hire(service_id: str, request: Request) -> JSONResponse | dict:
+        """Deliver a stored terminal result to its buyer or the token-authenticated operator."""
+        service = get_service(service_id)
+        if service is None:
+            return _error(
+                404,
+                "service_not_found",
+                f"No service {service_id!r}. GET /hire lists every service Docket offers.",
+            )
+        client_ip = request.client.host if request.client else "unknown"
+        resets_in = _spend_window(
+            recoveries,
+            client_ip,
+            attempts=RECOVERY_ATTEMPTS,
+            window_seconds=RECOVERY_WINDOW_S,
+        )
+        if resets_in is not None:
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(resets_in)},
+                content={
+                    "error": {
+                        "code": "recovery_rate_limited",
+                        "message": (
+                            f"This caller has used its recovery allowance of "
+                            f"{RECOVERY_ATTEMPTS} attempts per minute; retry in "
+                            f"{resets_in}s."
+                        ),
+                    }
+                },
+            )
+        operator_header_present, operator_authorized = _operator_authorized(request)
+        if operator_header_present and not operator_authorized:
+            return JSONResponse(
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+                content={
+                    "error": {
+                        "code": "operator_unauthorized",
+                        "message": "The operator recovery credential was not accepted.",
+                    }
+                },
+            )
+        try:
+            payload = await request.json()
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict):
+            return _error(
+                400,
+                "invalid_json",
+                "Recovery requires the exact original JSON request object.",
+            )
+        payment_payload = None
+        if operator_authorized:
+            nonce = payload.get("nonce")
+            if not isinstance(nonce, str):
+                return _error(
+                    400,
+                    "payment_invalid",
+                    "Operator recovery requires the stored authorization nonce.",
+                )
+        else:
+            payment_payload = parse_payment_header(request.headers)
+            if payment_payload is None:
+                return _error(
+                    400,
+                    "payment_invalid",
+                    "Recovery requires the original signed payment header.",
+                )
+            try:
+                nonce = payment_payload["payload"]["authorization"]["nonce"]
+            except (KeyError, TypeError):
+                return _error(
+                    400,
+                    "payment_invalid",
+                    "The payment header does not carry a canonical authorization nonce.",
+                )
+            if not isinstance(nonce, str):
+                return _error(
+                    400,
+                    "payment_invalid",
+                    "The payment header does not carry a canonical authorization nonce.",
+                )
+        existing = await run_in_threadpool(store.payment_by_nonce, nonce.lower())
+        if not existing:
+            return _error(
+                404,
+                "payment_not_found",
+                "No stored payment has that authorization nonce.",
+            )
+
+        if operator_authorized:
+            same_binding = existing["service_id"] == service.id
+        else:
+            challenge = build_challenge(
+                service, existing["recipient"], resource=existing["resource"]
+            )
+            verified, reason = await run_in_threadpool(
+                verify_payment,
+                payment_payload,
+                expected_requirements=challenge["accepts"][0],
+                expected_resource=challenge["resource"],
+            )
+            if verified is None:
+                return _error(
+                    400,
+                    "payment_invalid",
+                    f"The signed payment was not accepted for recovery: {reason}.",
+                )
+            same_binding = (
+                existing["payment_id"] == verified.payment_id
+                and existing["service_id"] == service.id
+                and existing["payer"].lower() == verified.payer.lower()
+                and existing["asset"].lower() == service.asset.lower()
+                and existing["amount"] == str(service.price_atomic)
+                and existing["input_hash"] == canonical_hash(payload)
+            )
+        if not same_binding:
+            return _error(
+                409,
+                "authorization_mismatch",
+                "That signed authorization is not bound to this service and request body.",
+            )
+        if existing["status"] not in {"settled", "settlement_unknown"}:
+            return _error(
+                409,
+                "payment_not_recoverable",
+                "That payment has no terminal deliverable result.",
+            )
+        result = existing.get("result")
+        if not isinstance(result, dict) or existing.get(
+            "output_hash"
+        ) != canonical_hash(result):
+            return _error(
+                500,
+                "payment_record_incomplete",
+                "The stored payment result is incomplete and cannot be delivered.",
+            )
+        receipt = existing.get("receipt")
+        if not isinstance(receipt, dict):
+            return _error(
+                500,
+                "payment_record_incomplete",
+                "The stored payment receipt is incomplete and cannot be delivered.",
+            )
+        if operator_authorized and not await run_in_threadpool(
+            store.record_operator_recovery, nonce.lower()
+        ):
+            return _error(
+                409,
+                "payment_not_recoverable",
+                "That payment has no terminal deliverable result.",
+            )
+        return {"result": result, "receipt": receipt}
+
     @app.post("/hire/{service_id}", response_model=None)
     async def hire(service_id: str, request: Request) -> JSONResponse | dict:
         """Run one service and return the result bound to a receipt.
@@ -910,35 +1540,401 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
                 "GET /hire carries the full input schema.",
             )
 
-        # Read before the allowance is spent so a rejected authorization can be named in
-        # the 402 — a payer whose signature is wrong needs to know which field to fix.
-        authorization = parse_payment_header(request.headers)
-        verdict = None
-        if authorization is not None and pay_to is not None:
-            verdict = verify_authorization(
-                authorization, expected_to=pay_to, expected_value=service.price_atomic
-            )
-
+        # Read before the free allowance decision so admitted payment can bypass it and a
+        # rejected authorization can still name the field its payer needs to fix.
+        payment_header_present = any(
+            request.headers.get(name) for name in ("x-payment", "payment-signature")
+        )
+        canary_header_present, canary_authorized = _canary_authorized(
+            request, service.id
+        )
+        payment_payload = parse_payment_header(request.headers)
+        input_hash = canonical_hash(payload)
+        resource_url = str(request.url)
+        paid_stock = (await run_in_threadpool(_effective_admission, service.id)).passes
         client_ip = request.client.host if request.client else "unknown"
-        resets_in = _spend_allowance(client_ip)
-        if resets_in is not None:
-            message = (
-                f"This caller has used its allowance of {FREE_TIER_HIRES} hires per hour; it "
-                f"resets in {resets_in}s. Docket verifies payment authorizations and does not "
-                "settle them, so signing the offer below does not raise the allowance."
+        payment_available = (
+            paid_stock and pay_to is not None and facilitator is not None
+        )
+        paid_attempt = payment_header_present and (paid_stock or canary_authorized)
+        allowance_spent = False
+        resets_in = None
+        if not paid_attempt:
+            resets_in = _spend_window(
+                hires,
+                client_ip,
+                attempts=FREE_TIER_HIRES,
+                window_seconds=FREE_TIER_WINDOW_S,
             )
-            if verdict is not None and not verdict[0]:
-                message += f" The authorization presented was also not accepted: {verdict[1]}."
+            allowance_spent = resets_in is None
+        if resets_in is not None:
+            if payment_available:
+                return JSONResponse(
+                    status_code=429,
+                    headers={"Retry-After": str(resets_in)},
+                    content={
+                        **build_challenge(service, pay_to, resource=resource_url),
+                        "error": {
+                            "code": "free_tier_exhausted",
+                            "message": (
+                                f"This caller has used its allowance of {FREE_TIER_HIRES} hires "
+                                f"per hour; it resets in {resets_in}s. Present the exact x402 "
+                                "authorization above to request a settled personalized result."
+                            ),
+                        },
+                    },
+                )
             return JSONResponse(
-                status_code=402,
+                status_code=429,
+                headers={"Retry-After": str(resets_in)},
                 content={
-                    **build_challenge(service, pay_to, resource=str(request.url)),
-                    "error": {"code": "free_tier_exhausted", "message": message},
+                    "error": {
+                        "code": "hire_rate_limited",
+                        "message": (
+                            f"This caller has used its allowance of {FREE_TIER_HIRES} hires "
+                            f"per hour; it resets in {resets_in}s."
+                        ),
+                    }
                 },
             )
 
+        if canary_header_present and not canary_authorized:
+            _refund_allowance(client_ip, spent=allowance_spent)
+            return _error(
+                403,
+                "canary_unauthorized",
+                "The canary credential was not accepted. No work ran and no charge was attempted.",
+            )
+
+        if payment_header_present and (paid_stock or canary_authorized):
+            if pay_to is None or facilitator is None:
+                _refund_allowance(client_ip, spent=allowance_spent)
+                return _error(
+                    503,
+                    "settlement_unavailable",
+                    "This service passed its admission gate, but live settlement is not "
+                    "owner-enabled on this process. No work ran and no charge was attempted.",
+                )
+            challenge = build_challenge(service, pay_to, resource=resource_url)
+            if payment_payload is None:
+                _refund_allowance(client_ip, spent=allowance_spent)
+                return JSONResponse(
+                    status_code=402,
+                    content={
+                        **challenge,
+                        "error": {
+                            "code": "payment_invalid",
+                            "message": (
+                                "The payment header is not a base64-encoded JSON "
+                                "PaymentPayload. No work ran and no charge was attempted."
+                            ),
+                        },
+                    },
+                )
+            requirements = challenge["accepts"][0]
+            verified, reason = await run_in_threadpool(
+                verify_payment,
+                payment_payload,
+                expected_requirements=requirements,
+                expected_resource=challenge["resource"],
+            )
+            if verified is None:
+                _refund_allowance(client_ip, spent=allowance_spent)
+                return JSONResponse(
+                    status_code=402,
+                    content={
+                        **challenge,
+                        "error": {
+                            "code": "payment_invalid",
+                            "message": f"The payment was not accepted: {reason}.",
+                        },
+                    },
+                )
+
+            existing = await run_in_threadpool(store.payment_by_nonce, verified.nonce)
+            if existing:
+                same_binding = (
+                    existing["payment_id"] == verified.payment_id
+                    and existing["service_id"] == service.id
+                    and existing["input_hash"] == input_hash
+                    and existing["recipient"].lower() == pay_to.lower()
+                    and existing["asset"].lower() == service.asset.lower()
+                    and existing["amount"] == str(service.price_atomic)
+                    and existing["resource"] == resource_url
+                )
+                if not same_binding:
+                    _refund_allowance(client_ip, spent=allowance_spent)
+                    return _error(
+                        409,
+                        "authorization_replay",
+                        "That authorization nonce is already bound to different work.",
+                    )
+                if existing["status"] == "settled":
+                    _refund_allowance(client_ip, spent=allowance_spent)
+                    return _error(
+                        409,
+                        "authorization_replay",
+                        "That authorization already settled and cannot be replayed.",
+                    )
+                if existing["status"] == "settlement_unknown":
+                    _refund_allowance(client_ip, spent=allowance_spent)
+                    return _error(
+                        409,
+                        "settlement_pending_reconciliation",
+                        "A settlement call was already attempted and its outcome is unknown. "
+                        "Docket will not retry it automatically.",
+                    )
+                if existing["status"] in {"failed_no_charge", "settlement_failed"}:
+                    _refund_allowance(client_ip, spent=allowance_spent)
+                    return _error(
+                        409,
+                        "authorization_spent",
+                        "That authorization already reached a terminal no-replay state.",
+                    )
+                _refund_allowance(client_ip, spent=allowance_spent)
+                return _error(
+                    409,
+                    "payment_in_progress",
+                    "That authorization is already reserved or settling.",
+                )
+
+            envelope = facilitator_envelope(
+                payment_payload, requirements, kind=facilitator_kind
+            )
+            try:
+                verification = await run_in_threadpool(facilitator.verify, envelope)
+            except Exception as exc:
+                _refund_allowance(client_ip, spent=allowance_spent)
+                return _error(
+                    502,
+                    "payment_verification_unavailable",
+                    f"The configured facilitator could not verify the payment: "
+                    f"{type(exc).__name__}: {exc}. No work ran and no charge was attempted.",
+                )
+            if (
+                verification.get("isValid") is not True
+                or str(verification.get("payer", "")).lower() != verified.payer.lower()
+            ):
+                _refund_allowance(client_ip, spent=allowance_spent)
+                invalid_reason = verification.get("invalidReason") or (
+                    "payer or validity mismatch"
+                )
+                return JSONResponse(
+                    status_code=402,
+                    content={
+                        **challenge,
+                        "error": {
+                            "code": "payment_not_verified",
+                            "message": (
+                                f"The facilitator rejected the payment: {invalid_reason}."
+                            ),
+                        },
+                    },
+                )
+
+            reserved, existing = await run_in_threadpool(
+                store.reserve_payment,
+                nonce=verified.nonce,
+                payment_id=verified.payment_id,
+                service_id=service.id,
+                payer=verified.payer,
+                recipient=pay_to,
+                asset=service.asset,
+                amount=str(service.price_atomic),
+                resource=resource_url,
+                input_hash=input_hash,
+            )
+            if not reserved:
+                _refund_allowance(client_ip, spent=allowance_spent)
+                return _error(
+                    409,
+                    (
+                        "payment_in_progress"
+                        if existing.get("payment_id") == verified.payment_id
+                        else "authorization_replay"
+                    ),
+                    "Another request reserved that authorization before this one.",
+                )
+
+            try:
+                result = await run_in_threadpool(service.run, payload)
+            except ValueError as exc:
+                await run_in_threadpool(
+                    store.fail_payment,
+                    verified.payment_id,
+                    status="failed_no_charge",
+                    error=str(exc),
+                )
+                _refund_allowance(client_ip, spent=allowance_spent)
+                return _error(
+                    422,
+                    "invalid_field",
+                    f"{service.id} could not read that request: {exc}. No settlement ran.",
+                )
+            except Exception as exc:
+                await run_in_threadpool(
+                    store.fail_payment,
+                    verified.payment_id,
+                    status="failed_no_charge",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+                return _error(
+                    502,
+                    "service_failed",
+                    f"{service.id} could not complete: {type(exc).__name__}: {exc}. "
+                    "No settlement ran.",
+                )
+
+            if not is_human_readable_result(result):
+                await run_in_threadpool(
+                    store.fail_payment,
+                    verified.payment_id,
+                    status="failed_no_charge",
+                    error="empty or non-readable result",
+                )
+                return _error(
+                    502,
+                    "empty_result",
+                    "The service produced no non-empty human-readable result. No settlement ran.",
+                )
+
+            output_hash = canonical_hash(result)
+            await run_in_threadpool(
+                store.record_payment_output,
+                verified.payment_id,
+                output_hash=output_hash,
+                result=result,
+            )
+            current_admission = await run_in_threadpool(
+                _effective_admission, service.id
+            )
+            if not canary_authorized and not current_admission.passes:
+                await run_in_threadpool(
+                    store.fail_payment,
+                    verified.payment_id,
+                    status="failed_no_charge",
+                    error="paid admission closed before settlement",
+                )
+                return _error(
+                    503,
+                    "service_de_admitted",
+                    "The service left paid admission before settlement. The result was not "
+                    "delivered and no settlement ran.",
+                )
+            if not await run_in_threadpool(
+                store.begin_payment_settlement, verified.payment_id
+            ):
+                return _error(
+                    409,
+                    "payment_in_progress",
+                    "The authorization did not enter settlement from its bound output state.",
+                )
+            settlement_unknown_payment = {
+                "status": "settlement_unknown",
+                "asset": service.asset,
+                "amount": str(service.price_atomic),
+                "payer": verified.payer,
+                "recipient": pay_to,
+                "nonce": verified.nonce,
+                "payment_id": verified.payment_id,
+                "evidence": "stored state after one settlement attempt",
+            }
+            try:
+                settlement = await run_in_threadpool(facilitator.settle, envelope)
+            except Exception as exc:
+                unknown_receipt = build_receipt(
+                    service.id,
+                    payload,
+                    result,
+                    payment=settlement_unknown_payment,
+                )
+                await run_in_threadpool(
+                    store.fail_payment,
+                    verified.payment_id,
+                    status="settlement_unknown",
+                    error=f"{type(exc).__name__}: {exc}",
+                    receipt=unknown_receipt,
+                )
+                return _error(
+                    502,
+                    "settlement_unknown",
+                    "The one settlement call returned no usable response. Its outcome may be "
+                    "unknown, so Docket recorded it and will not retry automatically.",
+                )
+
+            if settlement.get("success") is not True:
+                settlement_error = str(
+                    settlement.get("errorReason") or "facilitator refused settlement"
+                )
+                await run_in_threadpool(
+                    store.fail_payment,
+                    verified.payment_id,
+                    status="settlement_failed",
+                    error=settlement_error,
+                )
+                return _error(
+                    502,
+                    "settlement_failed",
+                    f"The facilitator did not settle this authorization: {settlement_error}.",
+                )
+
+            transaction_id = str(settlement.get("transaction") or "")
+            network = str(settlement.get("network") or "")
+            settlement_payer = str(settlement.get("payer") or "")
+            expected_network = (
+                B402_NETWORK
+                if facilitator_kind == B402_FACILITATOR
+                else requirements["network"]
+            )
+            if (
+                not transaction_id
+                or network != expected_network
+                or settlement_payer.lower() != verified.payer.lower()
+            ):
+                unknown_receipt = build_receipt(
+                    service.id,
+                    payload,
+                    result,
+                    payment=settlement_unknown_payment,
+                )
+                await run_in_threadpool(
+                    store.fail_payment,
+                    verified.payment_id,
+                    status="settlement_unknown",
+                    error="successful response omitted or contradicted transaction binding",
+                    receipt=unknown_receipt,
+                )
+                return _error(
+                    502,
+                    "settlement_unknown",
+                    "The facilitator reported success without the expected payer, network and "
+                    "transaction binding. Docket will not retry automatically.",
+                )
+
+            payment = {
+                "status": "settled",
+                "asset": service.asset,
+                "amount": str(service.price_atomic),
+                "payer": verified.payer,
+                "recipient": pay_to,
+                "nonce": verified.nonce,
+                "payment_id": verified.payment_id,
+                "transaction_id": transaction_id,
+                "network": network,
+                "evidence": "configured facilitator settlement response",
+            }
+            receipt = build_receipt(service.id, payload, result, payment=payment)
+            await run_in_threadpool(
+                store.finish_payment,
+                verified.payment_id,
+                transaction_id=transaction_id,
+                network=network,
+                receipt=receipt,
+            )
+            return {"result": result, "receipt": receipt}
+
         try:
-            result = service.run(payload)
+            result = await run_in_threadpool(service.run, payload)
         # The wallet in the payload reaches an address parser and an RPC, so both a caller's
         # typo and an upstream outage surface here. Reported as the contract shape at a
         # status that says whose problem it is, never as an untyped 500 — and the two
@@ -950,8 +1946,10 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
         # is Docket's own cost, not work done on this caller's behalf, and billing an
         # allowance for it would charge for work never performed.
         except ValueError as exc:
-            _refund_allowance(client_ip)
-            return _error(422, "invalid_field", f"{service.id} could not read that request: {exc}")
+            _refund_allowance(client_ip, spent=allowance_spent)
+            return _error(
+                422, "invalid_field", f"{service.id} could not read that request: {exc}"
+            )
         # Everything else is the deliberate other side of that boundary: the request was
         # readable, the work was attempted on this caller's behalf, and upstream resources
         # were spent on it. That hire stays spent whether or not it finished.
@@ -962,18 +1960,15 @@ def create_app(db_path: str | Path = DEFAULT_DB_PATH, snapshot_id: int | None = 
                 f"{service.id} could not complete: {type(exc).__name__}: {exc}",
             )
 
-        if verdict is not None and verdict[0]:
-            payment = {
-                "status": "verified_unsettled",
-                "asset": service.asset,
-                "amount": str(service.price_atomic),
-                "payer": str(authorization["message"]["from"]),
-                "settlement": "not performed by Docket",
+        payment = (
+            {
+                "status": "not_for_sale",
+                "stock_status": service.stock_status,
+                "authorization_used": False,
             }
-        elif verdict is not None:
-            payment = {"status": "free_tier", "authorization_rejected": verdict[1]}
-        else:
-            payment = {"status": "free_tier"}
+            if payment_header_present and not paid_stock
+            else {"status": "free_tier"}
+        )
         return {
             "result": result,
             "receipt": build_receipt(service.id, payload, result, payment=payment),
