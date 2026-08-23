@@ -153,12 +153,15 @@ than overwriting host policy.
 With no settlement environment variables, all current services remain free and subject to
 the 20-per-hour peer-address allowance because none is paid stock.
 
-The x402 path is owner-gated by:
+The API settlement path is owner-gated by:
 
 - `DOCKET_ENABLE_SETTLEMENT=1`
 - `DOCKET_FACILITATOR_KIND=b402`
 - `DOCKET_FACILITATOR_URL=https://facilitatorv3.b402.ai/api/v1`
 - `DOCKET_PAY_TO`
+
+The canary and verify-only preflight also require the pinned public terms and an RPC:
+
 - `DOCKET_PAYMENT_TOKEN=0x55d398326f99059fF775485246999027B3197955`
 - `DOCKET_B402_RELAYER_CONTRACT=0xE1Af7DaEa624bA3B5073f24A6Ea5531434D82d88`
 - `DOCKET_BSC_RPC_URL` for the read-only owner preflight
