@@ -101,7 +101,7 @@ def test_unknown_service_returns_none():
     assert get_service("nope") is None
 
 
-def test_every_personalized_offer_uses_the_flat_half_u_price():
+def test_every_personalized_offer_uses_the_flat_half_usdt_price():
     for svc in SERVICES.values():
         assert svc.price_display == "0.50 USDT"
         assert svc.price_atomic == 5 * 10**17
