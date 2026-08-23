@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 import docket.advantage.v3.spec as spec_module
-from docket.advantage.v3 import orchestrator, runner
+from docket.advantage.v3 import orchestrator, runner, scoring
 from docket.advantage.v3.spec import PairedSpec, lock_inputs, save
 from docket.hire.receipts import canonical_hash
 
@@ -670,6 +670,58 @@ def test_a_timeout_from_hire_binds_the_agent_slot_as_timed_out(locked):
     assert bound[0]["raw_output"] is None
 
 
+def test_a_settled_hire_records_a_report_compatible_direct_cost(locked):
+    """Mutation: persist asset/payment_status instead of the scorer's amount/unit."""
+    spec, runs, root = locked
+    _complete_manual_block(spec, runs, root)
+
+    def hire(_url, *, json, headers, timeout, client=None):
+        body = _valid_agent_body(json)
+        body["receipt"]["payment"] = {
+            "status": "settled",
+            "amount": "5",
+            "asset": "0xasset",
+        }
+        return runner.httpx.Response(200, json=body)
+
+    terminal = orchestrator.run_next(spec, runs, repo_root=root, hire=hire)
+
+    assert terminal["outcome"] == runner.SUCCEEDED
+    assert terminal["cost"] == {"amount": "5", "unit": "0xasset"}
+    assert scoring.cost_metrics({("case-1", "agent"): {"terminal": terminal}})[
+        "totals"
+    ] == [{"arm": "agent", "amount": "5", "unit": "0xasset"}]
+
+
+@pytest.mark.parametrize(
+    "payment",
+    [
+        {"status": "settled", "amount": "not-a-number", "asset": "0xasset"},
+        {"status": "settled", "amount": "5", "asset": ""},
+    ],
+    ids=("nonnumeric-amount", "blank-asset"),
+)
+def test_unreportable_payment_metadata_stays_in_the_receipt_not_cost(locked, payment):
+    """Mutation: persist a cost the report cannot sum honestly."""
+    spec, runs, root = locked
+    _complete_manual_block(spec, runs, root)
+
+    def hire(_url, *, json, headers, timeout, client=None):
+        body = _valid_agent_body(json)
+        body["receipt"]["payment"] = payment
+        return runner.httpx.Response(200, json=body)
+
+    terminal = orchestrator.run_next(spec, runs, repo_root=root, hire=hire)
+
+    assert terminal["outcome"] == runner.SUCCEEDED
+    assert terminal["receipt"]["payment"] == payment
+    assert terminal["cost"] is None
+    assert (
+        scoring.cost_metrics({("case-1", "agent"): {"terminal": terminal}})["totals"]
+        == []
+    )
+
+
 def test_a_reveal_failure_is_refused_before_the_slot_is_claimed(locked, monkeypatch):
     """Mutation: wrap `_reveal` and `run_arm` in one `except` and bind FAILED.
 
@@ -772,30 +824,43 @@ def test_main_refuses_an_unlocked_family_id_resolved_from_the_installed_package(
     assert not runs.exists() or not any(runs.glob("*.jsonl"))
 
 
-def test_main_persists_the_named_case_answer_from_the_answers_dir(
-    locked, tmp_path, capsys
-):
-    """Mutation: run a different case, or drop the answer on the floor."""
+def test_main_interactive_claims_before_reveal_and_reads_one_submission(locked, capsys):
+    """Mutation: reveal/read before the timed claim, or read a second submission."""
     spec, runs, root = locked
-    answers = tmp_path / "answers"
-    answers.mkdir()
-    (answers / "case-1.json").write_text(
-        json.dumps({"answer": "operator-one"}), encoding="utf-8"
-    )
 
+    class OneSubmission:
+        calls = 0
+
+        def readline(self):
+            self.calls += 1
+            assert self.calls == 1
+            assert [event["slot"] for event in _starts(spec, runs)] == [
+                "t::case-1::manual::primary"
+            ]
+            assert _terminals(spec, runs) == []
+            revealed = capsys.readouterr().out.splitlines()
+            assert len(revealed) == 1
+            assert json.loads(revealed[0]) == {
+                "case": {"case_id": "case-1"},
+                "slot": "t::case-1::manual::primary",
+            }
+            return '{"answer":"operator-one"}\n'
+
+    stdin = OneSubmission()
     code = orchestrator.main(
         [
             str(root / "spec.json"),
             str(runs),
-            "--answers-dir",
-            str(answers),
+            "--interactive",
             "--repo-root",
             str(root),
             "--once",
-        ]
+        ],
+        stdin=stdin,
     )
 
     assert code == 0
+    assert stdin.calls == 1
     bound = [
         event
         for event in _terminals(spec, runs)
@@ -807,30 +872,27 @@ def test_main_persists_the_named_case_answer_from_the_answers_dir(
     assert "t::case-1::manual::primary" in capsys.readouterr().out
 
 
-def test_main_once_recovers_a_dangling_slot_before_running_the_next(
-    locked, tmp_path, capsys
-):
+def test_main_once_recovers_a_dangling_slot_before_running_the_next(locked, capsys):
     """Mutation: peek the next slot before recover_interrupted, so a crash looks like
     an active operator and the CLI refuses instead of closing case-1 as interrupted."""
     spec, runs, root = locked
     crashed = _slot(spec, root, "case-1", "manual")
     runner.claim_slot(spec, runs, slot=crashed, repo_root=root)
-    answers = tmp_path / "answers"
-    answers.mkdir()
-    (answers / "case-2.json").write_text(
-        json.dumps({"answer": "two"}), encoding="utf-8"
-    )
+
+    class OneSubmission:
+        def readline(self):
+            return '{"answer":"two"}\n'
 
     code = orchestrator.main(
         [
             str(root / "spec.json"),
             str(runs),
-            "--answers-dir",
-            str(answers),
+            "--interactive",
             "--repo-root",
             str(root),
             "--once",
-        ]
+        ],
+        stdin=OneSubmission(),
     )
 
     assert code == 0
@@ -849,27 +911,113 @@ def test_main_once_recovers_a_dangling_slot_before_running_the_next(
     assert "t::case-2::manual::primary" in out
 
 
-def test_main_does_not_claim_the_next_manual_when_its_answer_file_is_missing(
-    locked, tmp_path, capsys
-):
-    """Mutation: claim case-1/manual, then fail to find the file."""
+def test_main_noninteractive_refuses_before_reading_or_claiming(locked, capsys):
+    """Mutation: read stdin or claim a manual slot without explicit interaction."""
     spec, runs, root = locked
-    answers = tmp_path / "answers"
-    answers.mkdir()
+
+    class ForbiddenInput:
+        def readline(self):
+            raise AssertionError("noninteractive mode read a submission")
 
     code = orchestrator.main(
         [
             str(root / "spec.json"),
             str(runs),
-            "--answers-dir",
-            str(answers),
             "--repo-root",
             str(root),
             "--once",
-        ]
+        ],
+        stdin=ForbiddenInput(),
     )
 
     assert code == 2
-    assert "case-1" in capsys.readouterr().out
+    assert "--interactive" in capsys.readouterr().out
     assert _starts(spec, runs) == []
     assert _terminals(spec, runs) == []
+
+
+def test_main_agent_slot_sends_the_payment_header_through_the_http_client(
+    locked, capsys, monkeypatch
+):
+    """Mutation: drop the CLI header or the client before the registered POST."""
+    spec, runs, root = locked
+    _complete_manual_block(spec, runs, root)
+    seen = {}
+
+    def handle(request):
+        payload = json.loads(request.content)
+        seen.update(
+            method=request.method,
+            url=str(request.url),
+            payment=request.headers.get("X-PAYMENT"),
+            payload=payload,
+        )
+        return runner.httpx.Response(200, json=_valid_agent_body(payload))
+
+    transport = runner.httpx.MockTransport(handle)
+    real_http_hire = orchestrator._http_hire
+
+    def injected_http_hire(url, *, json, headers, timeout, client=None):
+        assert client is not None
+        return real_http_hire(
+            url, json=json, headers=headers, timeout=timeout, client=client
+        )
+
+    monkeypatch.setattr(orchestrator, "_http_hire", injected_http_hire)
+    with runner.httpx.Client(transport=transport) as client:
+        code = orchestrator.main(
+            [
+                str(root / "spec.json"),
+                str(runs),
+                "--repo-root",
+                str(root),
+                "--payment-header",
+                "signed-payment",
+                "--once",
+            ],
+            client=client,
+        )
+
+    assert code == 0
+    assert seen == {
+        "method": "POST",
+        "url": spec.execution_protocol["agent_endpoint"],
+        "payment": "signed-payment",
+        "payload": {},
+    }
+    bound = _bound_agent(spec, runs)
+    assert len(bound) == 1
+    assert bound[0]["outcome"] == runner.SUCCEEDED
+    assert bound[0]["raw_output"] == {"answer": "hired"}
+    assert bound[0]["cost"] is None
+    assert (
+        scoring.cost_metrics({("case-1", "agent"): {"terminal": bound[0]}})["totals"]
+        == []
+    )
+    assert "t::case-1::agent::primary succeeded" in capsys.readouterr().out
+
+
+def test_main_stops_the_agent_block_on_a_payment_challenge(locked, capsys):
+    """Mutation: treat HTTP 402 as a generic failure or continue into the next slot."""
+    spec, runs, root = locked
+    _complete_manual_block(spec, runs, root)
+    requests = 0
+
+    def handle(_request):
+        nonlocal requests
+        requests += 1
+        return runner.httpx.Response(402, json={"error": "payment required"})
+
+    transport = runner.httpx.MockTransport(handle)
+    with runner.httpx.Client(transport=transport) as client:
+        code = orchestrator.main(
+            [str(root / "spec.json"), str(runs), "--repo-root", str(root)],
+            client=client,
+        )
+
+    assert code == 2
+    assert requests == 1
+    terminals = [event for event in _terminals(spec, runs) if event["arm"] == "agent"]
+    assert len(terminals) == 1
+    assert terminals[0]["outcome"] == runner.BLOCKED_CONTRACT
+    assert "blocked_service_contract" in capsys.readouterr().out

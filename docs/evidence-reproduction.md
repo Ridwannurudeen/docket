@@ -120,6 +120,11 @@ string is typed by the operator. The driver checks for a shared session or an al
 seat before that lookup. For a new seat, the lookup sends one fixed `MODEL_METADATA_OK` query;
 that provenance query is not the calibration prompt and is not written as a seat attempt.
 
+The complete timed sequence, including the rehearsal, input lock, interactive primary arms,
+blind scoring, ship floors, and archive-RPC decision, is in
+[`runbooks/warden-v3-run.md`](runbooks/warden-v3-run.md). Use that runbook for the Aug 25 run;
+the commands below document only the evaluator-capture and input-lock portion.
+
 Run `seat-a` through Codex:
 
 ```bash

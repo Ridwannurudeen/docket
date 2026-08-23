@@ -11,7 +11,9 @@ from the installed package.
 
 import argparse
 import json
+import sys
 import time
+from decimal import Decimal, InvalidOperation
 from importlib import resources
 from pathlib import Path
 
@@ -105,7 +107,7 @@ def hire_agent(spec, payload, *, hire=None, client=None, headers=None) -> dict:
                 "message": f"{type(exc).__name__}: {exc}",
             }
         }
-    if response.status_code in (400, 422):
+    if response.status_code in (400, 402, 422):
         return {
             "failure": {
                 "kind": runner.BLOCKED_CONTRACT,
@@ -149,14 +151,24 @@ def hire_agent(spec, payload, *, hire=None, client=None, headers=None) -> dict:
             },
             "receipt": receipt,
         }
+    cost = None
+    amount = payment.get("amount")
+    asset = payment.get("asset")
+    if isinstance(asset, str) and asset.strip():
+        try:
+            decimal_amount = Decimal(str(amount))
+        except (InvalidOperation, ValueError):
+            decimal_amount = None
+        if (
+            decimal_amount is not None
+            and decimal_amount.is_finite()
+            and decimal_amount >= 0
+        ):
+            cost = {"amount": str(amount), "unit": asset}
     return {
         "raw_output": result,
         "receipt": receipt,
-        "cost": {
-            "amount": payment.get("amount", "0"),
-            "asset": payment.get("asset"),
-            "payment_status": payment["status"],
-        },
+        "cost": cost,
     }
 
 
@@ -344,29 +356,7 @@ def run_remaining(
         ran += 1
 
 
-def _manual_answer(slot, answers_dir) -> object:
-    if answers_dir is None:
-        raise OrchestratorRefused(
-            f"manual slot {slot.case_id} has no --answers-dir; refusing before the "
-            "slot is claimed"
-        )
-    path = Path(answers_dir) / f"{slot.case_id}.json"
-    if not path.is_file():
-        raise OrchestratorRefused(
-            f"manual slot {slot.case_id} has no answer file {path.name}; refusing "
-            "before the slot is claimed"
-        )
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _cli_invoke(slot, answers_dir):
-    if slot.arm != "manual":
-        return None
-    answer = _manual_answer(slot, answers_dir)
-    return lambda _slot, _revealed, _answer=answer: {"raw_output": _answer}
-
-
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, client=None, stdin=None) -> int:
     """The production entry point, so a timer or an operator can actually run the family."""
     parser = argparse.ArgumentParser(
         description="Run a v3 family's registered primary slots, in registered order."
@@ -378,8 +368,9 @@ def main(argv: list[str] | None = None) -> int:
         "runs_dir", help="directory that holds the family's JSONL ledger"
     )
     parser.add_argument(
-        "--answers-dir",
-        help="JSON files named {case_id}.json for each next manual slot",
+        "--interactive",
+        action="store_true",
+        help="reveal each manual case after its timed claim and read one JSON line",
     )
     parser.add_argument(
         "--repo-root",
@@ -410,8 +401,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     runs_dir = Path(args.runs_dir)
-    answers_dir = Path(args.answers_dir) if args.answers_dir else None
     headers = {"X-PAYMENT": args.payment_header} if args.payment_header else None
+    input_stream = sys.stdin if stdin is None else stdin
 
     try:
         recovered = _prepare(spec, runs_dir, repo_root)
@@ -421,16 +412,38 @@ def main(argv: list[str] | None = None) -> int:
             nxt = next_open_slot(spec, runs_dir, repo_root=repo_root)
             if nxt is None:
                 return 0
-            invoke = _cli_invoke(nxt, answers_dir)
+            if nxt.arm == "manual" and not args.interactive:
+                raise OrchestratorRefused(
+                    f"manual slot {nxt.case_id} requires --interactive; refusing "
+                    "before the slot is claimed"
+                )
+            if nxt.arm == "manual":
+
+                def invoke(chosen, revealed):
+                    print(
+                        json.dumps(
+                            {"slot": chosen.slot, "case": revealed},
+                            sort_keys=True,
+                            ensure_ascii=False,
+                        ),
+                        flush=True,
+                    )
+                    return {"raw_output": json.loads(input_stream.readline())}
+
+            else:
+                invoke = None
             terminal = run_next(
                 spec,
                 runs_dir,
                 repo_root=repo_root,
                 invoke=invoke,
                 payment_headers=headers,
+                client=client,
                 prepare=False,
             )
             print(f"{terminal['slot']} {terminal['outcome']}")
+            if terminal["outcome"] == runner.BLOCKED_CONTRACT:
+                return 2
             if args.once:
                 return 0
     except OrchestratorRefused as refusal:
