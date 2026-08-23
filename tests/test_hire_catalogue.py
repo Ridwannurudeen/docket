@@ -103,9 +103,9 @@ def test_unknown_service_returns_none():
 
 def test_every_personalized_offer_uses_the_flat_half_u_price():
     for svc in SERVICES.values():
-        assert svc.price_display == "0.50 $U"
+        assert svc.price_display == "0.50 USDT"
         assert svc.price_atomic == 5 * 10**17
-        assert svc.asset == catalogue.U_TOKEN
+        assert svc.asset == catalogue.USDT_TOKEN
 
 
 def test_paid_stock_is_closed_until_all_four_admission_facts_pass():

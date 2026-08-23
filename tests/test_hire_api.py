@@ -16,8 +16,13 @@ from docket.agents.pancake import doctor
 from docket.api import create_app
 from docket.api import routes
 from docket.api.routes import FREE_TIER_HIRES
-from docket.hire.catalogue import SERVICES, U_TOKEN, PaidStockAdmission, get_service
-from docket.hire.x402 import EIP3009_TYPES, build_challenge
+from docket.hire.catalogue import SERVICES, USDT_TOKEN, PaidStockAdmission, get_service
+from docket.hire.x402 import (
+    B402_NETWORK,
+    B402_RELAYER,
+    TRANSFER_WITH_AUTHORIZATION_TYPES,
+    build_challenge,
+)
 from docket.store import Store
 
 PAY_TO = "0x" + "11" * 20
@@ -42,9 +47,10 @@ def stub_the_work(monkeypatch):
 
 
 class FixtureFacilitator:
-    def __init__(self, *, settle_error=None):
+    def __init__(self, *, settle_error=None, network="eip155:56"):
         self.calls = []
         self.settle_error = settle_error
+        self.network = network
 
     def verify(self, envelope):
         self.calls.append(("verify", envelope))
@@ -60,7 +66,7 @@ class FixtureFacilitator:
             "success": True,
             "payer": payer,
             "transaction": "0xdry-run-transaction",
-            "network": "eip155:56",
+            "network": self.network,
         }
 
 
@@ -71,6 +77,7 @@ def _client(
     name="free",
     pay_to=None,
     facilitator=None,
+    facilitator_kind=None,
     admit_range=False,
     canary_token=None,
 ):
@@ -79,6 +86,10 @@ def _client(
         monkeypatch.delenv("DOCKET_PAY_TO", raising=False)
     else:
         monkeypatch.setenv("DOCKET_PAY_TO", pay_to)
+    if facilitator_kind is None:
+        monkeypatch.delenv("DOCKET_FACILITATOR_KIND", raising=False)
+    else:
+        monkeypatch.setenv("DOCKET_FACILITATOR_KIND", facilitator_kind)
     if canary_token is None:
         monkeypatch.delenv("DOCKET_CANARY_TOKEN_FILE", raising=False)
     else:
@@ -123,20 +134,23 @@ def _authorization(
 ):
     challenge = build_challenge(get_service("range-doctor"), PAY_TO, resource=resource)
     domain = {
-        "name": "United Stables",
+        "name": "B402",
         "version": "1",
         "chainId": 56,
-        "verifyingContract": U_TOKEN,
+        "verifyingContract": B402_RELAYER,
     }
     msg = {
+        "token": USDT_TOKEN,
         "from": acct.address,
         "to": to,
         "value": str(value),
-        "validAfter": "0",
-        "validBefore": str(int(time.time()) + 300),
+        "validAfter": 0,
+        "validBefore": int(time.time()) + 300,
         "nonce": nonce,
     }
-    sig = acct.sign_message(encode_typed_data(domain, EIP3009_TYPES, msg))
+    sig = acct.sign_message(
+        encode_typed_data(domain, TRANSFER_WITH_AUTHORIZATION_TYPES, msg)
+    )
     payment = {
         "x402Version": 2,
         "resource": challenge["resource"],
@@ -157,9 +171,9 @@ def test_the_catalogue_tells_a_stranger_what_to_send(tmp_path, monkeypatch):
     assert "range-doctor" in listed
     svc = listed["range-doctor"]
     assert svc["what_you_get"] and svc["typical_seconds"] > 0
-    assert svc["price_display"] == "0.50 $U"
+    assert svc["price_display"] == "0.50 USDT"
     assert svc["price_atomic"] == 5 * 10**17
-    assert svc["asset"] == U_TOKEN
+    assert svc["asset"] == USDT_TOKEN
     assert svc["paid_stock"] is False
     assert svc["stock_status"] == "candidate"
     assert set(svc["admission"]) == {
@@ -169,6 +183,13 @@ def test_the_catalogue_tells_a_stranger_what_to_send(tmp_path, monkeypatch):
         "true_settlement",
     }
     assert svc["input_schema"]["wallet"]["required"] is True
+
+
+def test_unknown_facilitator_kind_stops_startup(tmp_path, monkeypatch):
+    monkeypatch.setenv("DOCKET_FACILITATOR_KIND", "unknown")
+
+    with pytest.raises(RuntimeError, match="b402 or generic"):
+        create_app(tmp_path / "bad-facilitator.sqlite3")
 
 
 def test_a_hire_returns_a_receipt_the_caller_can_recompute(tmp_path, monkeypatch):
@@ -477,7 +498,7 @@ def test_a_paid_preflight_settles_once_and_rejects_the_exact_replay(
     payment = receipt["payment"]
     assert payment["status"] == "settled"
     assert payment["amount"] == str(5 * 10**17)
-    assert payment["asset"] == U_TOKEN
+    assert payment["asset"] == USDT_TOKEN
     assert payment["nonce"] == "0x" + "03" * 32
     assert payment["payment_id"].startswith("0x")
     assert payment["transaction_id"] == "0xdry-run-transaction"
@@ -485,6 +506,37 @@ def test_a_paid_preflight_settles_once_and_rejects_the_exact_replay(
     assert receipt["output_hash"] == _sha256_of_canonical_json(first.json()["result"])
     assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
     assert work_calls == [WALLET]
+
+
+def test_b402_configuration_maps_the_payment_and_accepts_its_network(
+    tmp_path, monkeypatch
+):
+    facilitator = FixtureFacilitator(network=B402_NETWORK)
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="b402-settled",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        facilitator_kind="b402",
+        admit_range=True,
+    )
+
+    response = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": _authorization(Account.create())},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["receipt"]["payment"]["network"] == B402_NETWORK
+    envelope = facilitator.calls[0][1]
+    assert envelope["paymentRequirements"] == {
+        "network": B402_NETWORK,
+        "relayerContract": B402_RELAYER,
+    }
+    assert envelope["paymentPayload"]["token"] == USDT_TOKEN
+    assert "x402Version" not in envelope
 
 
 def test_a_malformed_paid_attempt_is_not_silently_served_as_a_preview(
@@ -811,7 +863,7 @@ def test_buyer_recovery_without_an_operator_token_keeps_the_signed_window(
     original_verify = routes.verify_payment
 
     def verify_after_expiry(payment_payload, **kwargs):
-        return original_verify(payment_payload, now=expired_at, **kwargs)
+        return original_verify(payment_payload, now=expired_at + 1, **kwargs)
 
     monkeypatch.setattr(routes, "verify_payment", verify_after_expiry)
 
