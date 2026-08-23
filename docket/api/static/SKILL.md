@@ -55,7 +55,7 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/services` | Service cards with paid-stock status; `?category=` narrows to one job |
 | GET | `/services/{service_id}` | Inputs, price-after-admission, admission facts, evidence modality, evidence, limitations, identity |
 | GET | `/registrations/{service_id}.json` | Byte-exact ERC-8004 document for one of the four category services |
-| GET | `/hire` | The catalogue: inputs, flat 0.50 $U term, stock status and four admission facts |
+| GET | `/hire` | The catalogue: inputs, flat 0.50 USDT term, stock status and four admission facts |
 | POST | `/hire/{service_id}` | Runs the service; returns the result and a hash-bound receipt |
 | GET | `/compare` | One-clause jobs, declared and measured times, freshness, and evidence links side by side |
 | GET | `/escrow` | Escrow terms: addresses, dispute window, the ordered call sequence |
@@ -293,11 +293,13 @@ not return it, and canary evidence excludes it. The header opens only that measu
 payment path; it does not alter admission or publish `paid_stock: true`. A rejected
 value returns 403 `canary_unauthorized` before work or payment.
 
-The concrete facilitator is owner-configured and live settlement is disabled unless
-the owner explicitly enables it. Fixture tests prove Docket's generic x402 v2 adapter
-and state machine, not that a particular facilitator accepts $U or that a reported
-transaction is final on chain. A lost `/settle` response becomes
-`settlement_unknown` and is never retried automatically.
+The owner-configured deployment uses b402 with BSC USDT and the RelayerV3 proxy at
+`0xE1Af7DaEa624bA3B5073f24A6Ea5531434D82d88`. Its seven-field authorization signs the
+token as well as payer, recipient, amount, window and nonce against the `B402`/`1`, chain
+56, Relayer-proxy domain. The payer must approve that proxy for enough USDT. Live
+settlement remains disabled unless the owner explicitly enables it; a reported
+transaction is not independent proof of chain finality. A lost `/settle` response
+becomes `settlement_unknown` and is never retried automatically.
 
 ## Workflow 5: cite the advantage report without overstating it
 

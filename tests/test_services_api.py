@@ -189,7 +189,7 @@ def test_a_service_outside_the_four_is_listed_rather_than_hidden_or_filed_wrongl
 
 def test_every_card_carries_what_it_costs_and_how_to_run_it(client):
     for card in client.get("/services").json()["services"]:
-        assert card["price_display"] == "0.50 $U"
+        assert card["price_display"] == "0.50 USDT"
         assert card["price_atomic"] == 5 * 10**17
         assert card["asset"]
         assert card["paid_stock"] is False

@@ -42,8 +42,8 @@ from ..agents.pancake.positions import MAX_EXAMINED
 
 # $U (ERC-8183, 18 decimals) on BSC mainnet. Priced in the asset whose
 # TransferWithAuthorization this build can actually verify — see hire/x402.py.
-U_TOKEN = "0xcE24439F2D9C6a2289F741120FE202248B666666"
-HIRE_PRICE_DISPLAY = "0.50 $U"
+USDT_TOKEN = "0x55d398326f99059fF775485246999027B3197955"
+HIRE_PRICE_DISPLAY = "0.50 USDT"
 HIRE_PRICE_ATOMIC = 5 * 10**17
 CONTROLLED_EXAMPLE_WALLET = "0xe55816904796341bf8535e25f6c8b647927fc946"
 # How many of a wallet's position NFTs a hire reads by default. Ten is the
@@ -756,7 +756,7 @@ SERVICES: dict[str, Service] = {
         typical_seconds=30,
         price_display=HIRE_PRICE_DISPLAY,
         price_atomic=HIRE_PRICE_ATOMIC,
-        asset=U_TOKEN,
+        asset=USDT_TOKEN,
         stock_status="candidate",
         admission=RANGE_ADMISSION,
         run=_run_range_doctor,
@@ -863,7 +863,7 @@ SERVICES: dict[str, Service] = {
         typical_seconds=25,
         price_display=HIRE_PRICE_DISPLAY,
         price_atomic=HIRE_PRICE_ATOMIC,
-        asset=U_TOKEN,
+        asset=USDT_TOKEN,
         stock_status="preview",
         admission=PREVIEW_ADMISSION,
         run=_run_grid_operator,
@@ -921,7 +921,7 @@ SERVICES: dict[str, Service] = {
         typical_seconds=40,
         price_display=HIRE_PRICE_DISPLAY,
         price_atomic=HIRE_PRICE_ATOMIC,
-        asset=U_TOKEN,
+        asset=USDT_TOKEN,
         stock_status="preview",
         admission=PREVIEW_ADMISSION,
         run=_run_health_guard,
@@ -1046,7 +1046,7 @@ SERVICES: dict[str, Service] = {
         typical_seconds=12,
         price_display=HIRE_PRICE_DISPLAY,
         price_atomic=HIRE_PRICE_ATOMIC,
-        asset=U_TOKEN,
+        asset=USDT_TOKEN,
         stock_status="preview",
         admission=PREVIEW_ADMISSION,
         run=_run_yield_router,
@@ -1081,7 +1081,7 @@ SERVICES: dict[str, Service] = {
         typical_seconds=2,
         price_display=HIRE_PRICE_DISPLAY,
         price_atomic=HIRE_PRICE_ATOMIC,
-        asset=U_TOKEN,
+        asset=USDT_TOKEN,
         stock_status="research",
         admission=NO_PAID_ADMISSION,
         run=_run_solvent_signal,
@@ -1111,7 +1111,7 @@ SERVICES: dict[str, Service] = {
         typical_seconds=5,
         price_display=HIRE_PRICE_DISPLAY,
         price_atomic=HIRE_PRICE_ATOMIC,
-        asset=U_TOKEN,
+        asset=USDT_TOKEN,
         stock_status="beta",
         # One of four limbs now holds: the result is presented as a decision with its
         # detections, their sources and the sanitized text, rather than as raw JSON. The other

@@ -6,27 +6,28 @@ import json
 import math
 import os
 import re
-import secrets
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Mapping
 
 import httpx
 from eth_account import Account
-from eth_account.messages import encode_typed_data
 
-from .hire.catalogue import HIRE_PRICE_ATOMIC, U_TOKEN
+from .hire.catalogue import HIRE_PRICE_ATOMIC, HIRE_PRICE_DISPLAY, USDT_TOKEN
 from .hire.receipts import canonical_hash, is_human_readable_result
 from .hire.x402 import (
     ASSET_TRANSFER_METHOD,
-    BSC_CHAIN_ID,
-    EIP3009_TYPES,
+    B402_FACILITATOR,
+    B402_NETWORK,
+    B402_RELAYER,
+    EIP712_DOMAINS,
     MAX_TIMEOUT_SECONDS,
     NETWORK,
     SCHEME,
     X402_VERSION,
+    build_signed_payment,
 )
 from .store import Store
 
@@ -73,6 +74,10 @@ class CanaryConfig:
     lp_error: str | None
     private_key_file: str | None
     token_file: str | None
+    facilitator_kind: str | None
+    facilitator_url: str | None
+    payment_token: str | None
+    relayer_contract: str | None
     paid_error: str | None
 
     @property
@@ -91,6 +96,10 @@ class CanaryConfig:
             self.paid_error is None
             and self.private_key_file is not None
             and self.token_file is not None
+            and self.facilitator_kind is not None
+            and self.facilitator_url is not None
+            and self.payment_token is not None
+            and self.relayer_contract is not None
         )
 
 
@@ -200,9 +209,46 @@ def _configuration(environment: Mapping[str, str]) -> CanaryConfig:
 
     private_key_file = _text(environment, "DOCKET_CANARY_PRIVATE_KEY_FILE")
     token_file = _text(environment, "DOCKET_CANARY_TOKEN_FILE")
+    facilitator_kind = _text(environment, "DOCKET_FACILITATOR_KIND")
+    facilitator_url = _text(environment, "DOCKET_FACILITATOR_URL")
+    payment_token = _text(environment, "DOCKET_PAYMENT_TOKEN")
+    relayer_contract = _text(environment, "DOCKET_B402_RELAYER_CONTRACT")
     paid_error = None
-    if private_key_file is not None and token_file is None:
-        paid_error = "a payment key requires the private canary token file"
+    if private_key_file is not None:
+        if token_file is None:
+            paid_error = "a payment key requires the private canary token file"
+        else:
+            public_settings = {
+                "DOCKET_FACILITATOR_KIND": facilitator_kind,
+                "DOCKET_FACILITATOR_URL": facilitator_url,
+                "DOCKET_PAYMENT_TOKEN": payment_token,
+                "DOCKET_B402_RELAYER_CONTRACT": relayer_contract,
+            }
+            missing = [name for name, value in public_settings.items() if value is None]
+            if missing:
+                paid_error = f"a payment key requires {', '.join(missing)}"
+            elif facilitator_kind != B402_FACILITATOR:
+                paid_error = f"DOCKET_FACILITATOR_KIND must be {B402_FACILITATOR}"
+            elif str(payment_token).lower() != USDT_TOKEN.lower():
+                paid_error = f"DOCKET_PAYMENT_TOKEN must be {USDT_TOKEN}"
+            elif str(relayer_contract).lower() != B402_RELAYER.lower():
+                paid_error = f"DOCKET_B402_RELAYER_CONTRACT must be {B402_RELAYER}"
+            else:
+                payment_token = USDT_TOKEN
+                relayer_contract = B402_RELAYER
+                try:
+                    parsed_facilitator = httpx.URL(str(facilitator_url))
+                except httpx.InvalidURL:
+                    parsed_facilitator = None
+                if (
+                    parsed_facilitator is None
+                    or parsed_facilitator.scheme != "https"
+                    or not parsed_facilitator.host
+                    or parsed_facilitator.userinfo
+                    or parsed_facilitator.query
+                    or parsed_facilitator.fragment
+                ):
+                    paid_error = "DOCKET_FACILITATOR_URL must be an HTTPS endpoint without credentials, query, or fragment"
 
     return CanaryConfig(
         database=database,
@@ -216,6 +262,10 @@ def _configuration(environment: Mapping[str, str]) -> CanaryConfig:
         lp_error=lp_error,
         private_key_file=private_key_file,
         token_file=token_file,
+        facilitator_kind=facilitator_kind,
+        facilitator_url=facilitator_url,
+        payment_token=payment_token,
+        relayer_contract=relayer_contract,
         paid_error=paid_error,
     )
 
@@ -804,7 +854,7 @@ def _controlled_lp_check(
 
 def _not_yet_paid_checks(reason: str) -> list[dict]:
     descriptions = (
-        "an exact 0.50 $U authorization settled",
+        f"an exact {HIRE_PRICE_DISPLAY} authorization settled",
         "the paid response contained a complete human result",
         "the receipt bound payment, input, and output evidence",
         "the identical settled request was rejected as a replay",
@@ -831,7 +881,9 @@ def _paid_material(config: CanaryConfig) -> tuple[object, str]:
     return Account.from_key(private_key), token
 
 
-def _challenge_offer(body: object, expected_url: str) -> tuple[dict | None, dict]:
+def _challenge_offer(
+    body: object, expected_url: str, config: CanaryConfig
+) -> tuple[dict | None, dict]:
     observed = {"exact_offer_present": False}
     if not isinstance(body, dict):
         return None, observed
@@ -851,18 +903,25 @@ def _challenge_offer(body: object, expected_url: str) -> tuple[dict | None, dict
         return None, observed
     offer = offers[0]
     extra = offer.get("extra")
+    domain = EIP712_DOMAINS.get(str(config.payment_token).lower())
+    expected_extra = (
+        {
+            "assetTransferMethod": ASSET_TRANSFER_METHOD,
+            **domain,
+            "relayerContract": config.relayer_contract,
+        }
+        if domain is not None
+        else None
+    )
     valid = (
         offer.get("scheme") == SCHEME
         and offer.get("network") == NETWORK
         and offer.get("amount") == str(HIRE_PRICE_ATOMIC)
-        and str(offer.get("asset", "")).lower() == U_TOKEN.lower()
+        and str(offer.get("asset", "")).lower() == str(config.payment_token).lower()
         and isinstance(offer.get("payTo"), str)
         and _ADDRESS.fullmatch(offer["payTo"]) is not None
         and offer.get("maxTimeoutSeconds") == MAX_TIMEOUT_SECONDS
-        and isinstance(extra, dict)
-        and extra.get("assetTransferMethod") == ASSET_TRANSFER_METHOD
-        and extra.get("name") == "United Stables"
-        and extra.get("version") == "1"
+        and extra == expected_extra
     )
     observed.update(
         {
@@ -871,44 +930,15 @@ def _challenge_offer(body: object, expected_url: str) -> tuple[dict | None, dict
             "asset": _safe_scalar(offer.get("asset")),
             "recipient": _safe_scalar(offer.get("payTo")),
             "network": _safe_scalar(offer.get("network")),
+            "relayer_contract": _safe_scalar(extra.get("relayerContract"))
+            if isinstance(extra, dict)
+            else None,
+            "verifying_contract": _safe_scalar(extra.get("verifyingContract"))
+            if isinstance(extra, dict)
+            else None,
         }
     )
     return (offer if valid else None), observed
-
-
-def _payment_envelope(
-    account: object, offer: dict, resource: dict, now: datetime
-) -> dict:
-    issued_at = int(now.timestamp())
-    authorization = {
-        "from": account.address,
-        "to": offer["payTo"],
-        "value": offer["amount"],
-        "validAfter": str(issued_at - 1),
-        "validBefore": str(issued_at + int(timedelta(minutes=4).total_seconds())),
-        "nonce": "0x" + secrets.token_hex(32),
-    }
-    domain = {
-        "name": offer["extra"]["name"],
-        "version": offer["extra"]["version"],
-        "chainId": BSC_CHAIN_ID,
-        "verifyingContract": offer["asset"],
-    }
-    signable = encode_typed_data(
-        domain_data=domain,
-        message_types=EIP3009_TYPES,
-        message_data=authorization,
-    )
-    signed = account.sign_message(signable)
-    return {
-        "x402Version": X402_VERSION,
-        "resource": resource,
-        "accepted": offer,
-        "payload": {
-            "signature": signed.signature.hex(),
-            "authorization": authorization,
-        },
-    }
 
 
 def _encoded_payment(envelope: dict) -> str:
@@ -921,13 +951,13 @@ def _settlement_check(
 ) -> tuple[dict, bool]:
     checked = [
         "the paid request returned a settled payment",
-        "the settlement named exactly 500000000000000000 $U and the challenged recipient",
+        f"the settlement named exactly {HIRE_PRICE_ATOMIC} atomic units of USDT and the challenged recipient",
     ]
     payment = receipt.get("payment") if isinstance(receipt, dict) else None
     valid = isinstance(payment, dict) and (
         payment.get("status") == "settled"
         and payment.get("amount") == str(HIRE_PRICE_ATOMIC)
-        and str(payment.get("asset", "")).lower() == U_TOKEN.lower()
+        and str(payment.get("asset", "")).lower() == USDT_TOKEN.lower()
         and str(payment.get("recipient", "")).lower() == offer["payTo"].lower()
         and str(payment.get("payer", "")).lower() == account.address.lower()
         and payment.get("nonce") == authorization["nonce"].lower()
@@ -1033,7 +1063,7 @@ def _proof_check(
         or not payment["transaction_id"]
     ):
         failures.append("transaction_id_missing")
-    if payment.get("network") != NETWORK:
+    if payment.get("network") != B402_NETWORK:
         failures.append("network_mismatch")
     valid = not failures
     return (
@@ -1112,7 +1142,7 @@ def _paid_checks(
         challenge = challenge_response.json()
     except ValueError:
         challenge = None
-    offer, challenge_observed = _challenge_offer(challenge, expected_url)
+    offer, challenge_observed = _challenge_offer(challenge, expected_url, config)
     if challenge_response.status_code != 402 or offer is None:
         checks = _not_yet_paid_checks("exact_challenge_invalid")
         checks[0] = _check(
@@ -1124,7 +1154,12 @@ def _paid_checks(
         )
         return checks
 
-    envelope = _payment_envelope(account, offer, challenge["resource"], now)
+    envelope = build_signed_payment(
+        account,
+        offer,
+        challenge["resource"],
+        now=int(now.timestamp()),
+    )
     payment_header = _encoded_payment(envelope)
     headers = {"X-PAYMENT": payment_header, "X-Docket-Canary": token}
     try:

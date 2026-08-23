@@ -61,6 +61,19 @@ def test_owner_only_lp_and_payment_configuration_remains_unset():
         assert f"# {name}=" in config
 
 
+def test_public_b402_canary_configuration_names_the_live_payment_boundary():
+    config = _read(DEPLOY / "docket-canary.conf.example")
+
+    for required in (
+        "DOCKET_FACILITATOR_KIND=b402",
+        "DOCKET_FACILITATOR_URL=https://facilitatorv3.b402.ai/api/v1",
+        "DOCKET_PAYMENT_TOKEN=0x55d398326f99059fF775485246999027B3197955",
+        "DOCKET_B402_RELAYER_CONTRACT=0xE1Af7DaEa624bA3B5073f24A6Ea5531434D82d88",
+        "# DOCKET_BSC_RPC_URL=https://your-bsc-mainnet-rpc.example",
+    ):
+        assert required in config
+
+
 def test_the_v3_capture_prearms_and_has_bounded_failure_restarts():
     service = _read(DEPLOY / "systemd" / "docket-v3-capture.service")
     timer = _read(DEPLOY / "systemd" / "docket-v3-capture.timer")

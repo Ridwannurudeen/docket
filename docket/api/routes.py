@@ -62,6 +62,10 @@ from ..hire.receipts import (
     is_human_readable_result,
 )
 from ..hire.x402 import (
+    B402_FACILITATOR,
+    B402_NETWORK,
+    FACILITATOR_KINDS,
+    GENERIC_FACILITATOR,
     Facilitator,
     FacilitatorClient,
     build_challenge,
@@ -457,13 +461,20 @@ def create_app(
     # off and only the bounded free tier remains. Read once here rather than per
     # request: the terms a caller is quoted must not change under it mid-session.
     pay_to = os.environ.get("DOCKET_PAY_TO") or None
+    facilitator_kind = (
+        os.environ.get("DOCKET_FACILITATOR_KIND") or GENERIC_FACILITATOR
+    )
+    if facilitator_kind not in FACILITATOR_KINDS:
+        raise RuntimeError(
+            "DOCKET_FACILITATOR_KIND must be either b402 or generic"
+        )
     if facilitator is None and os.environ.get("DOCKET_ENABLE_SETTLEMENT") == "1":
         facilitator_url = os.environ.get("DOCKET_FACILITATOR_URL")
         if not facilitator_url or not pay_to:
             raise RuntimeError(
                 "DOCKET_ENABLE_SETTLEMENT=1 requires DOCKET_FACILITATOR_URL and DOCKET_PAY_TO"
             )
-        facilitator = FacilitatorClient(facilitator_url)
+        facilitator = FacilitatorClient(facilitator_url, kind=facilitator_kind)
     canary_token = None
     canary_token_file = os.environ.get("DOCKET_CANARY_TOKEN_FILE")
     canary_service_id = os.environ.get("DOCKET_CANARY_SERVICE_ID") or "range-doctor"
@@ -1687,7 +1698,9 @@ def create_app(
                     "That authorization is already reserved or settling.",
                 )
 
-            envelope = facilitator_envelope(payment_payload, requirements)
+            envelope = facilitator_envelope(
+                payment_payload, requirements, kind=facilitator_kind
+            )
             try:
                 verification = await run_in_threadpool(facilitator.verify, envelope)
             except Exception as exc:
@@ -1868,9 +1881,14 @@ def create_app(
             transaction_id = str(settlement.get("transaction") or "")
             network = str(settlement.get("network") or "")
             settlement_payer = str(settlement.get("payer") or "")
+            expected_network = (
+                B402_NETWORK
+                if facilitator_kind == B402_FACILITATOR
+                else requirements["network"]
+            )
             if (
                 not transaction_id
-                or network != requirements["network"]
+                or network != expected_network
                 or settlement_payer.lower() != verified.payer.lower()
             ):
                 unknown_receipt = build_receipt(
@@ -1903,7 +1921,7 @@ def create_app(
                 "payment_id": verified.payment_id,
                 "transaction_id": transaction_id,
                 "network": network,
-                "evidence": "configured facilitator x402 v2 settlement response",
+                "evidence": "configured facilitator settlement response",
             }
             receipt = build_receipt(service.id, payload, result, payment=payment)
             await run_in_threadpool(

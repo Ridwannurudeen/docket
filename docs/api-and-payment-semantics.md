@@ -95,9 +95,10 @@ Every durable run names its target, start and finish time, verdict, and structur
 each check records the leg, what was checked, its status, what was observed, and the
 evidence for the status. Closing the gate removes Pay and hire but leaves the free
 verified example and free preview available.
-The shared catalogue term is 0.50 $U, represented as
+The shared catalogue term is 0.50 USDT, represented as
 `500000000000000000` atomic units of token
-`0xcE24439F2D9C6a2289F741120FE202248B666666`; it is not an available purchase while
+`0x55d398326f99059fF775485246999027B3197955`; the token reports 18 decimals on BSC
+mainnet. It is not an available purchase while
 `paid_stock` is false.
 
 ## Free hire
@@ -152,16 +153,26 @@ rejected value returns `403 canary_unauthorized` before work or payment.
 
 For either an admitted public request or the authorized canary, the challenge uses x402
 version 2, scheme `exact`, network `eip155:56`, the service's exact
-amount/asset/recipient, and EIP-3009
-`TransferWithAuthorization`. Local verification checks:
+amount/asset/recipient, and the B402 RelayerV3
+`TransferWithAuthorization`. That authorization has the EIP-712 domain `B402`, version
+`1`, chain ID `56`, and verifying contract
+`0xE1Af7DaEa624bA3B5073f24A6Ea5531434D82d88`. Local verification checks:
 
 1. Resource equality with this hire URL.
 2. Equality of the advertised payment requirements.
-3. BSC chain and supported $U EIP-712 domain.
-4. Exact recipient and amount.
-5. Canonical six-field authorization and 32-byte nonce.
-6. `validAfter < now < validBefore`.
+3. BSC chain, supported USDT asset, and the RelayerV3 EIP-712 domain.
+4. Signed token, exact recipient, and exact amount.
+5. Canonical seven-field authorization and 32-byte nonce.
+6. `validAfter <= now <= validBefore`.
 7. Signature recovery to the declared payer.
+
+The selected `b402` adapter sends no `x402Version` to the facilitator. Its body is
+`paymentPayload.{token,payload}` plus
+`paymentRequirements.{network:"bsc",relayerContract}`. The deployment base URL includes
+the live `/api/v1` prefix, so the one-attempt calls reach `/api/v1/verify` and
+`/api/v1/settle`. The `generic` adapter retains the prior full v2 envelope for another
+facilitator. B402 is allowance-based: the payer must hold enough USDT and approve the
+RelayerV3 proxy as spender before verification can pass.
 
 After facilitator verification, the store atomically binds nonce, payment ID, service,
 recipient, asset, amount, resource, and input hash. The result and output hash are persisted
@@ -181,6 +192,13 @@ Outcomes are intentionally terminal:
 A `settled` receipt is evidence of the configured facilitator response. It is not an
 independent receipt lookup or chain-finality proof. No committed Docket receipt has this
 status and no live settlement transaction is recorded in the repository.
+
+Run `python -m docket.hire.x402 preflight` with the deployment payment environment before
+spending. It reads the payer's USDT balance and Relayer allowance, the token whitelist,
+Relayer pause state, bytecode and EIP-712 domain, then submits one signed authorization to
+`/verify`. It never calls `/settle`, sends a transaction, or prints the signature or key.
+Its `checks` object and `missing` list distinguish balance, allowance, whitelist, domain,
+and facilitator rejection.
 
 An exact identical settled request at the hire route returns `409 authorization_replay`; it
 cannot repeat either the service work or settlement.

@@ -76,10 +76,10 @@ inventory. It does not make a listing paid stock, establish settlement, or creat
 There are two distinct rails.
 
 The x402 rail in `docket.hire.x402` is for one request answered and settled now. It verifies
-the exact resource, BSC network, $U asset/domain, amount, recipient, authorization window,
-nonce, and signature. `docket.store` persists the nonce-to-input/output transition before
-the single facilitator settlement call. This path is disabled by default and unreachable
-for the current unadmitted stock.
+the exact resource, BSC network, USDT asset, B402 RelayerV3 domain, amount, recipient,
+authorization window, nonce, and signature. `docket.store` persists the
+nonce-to-input/output transition before the single facilitator settlement call. This path
+is disabled by default and unreachable for the current unadmitted stock.
 
 The ERC-8183 rail in `docket.escrow` is a separate buyer-funded job with a seven-day dispute
 window on BSC mainnet. The API publishes a transaction template; the buyer fills and signs

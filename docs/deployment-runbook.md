@@ -153,15 +153,40 @@ than overwriting host policy.
 With no settlement environment variables, all current services remain free and subject to
 the 20-per-hour peer-address allowance because none is paid stock.
 
-The x402 path is owner-gated by all three of:
+The API settlement path is owner-gated by:
 
 - `DOCKET_ENABLE_SETTLEMENT=1`
-- `DOCKET_FACILITATOR_URL`
+- `DOCKET_FACILITATOR_KIND=b402`
+- `DOCKET_FACILITATOR_URL=https://facilitatorv3.b402.ai/api/v1`
 - `DOCKET_PAY_TO`
 
-Do not enable these until a service passes all four admission limbs and the chosen
-facilitator/$U flow has a real preflight. Configuration alone does not change
-`paid_stock`; the service admission must also pass.
+The canary and verify-only preflight also require the pinned public terms and an RPC:
+
+- `DOCKET_PAYMENT_TOKEN=0x55d398326f99059fF775485246999027B3197955`
+- `DOCKET_B402_RELAYER_CONTRACT=0xE1Af7DaEa624bA3B5073f24A6Ea5531434D82d88`
+- `DOCKET_BSC_RPC_URL` for the read-only owner preflight
+
+`DOCKET_FACILITATOR_URL` includes `/api/v1`: the facilitator's bare documented `/verify`
+path returned 404 on 2026-08-23, while `/api/v1/verify` reached its signature check. The
+configured Relayer is the live proxy with code and the `B402`/`1` EIP-712 domain; the older
+published `0xE91b...5171` address is its owner/submitting EOA and has no code. Do not sign
+against or approve that EOA.
+
+Before any settlement attempt, load the same environment as the canary and run:
+
+```bash
+set -a
+. /etc/docket/docket-canary.conf
+set +a
+/opt/docket/.venv/bin/python -m docket.hire.x402 preflight
+```
+
+The command performs read-only chain calls and one facilitator `/verify`; it never calls
+`/settle` or broadcasts a transaction. Require `ready: true`, an empty `missing` list, and
+`settlement_attempted: false`. If it names `allowance`, submit one owner-approved USDT
+`approve(0xE1Af7DaEa624bA3B5073f24A6Ea5531434D82d88, 500000000000000000)` transaction,
+then rerun the preflight. Configuration alone does not change `paid_stock`; the service
+admission must also pass.
 
 Before paid stock opens, the owner may merge the tracked nginx `limit_req` example into the
 live `http` and `/hire/` contexts. Run `deploy/preflight.sh 22` afterward and reload nginx only
@@ -247,9 +272,9 @@ exclusive end is `2026-09-24T00:00:00Z`, so Sep 23 remains inside the monitored 
 This duty cycle comes from the governing win specification. Before owner configuration, a
 run is only a few sequential public HTTP reads. After the owner supplies a funded controlled
 LP and the payment key file, it adds at most one free controlled-position preflight plus one
-exact 0.50 $U paid execution and its rejected replay per day. The preflight proves the
+exact 0.50 USDT paid execution and its rejected replay per day. The preflight proves the
 decision-grade result before anything is spent; the replay is refused before work repeats.
-From Aug 15 through Sep 23 inclusive that is at most 40 runs and 20 $U.
+From Aug 15 through Sep 23 inclusive that is at most 40 runs and 20 USDT.
 
 The canary and registry refresh have different scopes. The canary protects the primary paid
 service and controlled-position claims. The refresh keeps the small, feedback-filtered ERC-8004
@@ -270,6 +295,14 @@ the one-time bootstrap for a new host, not a release step. Neither script create
 are owner actions. The owner-supplied key file must be readable by `docket` without being
 public (for example, `root:docket` mode `0640`). Never put a private key value in the config
 or a unit.
+
+For one real paid hire, fund the payer named by the preflight with at least 0.50 USDT on
+BSC and enough BNB for its one approval transaction, approve exactly the RelayerV3 proxy
+above for at least `500000000000000000` atomic USDT, install the key file, set the payment
+environment above plus `DOCKET_CANARY_PRIVATE_KEY_FILE`, and require the preflight to pass.
+The hire transfers exactly 0.50 USDT. The payer also bears the BNB gas for approval; its
+exact amount is determined by that transaction's gas use and gas price, so this runbook does
+not invent a fixed figure.
 
 ## Six-hour targeted registry refresh
 

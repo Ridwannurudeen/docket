@@ -309,7 +309,7 @@ GET /hire
                         reproducibility input the page groups under its disclosure;
                         `example_note` is the sentence shown beside a controlled default
       typical_seconds   how long one run usually takes
-      price_display     the flat price after admission, "0.50 $U"
+      price_display     the flat price after admission, "0.50 USDT"
       price_atomic      the same price in the asset's smallest unit
       asset             the token contract the price is denominated in
       paid_stock        whether all four admission facts currently pass, recomputed
@@ -810,7 +810,7 @@ can do both with curl and no setup.
 
 Every service currently runs as an unsigned preview. None currently passes all four
 admission facts, so none is offered as Pay and hire: Grid, Health and Yield are preview;
-SOLVENT is research; Warden is beta; Range is a candidate. The published 0.50 $U is the
+SOLVENT is research; Warden is beta; Range is a candidate. The published 0.50 USDT is the
 flat term that applies after admission, not evidence that a service is on sale today.
 
 Admission requires a fresh paired benchmark, a passing cold canary, a decision-grade
@@ -884,12 +884,15 @@ payment.status has these delivered-result values.
 
 When an admitted, configured service exhausts its free allowance, an unsigned request gets
 429 with Retry-After and an x402 v2 challenge with resource and accepts. Its one offer is
-exact EIP-3009 on eip155:56
-using $U. The PaymentPayload repeats the accepted requirements and carries signature
-plus authorization {from,to,value,validAfter,validBefore,nonce}.
+exact B402 RelayerV3 authorization on eip155:56 using BSC USDT at
+0x55d398326f99059fF775485246999027B3197955. The PaymentPayload repeats the accepted
+requirements and carries signature plus authorization
+{token,from,to,value,validAfter,validBefore,nonce}. The EIP-712 domain is B402, version 1,
+chain 56, verifying contract 0xE1Af7DaEa624bA3B5073f24A6Ea5531434D82d88. The payer
+must approve that RelayerV3 proxy as USDT spender before the facilitator can accept it.
 
-Docket first requires the exact version, resource, requirements, amount, recipient,
-asset domain, canonical TransferWithAuthorization fields and active validity window,
+Docket first requires the exact version, resource, requirements, signed token, amount,
+recipient, Relayer domain, canonical TransferWithAuthorization fields and active validity window,
 then recovers the payer. It asks the configured facilitator to verify, atomically binds
 nonce and payment_id to service, resource and input hash, and only then runs the work.
 After a service returns a non-empty human-readable result, Docket adds the output hash,
@@ -906,11 +909,13 @@ The header opens only the measured payment path: it does not alter the public ad
 facts or make `paid_stock` true. A missing or rejected value cannot bootstrap the path;
 public callers must not send or attempt to discover it.
 
-Local signature checks do not read the payer's balance, token authorization state or
-chain finality. Those are responsibilities of the configured live facilitator. The
-current repository fixtures prove Docket's adapter boundary and state transitions,
-not compatibility with any particular facilitator. No concrete facilitator is enabled
-unless the owner supplies and authorizes one.
+The deployed b402 adapter maps the header to the facilitator's smaller
+paymentPayload.{token,payload} and paymentRequirements.{network,relayerContract} body;
+the generic adapter retains the full v2 envelope. Live settlement remains disabled until
+the owner enables it. Before that, `python -m docket.hire.x402 preflight` reads the payer's
+USDT balance and Relayer allowance, whitelist, pause state, bytecode and domain, then sends
+one signed `/verify` request without calling `/settle`. Its report never contains the key,
+signature or authorization. A facilitator response is still not proof of chain finality.
 
 
 ## Escrow: the other rail, and the week it takes
