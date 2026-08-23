@@ -12,6 +12,7 @@ from docket.hire.x402 import (
     B402_NETWORK,
     B402_RELAYER,
     BSC_CHAIN_ID,
+    EIP712_DOMAINS,
     GENERIC_FACILITATOR,
     TRANSFER_WITH_AUTHORIZATION_TYPES,
     FacilitatorClient,
@@ -203,6 +204,29 @@ def test_challenge_declares_the_current_exact_bsc_payment_requirements():
         "verifyingContract": B402_RELAYER,
         "relayerContract": B402_RELAYER,
     }
+
+
+def test_b402_terms_pin_the_live_token_relayer_and_domain():
+    assert USDT_TOKEN == "0x55d398326f99059fF775485246999027B3197955"
+    assert B402_RELAYER == "0xE1Af7DaEa624bA3B5073f24A6Ea5531434D82d88"
+    assert EIP712_DOMAINS[USDT_TOKEN.lower()] == {
+        "name": "B402",
+        "version": "1",
+        "chainId": 56,
+        "verifyingContract": "0xE1Af7DaEa624bA3B5073f24A6Ea5531434D82d88",
+    }
+    assert [
+        field["name"]
+        for field in TRANSFER_WITH_AUTHORIZATION_TYPES["TransferWithAuthorization"]
+    ] == [
+        "token",
+        "from",
+        "to",
+        "value",
+        "validAfter",
+        "validBefore",
+        "nonce",
+    ]
 
 
 def test_one_canonical_exact_authorization_verifies_and_exposes_its_nonce():

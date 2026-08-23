@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timezone
 
 import httpx
+import pytest
 
 from docket.canary import (
     END_AT,
@@ -11,9 +12,9 @@ from docket.canary import (
     main,
     run_from_environment,
 )
-from docket.hire.catalogue import U_TOKEN
+from docket.hire.catalogue import USDT_TOKEN
 from docket.hire.receipts import canonical_hash
-from docket.hire.x402 import verify_payment
+from docket.hire.x402 import B402_NETWORK, B402_RELAYER, EIP712_DOMAINS, verify_payment
 from docket.store import Store
 
 
@@ -22,6 +23,7 @@ BASE_URL = "https://docket.example"
 WALLET = "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"
 TOKEN_ID = 7_087_132
 PAY_TO = "0x" + "11" * 20
+FACILITATOR_URL = "https://facilitatorv3.b402.ai/api/v1"
 
 
 def _environment(tmp_path, *, controlled_lp=False, paid=False):
@@ -29,6 +31,10 @@ def _environment(tmp_path, *, controlled_lp=False, paid=False):
         "DOCKET_DB": str(tmp_path / "agents.sqlite3"),
         "DOCKET_CANARY_BASE_URL": BASE_URL,
         "DOCKET_CANARY_END_AT": END_AT.isoformat().replace("+00:00", "Z"),
+        "DOCKET_FACILITATOR_KIND": "b402",
+        "DOCKET_FACILITATOR_URL": FACILITATOR_URL,
+        "DOCKET_PAYMENT_TOKEN": USDT_TOKEN,
+        "DOCKET_B402_RELAYER_CONTRACT": B402_RELAYER,
     }
     if controlled_lp:
         environment.update(
@@ -164,6 +170,39 @@ def _decision_grade_result():
     }
 
 
+def _b402_challenge(request, *, asset=USDT_TOKEN, extra_overrides=None):
+    extra = {
+        "assetTransferMethod": "b402-relayer",
+        **EIP712_DOMAINS[USDT_TOKEN.lower()],
+        "relayerContract": B402_RELAYER,
+    }
+    extra.update(extra_overrides or {})
+    return httpx.Response(
+        402,
+        json={
+            "x402Version": 2,
+            "resource": {
+                "url": str(request.url),
+                "description": "Range Doctor",
+                "mimeType": "application/json",
+            },
+            "accepts": [
+                {
+                    "scheme": "exact",
+                    "network": "eip155:56",
+                    "amount": str(HIRE_PRICE_ATOMIC),
+                    "asset": asset,
+                    "payTo": PAY_TO,
+                    "maxTimeoutSeconds": 300,
+                    "extra": extra,
+                }
+            ],
+            "error": {"code": "payment_invalid", "message": "fixture"},
+        },
+        request=request,
+    )
+
+
 def test_an_unfunded_canary_records_three_passes_and_never_greens_skipped_legs(
     tmp_path,
 ):
@@ -245,34 +284,7 @@ def test_a_complete_paid_canary_settles_once_proves_the_receipt_and_rejects_repl
 
         assert request.headers["x-docket-canary"] == "owner-canary-token-fixture"
         if payment_header == "invalid":
-            return httpx.Response(
-                402,
-                json={
-                    "x402Version": 2,
-                    "resource": {
-                        "url": str(request.url),
-                        "description": "Range Doctor",
-                        "mimeType": "application/json",
-                    },
-                    "accepts": [
-                        {
-                            "scheme": "exact",
-                            "network": "eip155:56",
-                            "amount": str(HIRE_PRICE_ATOMIC),
-                            "asset": U_TOKEN,
-                            "payTo": PAY_TO,
-                            "maxTimeoutSeconds": 300,
-                            "extra": {
-                                "assetTransferMethod": "eip3009",
-                                "name": "United Stables",
-                                "version": "1",
-                            },
-                        }
-                    ],
-                    "error": {"code": "payment_invalid", "message": "fixture"},
-                },
-                request=request,
-            )
+            return _b402_challenge(request)
         paid_headers.append(payment_header)
         payment = json.loads(base64.b64decode(payment_header, validate=True))
         verified, reason = verify_payment(
@@ -281,13 +293,13 @@ def test_a_complete_paid_canary_settles_once_proves_the_receipt_and_rejects_repl
                 "scheme": "exact",
                 "network": "eip155:56",
                 "amount": str(HIRE_PRICE_ATOMIC),
-                "asset": U_TOKEN,
+                "asset": USDT_TOKEN,
                 "payTo": PAY_TO,
                 "maxTimeoutSeconds": 300,
                 "extra": {
-                    "assetTransferMethod": "eip3009",
-                    "name": "United Stables",
-                    "version": "1",
+                    "assetTransferMethod": "b402-relayer",
+                    **EIP712_DOMAINS[USDT_TOKEN.lower()],
+                    "relayerContract": B402_RELAYER,
                 },
             },
             expected_resource={
@@ -299,8 +311,11 @@ def test_a_complete_paid_canary_settles_once_proves_the_receipt_and_rejects_repl
         )
         assert verified is not None, reason
         authorization = payment["payload"]["authorization"]
+        assert authorization["token"] == USDT_TOKEN
         assert int(authorization["value"]) == HIRE_PRICE_ATOMIC
         assert authorization["to"] == PAY_TO
+        assert isinstance(authorization["validAfter"], int)
+        assert isinstance(authorization["validBefore"], int)
         if len(paid_headers) == 2:
             assert paid_headers[1] == paid_headers[0]
             return httpx.Response(
@@ -321,13 +336,13 @@ def test_a_complete_paid_canary_settles_once_proves_the_receipt_and_rejects_repl
             "payment": {
                 "status": "settled",
                 "amount": str(HIRE_PRICE_ATOMIC),
-                "asset": U_TOKEN,
+                "asset": USDT_TOKEN,
                 "payer": authorization["from"],
                 "recipient": PAY_TO,
                 "nonce": authorization["nonce"],
                 "payment_id": "0xpayment",
                 "transaction_id": "0xsettlement",
-                "network": "eip155:56",
+                "network": B402_NETWORK,
             },
         }
         return httpx.Response(
@@ -351,10 +366,110 @@ def test_a_complete_paid_canary_settles_once_proves_the_receipt_and_rejects_repl
     assert '"authorization"' not in durable
 
 
+def test_a_paid_canary_refuses_an_incoherent_relayer_before_reading_the_key(
+    tmp_path,
+):
+    environment = _environment(tmp_path, controlled_lp=True, paid=True)
+    environment["DOCKET_B402_RELAYER_CONTRACT"] = "0x" + "22" * 20
+    environment["DOCKET_CANARY_PRIVATE_KEY_FILE"] = str(tmp_path / "missing-key.txt")
+    store = Store(environment["DOCKET_DB"])
+    hire_requests = []
+
+    def handler(request):
+        if request.url.path != "/hire/range-doctor":
+            return _public_response(request, store)
+        hire_requests.append(dict(request.headers))
+        return httpx.Response(
+            200,
+            json={
+                "result": _decision_grade_result(),
+                "receipt": {"payment": {"status": "free_tier"}},
+            },
+            request=request,
+        )
+
+    outcome = run_from_environment(
+        environment,
+        now=NOW,
+        transport=httpx.MockTransport(handler),
+        store=store,
+    )
+
+    assert outcome.verdict == "failed"
+    settlement = outcome.checks[4]
+    assert settlement["status"] == "failed"
+    assert settlement["observed"] == {"exercised": False}
+    assert settlement["evidence"]["configuration_error"] == (
+        f"DOCKET_B402_RELAYER_CONTRACT must be {B402_RELAYER}"
+    )
+    assert len(hire_requests) == 1
+    assert "x-payment" not in hire_requests[0]
+    assert "x-docket-canary" not in hire_requests[0]
+
+
+@pytest.mark.parametrize(
+    ("tampered_asset", "extra_overrides"),
+    (
+        ("0x" + "22" * 20, None),
+        (USDT_TOKEN, {"relayerContract": "0x" + "22" * 20}),
+        (USDT_TOKEN, {"verifyingContract": "0x" + "22" * 20}),
+    ),
+)
+def test_a_paid_canary_refuses_a_challenge_outside_the_configured_b402_boundary(
+    tmp_path, monkeypatch, tampered_asset, extra_overrides
+):
+    environment = _environment(tmp_path, controlled_lp=True, paid=True)
+    store = Store(environment["DOCKET_DB"])
+    signed = False
+
+    def refuse_signing(*_args, **_kwargs):
+        nonlocal signed
+        signed = True
+        raise AssertionError("an invalid challenge must not be signed")
+
+    monkeypatch.setattr("docket.canary.build_signed_payment", refuse_signing)
+
+    def handler(request):
+        if request.url.path != "/hire/range-doctor":
+            return _public_response(request, store)
+        payment_header = request.headers.get("x-payment")
+        if payment_header is None:
+            return httpx.Response(
+                200,
+                json={
+                    "result": _decision_grade_result(),
+                    "receipt": {"payment": {"status": "free_tier"}},
+                },
+                request=request,
+            )
+        assert payment_header == "invalid"
+        return _b402_challenge(
+            request,
+            asset=tampered_asset,
+            extra_overrides=extra_overrides,
+        )
+
+    outcome = run_from_environment(
+        environment,
+        now=NOW,
+        transport=httpx.MockTransport(handler),
+        store=store,
+    )
+
+    assert outcome.verdict == "failed"
+    settlement = outcome.checks[4]
+    assert settlement["status"] == "failed"
+    assert settlement["evidence"]["error_code"] == "payment_invalid"
+    assert settlement["evidence"].get("error_type") is None
+    assert signed is False
+
+
 def test_a_non_decision_grade_free_preflight_fails_before_any_payment_material_is_read(
     tmp_path,
 ):
     environment = _environment(tmp_path, controlled_lp=True, paid=True)
+    (tmp_path / "canary-key.txt").unlink()
+    (tmp_path / "canary-token.txt").unlink()
     store = Store(environment["DOCKET_DB"])
     hire_headers = []
 

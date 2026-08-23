@@ -4,7 +4,8 @@ from fastapi.testclient import TestClient
 
 from docket.agents.pancake import doctor
 from docket.api import create_app
-from docket.hire.catalogue import SERVICES, PaidStockAdmission, get_service
+from docket.hire.catalogue import SERVICES, USDT_TOKEN, PaidStockAdmission, get_service
+from docket.hire.x402 import B402_RELAYER, EIP712_DOMAINS
 from docket.store import Store
 
 WALLET = "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"
@@ -61,7 +62,9 @@ def test_one_durable_verdict_controls_every_public_admission_surface_without_res
         catalogue = client.get("/hire").json()["services"]
         listing = next(item for item in catalogue if item["id"] == "range-doctor")
         marketplace = client.get("/services").json()["services"]
-        card = next(item for item in marketplace if item["service_id"] == "range-doctor")
+        card = next(
+            item for item in marketplace if item["service_id"] == "range-doctor"
+        )
         detail = client.get("/services/range-doctor").json()
         return listing["paid_stock"], card["paid_stock"], detail["paid_stock"]
 
@@ -93,7 +96,9 @@ def test_one_durable_verdict_controls_every_public_admission_surface_without_res
 
 class _UnusedFacilitator:
     def verify(self, _envelope):
-        raise AssertionError("malformed payment must fail before facilitator verification")
+        raise AssertionError(
+            "malformed payment must fail before facilitator verification"
+        )
 
     def settle(self, _envelope):
         raise AssertionError("malformed payment must never settle")
@@ -124,5 +129,12 @@ def test_the_private_canary_header_opens_only_the_measured_payment_path(
     assert invalid.json()["error"]["code"] == "canary_unauthorized"
     assert challenge.status_code == 402
     assert challenge.json()["error"]["code"] == "payment_invalid"
-    assert challenge.json()["accepts"][0]["amount"] == str(5 * 10**17)
+    offer = challenge.json()["accepts"][0]
+    assert offer["amount"] == str(5 * 10**17)
+    assert offer["asset"] == USDT_TOKEN
+    assert offer["extra"] == {
+        "assetTransferMethod": "b402-relayer",
+        **EIP712_DOMAINS[USDT_TOKEN.lower()],
+        "relayerContract": B402_RELAYER,
+    }
     assert "t" * 64 not in str(client.get("/canary").json())

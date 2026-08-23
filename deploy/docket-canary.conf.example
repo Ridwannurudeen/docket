@@ -4,11 +4,21 @@ DOCKET_CANARY_BASE_URL=https://docket.gudman.xyz
 DOCKET_CANARY_SERVICE_ID=range-doctor
 DOCKET_CANARY_TOKEN_FILE=/etc/docket/docket-canary.token
 
+# Public B402 settlement boundary. Keep these identical to the Docket application settings.
+DOCKET_FACILITATOR_KIND=b402
+DOCKET_FACILITATOR_URL=https://facilitatorv3.b402.ai/api/v1
+DOCKET_PAYMENT_TOKEN=0x55d398326f99059fF775485246999027B3197955
+DOCKET_B402_RELAYER_CONTRACT=0xE1Af7DaEa624bA3B5073f24A6Ea5531434D82d88
+
+# The verify-only preflight uses an owner-supplied BSC mainnet RPC. Its URL may contain
+# credentials, so keep the real URL out of tracked files and never print it.
+# DOCKET_BSC_RPC_URL=https://your-bsc-mainnet-rpc.example
+
 # DOCKET_DB and the exclusive DOCKET_CANARY_END_AT boundary are fixed in the service unit.
 # The installer generates the token file without printing its contents. It does not create
 # the separately owner-supplied payment key file.
 
-# Leave every controlled-LP/payment value below unset until the owner funds the position and
+# Leave every owner-controlled LP/payment setting below unset until the owner funds the payer and
 # authorizes the exact-settlement canary. While they are absent, those legs are recorded as
 # not_yet_exercised; they are never reported as passing.
 # DOCKET_CANARY_WALLET=
@@ -16,4 +26,3 @@ DOCKET_CANARY_TOKEN_FILE=/etc/docket/docket-canary.token
 # DOCKET_CANARY_POSITION_VALUE_USD=
 # DOCKET_CANARY_RECENTER_COST_USD=
 # DOCKET_CANARY_PRIVATE_KEY_FILE=/etc/docket/docket-canary-payment.key
-
