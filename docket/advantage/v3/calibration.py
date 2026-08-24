@@ -103,21 +103,22 @@ def response_path(spec, calibration_dir, evaluator_id: str, ordinal: int) -> Pat
 
 
 def derive_prompt(spec: PairedSpec, calibration_set: bytes, evaluator_id: str) -> bytes:
-    """The prompt as a function of the registration, not as whatever was typed.
+    """The prompt as a function of committed calibration material, not freehand text.
 
     Recording "what was actually sent" cannot be verified past this boundary — a caller who
     sent something else would record something else. Deriving it means the prompt is fixed
-    by the same protocol hash everything else is fixed by, and the request record then
-    carries those exact bytes so a reader can reproduce the ask rather than trust it.
+    by the registered spec and shared calibration-set bytes, and the request record carries
+    those exact bytes so a reader can reproduce the ask rather than trust it.
     """
     shared = json.loads(calibration_set.decode("utf-8"))
     if spec.spec_id == "v3-03-warden-security":
-        prompt_version = "v3.calibration-prompt.v1"
+        prompt_version = "v3.calibration-prompt.v3"
         instruction = (
-            "Answer every case below under the registered rubric. Return JSON: "
+            "Answer every case below. Return exactly one JSON object with this shape: "
             '{"evaluator_id": ..., "results": [{"case_id", "predicted_hostile", '
-            '"predicted_classes"}]}. Use only classes the vendor snapshot publishes. '
-            "This is a calibration set; it is scored once and cannot be reattempted."
+            '"predicted_classes"}]}. Set predicted_classes to a list containing only '
+            "labels from class_vocabulary. Do not include prose or Markdown fences. This "
+            "is a calibration set; it is scored once and cannot be reattempted."
         )
     else:
         prompt_version = "v3.calibration-prompt.v2"
@@ -131,13 +132,16 @@ def derive_prompt(spec: PairedSpec, calibration_set: bytes, evaluator_id: str) -
         "spec_id": spec.spec_id,
         "stage_one_protocol_hash": spec.stage_one_protocol_hash,
         "evaluator_id": evaluator_id,
-        "rubric_criteria": spec.quality_rubric["criteria"],
         "instruction": instruction,
         "cases": [
             {"case_id": case["case_id"], "input": case["input"]}
             for case in shared["cases"]
         ],
     }
+    if spec.spec_id == "v3-03-warden-security":
+        body["class_vocabulary"] = shared["class_vocabulary"]
+    else:
+        body["rubric_criteria"] = spec.quality_rubric["criteria"]
     return (json.dumps(body, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
 
 

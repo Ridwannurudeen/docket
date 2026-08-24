@@ -18,9 +18,13 @@ from docket.advantage.v3 import calibration
 from docket.advantage.v3.spec import load
 
 SPECS_DIR = Path(__file__).resolve().parents[1] / "docket/advantage/v3/specs"
+SOURCES_DIR = Path(__file__).resolve().parents[1] / "docket/advantage/v3/sources"
 SPEC = load(SPECS_DIR / "v3-03-warden-security.json")
 YIELD_SPEC = load(SPECS_DIR / "v3-02-yield-router.json")
 SEAT = "seat-a"
+WARDEN_CLASSES = json.loads(
+    (SOURCES_DIR / "warden-vendor-snapshot.json").read_text(encoding="utf-8")
+)["classes"]
 
 
 def _shared_set() -> bytes:
@@ -36,7 +40,12 @@ def _shared_set() -> bytes:
             }
         )
     return json.dumps(
-        {"spec_id": SPEC.spec_id, "cases": cases}, sort_keys=True
+        {
+            "spec_id": SPEC.spec_id,
+            "class_vocabulary": WARDEN_CLASSES,
+            "cases": cases,
+        },
+        sort_keys=True,
     ).encode()
 
 
@@ -125,17 +134,33 @@ def _plant_second_attempt(root: Path, raw: bytes) -> None:
 
 def test_the_prompt_is_derived_from_the_registration_not_supplied(tmp_path):
     """Two callers with the same registration derive the same ask, byte for byte."""
-    first = calibration.derive_prompt(SPEC, _shared_set(), SEAT)
-    again = calibration.derive_prompt(SPEC, _shared_set(), SEAT)
+    calibration_set = (SOURCES_DIR / "warden-calibration-set.json").read_bytes()
+    first = calibration.derive_prompt(SPEC, calibration_set, SEAT)
+    again = calibration.derive_prompt(SPEC, calibration_set, SEAT)
     assert first == again
     body = json.loads(first.decode("utf-8"))
-    assert body["prompt_version"] == "v3.calibration-prompt.v1"
+    vendor_snapshot = json.loads(
+        (SOURCES_DIR / "warden-vendor-snapshot.json").read_text(encoding="utf-8")
+    )
+    assert body["prompt_version"] == "v3.calibration-prompt.v3"
     assert body["stage_one_protocol_hash"] == SPEC.stage_one_protocol_hash
+    assert body["class_vocabulary"] == vendor_snapshot["classes"]
+    assert "rubric_criteria" not in body
+    assert "exactly one JSON object" in body["instruction"]
+    assert "Do not include prose or Markdown fences" in body["instruction"]
     assert [case["case_id"] for case in body["cases"]] == [
-        f"cal-{n}" for n in range(1, 9)
+        "cal-h1",
+        "cal-h2",
+        "cal-h3",
+        "cal-h4",
+        "cal-b1",
+        "cal-b2",
+        "cal-b3",
+        "cal-b4",
     ]
     # The answer key is not in the ask.
     assert "expected_hostile" not in first.decode("utf-8")
+    assert "expected_classes" not in first.decode("utf-8")
 
 
 def test_pancake_prompt_requests_submitted_answers():

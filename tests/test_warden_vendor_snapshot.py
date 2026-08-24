@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT = ROOT / "docket/advantage/v3/sources/warden-vendor-snapshot.json"
+CALIBRATION_SET = ROOT / "docket/advantage/v3/sources/warden-calibration-set.json"
 BODY = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
 
 # The two codes that describe how the scanner reached a detection rather than anything an
@@ -36,6 +37,11 @@ def test_the_vocabulary_is_exactly_the_published_codes_minus_the_exclusions():
     )
     assert len(BODY["published_codes"]) == 11
     assert len(BODY["classes"]) == 9
+
+
+def test_the_calibration_prompt_vocabulary_matches_the_vendor_snapshot():
+    calibration = json.loads(CALIBRATION_SET.read_text(encoding="utf-8"))
+    assert calibration["class_vocabulary"] == BODY["classes"]
 
 
 def test_the_snapshot_carries_the_page_it_was_read_from():

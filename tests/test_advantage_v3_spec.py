@@ -229,13 +229,13 @@ def _input_record(spec: PairedSpec) -> dict:
             }
             for case in range(1, 9)
         ]
-    shared_body = json.dumps(
-        {
-            "spec_id": spec.spec_id,
-            "cases": shared_cases,
-        },
-        sort_keys=True,
-    ).encode()
+    shared_record = {
+        "spec_id": spec.spec_id,
+        "cases": shared_cases,
+    }
+    if spec.spec_id == "v3-03-warden-security":
+        shared_record["class_vocabulary"] = [f"class-{number}" for number in range(4)]
+    shared_body = json.dumps(shared_record, sort_keys=True).encode()
     calibration = []
     for number, evaluator in enumerate(spec.scoring["evaluator_roster"], start=1):
         if spec.spec_id == "v3-03-warden-security":
