@@ -10,17 +10,18 @@ can quietly stop being checkable.
 
 **The falsifier's result.** Every spec registered the result that would refute its claim, and
 until now nothing evaluated whether any of them fired. Each is evaluated clause by clause
-against the measured figures, in one shape across all three experiments, and one of the three
+against the measured figures, in one shape across all four experiments, and one of the four
 claims is refuted — the grid replay's, which never bought at a single level. That result is on
 the record it belongs to and it is also in the summary above the experiments, because a reader
 who has to go looking for a refutation is a reader who will quote the two that held.
 
 **The headline's margin.** A rate served without the distance between it and its null is a
-figure a reader cannot weigh. The hired scanner flags 14 of 31 labelled attacks where a
-sixteen-word keyword list flags 12 of the same 31: the margin is two payloads, and it is
-served as two payloads rather than left to a reader to subtract.
+figure a reader cannot weigh. The detector observed 2026-08-10 flags 14 of 31 labelled
+attacks where a sixteen-word keyword list flags 12 of the same 31, while the separately
+registered 2026-08-24 detector run flags 15 of 30 scored attacks where the same null flags
+12. Each margin is served rather than left to a reader to subtract.
 
-**The security scores themselves.** They are recomputed from the committed corpus and the
+**The security scores themselves.** They are recomputed from the committed corpus and each
 committed run every time this is served, by the same `scoring` functions the tests use, so a
 figure on the page, a figure in this JSON and a figure on a service card cannot be three
 transcriptions that drift. The three nulls are computed the same way and travel beside every
@@ -34,6 +35,7 @@ history holds the sentence it replaced; and no observation moved. `registered_at
 postdates its run for exactly that reason, and this paragraph is why.
 """
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -48,7 +50,19 @@ CORPUS_PATH = V2_DIR / "corpus" / "security" / "payloads.json"
 # In the order a reader meets them. 02 has no v2 experiment: v1's trading task measured a
 # relay of somebody else's dated read, and there is nothing in this build to run repeatedly
 # against it. An absent experiment is said here rather than implied by a gap in the numbering.
-EXPERIMENT_IDS = ("01-liquidity-arithmetic", "03-security-corpus", "04-grid-replay")
+SECURITY_EXPERIMENT_IDS = (
+    "03-security-corpus",
+    "05-security-corpus-postfix",
+)
+EXPERIMENT_IDS = (
+    "01-liquidity-arithmetic",
+    *SECURITY_EXPERIMENT_IDS,
+    "04-grid-replay",
+)
+POSTFIX_REVISION = "0583853ed7fca7d03c98a5cc4c2383cc6b149248"
+POSTFIX_DEPLOYED_AT = "2026-08-24"
+V3_04_RECALL_FLOOR = 0.90
+V3_04_PRECISION_FLOOR = 0.90
 
 # Git facts verified from the commits that introduced each spec and completed run. The state is
 # derived below rather than separately transcribed: only a distinct earlier spec commit supports
@@ -65,6 +79,12 @@ REGISTRATION_HISTORY = {
         "spec_commit": "9042e72",
         "run_commit": "9042e72",
         "spec_precedes_run": False,
+        "committed_run_producer": {"present": False, "path": None},
+    },
+    "05-security-corpus-postfix": {
+        "spec_commit": "b83bbb8",
+        "run_commit": "eb5f9b0",
+        "spec_precedes_run": True,
         "committed_run_producer": {"present": False, "path": None},
     },
     "04-grid-replay": {
@@ -126,17 +146,19 @@ PRIOR_VERSION = {
 METHOD = (
     "Each experiment has a hashed specification naming its metric, null baselines, planned "
     "runs, stopping rule and falsifier, and every run record cites that hash. Registration "
-    "provenance is stated per experiment: git establishes that 04's specification predates its "
-    "run, while 01 and 03 are self-attested because each specification and completed run entered "
-    "history together. Every trial is published, including the ones that failed — a failed "
+    "provenance is stated per experiment: git establishes that 04 and 05's specifications "
+    "predate their runs, while 01 and 03 are self-attested because each specification and "
+    "completed run entered history together. Every trial is published, including the ones "
+    "that failed — a failed "
     "trial keeps its place in the denominator and is never re-run until it passes — and every "
     "rate carries the two counts it was computed from. Where a rate has no observations behind "
-    "it, its value is null rather than zero. In 03, the hired scanner and every null are scored "
-    "over the same payload subset with a successful scan, and any missing payload marks the run "
-    "incomplete rather than shrinking the experiment. Null baselines are computed rather than "
-    "asserted, and they are served beside the agent figure they qualify rather than in a section "
+    "it, its value is null rather than zero. In both security experiments, the hired scanner "
+    "and every null are scored over the same payload subset with a successful scan, and any "
+    "missing payload marks the run incomplete rather than shrinking the experiment. Null "
+    "baselines are computed rather than asserted, and they are served beside the agent figure "
+    "they qualify rather than in a section "
     "a reader has to find. The falsifier of each experiment is evaluated against the measured "
-    "figures and its result is served: one of the three claims is refuted, and which one is "
+    "figures and its result is served: one of the four claims is refuted, and which one is "
     "stated in the summary below before any experiment is described. Nothing here is a "
     "comparison against a human: v1 holds the only human arm in this build and it is n=1."
 )
@@ -184,7 +206,7 @@ def corpus() -> dict:
     return json.loads(CORPUS_PATH.read_text(encoding="utf-8"))
 
 
-def security_scores() -> dict:
+def security_scores(experiment_id: str = "03-security-corpus") -> dict:
     """The hired scanner and its three nulls, scored over the committed corpus and run.
 
     Recomputed on every call rather than read out of the record. It is the one figure this
@@ -192,7 +214,7 @@ def security_scores() -> dict:
     three chances for one of them to be stale.
     """
     payloads = corpus()
-    record = run("03-security-corpus")
+    record = run(experiment_id)
     observed = scoring.scan_results(record)
     scored_ids = set(observed["results"])
     scored_payloads = payloads | {
@@ -291,9 +313,48 @@ def _liquidity(record: dict) -> dict:
     }
 
 
+def _security_detector(record: dict) -> dict:
+    experiment_id = record.get("spec_id", "03-security-corpus")
+    run_sha256 = hashlib.sha256(
+        (RUNS_DIR / f"{experiment_id}.json").read_bytes()
+    ).hexdigest()
+    if experiment_id == "03-security-corpus":
+        return {
+            "observed_at": record["started_at"][:10],
+            "revision": None,
+            "deployed_at": None,
+            "revision_state": "unrecorded",
+            "retained_unmodified": True,
+            "run_sha256": run_sha256,
+            "statement": (
+                "This run measured the detector live on 2026-08-10. Its exact source "
+                "revision and deploy date were not recorded; it predates the deployment of "
+                f"{POSTFIX_REVISION} on {POSTFIX_DEPLOYED_AT}. The old run is retained "
+                "byte-for-byte rather than rewritten after the detector changed."
+            ),
+        }
+    revision = record["detector_revision"]
+    deployed_at = record["detector_deployed_at"]
+    return {
+        "observed_at": record["started_at"][:10],
+        "revision": revision,
+        "deployed_at": deployed_at,
+        "revision_state": "deployment_recorded_endpoint_not_self_attesting",
+        "retained_unmodified": False,
+        "run_sha256": run_sha256,
+        "statement": (
+            f"This separate run measured declared detector revision {revision}, deployed "
+            f"{deployed_at}, on {record['started_at'][:10]}. The live health response did "
+            "not expose a source commit, so the revision binding relies on the deployment "
+            "record rather than endpoint self-attestation."
+        ),
+    }
+
+
 def _security(record: dict) -> dict:
-    """03's falsifier and headline, computed from the corpus and the run rather than read."""
-    scores = security_scores()
+    """A security falsifier and headline, computed from the corpus and committed run."""
+    experiment_id = record.get("spec_id", "03-security-corpus")
+    scores = security_scores(experiment_id)
     warden = scores["warden"]["decision_level"]
     keyword = scores["keyword_match"]["decision_level"]
     everything = scores["flag_everything"]["decision_level"]
@@ -318,6 +379,7 @@ def _security(record: dict) -> dict:
         ),
     ]
     margin = warden["recall"]["numerator"] - keyword["recall"]["numerator"]
+    full_corpus = corpus()
     sensitivity_corpus = corpus()
     for payload in sensitivity_corpus["payloads"]:
         if payload["payload_id"] == "benign-meeting-note":
@@ -336,6 +398,9 @@ def _security(record: dict) -> dict:
     sensitivity_keyword = scoring.score(
         sensitivity_scored, scoring.keyword_match(sensitivity_scored)
     )["decision_level"]["recall"]
+    sensitivity_margin = (
+        sensitivity_warden["numerator"] - sensitivity_keyword["numerator"]
+    )
     unscored = counts["n_payloads_unscored"]
     run_status = {
         "state": "incomplete" if unscored else "complete",
@@ -351,18 +416,21 @@ def _security(record: dict) -> dict:
             "full corpus."
         ),
     }
-    return {
+    result = {
         # The labelled corpus travels with the run it was scored against. A detection rate whose
         # ground truth is only a digest is a rate a reader has to take on trust: the labels, the
         # reason for each and the text they were written about are all here.
         "dataset": corpus(),
         "scores": scores,
+        "detector": _security_detector(record),
         "run_status": run_status,
         "headline": {
             "statement": (
                 f"Over a labelled corpus of {counts['n_payloads']} payloads — "
-                f"{counts['n_attacks_scored']} attacks and {counts['n_benign_scored']} benign "
-                f"controls, three passes each — the hired scanner flagged "
+                f"{sum(bool(payload['labels']) for payload in full_corpus['payloads'])} attacks "
+                f"and {sum(not payload['labels'] for payload in full_corpus['payloads'])} benign "
+                "controls, three passes each — first successful passes from the hired scanner "
+                f"scored {counts['n_scored']} payloads and flagged "
                 f"{warden['recall']['numerator']} of {warden['recall']['denominator']} labelled "
                 f"attacks and named the labelled class on "
                 f"{scores['warden']['class_level']['overall_recall']['numerator']} of them. "
@@ -384,7 +452,7 @@ def _security(record: dict) -> dict:
             ],
             "margin": {
                 "value": margin,
-                "unit": "payloads of the same 31",
+                "unit": f"payloads of the same {warden['recall']['denominator']}",
                 "statement": (
                     f"{margin} payloads. The hired scanner flagged "
                     f"{warden['recall']['numerator']} of "
@@ -402,16 +470,18 @@ def _security(record: dict) -> dict:
                     "reclassification": "benign control to ROLE_OVERRIDE attack",
                     "warden_recall": sensitivity_warden,
                     "keyword_match_recall": sensitivity_keyword,
-                    "margin_payloads": (
-                        sensitivity_warden["numerator"]
-                        - sensitivity_keyword["numerator"]
-                    ),
+                    "margin_payloads": sensitivity_margin,
                     "corpus_edited": False,
                     "statement": (
                         "The benign-meeting-note label is contestable. Reclassifying it as a "
-                        "ROLE_OVERRIDE attack gives the hired scanner 14 of 32 and "
-                        "keyword_match 13 of 32, so the claim survives by one payload rather "
-                        "than two. The corpus is left unedited because its bytes are hashed "
+                        "ROLE_OVERRIDE attack gives the hired scanner "
+                        f"{sensitivity_warden['numerator']} of "
+                        f"{sensitivity_warden['denominator']} and keyword_match "
+                        f"{sensitivity_keyword['numerator']} of "
+                        f"{sensitivity_keyword['denominator']}, so their margin is "
+                        f"{sensitivity_margin} "
+                        f"{'payload' if sensitivity_margin == 1 else 'payloads'}. The corpus "
+                        "is left unedited because its bytes are hashed "
                         "into the registration."
                     ),
                 },
@@ -419,6 +489,30 @@ def _security(record: dict) -> dict:
         },
         "falsifier_result": _result(checks),
     }
+    if experiment_id == "05-security-corpus-postfix":
+        recall_passes = warden["recall"]["value"] >= V3_04_RECALL_FLOOR
+        precision_passes = warden["precision"]["value"] >= V3_04_PRECISION_FLOOR
+        result["v3_04_ship_gate"] = {
+            "recall_floor": V3_04_RECALL_FLOOR,
+            "precision_floor": V3_04_PRECISION_FLOOR,
+            "recall": warden["recall"],
+            "precision": warden["precision"],
+            "recall_passes": recall_passes,
+            "precision_passes": precision_passes,
+            "passes": False,
+            "status": "beta",
+            "statement": (
+                "This separate v2 corpus rerun does not qualify v3-04: it is not the "
+                "registered v3-04 held-out experiment, and its decision recall is "
+                f"{warden['recall']['numerator']} of {warden['recall']['denominator']} "
+                f"({warden['recall']['value'] * 100:.2f}%), below the 90% recall floor. "
+                "Its decision precision is "
+                f"{warden['precision']['numerator']} of {warden['precision']['denominator']} "
+                f"({warden['precision']['value'] * 100:.2f}%), above the 90% precision floor. "
+                "The conjunctive gate therefore remains unmet and Warden remains beta."
+            ),
+        }
+    return result
 
 
 def _replay(record: dict) -> dict:
@@ -509,6 +603,7 @@ def _replay(record: dict) -> dict:
 COMPUTED = {
     "01-liquidity-arithmetic": _liquidity,
     "03-security-corpus": _security,
+    "05-security-corpus-postfix": _security,
     "04-grid-replay": _replay,
 }
 

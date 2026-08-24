@@ -338,16 +338,21 @@ Additive, not a replacement. `/advantage.json` is untouched and is where the onl
 comparison against a person lives — performed by hand, once, n=1. v2 measures agent work
 against null baselines that are computed rather than asserted, over repeated trials,
 against a metric and a falsifier in a hashed specification that every run record cites.
-Git establishes 04's specification-before-run ordering; 01 and 03 are self-attested
-because each specification and completed run first entered git together. The provenance
-object also discloses 03's post-run claim and question re-registrations. `summary` names
-the claim that was refuted before any experiment is described.
+Git establishes 04 and 05's specification-before-run ordering; 01 and 03 are
+self-attested because each specification and completed run first entered git together.
+The provenance object also discloses 03's post-run claim and question re-registrations.
+`summary` names the claim that was refuted before any experiment is described.
 
 | Experiment | Result | The figure, with its null |
 | --- | --- | --- |
 | `01-liquidity-arithmetic` | Survived | Over 22 eligible pools, quoting the gross fee rate moves the published rate by a median of 1.2678 percentage points against 0.0009 for reading displayed figures rather than raw ones; the gross gap is the larger on 22 of 22 pools. |
-| `03-security-corpus` | Survived by two payloads | 14 of 31 labelled attacks flagged, against 12 of the same 31 for a stated 16-word keyword list. Precision 14 of 15 against a corpus base rate of 31 of 47. Nine of 141 scans failed and are counted as failed trials, not misses. |
+| `03-security-corpus` | Survived by two payloads | The live detector observed 2026-08-10, whose exact source revision and deploy date were not recorded, flagged 14 of 31 labelled attacks against 12 of the same 31 for the stated keyword list. Precision was 14 of 15 against a corpus base rate of 31 of 47. Nine of 141 scans failed; the run is retained unmodified. |
+| `05-security-corpus-postfix` | Survived by three payloads | Warden revision `0583853ed7fca7d03c98a5cc4c2383cc6b149248`, deployed 2026-08-24, flagged 15 of 30 scored attacks against 12 of the same 30 for the stated keyword list. Precision was 15 of 16 against a scored-subset base rate of 30 of 46. Sixteen of 141 scans failed and one hostile payload was unscored, leaving every numerator and denominator. This v2 result misses the 90% recall limb, so it does not qualify v3-04 and Warden remains beta. |
 | `04-grid-replay` | **Refuted** | No transaction was sent; this is a replay, not a trading record. Over 744 recorded candles, 0 of 5 buy levels fired, so there is no average buy price to compare and the record says the comparison is empty. |
+
+Every failed security scan in both dated runs was an HTTP 429 rate limit. The older
+experiment remains readable beside the post-deploy run; neither is a substitute for the
+registered held-out v3-04 evaluation.
 
 Never quote a v2 figure without the null it was read against — they are in the same
 object for that reason. Never describe the replay as a trade, a return or a backtest

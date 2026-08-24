@@ -609,15 +609,18 @@ def test_no_service_claims_a_registration_document_docket_does_not_serve():
 
 
 def test_each_service_points_at_its_own_recorded_run():
-    """warden-scan cites two: the v1 task it lost on substance, and the v2 experiment that
-    asked the same question over a labelled corpus. Both are runs it stands behind and a
-    reader can open, and the later one does not replace the earlier."""
+    """warden-scan cites the v1 task and both dated v2 corpus experiments. Each run remains
+    openable, and the post-deploy measurement does not replace the earlier record."""
     expected = {
         "grid-operator": ["/services/grid-operator"],
         "health-guard": ["/services/health-guard"],
         "range-doctor": ["/advantage#01-liquidity"],
         "solvent-signal": ["/advantage#02-trading"],
-        "warden-scan": ["/advantage#03-security", "/advantage/v2#03-security-corpus"],
+        "warden-scan": [
+            "/advantage#03-security",
+            "/advantage/v2#03-security-corpus",
+            "/advantage/v2#05-security-corpus-postfix",
+        ],
         "yield-router": ["/services/yield-router"],
     }
     for service_id, urls in expected.items():
@@ -724,6 +727,24 @@ def test_warden_scans_record_carries_the_run_it_lost():
     limitations = SERVICES["warden-scan"].limitations.lower()
     assert "three of those four survive verbatim" in limitations
     assert "one observation, not a pattern" in limitations
+
+
+def test_warden_card_recomputes_both_dated_corpus_measurements():
+    record = SERVICES["warden-scan"]
+    old = _figure(record, "Labelled attacks flagged")
+    postfix = _figure(
+        record, "Labelled attacks flagged after the 2026-08-24 detector deploy"
+    )
+
+    assert (old.numerator, old.denominator) == (14, 31)
+    assert "exact source revision and deploy date were not recorded" in old.method
+    assert (postfix.numerator, postfix.denominator) == (15, 30)
+    assert "15 of 16" in postfix.method
+    assert "16 of the 141 logical scans failed" in postfix.method
+    assert "1 hostile payload was unscored" in postfix.method
+    assert "0583853ed7fca7d03c98a5cc4c2383cc6b149248" in postfix.method
+    assert "cannot qualify the held-out v3-04 gate" in postfix.method
+    assert "warden remains beta" in record.limitations.lower()
 
 
 def test_range_doctor_states_the_limits_its_own_audit_named():

@@ -461,13 +461,9 @@ def create_app(
     # off and only the bounded free tier remains. Read once here rather than per
     # request: the terms a caller is quoted must not change under it mid-session.
     pay_to = os.environ.get("DOCKET_PAY_TO") or None
-    facilitator_kind = (
-        os.environ.get("DOCKET_FACILITATOR_KIND") or GENERIC_FACILITATOR
-    )
+    facilitator_kind = os.environ.get("DOCKET_FACILITATOR_KIND") or GENERIC_FACILITATOR
     if facilitator_kind not in FACILITATOR_KINDS:
-        raise RuntimeError(
-            "DOCKET_FACILITATOR_KIND must be either b402 or generic"
-        )
+        raise RuntimeError("DOCKET_FACILITATOR_KIND must be either b402 or generic")
     if facilitator is None and os.environ.get("DOCKET_ENABLE_SETTLEMENT") == "1":
         facilitator_url = os.environ.get("DOCKET_FACILITATOR_URL")
         if not facilitator_url or not pay_to:
@@ -812,16 +808,16 @@ def create_app(
     def advantage_v2_json() -> dict:
         """The second report: hashed experiments with registration provenance stated per
         experiment, every run behind them, and each registered falsifier evaluated against
-        what was measured. Git establishes 04's specification-before-run ordering; 01 and 03
-        are self-attested because each specification and completed run first entered git
-        together.
+        what was measured. Git establishes 04 and 05's specification-before-run ordering;
+        01 and 03 are self-attested because each specification and completed run first
+        entered git together.
 
         Additive. `/advantage.json` above is untouched and stays the prior version rather
         than a superseded one, and this document links back to it in `prior_version`. What
         is new here is the shape rather than the subject: a hashed specification cited by its
         run, null baselines computed and served beside every agent figure, every trial
         including the ones that failed, and — the thing nothing served until now — the
-        result of each falsifier, computed. One of the three claims is refuted, and `summary`
+        result of each falsifier, computed. One of the four claims is refuted, and `summary`
         says which before the experiments begin.
         """
         return advantage_v2

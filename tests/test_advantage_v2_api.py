@@ -50,7 +50,12 @@ ROOT = Path(__file__).resolve().parents[1]
 V2 = ROOT / "docket" / "advantage" / "v2"
 WEB = ROOT / "docket" / "api" / "web"
 STATIC = ROOT / "docket" / "api" / "static"
-EXPERIMENT_IDS = ("01-liquidity-arithmetic", "03-security-corpus", "04-grid-replay")
+EXPERIMENT_IDS = (
+    "01-liquidity-arithmetic",
+    "03-security-corpus",
+    "05-security-corpus-postfix",
+    "04-grid-replay",
+)
 # The same four words v1's page is held to. They are re-stated rather than imported, because
 # the ban has to survive v1's test file being read, moved or retired.
 VERDICT_WORDS = ("best", "superior", "proves", "guaranteed")
@@ -129,12 +134,16 @@ def test_registration_provenance_is_served_per_experiment_and_visible_on_the_pag
     } == {
         "01-liquidity-arithmetic": "self_attested",
         "03-security-corpus": "self_attested",
+        "05-security-corpus-postfix": "git_provable",
         "04-grid-replay": "git_provable",
     }
     assert provenance["01-liquidity-arithmetic"]["spec_commit"] == "b9578b8"
     assert provenance["01-liquidity-arithmetic"]["run_commit"] == "b9578b8"
     assert provenance["03-security-corpus"]["spec_commit"] == "9042e72"
     assert provenance["03-security-corpus"]["run_commit"] == "9042e72"
+    assert provenance["05-security-corpus-postfix"]["spec_commit"] == "b83bbb8"
+    assert provenance["05-security-corpus-postfix"]["run_commit"] == "eb5f9b0"
+    assert provenance["05-security-corpus-postfix"]["spec_precedes_run"] is True
     assert provenance["04-grid-replay"]["spec_commit"] == "b47c307"
     assert provenance["04-grid-replay"]["run_commit"] == "9168194"
     assert provenance["04-grid-replay"]["spec_precedes_run"] is True
@@ -144,6 +153,10 @@ def test_registration_provenance_is_served_per_experiment_and_visible_on_the_pag
     )
     assert (
         provenance["03-security-corpus"]["committed_run_producer"]["present"] is False
+    )
+    assert (
+        provenance["05-security-corpus-postfix"]["committed_run_producer"]["present"]
+        is False
     )
     assert provenance["04-grid-replay"]["committed_run_producer"] == {
         "present": True,
@@ -168,6 +181,11 @@ def test_registration_history_commits_exist_and_04_spec_precedes_run():
             )
     subprocess.run(
         ["git", "merge-base", "--is-ancestor", "b47c307", "9168194"],
+        cwd=ROOT,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "merge-base", "--is-ancestor", "b83bbb8", "eb5f9b0"],
         cwd=ROOT,
         check=True,
     )
@@ -337,6 +355,8 @@ def test_an_unscored_security_payload_marks_the_run_incomplete_and_keeps_null_po
         ],
     }
     record = {
+        "spec_id": "03-security-corpus",
+        "started_at": "2026-08-10T00:00:00+00:00",
         "payloads": [
             {
                 "arm_name": "caught",
@@ -363,7 +383,7 @@ def test_an_unscored_security_payload_marks_the_run_incomplete_and_keeps_null_po
                     }
                 ],
             },
-        ]
+        ],
     }
     monkeypatch.setattr(report, "corpus", lambda: corpus)
     monkeypatch.setattr(report, "run", lambda experiment_id: record)
@@ -452,6 +472,7 @@ def test_every_falsifier_result_is_computed_and_one_of_them_fired(body):
     assert results["04-grid-replay"]["refuted"] is True
     assert results["01-liquidity-arithmetic"]["refuted"] is False
     assert results["03-security-corpus"]["refuted"] is False
+    assert results["05-security-corpus-postfix"]["refuted"] is False
     assert body["summary"]["claims_refuted"] == ["04-grid-replay"]
     assert body["summary"]["n_claims_refuted"] == 1
     assert "refuted" in body["summary"]["statement"]
@@ -520,42 +541,60 @@ def test_replay_discloses_the_post_registration_buy_and_hold_reading(body, page)
 
 def test_the_page_shows_every_run_including_the_ones_that_failed(page, body):
     """Aggregates alone are what this report exists not to be. Every pool row, every payload
-    and every trigger is on the page, and the nine failed scans are shown where they happened
-    rather than filtered into a footnote."""
-    liquidity, security, replay = body["experiments"]
+    and every trigger is on the page, and both runs' failed scans are shown where they
+    happened rather than filtered into a footnote."""
+    liquidity, security, postfix, replay = body["experiments"]
 
     for pool in liquidity["run"]["pools"]:
         assert pool["pair"] in page, pool["pool"]
     for entry in security["run"]["payloads"]:
+        assert entry["arm_name"] in page, entry["arm_name"]
+    for entry in postfix["run"]["payloads"]:
         assert entry["arm_name"] in page, entry["arm_name"]
     for trigger in replay["run"]["replay"]["triggers"]:
         assert str(trigger["open_time"]) in page, trigger["level_index"]
 
     failed = [
         trial
-        for entry in security["run"]["payloads"]
+        for experiment in (security, postfix)
+        for entry in experiment["run"]["payloads"]
         for trial in entry["trials"]
         if trial["error"] is not None
     ]
-    assert len(failed) == 9
-    assert page.count(">failed</span>") == len(failed)
+    assert len(failed) == 25
+    repeated_in_minimal_pair = sum(
+        1
+        for experiment in (security, postfix)
+        for entry in experiment["run"]["payloads"]
+        if entry["arm_name"]
+        in ("minimal-pair-space-joined", "minimal-pair-newline-joined")
+        for trial in entry["trials"]
+        if trial["error"] is not None
+    )
+    assert page.count(">failed</span>") == len(failed) + repeated_in_minimal_pair
 
 
 def test_the_page_states_the_failure_reason_in_the_committed_security_record(
     client, page, body
 ):
-    security = next(
+    security = [
         experiment
         for experiment in body["experiments"]
-        if experiment["experiment_id"] == "03-security-corpus"
-    )
-    errors = [
-        trial["error"]
-        for entry in security["run"]["payloads"]
-        for trial in entry["trials"]
-        if trial["error"] is not None
+        if experiment["experiment_id"]
+        in ("03-security-corpus", "05-security-corpus-postfix")
     ]
-    statement = "All nine security scan failures were identical HTTP 429 rate limits"
+    errors = [
+        [
+            trial["error"]
+            for entry in experiment["run"]["payloads"]
+            for trial in entry["trials"]
+            if trial["error"] is not None
+        ]
+        for experiment in security
+    ]
+    statement = (
+        "Every failed security scan in both dated runs was an HTTP 429 rate limit"
+    )
     shell = (WEB / "advantage-v2.html").read_text(encoding="utf-8")
     served_documents = {
         "/advantage/v2": page,
@@ -563,9 +602,9 @@ def test_the_page_states_the_failure_reason_in_the_committed_security_record(
         "/skill.md": client.get("/skill.md").text,
     }
 
-    assert len(errors) == 9
-    assert len(set(errors)) == 1
-    assert "429 Too Many Requests" in errors[0]
+    assert [len(run_errors) for run_errors in errors] == [9, 16]
+    assert all(len(set(run_errors)) == 1 for run_errors in errors)
+    assert all("429 Too Many Requests" in run_errors[0] for run_errors in errors)
     assert statement in shell
     assert statement in page
     for path, document in served_documents.items():
@@ -580,7 +619,30 @@ def test_the_page_carries_the_headline_figures_with_their_denominators(page):
     assert "12 of 31" in page
     assert "31 of 47" in page
     assert "2 payloads" in page
+    assert "15 of 30" in page
+    assert "12 of 30" in page
+    assert "30 of 46" in page
+    assert "3 payloads" in page
     assert "0 of 5 buy levels" in page or "0 of 5" in page
+
+
+def test_agent_facing_security_copy_keeps_both_detector_records_and_beta_gate(client):
+    documents = {
+        "/llms.txt": client.get("/llms.txt").text,
+        "/skill.md": client.get("/skill.md").text,
+    }
+    for path, document in documents.items():
+        normalized = " ".join(document.split())
+        assert "05-security-corpus-postfix" in normalized, path
+        assert "0583853ed7fca7d03c98a5cc4c2383cc6b149248" in normalized, path
+        assert "2026-08-24" in normalized, path
+        assert "14 of 31" in normalized, path
+        assert "15 of 30" in normalized, path
+        assert "15 of 16" in normalized, path
+        assert (
+            "exact source revision and deploy date were not recorded" in normalized
+        ), path
+        assert "Warden remains beta" in normalized, path
 
 
 def test_the_page_reaches_no_verdict(page):
