@@ -57,7 +57,7 @@ For the frozen v2 analysis, the corpus records the Explorer URL, fetch time, and
 - The public controlled-position history covers one position and currently lacks the owner-decision limb, so it does not show that Docket changed what the owner did. [Public history](https://docket.gudman.xyz/lp-record).
 - The v2 decision-impact measures are post-hoc, and the strongest pool-choice measure found 0 changes across 231 comparisons. [Registration and result](https://docket.gudman.xyz/advantage/v2.json).
 - The dollar figures apply pool-wide rates to declared fixed notionals; they are not this position's earned fees, a forecast, or realized return. [Run method](../../docket/advantage/v2/runs/01-liquidity-arithmetic.json#L25-L27).
-- The preregistered v3 Range family has produced no result: all three v3 families remain `registered_waiting_for_inputs`. [Live v3 report](https://docket.gudman.xyz/advantage/v3.json).
+- The preregistered v3 Range successor has produced no result: v3-05 remains `registered_waiting_for_inputs`, while v3-01 is `superseded_before_input_lock`. [Live v3 report](https://docket.gudman.xyz/advantage/v3.json).
 
 ## Judge path
 

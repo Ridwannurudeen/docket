@@ -64,7 +64,7 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/advantage` | The same report as a page for a human |
 | GET | `/advantage/v2.json` | Hashed experiments with per-experiment registration provenance: every run, the nulls beside every figure, each falsifier's computed result |
 | GET | `/advantage/v2` | The same v2 report as a page for a human |
-| GET | `/advantage/v3.json` | Four pre-registered paired families and each artifact-derived execution or scoring state |
+| GET | `/advantage/v3.json` | Five pre-registered paired families and each artifact-derived execution or scoring state |
 | GET | `/advantage/v3` | The same startup-bound v3 report as a page for a human |
 | GET | `/pancake` | JSON source map by default; the live PancakeSwap evidence dashboard for HTML callers |
 | GET | `/llms.txt` | Full plain-text reference |
@@ -372,8 +372,9 @@ operator.
 
 Read `summary.states` before describing v3. Today every registered `inputs_sha256` is empty,
 no input or run artifact exists, no input is locked, and no timed arm has run. Three families
-are `registered_waiting_for_inputs`; v3-03 Warden is
-`superseded_before_input_lock` by the distinct pilot-informed v3-04 family. The other state
+are `registered_waiting_for_inputs`; v3-01-range-doctor is `superseded_before_input_lock` by the
+distinct archive-pinned v3-05-range-doctor family, and v3-03 Warden has that state under the distinct
+pilot-informed v3-04 family. The other state
 names are `locked_not_run`, `running`, `complete_unscored`, `refuted`, and `not_refuted`.
 Never turn `not_refuted` into "proved".
 

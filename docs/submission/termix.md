@@ -11,8 +11,8 @@
 The honest answer today is mixed. Docket's v1 report alone satisfies that formal eligibility
 gate, but it contains one paired observation per task and records material losses as well as
 wins. The marketplace is not yet open for payment: 0 of 6 catalogue services are in paid stock,
-no settlement has run, and all 4 v3 families still have zero results: 3 wait for inputs and
-the superseded v3-03 Warden family was stopped before input lock.
+no settlement has run, and all 5 v3 families still have zero results: 3 wait for inputs, while
+v3-01 Range and v3-03 Warden were stopped before input lock.
 [Sources: [v1](https://docket.gudman.xyz/advantage.json),
 [catalogue](https://docket.gudman.xyz/hire),
 [canary history](https://docket.gudman.xyz/canary),
@@ -66,13 +66,13 @@ report. [Source: [v2 method and prior-version note](https://docket.gudman.xyz/ad
 
 ### What v3 will add — and what it has not added
 
-V3 registers 5 Range Doctor pairs, 5 Yield Router pairs, and 12 Warden pairs in the active
+V3 registers 3 Range Doctor cases, 5 Yield Router pairs, and 12 Warden pairs in the active
 v3-04 family, retaining first primary outputs and failures under fixed stopping and scoring
-rules. Today Range, Yield, and v3-04 Warden remain `registered_waiting_for_inputs` with empty
-`inputs_sha256`; v3-03 Warden is `superseded_before_input_lock`. These are protocols, not
-results.
+rules. Today v3-05 Range, Yield, and v3-04 Warden remain `registered_waiting_for_inputs` with
+empty `inputs_sha256`; v3-01 Range and v3-03 Warden are `superseded_before_input_lock`. These
+are protocols, not results.
 [Sources: [live v3 state](https://docket.gudman.xyz/advantage/v3.json),
-[Range protocol](../../docket/advantage/v3/specs/v3-01-range-doctor.json),
+[Range protocol](../../docket/advantage/v3/specs/v3-05-range-doctor.json),
 [Yield protocol](../../docket/advantage/v3/specs/v3-02-yield-router.json),
 [Warden protocol](../../docket/advantage/v3/specs/v3-04-warden-security.json)]
 
