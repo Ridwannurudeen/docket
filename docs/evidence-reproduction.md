@@ -120,59 +120,21 @@ must refuse it.
 Do not create the referenced inputs, call `lock_inputs`, or run an arm as part of
 reproduction. Those are future registered-protocol events, not read-only verification.
 
-## Running the evaluator seats
+## Future evaluator-seat operation
 
-This is an operator-only input-lock procedure, not a reproduction step. Run it once on the
-scheduled Warden lock day. Both commands derive `model_build` from the installed CLI's own
-version and resolved-model output before the request record is opened; no model name or build
-string is typed by the operator. The driver checks for a shared session or an already captured
-seat before that lookup. For a new seat, the lookup sends one fixed `MODEL_METADATA_OK` query;
-that provenance query is not the calibration prompt and is not written as a seat attempt.
+This page is read-only evidence reproduction, not an operator procedure. The stopped
+[`runbooks/warden-v3-run.md`](runbooks/warden-v3-run.md) remains the superseded v3-03 record;
+none of its Aug 25 capture, lock or arm commands may be executed.
 
-The complete timed sequence, including the rehearsal, input lock, interactive primary arms,
-blind scoring, ship floors, and archive-RPC decision, is in
-[`runbooks/warden-v3-run.md`](runbooks/warden-v3-run.md). Use that runbook for the Aug 25 run;
-the commands below document only the evaluator-capture and input-lock portion.
+The active v3-04 procedure is
+[`runbooks/warden-v4-run.md`](runbooks/warden-v4-run.md). It contains the mandatory
+2026-08-27T12:00:00Z guard, two distinct real-seat captures, three calibration floors,
+assembly and lock, all 24 primaries, blind scoring and the conjunctive ship decision. The
+two-pilot sequence and separate pre-run validation are preserved in
+[`warden-pilot-history.json`](../docket/advantage/v3/provenance/warden-pilot-history.json).
 
-Run `seat-a` through Codex:
-
-```bash
-python -m docket.advantage.v3.calibration_driver v3-03-warden-security docket/advantage/v3/calibration-captures/2026-08-25 --evaluator-id seat-a --session-id warden-seat-a-2026-08-25T1200Z --calibration-set docket/advantage/v3/sources/warden-calibration-set.json --seat docket.advantage.v3.seats.codex_cli:ask
-```
-
-Run `seat-b` through Claude:
-
-```bash
-python -m docket.advantage.v3.calibration_driver v3-03-warden-security docket/advantage/v3/calibration-captures/2026-08-25 --evaluator-id seat-b --session-id warden-seat-b-2026-08-25T1200Z --calibration-set docket/advantage/v3/sources/warden-calibration-set.json --seat docket.advantage.v3.seats.claude_cli:ask
-```
-
-The session IDs must be distinct: one session ID reported by two seats is one run counted
-twice, and the driver refuses the second request. Each command first writes
-`attempt-01.request.json`, including the exact derived prompt bytes, under
-`docket/advantage/v3/calibration-captures/2026-08-25/v3-03-warden-security/seat-<seat-id>/`.
-It then writes `attempt-01.response.json` with either the untouched response bytes or a
-`no_response` outcome. Do not delete a failed attempt or repeat a captured one; the first
-attempt that returns bytes binds even when its answer fails calibration.
-
-The Claude command disables project instructions, tools, plugins, hooks, MCP configuration,
-and session persistence. Codex runs in the required empty working directory with project and
-user configuration ignored, but this installed CLI still injects the user's global
-`AGENTS.md`; its required `danger-full-access` mode provides no verified hard filesystem-read
-boundary. The Codex adapter therefore prevents repository discovery through its working
-directory and environment, but it must not be described as instruction-free or OS-confined.
-
-After both response records exist, assemble the authored cases, verify both captured rows,
-write `docket/advantage/v3/inputs/03-security-heldout.json`, and save its generated
-`inputs_sha256` into the existing specification in one command:
-
-```bash
-python -m docket.advantage.v3.assemble lock-warden docket/advantage/v3/specs/v3-03-warden-security.json docket/advantage/v3/sources/warden-heldout-cases.json docket/advantage/v3/sources/warden-vendor-snapshot.json docket/advantage/v3/sources/warden-calibration-set.json docket/advantage/v3/calibration-captures/2026-08-25
-```
-
-The lock refuses an uncaptured or edited seat, fewer than seven correct hostile-versus-benign
-decisions, class micro-F1 below the registered floor, a changed vendor snapshot, or an invalid
-held-out envelope. Review and commit the two seat-capture directories, generated input, and the
-specification update together before either scored arm runs.
+Until that future procedure runs, the active v3-04 `inputs_sha256` remains empty and no
+registered input, primary, score sheet or mapping exists. Reproduction must not create one.
 
 ## The Git witness
 
