@@ -40,6 +40,9 @@ PROJECTION_FIELDS = (
     "checks",
 )
 TOKENS = tuple(f"0x{index:040x}" for index in range(1, 9))
+WARDEN_SPEC_ID = "v3-04-warden-security-REHEARSAL-NOT-REGISTERED"
+WARDEN_AGENT_SERVICE_ID = "rehearsal-warden-scan"
+WARDEN_FAMILY_SALT = "warden-v4-rehearsal-blinding"
 
 
 class RehearsalRefused(RuntimeError):
@@ -70,6 +73,31 @@ def _registered_rehearsal_family():
             del spec_module.INPUT_VALIDATORS[SPEC_ID]
         if scoring.FAMILY_PROTOCOLS.get(SPEC_ID) is protocol:
             del scoring.FAMILY_PROTOCOLS[SPEC_ID]
+
+
+@contextmanager
+def _registered_warden_rehearsal_family():
+    if (
+        WARDEN_SPEC_ID in spec_module.INPUT_VALIDATORS
+        or WARDEN_SPEC_ID in scoring.FAMILY_PROTOCOLS
+    ):
+        raise RehearsalRefused(
+            f"the throwaway family {WARDEN_SPEC_ID!r} is already registered"
+        )
+    protocol = dict(scoring.FAMILY_PROTOCOLS["v3-04-warden-security"])
+    protocol["family_salt"] = WARDEN_FAMILY_SALT
+    spec_module.INPUT_VALIDATORS[WARDEN_SPEC_ID] = spec_module._validate_warden_inputs
+    scoring.FAMILY_PROTOCOLS[WARDEN_SPEC_ID] = protocol
+    try:
+        yield
+    finally:
+        if (
+            spec_module.INPUT_VALIDATORS.get(WARDEN_SPEC_ID)
+            is spec_module._validate_warden_inputs
+        ):
+            del spec_module.INPUT_VALIDATORS[WARDEN_SPEC_ID]
+        if scoring.FAMILY_PROTOCOLS.get(WARDEN_SPEC_ID) is protocol:
+            del scoring.FAMILY_PROTOCOLS[WARDEN_SPEC_ID]
 
 
 def _stage_spec(root: Path) -> tuple[PairedSpec, Path]:
@@ -404,6 +432,229 @@ def _score(spec: PairedSpec, root: Path) -> None:
         root / "mappings",
         repo_root=root,
     )
+
+
+def _stage_warden_spec(root: Path) -> tuple[PairedSpec, Path]:
+    packaged = (
+        resources.files("docket.advantage")
+        / "v3"
+        / "specs"
+        / "v3-04-warden-security.json"
+    )
+    registered = load(Path(str(packaged)))
+    body = registered._stage_one_body()
+    body.update(
+        {
+            "spec_id": WARDEN_SPEC_ID,
+            "inputs_ref": "inputs/warden-v4-rehearsal-cases.json",
+            "registration_provenance": (
+                "REHEARSAL ONLY. This synthetic Warden family is created and consumed "
+                "inside one scratch tree. It is not the registered v3-04 validation and "
+                "cannot produce a public Warden result."
+            ),
+            "protocol_correction": {
+                "status": "corrected_before_input_lock",
+                "supersedes_stage_one_protocol_hash": (
+                    registered.stage_one_protocol_hash
+                ),
+                "reason": (
+                    "REHEARSAL ONLY: derive an isolated Warden protocol identity from the "
+                    "packaged v3-04 registration before synthetic calibration, input lock "
+                    "or arm output exists; no registered attempt is consumed."
+                ),
+            },
+        }
+    )
+    execution = dict(body["execution_protocol"])
+    execution.update(
+        {
+            "agent_endpoint": (
+                f"https://rehearsal.invalid/hire/{WARDEN_AGENT_SERVICE_ID}"
+            ),
+            "agent_service_id": WARDEN_AGENT_SERVICE_ID,
+            "agent_request_contract": (
+                "A synthetic endpoint accepts only the locked payload and returns a "
+                "hash-bound free-tier Warden-shaped result."
+            ),
+        }
+    )
+    body["execution_protocol"] = execution
+    scoring_protocol = dict(body["scoring"])
+    scoring_protocol["randomisation"] = scoring_protocol["randomisation"].replace(
+        "warden-v4-blinding", WARDEN_FAMILY_SALT
+    )
+    body["scoring"] = scoring_protocol
+    spec = PairedSpec(**body)
+    path = root / "specs" / f"{WARDEN_SPEC_ID}.json"
+    save(spec, path, repo_root=root)
+    return spec, path
+
+
+def _warden_sources(spec: PairedSpec, root: Path) -> tuple[bytes, bytes, bytes]:
+    packaged = resources.files("docket.advantage") / "v3" / "sources"
+    calibration_body = json.loads(
+        (packaged / "warden-v4-calibration-set.json").read_text(encoding="utf-8")
+    )
+    calibration_body["spec_id"] = spec.spec_id
+    calibration_set = (
+        json.dumps(calibration_body, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    ).encode("utf-8")
+    heldout = (packaged / "warden-v4-heldout-cases.json").read_bytes()
+    vendor = (packaged / "warden-v4-vendor-snapshot.json").read_bytes()
+    source_dir = root / "docket/advantage/v3/sources"
+    source_dir.mkdir(parents=True)
+    (source_dir / "warden-v4-vendor-snapshot.json").write_bytes(vendor)
+    return calibration_set, heldout, vendor
+
+
+def _lock_warden(spec: PairedSpec, spec_path: Path, root: Path) -> PairedSpec:
+    calibration_set, heldout, vendor = _warden_sources(spec, root)
+    shared = json.loads(calibration_set.decode("utf-8"))["cases"]
+
+    def synthetic_seat(prompt: bytes) -> bytes:
+        request = json.loads(prompt.decode("utf-8"))
+        return json.dumps(
+            {
+                "evaluator_id": request["evaluator_id"],
+                "results": [
+                    {
+                        "case_id": case["case_id"],
+                        "predicted_hostile": case["expected_hostile"],
+                        "predicted_verdict": case["expected_verdict"],
+                        "predicted_classes": case["expected_classes"],
+                    }
+                    for case in shared
+                ],
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+
+    calibration_dir = root / "calibration"
+    for index, seat in enumerate(spec.scoring["evaluator_roster"], start=1):
+        calibration_driver.run_seat(
+            spec,
+            calibration_dir,
+            evaluator_id=seat["evaluator_id"],
+            model_build=f"synthetic-warden-seat-{index}",
+            session_id=f"warden-rehearsal-session-{index}",
+            calibration_set=calibration_set,
+            call_seat=synthetic_seat,
+        )
+    envelope = assemble.assemble_warden_envelope(
+        spec,
+        heldout,
+        vendor,
+        calibration_dir=calibration_dir,
+        calibration_set=calibration_set,
+    )
+    assemble.write_envelope(spec, envelope, repo_root=root)
+    locked = lock_inputs(spec, repo_root=root)
+    save(locked, spec_path, repo_root=root)
+    return locked
+
+
+def _warden_output(case: dict) -> dict:
+    verdict = case["expected_verdict"]
+    return {
+        "verdict": verdict,
+        "risk_level": "NONE" if verdict == "ALLOW" else "REGISTERED_FIXTURE",
+        "threat_classes": case["labels"],
+        "detections": [
+            {"class": label, "source": "synthetic rehearsal"}
+            for label in case["labels"]
+        ],
+        "sanitized_payload": (
+            "Synthetic rehearsal removed every registered hostile span."
+            if verdict == "SANITIZE"
+            else None
+        ),
+        "recommendation": "Continue" if verdict == "ALLOW" else "Apply the verdict",
+        "checks": {"synthetic": True, "all_applicable": True},
+    }
+
+
+class _WardenRunClock:
+    def __init__(self):
+        self.calls = 0
+        self.current = 0
+
+    def __call__(self) -> int:
+        slot_index = self.calls // 2
+        ending = self.calls % 2 == 1
+        self.calls += 1
+        if ending:
+            self.current += 40_000_000_000 if slot_index < 12 else 1_000_000_000
+        return self.current
+
+
+def _run_warden_arms(spec: PairedSpec, root: Path) -> None:
+    inputs = scoring.load_inputs(spec, repo_root=root)
+    truth_by_text = {case["text"]: case for case in inputs["cases"]}
+
+    def stub_endpoint(url, *, json, headers, timeout, client=None):
+        if url != spec.execution_protocol["agent_endpoint"]:
+            raise AssertionError("the rehearsal called an unregistered endpoint")
+        result = _warden_output(truth_by_text[json["payload"]])
+        return httpx.Response(
+            200,
+            json={
+                "result": result,
+                "receipt": {
+                    "service": WARDEN_AGENT_SERVICE_ID,
+                    "input_hash": canonical_hash(json),
+                    "output_hash": canonical_hash(result),
+                    "payment": {
+                        "status": "free_tier",
+                        "amount": "0",
+                        "asset": "REHEARSAL",
+                    },
+                },
+            },
+        )
+
+    def invoke(slot, revealed):
+        if slot.arm == "manual":
+            return {"raw_output": _warden_output(truth_by_text[revealed["text"]])}
+        return orchestrator.hire_agent(spec, revealed, hire=stub_endpoint)
+
+    terminals = orchestrator.run_remaining(
+        spec,
+        root / "runs",
+        repo_root=root,
+        invoke=invoke,
+        clock=_WardenRunClock(),
+    )
+    if len(terminals) != spec.n_planned * 2 or any(
+        terminal.get("outcome") != runner.SUCCEEDED for terminal in terminals
+    ):
+        raise RehearsalRefused("not every registered Warden rehearsal slot succeeded")
+
+
+def run_warden(output: Path) -> dict:
+    """Run the full Warden path under a scratch-only synthetic family identity."""
+    root = Path(output)
+    if root.exists():
+        raise RehearsalRefused(
+            f"{root} already exists; rehearsal evidence is first-write"
+        )
+    root.mkdir(parents=True)
+    with _registered_warden_rehearsal_family():
+        spec, spec_path = _stage_warden_spec(root)
+        locked = _lock_warden(spec, spec_path, root)
+        _run_warden_arms(locked, root)
+        _score(locked, root)
+        payload = report.report(
+            specs_dir=root / "specs",
+            runs_dir=root / "runs",
+            sheets_dir=root / "sheets",
+            mappings_dir=root / "mappings",
+            repo_root=root,
+        )
+        report_path = root / "advantage-v3.json"
+        report_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return payload
 
 
 def run(output: Path) -> dict:
