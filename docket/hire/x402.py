@@ -279,9 +279,11 @@ def build_signed_payment(
     domain = EIP712_DOMAINS.get(str(requirements["asset"]).lower())
     if domain is None:
         raise ValueError(f"unsupported asset domain: {requirements['asset']}")
-    signature = account.sign_message(
-        encode_typed_data(domain, TRANSFER_WITH_AUTHORIZATION_TYPES, authorization)
-    ).signature.hex()
+    signature = Web3.to_hex(
+        account.sign_message(
+            encode_typed_data(domain, TRANSFER_WITH_AUTHORIZATION_TYPES, authorization)
+        ).signature
+    )
     return {
         "x402Version": X402_VERSION,
         "resource": resource,

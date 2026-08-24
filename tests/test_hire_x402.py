@@ -335,6 +335,7 @@ def test_shared_signer_emits_the_exact_b402_scalar_types_and_domain():
     )
 
     authorization = payment["payload"]["authorization"]
+    signature = payment["payload"]["signature"]
     assert authorization == {
         "token": USDT_TOKEN,
         "from": acct.address,
@@ -344,6 +345,8 @@ def test_shared_signer_emits_the_exact_b402_scalar_types_and_domain():
         "validBefore": 400,
         "nonce": "0x" + "05" * 32,
     }
+    assert signature.startswith("0x")
+    assert len(signature) == 132
     assert _verify(
         payment, challenge["accepts"][0], challenge["resource"], now=100
     )[1] == OK
