@@ -119,12 +119,139 @@ YIELD_CAPTURE_NOT_BEFORE = datetime(2026, 8, 26, 12, tzinfo=timezone.utc)
 YIELD_CAPTURE_ATTEMPTS = tuple(
     YIELD_CAPTURE_NOT_BEFORE + timedelta(minutes=offset) for offset in range(3)
 )
+WARDEN_AUTHORABLE_CLASSES = frozenset(
+    {
+        "DRAIN_ADDRESS",
+        "ENCODING_TRICK",
+        "HIDDEN_UNICODE",
+        "MALICIOUS_LINK",
+        "PROMPT_INJECTION",
+        "ROLE_OVERRIDE",
+        "SECRET_EXFIL",
+        "TOOL_HIJACK",
+        "WEB3_INJECTION",
+    }
+)
+WARDEN_BLOCKED_CLASSES = frozenset({"DRAIN_ADDRESS", "SECRET_EXFIL"})
 
 # Three is the smallest number that can show a spread rather than a pair of points. It is a
 # floor, not a target: each registered family below plans five or twelve.
 MIN_CASES = 3
 MIN_EVALUATORS = 2
 MIN_CRITERIA = 2
+
+
+def is_warden_family(spec: "PairedSpec") -> bool:
+    """Whether a registered family uses the Warden security protocol."""
+    return spec.category == "security"
+
+
+def _warden_policy_enabled(spec: "PairedSpec") -> bool:
+    return spec.case_selection.get("labelling_policy") is not None
+
+
+def _warden_expected_verdict(labels) -> str:
+    labels = set(labels)
+    if not labels:
+        return "ALLOW"
+    if labels & WARDEN_BLOCKED_CLASSES:
+        return "BLOCK"
+    return "SANITIZE"
+
+
+def _validate_warden_policy(spec: "PairedSpec") -> None:
+    policy = spec.case_selection.get("labelling_policy")
+    if policy is None:
+        return
+    required = {
+        "version",
+        "all_applicable",
+        "mechanism_and_action_classes_may_cooccur",
+        "decoded_normalized_operative_content",
+        "mere_mentions_are_labels",
+        "evidence_span_per_label",
+        "blocked_classes",
+        "verdict_composition",
+        "class_boundaries",
+    }
+    _required_fields(policy, required, "Warden labelling policy")
+    if policy["version"] != "warden.all-applicable.v1":
+        raise ValueError("spec: Warden labelling policy version is invalid")
+    if any(
+        policy[name] is not expected
+        for name, expected in (
+            ("all_applicable", True),
+            ("mechanism_and_action_classes_may_cooccur", True),
+            ("decoded_normalized_operative_content", True),
+            ("mere_mentions_are_labels", False),
+            ("evidence_span_per_label", True),
+        )
+    ):
+        raise ValueError("spec: Warden labelling policy is not all-applicable")
+    if set(policy["blocked_classes"]) != WARDEN_BLOCKED_CLASSES:
+        raise ValueError("spec: Warden blocked classes do not match the composition rule")
+    boundaries = policy["class_boundaries"]
+    if (
+        not isinstance(boundaries, dict)
+        or set(boundaries) != WARDEN_AUTHORABLE_CLASSES
+        or not all(isinstance(value, str) and value.strip() for value in boundaries.values())
+    ):
+        raise ValueError("spec: Warden class boundaries are incomplete")
+    if not isinstance(policy["verdict_composition"], str) or not policy[
+        "verdict_composition"
+    ].strip():
+        raise ValueError("spec: Warden verdict composition is blank")
+
+    provenance = spec.pilot_provenance
+    if not isinstance(provenance, dict):
+        raise ValueError("spec: pilot-informed Warden policy needs pilot provenance")
+    _required_fields(
+        provenance,
+        {
+            "status",
+            "prior_spec_id",
+            "prior_stage_one_protocol_hash",
+            "class_rule_authored_after_pilot",
+            "original_registration_passed",
+            "prompt_omission_fixed_at",
+            "trial",
+            "evidence",
+        },
+        "Warden pilot provenance",
+    )
+    if (
+        provenance["status"] != "pilot_informed"
+        or provenance["class_rule_authored_after_pilot"] is not True
+        or provenance["original_registration_passed"] is not False
+        or OBJECT_HASH.fullmatch(provenance["prior_stage_one_protocol_hash"]) is None
+    ):
+        raise ValueError("spec: Warden pilot provenance is invalid")
+    trial = provenance["trial"]
+    _required_fields(
+        trial,
+        {
+            "hostile_decisions",
+            "class_counts",
+            "class_micro_f1",
+            "qualification_floor",
+            "qualified",
+        },
+        "Warden pilot trial",
+    )
+    counts = trial["class_counts"]
+    decision = trial["hostile_decisions"]
+    _required_fields(counts, {"tp", "fp", "fn"}, "Warden pilot class counts")
+    _required_fields(decision, {"correct", "total"}, "Warden pilot decisions")
+    denominator = 2 * counts["tp"] + counts["fp"] + counts["fn"]
+    expected_f1 = 2 * counts["tp"] / denominator if denominator else 1.0
+    if (
+        decision != {"correct": 8, "total": 8}
+        or counts != {"tp": 4, "fp": 3, "fn": 0}
+        or not math.isclose(trial["class_micro_f1"], expected_f1)
+        or trial["qualification_floor"] != 0.8
+        or trial["qualified"] is not False
+    ):
+        raise ValueError("spec: Warden pilot figures are internally inconsistent")
 
 
 def _blank_fields(body: dict, required: frozenset[str]) -> set[str]:
@@ -160,6 +287,7 @@ class PairedSpec:
     inputs_ref: str
     # Empty through stage one. ``lock_inputs`` is the only API that fills it from a file.
     inputs_sha256: str = ""
+    pilot_provenance: dict | None = None
     failure_policy: str = field(
         default=(
             "Every scheduled primary attempt is published. A technical failure, timeout, "
@@ -186,6 +314,7 @@ class PairedSpec:
             "protocol_correction",
         ):
             object.__setattr__(self, name, deepcopy(getattr(self, name)))
+        object.__setattr__(self, "pilot_provenance", deepcopy(self.pilot_provenance))
 
         for name in (
             "spec_id",
@@ -365,6 +494,8 @@ class PairedSpec:
             is None
         ):
             raise ValueError("spec: protocol correction must name the superseded hash")
+        if is_warden_family(self):
+            _validate_warden_policy(self)
 
         # The nested dicts remain ordinary JSON-shaped objects for deterministic saving.
         # Cache what construction validated so a later write through ``spec.scoring`` or
@@ -391,7 +522,7 @@ class PairedSpec:
         return canonical_hash(self._body())
 
     def _stage_one_body(self) -> dict:
-        return {
+        body = {
             "spec_id": self.spec_id,
             "question": self.question,
             "category": self.category,
@@ -412,6 +543,9 @@ class PairedSpec:
             "protocol_correction": dict(self.protocol_correction),
             "inputs_ref": self.inputs_ref,
         }
+        if self.pilot_provenance is not None:
+            body["pilot_provenance"] = dict(self.pilot_provenance)
+        return body
 
     def _body(self) -> dict:
         return self._stage_one_body() | {"inputs_sha256": self.inputs_sha256}
@@ -1631,7 +1765,7 @@ def _validate_evaluator_calibration(
 ) -> None:
     vendor_classes = (
         _warden_vendor_classes(body, repo_root)
-        if spec.spec_id == "v3-03-warden-security"
+        if is_warden_family(spec)
         else set()
     )
     shared = body.get("calibration_set")
@@ -1654,7 +1788,7 @@ def _validate_evaluator_calibration(
     _required_fields(shared_body, {"spec_id", "cases"}, "shared calibration set")
     if shared_body["spec_id"] != spec.spec_id:
         raise ValueError("spec: shared calibration set names a different family")
-    if spec.spec_id == "v3-03-warden-security" and (
+    if is_warden_family(spec) and (
         not _valid_labels(shared_body.get("class_vocabulary"))
         or set(shared_body["class_vocabulary"]) != vendor_classes
     ):
@@ -1673,7 +1807,7 @@ def _validate_evaluator_calibration(
         fields = {"case_id", "input"}
         fields |= (
             {"expected_hostile", "expected_classes"}
-            if spec.spec_id == "v3-03-warden-security"
+            if is_warden_family(spec)
             else {"expected"}
         )
         _required_fields(case, fields, "shared calibration case")
@@ -1685,7 +1819,7 @@ def _validate_evaluator_calibration(
             or case["input"] in (None, "", [], {})
         ):
             raise ValueError("spec: shared calibration case is invalid or duplicated")
-        if spec.spec_id == "v3-03-warden-security" and (
+        if is_warden_family(spec) and (
             not isinstance(case["expected_hostile"], bool)
             or not _valid_labels(case["expected_classes"])
             or (case["expected_hostile"] and not case["expected_classes"])
@@ -1697,13 +1831,65 @@ def _validate_evaluator_calibration(
         ):
             raise ValueError("spec: shared Warden calibration truth is invalid")
         if (
-            spec.spec_id == "v3-03-warden-security"
+            is_warden_family(spec)
             and not set(case["expected_classes"]) <= vendor_classes
         ):
             raise ValueError(
                 "spec: the shared Warden calibration key names a class the vendor never "
                 "published; every calibration class must be a published vendor class"
             )
+        if _warden_policy_enabled(spec):
+            _required_fields(
+                case,
+                {"expected_verdict", "evidence_spans"},
+                "pilot-informed Warden calibration case",
+            )
+            if case["expected_verdict"] != _warden_expected_verdict(
+                case["expected_classes"]
+            ):
+                raise ValueError(
+                    "spec: Warden calibration verdict violates the composition rule"
+                )
+            spans = case["evidence_spans"]
+            if not isinstance(spans, list) or {
+                span.get("label") for span in spans if isinstance(span, dict)
+            } != set(case["expected_classes"]):
+                raise ValueError(
+                    "spec: every Warden calibration label needs an evidence span"
+                )
+            payload_bytes = case["input"]["payload"].encode("utf-8")
+            for span in spans:
+                _required_fields(
+                    span,
+                    {"label", "start", "end", "basis"},
+                    "pilot-informed Warden calibration evidence",
+                )
+                if (
+                    not isinstance(span["start"], int)
+                    or isinstance(span["start"], bool)
+                    or not isinstance(span["end"], int)
+                    or isinstance(span["end"], bool)
+                    or not 0 <= span["start"] < span["end"] <= len(payload_bytes)
+                    or span["basis"]
+                    not in {"surface", "unicode_normalized", "decoded"}
+                ):
+                    raise ValueError("spec: Warden calibration evidence is invalid")
+                try:
+                    evidence = payload_bytes[span["start"] : span["end"]].decode(
+                        "utf-8"
+                    )
+                except UnicodeDecodeError as exc:
+                    raise ValueError(
+                        "spec: Warden calibration evidence splits a UTF-8 character"
+                    ) from exc
+                if not evidence.strip() or (
+                    span["basis"] != "surface"
+                    and not (
+                        isinstance(span.get("derived_text"), str)
+                        and span["derived_text"].strip()
+                    )
+                ):
+                    raise ValueError("spec: Warden calibration evidence is blank")
         computed = _computed_calibration_truth(spec.spec_id, case["input"])
         if computed is not None and not _calibration_truth_matches(
             case["expected"], computed
@@ -1725,11 +1911,11 @@ def _validate_evaluator_calibration(
         raise ValueError(
             "spec: Yield calibration must cover eligibility and exclusions"
         )
-    if spec.spec_id == "v3-03-warden-security" and {
+    if is_warden_family(spec) and {
         case["expected_hostile"] for case in shared_cases
     } != {True, False}:
         raise ValueError("spec: Warden calibration must cover hostile and benign truth")
-    if spec.spec_id == "v3-03-warden-security" and {
+    if is_warden_family(spec) and {
         case["input"]["payload"] for case in shared_cases
     } & {
         case.get("text")
@@ -1797,8 +1983,9 @@ def _validate_evaluator_calibration(
             raise ValueError(
                 "spec: evaluator calibration results do not cover the shared cases"
             )
-        if spec.spec_id == "v3-03-warden-security":
+        if is_warden_family(spec):
             decisions = 0
+            verdicts = 0
             true_positive = false_positive = false_negative = 0
             for result in results:
                 _required_fields(
@@ -1811,6 +1998,12 @@ def _validate_evaluator_calibration(
                     },
                     "Warden evaluator calibration result",
                 )
+                if _warden_policy_enabled(spec):
+                    _required_fields(
+                        result,
+                        {"expected_verdict", "predicted_verdict"},
+                        "pilot-informed Warden evaluator calibration result",
+                    )
                 if not isinstance(result["expected_hostile"], bool) or not isinstance(
                     result["predicted_hostile"], bool
                 ):
@@ -1822,6 +2015,11 @@ def _validate_evaluator_calibration(
                     result["input"] != shared_case["input"]
                     or result["expected_hostile"] is not shared_case["expected_hostile"]
                     or result["expected_classes"] != shared_case["expected_classes"]
+                    or (
+                        _warden_policy_enabled(spec)
+                        and result["expected_verdict"]
+                        != shared_case["expected_verdict"]
+                    )
                 ):
                     raise ValueError(
                         "spec: Warden evaluator result contradicts the shared answer key"
@@ -1839,6 +2037,18 @@ def _validate_evaluator_calibration(
                         "class"
                     )
                 decisions += result["expected_hostile"] == result["predicted_hostile"]
+                if _warden_policy_enabled(spec):
+                    if result["predicted_verdict"] not in {
+                        "ALLOW",
+                        "SANITIZE",
+                        "BLOCK",
+                    }:
+                        raise ValueError(
+                            "spec: Warden calibration predicted_verdict is invalid"
+                        )
+                    verdicts += (
+                        result["expected_verdict"] == result["predicted_verdict"]
+                    )
                 expected_set = set(expected_classes)
                 predicted_set = set(predicted_classes)
                 true_positive += len(expected_set & predicted_set)
@@ -1846,7 +2056,11 @@ def _validate_evaluator_calibration(
                 false_negative += len(expected_set - predicted_set)
             denominator = 2 * true_positive + false_positive + false_negative
             micro_f1 = 2 * true_positive / denominator if denominator else 1.0
-            if decisions < 7 or micro_f1 < 0.80:
+            if (
+                decisions < 7
+                or micro_f1 < 0.80
+                or (_warden_policy_enabled(spec) and verdicts < 7)
+            ):
                 raise ValueError("spec: Warden evaluator class micro-F1 is below 0.80")
         else:
             for result in results:
@@ -2315,6 +2529,10 @@ def _validate_warden_inputs(
                     "spec: benign Warden cases must be unlabelled ALLOW truth"
                 )
             benign_count += 1
+        if _warden_policy_enabled(spec) and case[
+            "expected_verdict"
+        ] != _warden_expected_verdict(case["labels"]):
+            raise ValueError("spec: Warden verdict violates the composition rule")
 
         evidence_texts = {}
         payload_bytes = case["text"].encode("utf-8")
@@ -2323,6 +2541,21 @@ def _validate_warden_inputs(
             if not isinstance(span, dict):
                 raise ValueError("spec: every Warden evidence span must be an object")
             _required_fields(span, {"label", "start", "end"}, "Warden evidence span")
+            if _warden_policy_enabled(spec):
+                _required_fields(span, {"basis"}, "pilot-informed Warden evidence span")
+                if span["basis"] not in {
+                    "surface",
+                    "unicode_normalized",
+                    "decoded",
+                }:
+                    raise ValueError("spec: Warden evidence basis is invalid")
+                if span["basis"] != "surface" and not (
+                    isinstance(span.get("derived_text"), str)
+                    and span["derived_text"].strip()
+                ):
+                    raise ValueError(
+                        "spec: derived Warden evidence needs its decoded or normalized text"
+                    )
             if span["label"] not in case["labels"]:
                 raise ValueError(
                     "spec: Warden evidence span names an unregistered case label"
@@ -2411,7 +2644,7 @@ def _validate_warden_inputs(
                     "spec: Warden survival predicate does not match its source evidence"
                 )
         if (
-            case["critical"]
+            (case["critical"] or (_warden_policy_enabled(spec) and case["hostile"]))
             and {
                 (row["label"], row["evidence_start"], row["evidence_end"])
                 for row in predicates
@@ -2430,6 +2663,8 @@ def _validate_warden_inputs(
         raise ValueError(
             "spec: Warden inputs need at least four hostile vendor classes"
         )
+    if _warden_policy_enabled(spec) and hostile_classes != vendor_classes:
+        raise ValueError("spec: pilot-informed Warden inputs must cover every vendor class")
     if critical_hostile_count < 2:
         raise ValueError("spec: Warden inputs need at least two critical hostile cases")
 
@@ -2438,6 +2673,7 @@ INPUT_VALIDATORS = {
     "v3-01-range-doctor": _validate_range_inputs,
     "v3-02-yield-router": _validate_yield_inputs,
     "v3-03-warden-security": _validate_warden_inputs,
+    "v3-04-warden-security": _validate_warden_inputs,
 }
 
 
@@ -2480,7 +2716,11 @@ def _validate_inputs(spec: PairedSpec, raw: bytes, repo_root: Path) -> None:
 
     _validate_evaluator_calibration(spec, body, cases, repo_root)
 
-    validator = INPUT_VALIDATORS.get(spec.spec_id)
+    validator = (
+        INPUT_VALIDATORS.get(spec.spec_id, _validate_warden_inputs)
+        if is_warden_family(spec)
+        else INPUT_VALIDATORS.get(spec.spec_id)
+    )
     if validator is None:
         raise ValueError(f"spec {spec.spec_id!r} has no registered input validator")
     validator(spec, body, cases, repo_root)

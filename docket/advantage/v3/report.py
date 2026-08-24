@@ -10,7 +10,7 @@ from collections import Counter
 from pathlib import Path
 
 from . import runner, scoring
-from .spec import REPO_ROOT, load as load_spec
+from .spec import REPO_ROOT, is_warden_family, load as load_spec
 
 V3_DIR = Path(__file__).parent
 SPECS_DIR = V3_DIR / "specs"
@@ -19,6 +19,7 @@ SHEETS_DIR = V3_DIR / "sheets"
 MAPPINGS_DIR = V3_DIR / "mappings"
 
 REGISTERED_WAITING = "registered_waiting_for_inputs"
+SUPERSEDED_BEFORE_INPUT_LOCK = "superseded_before_input_lock"
 LOCKED_NOT_RUN = "locked_not_run"
 RUNNING = "running"
 COMPLETE_UNSCORED = "complete_unscored"
@@ -26,6 +27,7 @@ REFUTED = "refuted"
 NOT_REFUTED = "not_refuted"
 STATES = (
     REGISTERED_WAITING,
+    SUPERSEDED_BEFORE_INPUT_LOCK,
     LOCKED_NOT_RUN,
     RUNNING,
     COMPLETE_UNSCORED,
@@ -93,7 +95,7 @@ def _falsifier(spec, quality: dict, speed: dict, formula_metrics: dict | None) -
                 },
             )
         )
-    elif spec.spec_id == "v3-03-warden-security":
+    elif is_warden_family(spec):
         arms = formula_metrics["arms"]
         agent = arms["agent"]
         manual = arms["manual"]
@@ -246,7 +248,7 @@ def family_report(
     speed = scoring.speed_metrics(spec, attempts, inputs=inputs, repo_root=repo_root)
     if spec.spec_id == "v3-02-yield-router":
         formula_metrics = scoring.yield_completeness(spec, inputs, attempts)
-    elif spec.spec_id == "v3-03-warden-security":
+    elif is_warden_family(spec):
         formula_metrics = scoring.warden_metrics(
             spec, inputs, attempts, repo_root=repo_root
         )
@@ -284,6 +286,20 @@ def report(
         )
         for path in sorted(Path(specs_dir).glob("*.json"))
     ]
+    by_id = {family["spec_id"]: family for family in families}
+    for successor in families:
+        provenance = successor["spec"].get("pilot_provenance")
+        if not isinstance(provenance, dict):
+            continue
+        predecessor = by_id.get(provenance.get("prior_spec_id"))
+        if (
+            predecessor is not None
+            and predecessor["state"] == REGISTERED_WAITING
+            and predecessor["spec"]["stage_one_protocol_hash"]
+            == provenance.get("prior_stage_one_protocol_hash")
+        ):
+            predecessor["state"] = SUPERSEDED_BEFORE_INPUT_LOCK
+            predecessor["superseded_by"] = successor["spec_id"]
     states = Counter(family["state"] for family in families)
     return {
         "version": "v3",

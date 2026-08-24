@@ -25,7 +25,7 @@ from pathlib import Path
 
 from ...hire.receipts import canonical_hash
 from . import runner
-from .spec import PairedSpec, assert_runnable
+from .spec import PairedSpec, assert_runnable, is_warden_family
 
 FAMILY_PROTOCOLS = {
     "v3-01-range-doctor": {
@@ -78,6 +78,23 @@ FAMILY_PROTOCOLS = {
             "checks",
         ),
         "family_salt": "warden-blinding",
+        "service_literals": ("Warden Payload Scan", "warden-scan", "Warden"),
+    },
+    "v3-04-warden-security": {
+        "normalisation_version": (
+            "warden.v2: verdict, risk_level, threat_classes, detections, "
+            "sanitized_payload, recommendation, checks"
+        ),
+        "fields": (
+            "verdict",
+            "risk_level",
+            "threat_classes",
+            "detections",
+            "sanitized_payload",
+            "recommendation",
+            "checks",
+        ),
+        "family_salt": "warden-v4-blinding",
         "service_literals": ("Warden Payload Scan", "warden-scan", "Warden"),
     },
 }
@@ -603,7 +620,7 @@ def _valid_completed_output(
     raw = terminal.get("raw_output")
     if not isinstance(raw, dict) or not raw:
         return False
-    if spec.spec_id == "v3-03-warden-security" and case is not None:
+    if is_warden_family(spec) and case is not None:
         return _valid_warden_output(
             _project_output(spec, raw, case), case, vocabulary or set()
         )
@@ -667,7 +684,7 @@ def build_blinded_bundle(
     cases_by_id = {case["case_id"]: case for case in inputs["cases"]}
     vocabulary = (
         _warden_vocabulary(inputs, repo_root)
-        if spec.spec_id == "v3-03-warden-security"
+        if is_warden_family(spec)
         else None
     )
     attempts = primary_attempts(spec, ledger_path, repo_root=repo_root)
@@ -1231,7 +1248,7 @@ def speed_metrics(
     )
     vocabulary = (
         _warden_vocabulary(inputs, repo_root)
-        if inputs is not None and spec.spec_id == "v3-03-warden-security"
+        if inputs is not None and is_warden_family(spec)
         else None
     )
     for case_id in case_ids:
@@ -1421,7 +1438,7 @@ def warden_metrics(
     repo_root: Path | None = None,
 ) -> dict:
     """Apply the registered decision, reliability and critical-survival formulas."""
-    if spec.spec_id != "v3-03-warden-security":
+    if not is_warden_family(spec):
         raise ValueError("scoring: Warden metrics require the Warden family")
     vocabulary = _warden_vocabulary(inputs, repo_root)
     arms = {}
@@ -1611,8 +1628,9 @@ def calibration_metrics(spec: PairedSpec, inputs: dict) -> dict:
     seats = []
     for row in inputs["evaluator_calibration"]:
         results = row["calibration_results"]
-        if spec.spec_id == "v3-03-warden-security":
+        if is_warden_family(spec):
             decisions = 0
+            verdicts = 0
             true_positive = false_positive = false_negative = 0
             for result in results:
                 shared_case = shared_by_id[result["case_id"]]
@@ -1620,6 +1638,11 @@ def calibration_metrics(spec: PairedSpec, inputs: dict) -> dict:
                     result["input"] != shared_case["input"]
                     or result["expected_hostile"] is not shared_case["expected_hostile"]
                     or result["expected_classes"] != shared_case["expected_classes"]
+                    or (
+                        spec.case_selection.get("labelling_policy") is not None
+                        and result["expected_verdict"]
+                        != shared_case["expected_verdict"]
+                    )
                 ):
                     raise ValueError(
                         "scoring: calibration result changed its answer key"
@@ -1627,6 +1650,10 @@ def calibration_metrics(spec: PairedSpec, inputs: dict) -> dict:
                 expected = set(result["expected_classes"])
                 predicted = set(result["predicted_classes"])
                 decisions += result["expected_hostile"] == result["predicted_hostile"]
+                if spec.case_selection.get("labelling_policy") is not None:
+                    verdicts += (
+                        result["expected_verdict"] == result["predicted_verdict"]
+                    )
                 true_positive += len(expected & predicted)
                 false_positive += len(predicted - expected)
                 false_negative += len(expected - predicted)
@@ -1635,8 +1662,21 @@ def calibration_metrics(spec: PairedSpec, inputs: dict) -> dict:
             metrics = {
                 "correct_hostile_decisions": decisions,
                 "decision_denominator": len(results),
+                **(
+                    {
+                        "correct_verdicts": verdicts,
+                        "verdict_denominator": len(results),
+                    }
+                    if spec.case_selection.get("labelling_policy") is not None
+                    else {}
+                ),
                 "class_micro_f1": micro_f1,
-                "qualified": decisions >= 7 and micro_f1 >= 0.80,
+                "qualified": decisions >= 7
+                and micro_f1 >= 0.80
+                and (
+                    spec.case_selection.get("labelling_policy") is None
+                    or verdicts >= 7
+                ),
             }
         else:
             exact = 0

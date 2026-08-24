@@ -21,8 +21,9 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
 - **C-03.** The exact x402 settlement path is implemented but disabled by default and,
   according to the owner, has never been exercised live; the repository contains no
   settled receipt or settlement transaction.
-- **C-04.** The v3 paired report has three stage-one specifications, but no input is
-  locked and no arm has run.
+- **C-04.** The v3 paired report has four stage-one specifications. The unlocked v3-03
+  Warden family is marked superseded by the distinct pilot-informed v3-04 family; no v3
+  input is locked and no timed arm has run.
 - **C-05.** SOLVENT is halted and is presented as historical research evidence, not paid
   inventory; its one ERC-8004 identity is agent 136384 on BSC.
 - **C-06.** Range Doctor's recorded v1 run covered a wallet with 14 positions, 13 closed,
@@ -131,10 +132,11 @@ the installed v3 JSON, HTML, and agent-facing documentation.
   `docket/advantage/experiments/`. Every recorded payment status is `free_tier`.
 - V2 stores its corpora, registered specifications, completed runs, null baselines, and
   computed falsifiers under `docket/advantage/v2/`.
-- V3 stores three stage-one specifications plus the claim-once runner, prompt-blinded
+- V3 stores four stage-one specifications plus the claim-once runner, prompt-blinded
   scoring, report builder, and served page under `docket/advantage/v3/`. There is no
-  `inputs/` or `runs/` directory, every `inputs_sha256` is empty, and all three families at
-  `/advantage/v3.json` truthfully report `registered_waiting_for_inputs`.
+  `inputs/` or `runs/` directory and every `inputs_sha256` is empty. At
+  `/advantage/v3.json`, three families report `registered_waiting_for_inputs`; v3-03 Warden
+  reports `superseded_before_input_lock`, with v3-04 named as its successor.
 
 Do not describe the v3 Git sequence as externally preregistered. A checkable witness would
 require the exact registration commit to be anchored outside the owner's control before

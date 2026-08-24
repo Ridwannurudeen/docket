@@ -64,7 +64,7 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/advantage` | The same report as a page for a human |
 | GET | `/advantage/v2.json` | Hashed experiments with per-experiment registration provenance: every run, the nulls beside every figure, each falsifier's computed result |
 | GET | `/advantage/v2` | The same v2 report as a page for a human |
-| GET | `/advantage/v3.json` | Three pre-registered paired families and each artifact-derived execution or scoring state |
+| GET | `/advantage/v3.json` | Four pre-registered paired families and each artifact-derived execution or scoring state |
 | GET | `/advantage/v3` | The same startup-bound v3 report as a page for a human |
 | GET | `/pancake` | JSON source map by default; the live PancakeSwap evidence dashboard for HTML callers |
 | GET | `/llms.txt` | Full plain-text reference |
@@ -365,11 +365,12 @@ artifact at n=1. v2 is agent-versus-computed-null armour with no human arm. v3 i
 pre-registered paired evaluation scored by two prompt-blinded model seats run by one
 operator.
 
-Read `summary.states` before describing v3. Today all three families are
-`registered_waiting_for_inputs`: every registered `inputs_sha256` is empty, no input or
-run artifact exists, no input is locked, and no arm has run. The only later state names are
-`locked_not_run`, `running`, `complete_unscored`, `refuted`, and `not_refuted`. Never turn
-`not_refuted` into "proved".
+Read `summary.states` before describing v3. Today every registered `inputs_sha256` is empty,
+no input or run artifact exists, no input is locked, and no timed arm has run. Three families
+are `registered_waiting_for_inputs`; v3-03 Warden is
+`superseded_before_input_lock` by the distinct pilot-informed v3-04 family. The other state
+names are `locked_not_run`, `running`, `complete_unscored`, `refuted`, and `not_refuted`.
+Never turn `not_refuted` into "proved".
 
 The process builds one v3 payload at startup and renders `/advantage/v3` from that exact
 object. Use the JSON for machine work and the page for a reader; neither changes until the

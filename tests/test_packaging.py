@@ -77,6 +77,7 @@ def test_every_v3_state_artifact_has_a_package_data_path():
         "v3/runs/*.jsonl",
         "v3/sheets/*/*.json",
         "v3/mappings/*.json",
+        "v3/provenance/*.json",
     } <= declared
     assert "v3/runs/*.json" not in declared
 

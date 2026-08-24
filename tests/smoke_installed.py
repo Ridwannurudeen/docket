@@ -56,8 +56,12 @@ with tempfile.TemporaryDirectory(prefix="docket-installed-smoke-") as scratch:
         "v3-01-range-doctor",
         "v3-02-yield-router",
         "v3-03-warden-security",
+        "v3-04-warden-security",
     ]
-    assert {family["state"] for family in families} == {"registered_waiting_for_inputs"}
+    assert {family["state"] for family in families} == {
+        "registered_waiting_for_inputs",
+        "superseded_before_input_lock",
+    }
 
     page = client.get("/advantage/v3")
     assert page.status_code == 200, page.text

@@ -68,6 +68,7 @@ packages = [
     # Docket asserting a vocabulary with no evidence of where it came from.
     "v3/sources/*.json",
     "v3/sources/*.html",
+    "v3/provenance/*.json",
 ]
 
 [tool.pytest.ini_options]
