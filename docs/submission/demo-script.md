@@ -28,7 +28,7 @@ Record at 1280×720 or higher from a cold browser with no wallet extension conne
 
 **Clicks:** Click **Advantage report** in the top navigation; at the top of the report, click **v3**, then use Back once.
 
-**Say:** “The original report has three tasks, each run once with the service and once by hand, with both outputs attached. It includes the single-task security loss: manual reading of the frozen payload found four hostile vectors and Warden's layers identified one. The preregistered v3 report is also public, but it has no result yet—all three of three families still say `registered_waiting_for_inputs`.”
+**Say:** “The original report has three tasks, each run once with the service and once by hand, with both outputs attached. It includes the single-task security loss: manual reading of the frozen payload found four hostile vectors and Warden's layers identified one. The registered v3 report is also public, but it has no result yet—three families wait for inputs, while the earlier Range and Warden registrations were superseded before input lock.”
 
 **Point at:** the question, both arms, time, cost note, output hashes, and full output in the [v1 report](https://docket.gudman.xyz/advantage.json); then the empty state in the [v3 report](https://docket.gudman.xyz/advantage/v3.json).
 

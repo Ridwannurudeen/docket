@@ -492,13 +492,14 @@ GET /advantage/v2
     curl -s "$DOCKET/advantage/v2"
 
 GET /advantage/v3.json
-    The third report: four pre-registered paired task families and the artifact-derived
+    The third report: five registered paired task families and the artifact-derived
     execution state of each one. The closed state vocabulary is
     registered_waiting_for_inputs, superseded_before_input_lock, locked_not_run, running,
     complete_unscored, refuted, and not_refuted. It never reports "proved".
 
-    Today three families report registered_waiting_for_inputs and v3-03 Warden reports
-    superseded_before_input_lock by the distinct pilot-informed v3-04 family. Every registered
+    Today three families report registered_waiting_for_inputs. v3-01-range-doctor reports
+    superseded_before_input_lock by the distinct archive-pinned v3-05-range-doctor family, and v3-03
+    Warden reports that state under the distinct pilot-informed v3-04 family. Every registered
     inputs_sha256 is empty and no input, ledger, score-sheet, or mapping artifact exists.
     No input is locked and no timed arm has run. The response contains the registered specification,
     any artifacts that actually exist, run progress, blinded scoring material, quality, speed,
@@ -1089,12 +1090,13 @@ and its bytes remain unmodified beside the newer experiment.
 
 A third report at GET /advantage/v3.json and GET /advantage/v3. The three reports are
 additive and none supersedes another: v1 is the original paired eligibility artifact at
-n=1; v2 is agent-versus-computed-null armour with no human arm; v3 is the pre-registered
+n=1; v2 is agent-versus-computed-null armour with no human arm; v3 is the registered
 paired evaluation scored by two prompt-blinded model seats run by one operator.
 
-V3 currently reports three of four families as registered_waiting_for_inputs and the
-unlocked v3-03 Warden family as superseded_before_input_lock by its distinct pilot-informed
-v3-04 successor. Every registered inputs_sha256 is empty, the input and run directories do
+V3 currently reports three of five families as registered_waiting_for_inputs. The unlocked
+v3-01-range-doctor is superseded_before_input_lock by its distinct archive-pinned v3-05-range-doctor
+successor, and unlocked v3-03 Warden has that state under its distinct pilot-informed v3-04
+successor. Every registered inputs_sha256 is empty, the input and run directories do
 not exist, no input is locked, and no timed arm has run. Other state names are locked_not_run,
 running, complete_unscored, refuted, and not_refuted. That vocabulary is deliberately
 bounded: the report never turns a non-refutation into "proved".

@@ -137,7 +137,8 @@ Three adjacent limits are also explicit:
   ([live services](https://docket.gudman.xyz/services)).
 - No settlement has occurred
   ([operational evidence](../operational-evidence.md#what-this-evidence-does-not-establish-1)).
-- The v3 report currently has no result; its families remain waiting for inputs
+- The v3 report currently has no result; three families wait for inputs and two were
+  superseded before input lock
   ([live v3 report](https://docket.gudman.xyz/advantage/v3.json)).
 
 ## Adoption

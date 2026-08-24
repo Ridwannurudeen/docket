@@ -52,6 +52,7 @@ from .spec import (
     YIELD_SOURCE_URLS,
     PairedSpec,
     assert_runnable,
+    is_range_family,
     is_warden_family,
 )
 
@@ -211,6 +212,13 @@ def registered_capture_schedule(spec: PairedSpec) -> tuple[CaptureSlot, ...]:
     """Return the source-capture times registered before any input is frozen."""
     if spec.spec_id == "v3-01-range-doctor":
         attempts = (RANGE_CAPTURE_NOT_BEFORE,)
+    elif is_range_family(spec):
+        attempts = tuple(
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+            for value in spec.case_selection["frame_definition"][
+                "pool_truth_capture_attempts"
+            ]
+        )
     elif spec.spec_id == "v3-02-yield-router":
         attempts = YIELD_CAPTURE_ATTEMPTS
     else:
@@ -968,7 +976,7 @@ def _read_locked_json(source: dict, repo_root: Path) -> dict:
 
 
 def _agent_payload(spec: PairedSpec, inputs: dict, case: dict, repo_root: Path) -> dict:
-    if spec.spec_id == "v3-01-range-doctor":
+    if is_range_family(spec):
         pool_truth_ref = next(
             source for source in case["source_refs"] if source["kind"] == "pool_truth"
         )

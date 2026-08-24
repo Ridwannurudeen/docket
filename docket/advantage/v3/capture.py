@@ -444,6 +444,21 @@ def run_registered_capture(
 
 def registered_schedule(spec) -> dict:
     """The moment and the two URLs, read from the registration rather than from here."""
+    frame = spec.case_selection.get("frame_definition")
+    if isinstance(frame, dict) and frame.get("version") == "range.enumerable-1024.v1":
+        attempts = frame["pool_truth_capture_attempts"]
+        first = datetime.fromisoformat(attempts[0].replace("Z", "+00:00"))
+        if [
+            datetime.fromisoformat(value.replace("Z", "+00:00")) for value in attempts
+        ] != [first + timedelta(seconds=offset) for offset in ATTEMPT_OFFSETS_S]:
+            raise CaptureRefused(
+                "the Range successor does not register three one-minute pool captures"
+            )
+        return {
+            "first_attempt_at": attempts[0],
+            "pools_url": frame["pool_truth_sources"]["pools"],
+            "token_list_url": frame["pool_truth_sources"]["token_list"],
+        }
     chosen_by = str(spec.case_selection.get("chosen_by", ""))
     population = str(spec.case_selection.get("population", ""))
     moment = _first(chosen_by, r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")

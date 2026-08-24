@@ -21,7 +21,8 @@ The longer evidence-led route is in [Judge start here](docs/submission/judge-sta
 
 - No service is in paid stock, and no settlement has run.
 - None of the four category services is bound to a BSC ERC-8004 identity.
-- The three v3 families are waiting for inputs; no v3 arm has run.
+- Three v3 families are waiting for inputs, while v3-01 Range and v3-03 Warden were
+  superseded before input lock; no v3 arm has run.
 - The controlled LP record has observations but no owner-decision row.
 
 These limits are visible in the live service, v3, and LP-record responses; the
@@ -42,9 +43,9 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
 - **C-03.** The exact x402 settlement path is implemented but disabled by default and,
   according to the owner, has never been exercised live; the repository contains no
   settled receipt or settlement transaction.
-- **C-04.** The v3 paired report has four stage-one specifications. The unlocked v3-03
-  Warden family is marked superseded by the distinct pilot-informed v3-04 family; no v3
-  input is locked and no timed arm has run.
+- **C-04.** The v3 paired report has five stage-one specifications. The unlocked v3-01
+  Range and v3-03 Warden families are marked superseded by the distinct pilot-informed
+  v3-05 Range and v3-04 Warden families; no v3 input is locked and no timed arm has run.
 - **C-05.** SOLVENT is halted and is presented as historical research evidence, not paid
   inventory; its one ERC-8004 identity is agent 136384 on BSC.
 - **C-06.** Range Doctor's recorded v1 run covered a wallet with 14 positions, 13 closed,
@@ -53,8 +54,10 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
 - **C-07.** A Docket receipt binds the request and result hashes to a delivery record; it
   does not establish that the result is correct or that a reported settlement reached
   chain finality.
-- **C-08.** The v3 registration sequence is reachable from `origin/docs/deliberation-round2`,
-  and GitHub recorded that ref at `2026-08-15T06:08:36Z` — a timestamp this repository
+- **C-08.** The initial v3 registration commit
+  `88cc2bc883ab7b904e8a7baf9f4f019b10631eca` is reachable from
+  `origin/docs/deliberation-round2`, and GitHub recorded that ref at
+  `2026-08-15T06:08:36Z` — a timestamp this repository
   cannot set. That establishes only that the content pushed at that moment existed by
   then. Commits registered afterwards are not covered by it, committer dates are still
   set locally, and branch protection is unavailable on a private repository, so the ref
@@ -155,11 +158,12 @@ the installed v3 JSON, HTML, and agent-facing documentation.
   `docket/advantage/experiments/`. Every recorded payment status is `free_tier`.
 - V2 stores its corpora, registered specifications, completed runs, null baselines, and
   computed falsifiers under `docket/advantage/v2/`.
-- V3 stores four stage-one specifications plus the claim-once runner, prompt-blinded
+- V3 stores five stage-one specifications plus the claim-once runner, prompt-blinded
   scoring, report builder, and served page under `docket/advantage/v3/`. There is no
   `inputs/` or `runs/` directory and every `inputs_sha256` is empty. At
-  `/advantage/v3.json`, three families report `registered_waiting_for_inputs`; v3-03 Warden
-  reports `superseded_before_input_lock`, with v3-04 named as its successor.
+  `/advantage/v3.json`, three families report `registered_waiting_for_inputs`; v3-01 Range
+  and v3-03 Warden report `superseded_before_input_lock`, with v3-05 and v3-04 named as
+  their respective successors.
 
 Do not describe the v3 Git sequence as externally preregistered. A checkable witness would
 require the exact registration commit to be anchored outside the owner's control before

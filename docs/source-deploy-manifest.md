@@ -137,11 +137,13 @@ artifact. The warning remains a backend-maintenance risk; this build does not hi
 | `docket/advantage/v3/specs/v3-02-yield-router.json` | `1292fbf63c0616a983b41cee7a3e727c867c78f12d01adbab576d45d5f85e15d` |
 | `docket/advantage/v3/specs/v3-03-warden-security.json` | `d18270a88d0bfcd4d2fae807824427d117e7a1d6440317afd5b8a519cd1e9771` |
 | `docket/advantage/v3/specs/v3-04-warden-security.json` | `8580781636f19b30b35d6478562cc9bec446407cc9c982bdc540b85e984546f7` |
+| `docket/advantage/v3/specs/v3-05-range-doctor.json` | `deff6b359511d51dfba3cd7de2ca78319164c15ae83ae174b13808ffdaa23513` |
 | `docket/advantage/v3/sources/warden-v4-vendor-snapshot.json` | `8db24277dea2154e15f0b8e0f70941dfc62494f501b21fb838733e0b5a046bf7` |
 | `docket/advantage/v3/sources/warden-v4-calibration-set.json` | `68850351a675ef6a6f0293d9108112318b42324477c6f87cbb2fe41841d5e55b` |
 | `docket/advantage/v3/sources/warden-v4-heldout-cases.json` | `a06795b6c2eabbd0581be61cd26c5ed163eb406c5b958885e32c06834b658df7` |
 | `docket/advantage/v3/provenance/warden-v3-03-pilot.json` | `8ed4c761e10c590da88c04764536d791ab5c3f2aa68d0945378c41f572cb99ef` |
 | `docket/advantage/v3/provenance/warden-pilot-history.json` | `2221f0c31f594c8dcf90aeaafaf2de241b77c095cdb4730b6cabb248f8103419` |
+| `docket/advantage/v3/provenance/range-v3-05-feasibility.json` | `6f878193b0b8fbf973c363f358ab5e932515a3f9770934406048d55d5b565874` |
 | `W17-RECOMMENDATION.md` | `3f321533647a1689dadd80ddf9687c07c0e786f1970d4ad69a1b7e0db84b97c0` |
 
 ## Deployment record required for parity

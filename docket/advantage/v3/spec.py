@@ -146,6 +146,11 @@ def is_warden_family(spec: "PairedSpec") -> bool:
     return spec.category == "security"
 
 
+def is_range_family(spec: "PairedSpec") -> bool:
+    """Whether a registered family uses the Range Doctor service protocol."""
+    return spec.execution_protocol.get("agent_service_id") == "range-doctor"
+
+
 def _warden_policy_enabled(spec: "PairedSpec") -> bool:
     return spec.case_selection.get("labelling_policy") is not None
 
@@ -189,17 +194,22 @@ def _validate_warden_policy(spec: "PairedSpec") -> None:
     ):
         raise ValueError("spec: Warden labelling policy is not all-applicable")
     if set(policy["blocked_classes"]) != WARDEN_BLOCKED_CLASSES:
-        raise ValueError("spec: Warden blocked classes do not match the composition rule")
+        raise ValueError(
+            "spec: Warden blocked classes do not match the composition rule"
+        )
     boundaries = policy["class_boundaries"]
     if (
         not isinstance(boundaries, dict)
         or set(boundaries) != WARDEN_AUTHORABLE_CLASSES
-        or not all(isinstance(value, str) and value.strip() for value in boundaries.values())
+        or not all(
+            isinstance(value, str) and value.strip() for value in boundaries.values()
+        )
     ):
         raise ValueError("spec: Warden class boundaries are incomplete")
-    if not isinstance(policy["verdict_composition"], str) or not policy[
-        "verdict_composition"
-    ].strip():
+    if (
+        not isinstance(policy["verdict_composition"], str)
+        or not policy["verdict_composition"].strip()
+    ):
         raise ValueError("spec: Warden verdict composition is blank")
 
     provenance = spec.pilot_provenance
@@ -496,6 +506,8 @@ class PairedSpec:
             raise ValueError("spec: protocol correction must name the superseded hash")
         if is_warden_family(self):
             _validate_warden_policy(self)
+        if is_range_family(self) and "frame_definition" in self.case_selection:
+            _validate_range_successor_registration(self)
 
         # The nested dicts remain ordinary JSON-shaped objects for deterministic saving.
         # Cache what construction validated so a later write through ``spec.scoring`` or
@@ -695,6 +707,202 @@ def _range_conflict_exclusion(spec: PairedSpec) -> tuple[set[str], set[int]]:
             "the experiment party controls"
         )
     return set(wallets), set(token_ids)
+
+
+def _range_successor_frame(spec: PairedSpec) -> dict:
+    frame = spec.case_selection.get("frame_definition")
+    if not isinstance(frame, dict):
+        raise ValueError("spec: Range successor needs a frame_definition object")
+    _required_fields(
+        frame,
+        {
+            "version",
+            "chain_id",
+            "position_manager",
+            "rpc_failure_policy",
+            "master_chef",
+            "observation_block",
+            "observation_block_hash",
+            "observation_time",
+            "sample_size",
+            "source_methods",
+            "index_derivation",
+            "collision_handling",
+            "strata",
+            "selection_rule",
+            "pool_truth_capture_attempts",
+            "pool_truth_sources",
+            "complete_required",
+        },
+        "Range successor frame definition",
+    )
+    source_methods = [
+        "eth_blockNumber",
+        "eth_getBlockByNumber",
+        "totalSupply",
+        "tokenByIndex",
+        "ownerOf",
+        "userPositionInfos_if_farm_held",
+        "positions_if_conflict_free",
+        "getPool_and_slot0_per_unique_live_pool",
+    ]
+    if (
+        frame["version"] != "range.enumerable-1024.v1"
+        or frame["chain_id"] != 56
+        or str(frame["position_manager"]).lower() != RANGE_POSITION_MANAGER
+        or str(frame["master_chef"]).lower() != RANGE_MASTER_CHEF
+        or not isinstance(frame["observation_block"], int)
+        or isinstance(frame["observation_block"], bool)
+        or frame["observation_block"] <= 0
+        or not isinstance(frame["observation_block_hash"], str)
+        or re.fullmatch(r"0x[0-9a-f]{64}", frame["observation_block_hash"]) is None
+        or frame["sample_size"] != 1024
+        or frame["source_methods"] != source_methods
+        or frame["pool_truth_sources"] != YIELD_SOURCE_URLS
+        or frame["rpc_failure_policy"]
+        != (
+            "Each registered JSON-RPC call is made once against DOCKET_ARCHIVE_RPC. "
+            "Any transport, JSON-RPC, ABI, pinned-header or completeness failure aborts "
+            "the frame without substituting an endpoint or retrying a sampled call."
+        )
+        or frame["complete_required"] is not True
+    ):
+        raise ValueError("spec: Range successor frame definition is invalid")
+    _utc_timestamp(frame["observation_time"], "Range successor observation time")
+    derivation = frame["index_derivation"]
+    if not isinstance(derivation, dict) or derivation != {
+        "counter_start": 0,
+        "digest": "SHA-256",
+        "integer_encoding": "unsigned_big_endian",
+        "modulus": "totalSupply_at_observation_block",
+        "preimage": (
+            "UTF8(stage_one_protocol_hash || '|56|' || lowercase(position_manager) "
+            "|| '|' || decimal(observation_block) || '|' || decimal(counter))"
+        ),
+    }:
+        raise ValueError("spec: Range successor index derivation is invalid")
+    strata = frame["strata"]
+    expected_strata = [
+        "passing_gate_in_range",
+        "passing_gate_out_of_range",
+        "nonzero_liquidity_failed_gate",
+    ]
+    if (
+        not isinstance(strata, list)
+        or [row.get("name") for row in strata if isinstance(row, dict)]
+        != expected_strata
+        or any(
+            set(row) != {"name", "definition"}
+            or not isinstance(row["definition"], str)
+            or not row["definition"].strip()
+            for row in strata
+        )
+        or frame["collision_handling"]
+        != (
+            "If index modulo totalSupply was already emitted, increment counter and "
+            "hash again. sample_ordinal advances only after a new index is emitted."
+        )
+        or frame["selection_rule"]
+        != {
+            "digest": "SHA-256",
+            "order": "ascending_digest",
+            "preimage": (
+                "UTF8(stage_one_protocol_hash || '|56|' || lowercase(position_manager) "
+                "|| '|' || decimal(token_id) || '|' || stratum_name)"
+            ),
+            "take": "one_per_stratum",
+        }
+    ):
+        raise ValueError("spec: Range successor strata or selection rule are invalid")
+    attempts = frame["pool_truth_capture_attempts"]
+    if not isinstance(attempts, list) or len(attempts) != 3:
+        raise ValueError("spec: Range successor needs exactly three pool captures")
+    parsed_attempts = [
+        _utc_timestamp(value, "Range successor pool capture") for value in attempts
+    ]
+    if parsed_attempts != sorted(set(parsed_attempts)):
+        raise ValueError("spec: Range successor pool captures are not increasing")
+    return frame
+
+
+def _validate_range_successor_registration(spec: PairedSpec) -> None:
+    _range_conflict_exclusion(spec)
+    _range_successor_frame(spec)
+    provenance = spec.pilot_provenance
+    if not isinstance(provenance, dict):
+        raise ValueError("spec: Range successor needs pilot provenance")
+    _required_fields(
+        provenance,
+        {
+            "status",
+            "prior_spec_id",
+            "prior_stage_one_protocol_hash",
+            "original_registration_passed",
+            "dry_run_preregistered_nothing",
+            "new_frame_read_before_registration",
+            "feasibility_probe_preceded_registration",
+            "evidence",
+        },
+        "Range successor pilot provenance",
+    )
+    if (
+        provenance["status"] != "pilot_informed"
+        or provenance["prior_spec_id"] != "v3-01-range-doctor"
+        or provenance["original_registration_passed"] is not False
+        or provenance["dry_run_preregistered_nothing"] is not True
+        or provenance["new_frame_read_before_registration"] is not False
+        or provenance["feasibility_probe_preceded_registration"] is not True
+        or OBJECT_HASH.fullmatch(provenance["prior_stage_one_protocol_hash"]) is None
+        or spec.protocol_correction["supersedes_stage_one_protocol_hash"]
+        != provenance["prior_stage_one_protocol_hash"]
+    ):
+        raise ValueError("spec: Range successor pilot provenance is invalid")
+    evidence = provenance["evidence"]
+    if not isinstance(evidence, dict) or set(evidence) != {
+        "range_replacement_dry_run",
+        "live_feasibility",
+    }:
+        raise ValueError("spec: Range successor provenance evidence is incomplete")
+    for source in evidence.values():
+        if (
+            not isinstance(source, dict)
+            or set(source) != {"ref", "sha256"}
+            or not isinstance(source["ref"], str)
+            or not source["ref"].strip()
+            or SHA256.fullmatch(str(source["sha256"])) is None
+        ):
+            raise ValueError("spec: Range successor provenance evidence is invalid")
+
+
+def range_sample_indices(spec: PairedSpec, total_supply: int) -> list[dict]:
+    """Derive the registered distinct enumerable indices, including collisions."""
+    frame = _range_successor_frame(spec)
+    if (
+        not isinstance(total_supply, int)
+        or isinstance(total_supply, bool)
+        or total_supply < frame["sample_size"]
+    ):
+        raise ValueError("spec: Range totalSupply cannot fill the registered sample")
+    rows = []
+    seen = set()
+    counter = frame["index_derivation"]["counter_start"]
+    while len(rows) < frame["sample_size"]:
+        preimage = (
+            f"{spec.stage_one_protocol_hash}|56|{RANGE_POSITION_MANAGER}|"
+            f"{frame['observation_block']}|{counter}"
+        ).encode("utf-8")
+        index = int.from_bytes(hashlib.sha256(preimage).digest(), "big") % total_supply
+        if index not in seen:
+            rows.append(
+                {
+                    "sample_ordinal": len(rows),
+                    "derivation_counter": counter,
+                    "index": index,
+                }
+            )
+            seen.add(index)
+        counter += 1
+    return rows
 
 
 def _range_source_frame(sources: list[dict], repo_root: Path, conflict: tuple):
@@ -1553,6 +1761,534 @@ def _validate_range_inputs(
         del remaining[expected_identity]
 
 
+def _range_successor_source_frame(
+    spec: PairedSpec, sources: list[dict], repo_root: Path
+) -> tuple[set[str], list[dict], list[dict], dict]:
+    frame_definition = _range_successor_frame(spec)
+    conflict_wallets, conflict_token_ids = _range_conflict_exclusion(spec)
+    if not isinstance(sources, list) or len(sources) != 2:
+        raise ValueError("spec: Range successor needs exactly two typed source refs")
+    if not all(isinstance(source, dict) for source in sources):
+        raise ValueError("spec: every Range successor source ref must be an object")
+    by_kind = {source.get("kind"): source for source in sources}
+    if set(by_kind) != {"enumerable_position_frame", "pool_truth"}:
+        raise ValueError(
+            "spec: Range successor sources must be enumerable_position_frame and pool_truth"
+        )
+
+    frame = _locked_json(
+        by_kind["enumerable_position_frame"],
+        repo_root,
+        "Range successor enumerable frame",
+    )
+    if not isinstance(frame, dict):
+        raise ValueError("spec: Range successor enumerable frame must be an object")
+    _required_fields(
+        frame,
+        {
+            "chain_id",
+            "position_manager",
+            "observation_block",
+            "observation_block_hash",
+            "observation_time",
+            "total_supply",
+            "sample_size",
+            "complete",
+            "rows",
+            "rpc_call_accounting",
+        },
+        "Range successor enumerable frame",
+    )
+    if (
+        frame["chain_id"] != 56
+        or str(frame["position_manager"]).lower() != RANGE_POSITION_MANAGER
+        or frame["observation_block"] != frame_definition["observation_block"]
+        or frame["observation_block_hash"] != frame_definition["observation_block_hash"]
+        or frame["observation_time"] != frame_definition["observation_time"]
+        or frame["sample_size"] != frame_definition["sample_size"]
+        or frame["complete"] is not True
+        or not isinstance(frame["rows"], list)
+        or len(frame["rows"]) != frame_definition["sample_size"]
+    ):
+        raise ValueError(
+            "spec: Range successor enumerable frame is incomplete or changed"
+        )
+    expected_indices = range_sample_indices(spec, frame["total_supply"])
+    base_fields = {
+        "sample_ordinal",
+        "derivation_counter",
+        "index",
+        "token_id",
+        "owner",
+        "staking_beneficiary",
+    }
+    position_fields = {
+        "liquidity",
+        "token0",
+        "token1",
+        "fee",
+        "tick_lower",
+        "tick_upper",
+    }
+    live_fields = {"pool_id", "current_tick"}
+    token_ids = set()
+    candidate_wallets = set()
+    conflicted = []
+    positions = []
+    farm_calls = 0
+    for row, derived_index in zip(frame["rows"], expected_indices, strict=True):
+        if not isinstance(row, dict) or not base_fields <= set(row):
+            raise ValueError(
+                "spec: every Range successor frame row needs identity fields"
+            )
+        if any(row[name] != derived_index[name] for name in derived_index):
+            raise ValueError(
+                "spec: Range successor frame indices were not derived as registered"
+            )
+        token_id = row["token_id"]
+        owner = row["owner"]
+        beneficiary = row["staking_beneficiary"]
+        if (
+            not isinstance(token_id, int)
+            or isinstance(token_id, bool)
+            or token_id < 0
+            or token_id in token_ids
+            or not isinstance(owner, str)
+            or ADDRESS.fullmatch(owner) is None
+        ):
+            raise ValueError(
+                "spec: Range successor frame identity is invalid or repeated"
+            )
+        token_ids.add(token_id)
+        owner = owner.lower()
+        if owner == RANGE_MASTER_CHEF:
+            farm_calls += 1
+            if (
+                not isinstance(beneficiary, str)
+                or ADDRESS.fullmatch(beneficiary) is None
+            ):
+                raise ValueError(
+                    "spec: every farm-held Range successor row needs a beneficiary"
+                )
+            wallet = beneficiary.lower()
+        else:
+            if beneficiary is not None:
+                raise ValueError(
+                    "spec: only farm-held Range successor rows may name a beneficiary"
+                )
+            wallet = owner
+        candidate_wallets.add(wallet)
+        is_conflict = (
+            token_id in conflict_token_ids
+            or owner in conflict_wallets
+            or wallet in conflict_wallets
+        )
+        if is_conflict:
+            if set(row) != base_fields:
+                raise ValueError(
+                    "spec: Range successor conflict was not recorded before outcome fields"
+                )
+            conflicted.append(
+                {
+                    "position_manager": RANGE_POSITION_MANAGER,
+                    "wallet": wallet,
+                    "token_id": token_id,
+                    "excluded_reason": RANGE_CONFLICT_REASON,
+                }
+            )
+            continue
+        if frozenset(row) not in {
+            frozenset(base_fields | position_fields),
+            frozenset(base_fields | position_fields | live_fields),
+        }:
+            raise ValueError(
+                "spec: Range successor position row has unregistered fields"
+            )
+        if (
+            not isinstance(row["liquidity"], int)
+            or isinstance(row["liquidity"], bool)
+            or row["liquidity"] < 0
+            or not all(
+                isinstance(row[name], int) and not isinstance(row[name], bool)
+                for name in ("fee", "tick_lower", "tick_upper")
+            )
+            or row["tick_lower"] >= row["tick_upper"]
+            or any(
+                not isinstance(row[name], str) or ADDRESS.fullmatch(row[name]) is None
+                for name in ("token0", "token1")
+            )
+        ):
+            raise ValueError("spec: Range successor position values are invalid")
+        if row["liquidity"] == 0:
+            if set(row) != base_fields | position_fields:
+                raise ValueError(
+                    "spec: closed Range successor rows cannot name pool outcomes"
+                )
+            continue
+        if (
+            set(row) != base_fields | position_fields | live_fields
+            or not isinstance(row["pool_id"], str)
+            or ADDRESS.fullmatch(row["pool_id"]) is None
+            or not isinstance(row["current_tick"], int)
+            or isinstance(row["current_tick"], bool)
+        ):
+            raise ValueError("spec: live Range successor rows need pool and tick truth")
+        status = (
+            "below_range"
+            if row["current_tick"] < row["tick_lower"]
+            else "above_range"
+            if row["current_tick"] >= row["tick_upper"]
+            else "in_range"
+        )
+        positions.append(
+            {
+                "position_manager": RANGE_POSITION_MANAGER,
+                "wallet": wallet,
+                "token_id": token_id,
+                "range_status": status,
+                "liquidity": row["liquidity"],
+                "current_tick": row["current_tick"],
+                "tick_lower": row["tick_lower"],
+                "tick_upper": row["tick_upper"],
+                "token0": row["token0"].lower(),
+                "token1": row["token1"].lower(),
+                "fee": row["fee"],
+                "pool_id": row["pool_id"].lower(),
+            }
+        )
+
+    pool_truth = _locked_json(
+        by_kind["pool_truth"], repo_root, "Range successor pool truth"
+    )
+    if not isinstance(pool_truth, dict) or set(pool_truth) != {
+        "capture_log",
+        "source_snapshots",
+    }:
+        raise ValueError(
+            "spec: Range successor pool truth needs capture_log and source_snapshots"
+        )
+    snapshots = pool_truth["source_snapshots"]
+    if not isinstance(snapshots, dict) or set(snapshots) != {"pools", "token_list"}:
+        raise ValueError("spec: Range successor pool truth needs pools and token_list")
+    attempts = tuple(
+        _utc_timestamp(value, "Range successor pool capture")
+        for value in frame_definition["pool_truth_capture_attempts"]
+    )
+    source_bodies = {
+        name: _validate_source_snapshot(snapshot, name, attempts=attempts)
+        for name, snapshot in snapshots.items()
+        if isinstance(snapshot, dict)
+    }
+    if set(source_bodies) != {"pools", "token_list"}:
+        raise ValueError("spec: Range successor pool snapshots must be objects")
+    if (
+        snapshots["pools"]["attempt_ordinal"]
+        != snapshots["token_list"]["attempt_ordinal"]
+    ):
+        raise ValueError(
+            "spec: Range successor pool snapshots need one capture attempt"
+        )
+    chosen_ordinal = snapshots["pools"]["attempt_ordinal"]
+    capture_log = pool_truth["capture_log"]
+    if not isinstance(capture_log, list) or len(capture_log) != chosen_ordinal:
+        raise ValueError(
+            "spec: Range successor capture log must reach its chosen attempt"
+        )
+    for ordinal, attempt in enumerate(capture_log, start=1):
+        if not isinstance(attempt, dict) or set(attempt) != {
+            "attempt_ordinal",
+            "scheduled_at",
+            "pools_status",
+            "token_list_status",
+        }:
+            raise ValueError("spec: Range successor capture log entry is invalid")
+        if (
+            attempt["attempt_ordinal"] != ordinal
+            or attempt["scheduled_at"]
+            != frame_definition["pool_truth_capture_attempts"][ordinal - 1]
+            or not all(
+                isinstance(attempt[name], int)
+                and not isinstance(attempt[name], bool)
+                and attempt[name] >= 0
+                for name in ("pools_status", "token_list_status")
+            )
+        ):
+            raise ValueError(
+                "spec: Range successor capture log is out of order or malformed"
+            )
+        succeeded = (
+            attempt["pools_status"] == 200 and attempt["token_list_status"] == 200
+        )
+        if succeeded != (ordinal == chosen_ordinal):
+            raise ValueError(
+                "spec: Range successor pool truth is not the first successful capture"
+            )
+    pools_body = source_bodies["pools"]
+    pool_rows = (
+        pools_body
+        if isinstance(pools_body, list)
+        else pools_body.get("rows")
+        if isinstance(pools_body, dict)
+        else None
+    )
+    token_body = source_bodies["token_list"]
+    if (
+        not isinstance(pool_rows, list)
+        or not isinstance(token_body, dict)
+        or not isinstance(token_body.get("tokens"), list)
+    ):
+        raise ValueError("spec: Range successor pool source shapes are invalid")
+    allowlist = _token_allowlist(token_body, "Range successor token-list source")
+    pools_by_id = {}
+    for pool in pool_rows:
+        if not isinstance(pool, dict):
+            raise ValueError("spec: every Range successor pool row must be an object")
+        pool_id = str(pool.get("id") or "").lower()
+        if ADDRESS.fullmatch(pool_id) is None or pool_id in pools_by_id:
+            raise ValueError("spec: Range successor pool ids are invalid or duplicated")
+        pools_by_id[pool_id] = pool
+    for position in positions:
+        pool = pools_by_id.get(position["pool_id"])
+        if pool is not None:
+            try:
+                pool_token0 = pool["token0"]["id"].lower()
+                pool_token1 = pool["token1"]["id"].lower()
+            except (AttributeError, KeyError, TypeError) as exc:
+                raise ValueError(
+                    "spec: Range successor pool row has invalid token identities"
+                ) from exc
+            if (
+                pool_token0 != position["token0"]
+                or pool_token1 != position["token1"]
+                or _yield_number(pool, "feeTier") != position["fee"]
+            ):
+                raise ValueError(
+                    "spec: Range successor position does not match its frozen pool row"
+                )
+        failed_gate = (
+            "pool_not_in_frozen_truth"
+            if pool is None
+            else _yield_first_failed_gate(pool, allowlist)
+        )
+        position["pool_gate_passes"] = failed_gate is None
+        position["first_failed_gate"] = failed_gate
+        for target, source in (
+            ("fee_usd_24h", "feeUSD24h"),
+            ("protocol_fee_usd_24h", "protocolFeeUSD24h"),
+            ("tvl_usd", "tvlUSD"),
+        ):
+            position[target] = (
+                None
+                if pool is None or pool.get(source) is None
+                else _yield_number(pool, source)
+            )
+        if failed_gate is None:
+            gross_apr = position["fee_usd_24h"] * 365 / position["tvl_usd"]
+            net_apr = (
+                (position["fee_usd_24h"] - position["protocol_fee_usd_24h"])
+                * 365
+                / position["tvl_usd"]
+            )
+            position.update(
+                {
+                    "gross_apr": gross_apr,
+                    "net_apr": net_apr,
+                    "annual_gross_usd": 10000 * gross_apr,
+                    "annual_net_usd": 10000 * net_apr,
+                    "annual_overstatement_usd": 10000 * (gross_apr - net_apr),
+                    "cost_only_break_even_days": (
+                        25 / (10000 * net_apr / 365) if net_apr > 0 else None
+                    ),
+                }
+            )
+        else:
+            position.update(
+                {
+                    "gross_apr": None,
+                    "net_apr": None,
+                    "annual_gross_usd": None,
+                    "annual_net_usd": None,
+                    "annual_overstatement_usd": None,
+                    "cost_only_break_even_days": None,
+                }
+            )
+
+    accounting = frame["rpc_call_accounting"]
+    unique_live_pools = len({position["pool_id"] for position in positions})
+    expected_accounting = {
+        "eth_blockNumber": 1,
+        "eth_getBlockByNumber": 1,
+        "totalSupply": 1,
+        "tokenByIndex": frame_definition["sample_size"],
+        "ownerOf": frame_definition["sample_size"],
+        "userPositionInfos": farm_calls,
+        "positions": frame_definition["sample_size"] - len(conflicted),
+        "getPool": unique_live_pools,
+        "slot0": unique_live_pools,
+        "eth_getLogs": 0,
+    }
+    expected_accounting["total"] = sum(expected_accounting.values())
+    if accounting != expected_accounting:
+        raise ValueError("spec: Range successor RPC call accounting is inconsistent")
+    return candidate_wallets, positions, conflicted, frame
+
+
+def _range_successor_stratum(position: dict) -> str | None:
+    if not position["pool_gate_passes"]:
+        return "nonzero_liquidity_failed_gate"
+    if position["range_status"] == "in_range":
+        return "passing_gate_in_range"
+    return "passing_gate_out_of_range"
+
+
+def range_selected_positions(spec: PairedSpec, positions: list[dict]) -> list[dict]:
+    """Select the registered lowest-hash position from each successor stratum."""
+    strata = [row["name"] for row in _range_successor_frame(spec)["strata"]]
+    selected = []
+    for stratum in strata:
+        candidates = [
+            row for row in positions if _range_successor_stratum(row) == stratum
+        ]
+        if not candidates:
+            raise ValueError(f"spec: Range successor stratum {stratum!r} is empty")
+        selected.append(
+            min(
+                candidates,
+                key=lambda row: hashlib.sha256(
+                    (
+                        f"{spec.stage_one_protocol_hash}|56|{RANGE_POSITION_MANAGER}|"
+                        f"{row['token_id']}|{stratum}"
+                    ).encode("utf-8")
+                ).hexdigest(),
+            )
+        )
+    return selected
+
+
+def _range_successor_public_position(position: dict) -> dict:
+    return {
+        name: position[name]
+        for name in (
+            "position_manager",
+            "wallet",
+            "token_id",
+            "range_status",
+            "liquidity",
+            "pool_gate_passes",
+            "first_failed_gate",
+        )
+    }
+
+
+def _range_successor_truth(position: dict) -> dict:
+    truth = {
+        name: position[name]
+        for name in (
+            "range_status",
+            "liquidity",
+            "pool_gate_passes",
+            "first_failed_gate",
+            "current_tick",
+            "tick_lower",
+            "tick_upper",
+            "fee_usd_24h",
+            "protocol_fee_usd_24h",
+            "tvl_usd",
+            "gross_apr",
+            "net_apr",
+            "annual_gross_usd",
+            "annual_net_usd",
+            "annual_overstatement_usd",
+            "cost_only_break_even_days",
+        )
+    }
+    truth.update(
+        {
+            "frame_sample_size": 1024,
+            "frame_unique_indices": 1024,
+            "frame_complete": True,
+        }
+    )
+    return truth
+
+
+def _validate_range_successor_inputs(
+    spec: PairedSpec, body: dict, cases: list[dict], repo_root: Path
+) -> None:
+    manifest = body.get("selection_manifest")
+    if not isinstance(manifest, dict):
+        raise ValueError("spec: Range successor inputs need a selection_manifest")
+    _required_fields(
+        manifest,
+        {
+            "candidate_wallets",
+            "eligible_positions",
+            "conflict_exclusions",
+            "source_refs",
+        },
+        "Range successor selection manifest",
+    )
+    source_refs = manifest["source_refs"]
+    source_wallets, source_positions, source_conflicts, frame = (
+        _range_successor_source_frame(spec, source_refs, repo_root)
+    )
+    candidate_wallets = manifest["candidate_wallets"]
+    if not isinstance(candidate_wallets, list) or candidate_wallets != sorted(
+        source_wallets
+    ):
+        raise ValueError(
+            "spec: Range successor candidate wallets differ from the frame"
+        )
+    eligible = manifest["eligible_positions"]
+    expected_eligible = [
+        _range_successor_public_position(position) for position in source_positions
+    ]
+    if eligible != expected_eligible:
+        raise ValueError(
+            "spec: Range successor eligible positions differ from the frame"
+        )
+    if manifest["conflict_exclusions"] != source_conflicts:
+        raise ValueError("spec: Range successor conflicts differ from the frame")
+    selected = range_selected_positions(spec, source_positions)
+    if len(cases) != len(selected):
+        raise ValueError("spec: Range successor cases do not fill every stratum")
+    required = {
+        "case_id",
+        "selection_stratum",
+        "chain_id",
+        "position_manager",
+        "wallet",
+        "token_id",
+        "observation_block",
+        "observation_time",
+        "declared_position_value_usd",
+        "estimated_recenter_cost_usd",
+        "decision_horizon_days",
+        "source_refs",
+        "truth",
+    }
+    for case, position in zip(cases, selected, strict=True):
+        _required_fields(case, required, "Range successor case")
+        stratum = _range_successor_stratum(position)
+        if (
+            set(case) != required
+            or case["case_id"] != f"range-{stratum}-{position['token_id']}"
+            or case["selection_stratum"] != stratum
+            or case["chain_id"] != 56
+            or str(case["position_manager"]).lower() != RANGE_POSITION_MANAGER
+            or str(case["wallet"]).lower() != position["wallet"]
+            or case["token_id"] != position["token_id"]
+            or case["observation_block"] != frame["observation_block"]
+            or case["observation_time"] != frame["observation_time"]
+            or case["declared_position_value_usd"] != 10000
+            or case["estimated_recenter_cost_usd"] != 25
+            or case["decision_horizon_days"] != 30
+            or case["source_refs"] != source_refs
+            or case["truth"] != _range_successor_truth(position)
+        ):
+            raise ValueError("spec: Range successor case contradicts its frozen frame")
+
+
 def _decode_embedded_bytes(digest, encoded, context: str) -> bytes:
     if not isinstance(digest, str) or SHA256.fullmatch(digest) is None:
         raise ValueError(f"spec: {context} digest is invalid")
@@ -1584,8 +2320,14 @@ def _calibration_number(value, context: str) -> float:
     return float(value)
 
 
-def _computed_calibration_truth(spec_id: str, inputs: dict) -> dict | None:
-    if spec_id == "v3-01-range-doctor":
+def _computed_calibration_truth(spec: PairedSpec | str, inputs: dict) -> dict | None:
+    spec_id = spec.spec_id if isinstance(spec, PairedSpec) else spec
+    range_family = (
+        is_range_family(spec)
+        if isinstance(spec, PairedSpec)
+        else spec_id in {"v3-01-range-doctor", "v3-05-range-doctor"}
+    )
+    if range_family:
         if not isinstance(inputs, dict):
             raise ValueError("spec: Range calibration input must be an object")
         _required_fields(
@@ -1764,9 +2506,7 @@ def _validate_evaluator_calibration(
     spec: PairedSpec, body: dict, held_out_cases: list[dict], repo_root: Path
 ) -> None:
     vendor_classes = (
-        _warden_vendor_classes(body, repo_root)
-        if is_warden_family(spec)
-        else set()
+        _warden_vendor_classes(body, repo_root) if is_warden_family(spec) else set()
     )
     shared = body.get("calibration_set")
     if not isinstance(shared, dict):
@@ -1870,8 +2610,7 @@ def _validate_evaluator_calibration(
                     or not isinstance(span["end"], int)
                     or isinstance(span["end"], bool)
                     or not 0 <= span["start"] < span["end"] <= len(payload_bytes)
-                    or span["basis"]
-                    not in {"surface", "unicode_normalized", "decoded"}
+                    or span["basis"] not in {"surface", "unicode_normalized", "decoded"}
                 ):
                     raise ValueError("spec: Warden calibration evidence is invalid")
                 try:
@@ -1890,7 +2629,7 @@ def _validate_evaluator_calibration(
                     )
                 ):
                     raise ValueError("spec: Warden calibration evidence is blank")
-        computed = _computed_calibration_truth(spec.spec_id, case["input"])
+        computed = _computed_calibration_truth(spec, case["input"])
         if computed is not None and not _calibration_truth_matches(
             case["expected"], computed
         ):
@@ -1898,7 +2637,7 @@ def _validate_evaluator_calibration(
                 "spec: shared calibration answer key contradicts its family formulas"
             )
         shared_by_id[case_id] = case
-    if spec.spec_id == "v3-01-range-doctor" and {
+    if is_range_family(spec) and {
         case["expected"]["range_status"] for case in shared_cases
     } != {"in_range", "above_range", "below_range"}:
         raise ValueError("spec: Range calibration must cover all three range states")
@@ -2644,13 +3383,11 @@ def _validate_warden_inputs(
                     "spec: Warden survival predicate does not match its source evidence"
                 )
         if (
-            (case["critical"] or (_warden_policy_enabled(spec) and case["hostile"]))
-            and {
-                (row["label"], row["evidence_start"], row["evidence_end"])
-                for row in predicates
-            }
-            != evidence_keys
-        ):
+            case["critical"] or (_warden_policy_enabled(spec) and case["hostile"])
+        ) and {
+            (row["label"], row["evidence_start"], row["evidence_end"])
+            for row in predicates
+        } != evidence_keys:
             raise ValueError(
                 "spec: every critical Warden vector needs a survival predicate"
             )
@@ -2664,7 +3401,9 @@ def _validate_warden_inputs(
             "spec: Warden inputs need at least four hostile vendor classes"
         )
     if _warden_policy_enabled(spec) and hostile_classes != vendor_classes:
-        raise ValueError("spec: pilot-informed Warden inputs must cover every vendor class")
+        raise ValueError(
+            "spec: pilot-informed Warden inputs must cover every vendor class"
+        )
     if critical_hostile_count < 2:
         raise ValueError("spec: Warden inputs need at least two critical hostile cases")
 
@@ -2674,6 +3413,7 @@ INPUT_VALIDATORS = {
     "v3-02-yield-router": _validate_yield_inputs,
     "v3-03-warden-security": _validate_warden_inputs,
     "v3-04-warden-security": _validate_warden_inputs,
+    "v3-05-range-doctor": _validate_range_successor_inputs,
 }
 
 

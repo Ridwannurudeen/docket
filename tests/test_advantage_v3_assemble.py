@@ -14,7 +14,13 @@ from pathlib import Path
 
 import pytest
 
-from docket.advantage.v3 import assemble, calibration, calibration_driver, capture
+from docket.advantage.v3 import (
+    assemble,
+    calibration,
+    calibration_driver,
+    capture,
+    rehearsal,
+)
 from docket.hire.receipts import canonical_hash
 from docket.advantage.v3.spec import (
     _computed_calibration_truth,
@@ -502,3 +508,82 @@ def test_lock_warden_recovers_after_atomic_spec_save_failure(tmp_path, monkeypat
     locked = load(spec_path, repo_root=repo_root)
     assert locked.inputs_sha256 == hashlib.sha256(input_path.read_bytes()).hexdigest()
     assert_runnable(locked, repo_root=repo_root)
+
+
+def test_lock_range_cli_binds_capture_and_saves_the_real_lock(tmp_path, monkeypatch):
+    repo_root = tmp_path / "range-repo"
+    spec_path = repo_root / "docket/advantage/v3/specs/v3-05-range-doctor.json"
+    spec_path.parent.mkdir(parents=True)
+    registered = load(
+        Path(__file__).resolve().parents[1]
+        / "docket/advantage/v3/specs/v3-05-range-doctor.json"
+    )
+    save(registered, spec_path, repo_root=repo_root)
+    spec = load(spec_path, repo_root=repo_root)
+    source_refs = rehearsal._range_sources(spec, repo_root)
+    frame_path = repo_root / source_refs[0]["ref"]
+    staged_truth = json.loads(
+        (repo_root / source_refs[1]["ref"]).read_text(encoding="utf-8")
+    )
+    snapshots = staged_truth["source_snapshots"]
+    chosen = staged_truth["capture_log"][-1]
+    raw = tuple(
+        base64.b64decode(snapshots[name]["body_base64"])
+        for name in ("pools", "token_list")
+    )
+    capture_result = {
+        "captured": True,
+        "attempts": [
+            chosen
+            | {
+                "pools_observed_at": snapshots["pools"]["observed_at"],
+                "token_list_observed_at": snapshots["token_list"]["observed_at"],
+                "transport_errors": [None, None],
+                "succeeded": True,
+                "attempt_outcome": "succeeded",
+            }
+        ],
+        "pools": {
+            "url": snapshots["pools"]["url"],
+            "sha256": snapshots["pools"]["sha256"],
+            "bytes": len(raw[0]),
+        },
+        "token_list": {
+            "url": snapshots["token_list"]["url"],
+            "sha256": snapshots["token_list"]["sha256"],
+            "bytes": len(raw[1]),
+        },
+        "_raw": raw,
+    }
+    capture_dir = repo_root / "capture"
+    capture.write_capture(capture_result, capture_dir)
+    calibration_set = rehearsal._range_calibration_set(spec)
+    evaluator_calibration = rehearsal._capture_calibration(
+        spec, repo_root, calibration_set
+    )
+    calibration_path = repo_root / "calibration-set.json"
+    calibration_path.write_bytes(calibration_set)
+    evaluator_path = repo_root / "evaluator-calibration.json"
+    evaluator_path.write_text(json.dumps(evaluator_calibration), encoding="utf-8")
+    pool_truth_path = repo_root / "sources/range-cli-pool-truth.json"
+    monkeypatch.setattr(assemble, "REPO_ROOT", repo_root)
+
+    code = assemble.main(
+        [
+            "lock-range",
+            str(spec_path),
+            str(frame_path),
+            str(capture_dir),
+            str(pool_truth_path),
+            str(calibration_path),
+            str(evaluator_path),
+            str(repo_root / "calibration"),
+        ]
+    )
+
+    assert code == 0
+    locked = load(spec_path, repo_root=repo_root)
+    input_path = repo_root / locked.inputs_ref
+    assert locked.inputs_sha256 == hashlib.sha256(input_path.read_bytes()).hexdigest()
+    assert_runnable(locked, repo_root=repo_root)
+    assert json.loads(pool_truth_path.read_text(encoding="utf-8")) == staged_truth

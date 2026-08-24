@@ -27,12 +27,18 @@ from .spec import (
     REPO_ROOT,
     PairedSpec,
     YIELD_SOURCE_URLS,
+    _range_successor_public_position,
+    _range_successor_source_frame,
+    _range_successor_stratum,
+    _range_successor_truth,
     _token_allowlist,
     _validate_inputs,
     _yield_first_failed_gate,
     _yield_number,
+    is_range_family,
     is_warden_family,
     lock_inputs,
+    range_selected_positions,
     save,
 )
 
@@ -103,6 +109,123 @@ def assemble_warden_envelope(
     except ValueError as exc:
         raise AssemblyRefused(str(exc)) from exc
     return envelope
+
+
+def assemble_range_envelope(
+    spec: PairedSpec,
+    source_refs: list[dict],
+    *,
+    repo_root: Path,
+    calibration_dir: Path,
+    calibration_set: bytes,
+    evaluator_calibration: list[dict],
+) -> dict:
+    """Build successor Range inputs from a complete enumerable frame and pool truth."""
+    if not is_range_family(spec) or "frame_definition" not in spec.case_selection:
+        raise AssemblyRefused("lock-range accepts only enumerable Range successors")
+    try:
+        wallets, positions, conflicts, frame = _range_successor_source_frame(
+            spec, source_refs, repo_root
+        )
+        selected = range_selected_positions(spec, positions)
+    except ValueError as exc:
+        raise AssemblyRefused(str(exc)) from exc
+    cases = []
+    for position in selected:
+        stratum = _range_successor_stratum(position)
+        cases.append(
+            {
+                "case_id": f"range-{stratum}-{position['token_id']}",
+                "selection_stratum": stratum,
+                "chain_id": 56,
+                "position_manager": position["position_manager"],
+                "wallet": position["wallet"],
+                "token_id": position["token_id"],
+                "observation_block": frame["observation_block"],
+                "observation_time": frame["observation_time"],
+                "declared_position_value_usd": POSITION_VALUE_USD,
+                "estimated_recenter_cost_usd": SWITCHING_COST_USD,
+                "decision_horizon_days": DECISION_HORIZON_DAYS,
+                "source_refs": source_refs,
+                "truth": _range_successor_truth(position),
+            }
+        )
+    envelope = {
+        "spec_id": spec.spec_id,
+        "stage_one_protocol_hash": spec.stage_one_protocol_hash,
+        "selection_manifest": {
+            "candidate_wallets": sorted(wallets),
+            "eligible_positions": [
+                _range_successor_public_position(position) for position in positions
+            ],
+            "conflict_exclusions": conflicts,
+            "source_refs": source_refs,
+        },
+        "cases": cases,
+        "calibration_set": {
+            "sha256": hashlib.sha256(calibration_set).hexdigest(),
+            "body_base64": base64.b64encode(calibration_set).decode("ascii"),
+        },
+        "evaluator_calibration": evaluator_calibration,
+    }
+    try:
+        verify_calibration_capture(spec, envelope, calibration_dir)
+        _validate_inputs(spec, _envelope_bytes(envelope), repo_root)
+    except ValueError as exc:
+        raise AssemblyRefused(str(exc)) from exc
+    return envelope
+
+
+def range_pool_truth(capture_result: dict) -> dict:
+    """Bind the first successful registered pool capture and every prior failure."""
+    if not capture_result.get("captured"):
+        raise AssemblyRefused(
+            "the Range pool capture did not complete, so no pool truth can be locked"
+        )
+    raw = capture_result.get("_raw")
+    if not isinstance(raw, tuple) or len(raw) != 2:
+        raise AssemblyRefused(
+            "the Range pool capture carries no exact raw pools and token-list bytes"
+        )
+    attempts = capture_result.get("attempts")
+    if not isinstance(attempts, list) or not attempts:
+        raise AssemblyRefused("the Range pool capture has no attempt history")
+    chosen = attempts[-1]
+    capture_log = [
+        {
+            "attempt_ordinal": attempt["attempt_ordinal"],
+            "scheduled_at": attempt["scheduled_at"],
+            "pools_status": attempt["pools_status"],
+            "token_list_status": attempt["token_list_status"],
+        }
+        for attempt in attempts
+    ]
+    return {
+        "capture_log": capture_log,
+        "source_snapshots": {
+            "pools": _snapshot("pools", raw[0], chosen["pools_observed_at"], chosen),
+            "token_list": _snapshot(
+                "token_list", raw[1], chosen["token_list_observed_at"], chosen
+            ),
+        },
+    }
+
+
+def _range_source_ref(path: Path, kind: str, repo_root: Path) -> dict:
+    resolved_root = Path(repo_root).resolve()
+    resolved = Path(path).resolve()
+    try:
+        relative = resolved.relative_to(resolved_root)
+    except ValueError as exc:
+        raise AssemblyRefused(
+            f"the {kind} source must be stored inside {resolved_root}"
+        ) from exc
+    raw = resolved.read_bytes()
+    return {
+        "kind": kind,
+        "ref": relative.as_posix(),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
 
 
 def assemble_yield_envelope(
@@ -356,19 +479,100 @@ def write_envelope(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Assemble a written capture into the envelope the lock reads.
-
-    Deliberately a separate command from the capture, and deliberately not a lock. The capture
-    is time-critical and unattended; assembling and registering the result is neither, and
-    writing `inputs_sha256` is a registration act that belongs in a reviewed commit rather
-    than in whatever a timer did at noon.
-    """
+    """Assemble frozen evidence, with explicit lock commands for corrected families."""
     import argparse
     import sys
 
     from .spec import load
 
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "lock-range":
+        parser = argparse.ArgumentParser(
+            description="Assemble and lock the enumerable Range successor."
+        )
+        parser.add_argument("command")
+        parser.add_argument("spec", help="path to the Range successor specification")
+        parser.add_argument("frame", help="path to the complete enumerable frame")
+        parser.add_argument("capture_dir", help="directory holding the pool capture")
+        parser.add_argument("pool_truth", help="first-write path for bound pool truth")
+        parser.add_argument("calibration_set", help="path to the eight-case key")
+        parser.add_argument(
+            "evaluator_calibration", help="both seats' calibration results JSON"
+        )
+        parser.add_argument(
+            "calibration_dir", help="directory holding both seat capture artifacts"
+        )
+        args = parser.parse_args(arguments)
+        try:
+            spec_path = Path(args.spec)
+            spec = load(spec_path, repo_root=REPO_ROOT)
+            pool_truth_path = Path(args.pool_truth)
+            truth = range_pool_truth(load_capture(Path(args.capture_dir)))
+            truth_raw = (json.dumps(truth, indent=2, sort_keys=True) + "\n").encode(
+                "utf-8"
+            )
+            pool_truth_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with pool_truth_path.open("xb") as handle:
+                    handle.write(truth_raw)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            except FileExistsError as exc:
+                if pool_truth_path.read_bytes() != truth_raw:
+                    raise AssemblyRefused(
+                        f"{pool_truth_path} already contains different pool truth"
+                    ) from exc
+            source_refs = [
+                _range_source_ref(
+                    Path(args.frame), "enumerable_position_frame", REPO_ROOT
+                ),
+                _range_source_ref(pool_truth_path, "pool_truth", REPO_ROOT),
+            ]
+            envelope = assemble_range_envelope(
+                spec,
+                source_refs,
+                repo_root=REPO_ROOT,
+                calibration_dir=Path(args.calibration_dir),
+                calibration_set=Path(args.calibration_set).read_bytes(),
+                evaluator_calibration=json.loads(
+                    Path(args.evaluator_calibration).read_text(encoding="utf-8")
+                ),
+            )
+            raw = _envelope_bytes(envelope)
+            _validate_inputs(spec, raw, REPO_ROOT)
+            input_path = Path(REPO_ROOT) / spec.inputs_ref
+            try:
+                write_envelope(spec, envelope, repo_root=REPO_ROOT)
+            except AssemblyRefused:
+                if not input_path.is_file() or input_path.read_bytes() != raw:
+                    raise
+            locked = lock_inputs(spec, repo_root=REPO_ROOT)
+            temporary_spec = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    dir=spec_path.parent,
+                    prefix=f".{spec_path.name}.",
+                    suffix=".tmp",
+                    delete=False,
+                ) as temporary:
+                    temporary_spec = Path(temporary.name)
+                    temporary.write(spec_path.read_bytes())
+                    temporary.flush()
+                    os.fsync(temporary.fileno())
+                save(locked, temporary_spec, repo_root=REPO_ROOT)
+                temporary_spec.replace(spec_path)
+            finally:
+                if temporary_spec is not None:
+                    temporary_spec.unlink(missing_ok=True)
+        except (AssemblyRefused, OSError, ValueError) as refusal:
+            print(f"assembly refused: {refusal}")
+            return 2
+        print(
+            f"locked {input_path} with inputs_sha256={locked.inputs_sha256}. "
+            "Commit the frame, capture-bound pool truth, input and specification together."
+        )
+        return 0
+
     if arguments and arguments[0] == "lock-warden":
         parser = argparse.ArgumentParser(
             description="Assemble and lock the authored Warden held-out family."

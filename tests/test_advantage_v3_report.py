@@ -47,9 +47,10 @@ def test_the_committed_families_include_the_superseded_unlocked_pilot():
     payload = report.report()
 
     assert [family["state"] for family in payload["families"]] == [
-        report.REGISTERED_WAITING,
+        report.SUPERSEDED_BEFORE_INPUT_LOCK,
         report.REGISTERED_WAITING,
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
+        report.REGISTERED_WAITING,
         report.REGISTERED_WAITING,
     ]
     assert set(payload["summary"]["states"]) == {
@@ -57,6 +58,9 @@ def test_the_committed_families_include_the_superseded_unlocked_pilot():
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
     }
     assert "proved" not in json.dumps(payload).lower()
+    by_id = {family["spec_id"]: family for family in payload["families"]}
+    assert by_id["v3-01-range-doctor"]["superseded_by"] == "v3-05-range-doctor"
+    assert by_id["v3-03-warden-security"]["superseded_by"] == ("v3-04-warden-security")
 
 
 def test_locked_not_run_running_and_complete_unscored_come_only_from_the_ledger(
