@@ -20,9 +20,9 @@ This proves a read-only position diagnosis, the dated controlled-position observ
 
 Open the [Agent Advantage Report](https://docket.gudman.xyz/advantage).
 
-This proves three completed single-task service-versus-manual comparisons—liquidity, trading, and security—with both timings, cost notes, hashes, and actual outputs. The raw [v1 artifact](https://docket.gudman.xyz/advantage.json) shows Warden's miss as well as the faster runs; the [post-hoc decision-impact section of v2](https://docket.gudman.xyz/advantage/v2.json) reports 0 ordering changes across 231 eligible-pool pairs, while one separate v2 security run over 47 labelled payloads scanned three times each flagged 14 of 31 attacks and named the labelled class on 13 of 31.
+This proves three completed single-task service-versus-manual comparisons—liquidity, trading, and security—with both timings, cost notes, hashes, and actual outputs. The raw [v1 artifact](https://docket.gudman.xyz/advantage.json) shows Warden's miss as well as the faster runs; the [post-hoc decision-impact section of v2](https://docket.gudman.xyz/advantage/v2.json) reports 0 ordering changes across 231 eligible-pool pairs. Its two security records preserve the detector change: the live detector observed 2026-08-10, exact revision and deploy date unrecorded, flagged 14 of 31 attacks with precision 14 of 15; revision `0583853ed7fca7d03c98a5cc4c2383cc6b149248`, deployed 2026-08-24, flagged 15 of 30 scored attacks with precision 15 of 16. One hostile payload was unscored in the newer run, whose 50.00% recall still misses v3-04's 90% floor; Warden remains beta.
 
-Then open [v3](https://docket.gudman.xyz/advantage/v3): it proves preregistration, not performance. Its [raw response](https://docket.gudman.xyz/advantage/v3.json) shows three families, all `registered_waiting_for_inputs`, with no result.
+Then open [v3](https://docket.gudman.xyz/advantage/v3): it proves preregistration, not performance. Its [raw response](https://docket.gudman.xyz/advantage/v3.json) shows four families and no result: three are `registered_waiting_for_inputs`, while v3-03 Warden is `superseded_before_input_lock` by v3-04.
 
 ## 4. Check the registry data
 

@@ -11,7 +11,8 @@
 The honest answer today is mixed. Docket's v1 report alone satisfies that formal eligibility
 gate, but it contains one paired observation per task and records material losses as well as
 wins. The marketplace is not yet open for payment: 0 of 6 catalogue services are in paid stock,
-no settlement has run, and all 3 v3 families still have zero results.
+no settlement has run, and all 4 v3 families still have zero results: 3 wait for inputs and
+the superseded v3-03 Warden family was stopped before input lock.
 [Sources: [v1](https://docket.gudman.xyz/advantage.json),
 [catalogue](https://docket.gudman.xyz/hire),
 [canary history](https://docket.gudman.xyz/canary),
@@ -65,14 +66,15 @@ report. [Source: [v2 method and prior-version note](https://docket.gudman.xyz/ad
 
 ### What v3 will add — and what it has not added
 
-V3 registers 5 Range Doctor pairs, 5 Yield Router pairs, and 12 Warden pairs, retaining first
-primary outputs and failures under fixed stopping and scoring rules. Today all 3 of 3 families
-remain `registered_waiting_for_inputs` with empty `inputs_sha256`, so these are protocols, not
+V3 registers 5 Range Doctor pairs, 5 Yield Router pairs, and 12 Warden pairs in the active
+v3-04 family, retaining first primary outputs and failures under fixed stopping and scoring
+rules. Today Range, Yield, and v3-04 Warden remain `registered_waiting_for_inputs` with empty
+`inputs_sha256`; v3-03 Warden is `superseded_before_input_lock`. These are protocols, not
 results.
 [Sources: [live v3 state](https://docket.gudman.xyz/advantage/v3.json),
 [Range protocol](../../docket/advantage/v3/specs/v3-01-range-doctor.json),
 [Yield protocol](../../docket/advantage/v3/specs/v3-02-yield-router.json),
-[Warden protocol](../../docket/advantage/v3/specs/v3-03-warden-security.json)]
+[Warden protocol](../../docket/advantage/v3/specs/v3-04-warden-security.json)]
 
 Yield's source capture is scheduled for 2026-08-26T12:00:00Z; the installed mechanism was
 rehearsed end to end against a separate scratch specification and the production timer was armed
@@ -83,13 +85,14 @@ depends on both public sources answering within its scheduled attempt window.
 
 ## 3. High-stakes categories and track record — 20%
 
-Warden is the current security record, and both of its published windows need to travel with the
+Warden is the current security record, and all three published windows need to travel with the
 figures:
 
 | Window and method | Result | Limitation |
 |---|---|---|
 | 1 payload, 1 hired scan against 1 manual reading of the same bytes, observed 2026-08-08 | The hired scan named 1 of the 4 hostile vectors found manually. | This is one observation; 3 of 4 vectors survived in the returned sanitized text. [V1 task](https://docket.gudman.xyz/advantage#03-security) |
-| 47 labelled payloads — 31 attacks and 16 benign controls — scanned 3 times each in one recorded run, observed 2026-08-10 | At decision level Warden flagged 14 of 31 labelled attacks; 14 of the 15 payloads it flagged were labelled attacks. The stated 16-word keyword list flagged 12 of the same 31 attacks. | V2 is not a human comparison; 9 of 141 scans failed, every payload had at least one successful scan, and registration ordering for this experiment is `self_attested`. [V2 security record](https://docket.gudman.xyz/advantage/v2.json) · [Committed run](../../docket/advantage/v2/runs/03-security-corpus.json) |
+| The unchanged 47-payload corpus scanned 3 times each, observed 2026-08-10 | The live detector then in service flagged 14 of 31 attacks; 14 of 15 flagged payloads were attacks. The keyword null flagged 12 of 31; flag-everything flagged 31 of 31 with precision 31 of 47; flag-nothing flagged 0 of 31. | The exact source revision and deploy date were not recorded; it predates `0583853ed7fca7d03c98a5cc4c2383cc6b149248`, deployed 2026-08-24. Nine of 141 logical scans failed, every payload was scored, and registration ordering is `self_attested`. The run remains unmodified. [V2 security record](https://docket.gudman.xyz/advantage/v2.json) · [Committed run](../../docket/advantage/v2/runs/03-security-corpus.json) |
+| The same unchanged 47-payload corpus scanned 3 times each, observed 2026-08-24 | Revision `0583853ed7fca7d03c98a5cc4c2383cc6b149248`, deployed 2026-08-24, flagged 15 of 30 scored attacks; 15 of 16 flagged payloads were attacks. The keyword null flagged 12 of 30; flag-everything flagged 30 of 30 with precision 30 of 46; flag-nothing flagged 0 of 30. | Sixteen of 141 logical scans failed on HTTP 429. One hostile payload was unscored and left every numerator and denominator. Registration ordering is `git_provable`. Recall 50.00% misses the 90% v3-04 limb even though precision 93.75% clears its limb; this v2 run cannot qualify the held-out gate, so Warden remains `beta`. [V2 security record](https://docket.gudman.xyz/advantage/v2.json) · [Committed run](../../docket/advantage/v2/runs/05-security-corpus-postfix.json) |
 
 Docket has no trading-performance record that supplies a win rate together with its window and
 risk taken. SOLVENT's v1 task dates a historical claim rather than testing whether the call was

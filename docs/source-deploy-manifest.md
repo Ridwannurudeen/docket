@@ -127,9 +127,11 @@ artifact. The warning remains a backend-maintenance risk; this build does not hi
 | `docket/advantage/v2/corpus/series/bnbusdt-1h-2026-07.json` | `d642d970928d9ec45b228c047b4bc7fd99a62964515b68342c5eeb64c5003b72` |
 | `docket/advantage/v2/specs/01-liquidity-arithmetic.json` | `72543e94358080b1daa9a349b99e48958e7fed2e0a0674d2ea0c11ae220cab50` |
 | `docket/advantage/v2/specs/03-security-corpus.json` | `86c439c2f146db8dc2209fa006b0d3467ee8cb96d57711334c0ccda5852b5f5c` |
+| `docket/advantage/v2/specs/05-security-corpus-postfix.json` | `cca312bcabbb9c2a79bbbea1333612c15a2f80536f5db0c0245c349692cac195` |
 | `docket/advantage/v2/specs/04-grid-replay.json` | `2b22203c457edf86023c6574e8d2805fc819ff469bd3fc4b2c18068eb5adc84d` |
 | `docket/advantage/v2/runs/01-liquidity-arithmetic.json` | `bcb4836197192cb275a4d520646ef2c4d345023dcc547cbdb2d7a5afe10f35a7` |
 | `docket/advantage/v2/runs/03-security-corpus.json` | `b67f0d3c1b923065c505705fe3358d0e7dacb64e6c15da4d0d33f2896afa34f0` |
+| `docket/advantage/v2/runs/05-security-corpus-postfix.json` | `456e1ee9cc5656097e7eb24dbf50fd234b5d31ade5e900edfd18f1bc71211a33` |
 | `docket/advantage/v2/runs/04-grid-replay.json` | `7a81088a5b7189c5b260e0957e1221b2557711bc8f71f934515b0dbc82128af4` |
 | `docket/advantage/v3/specs/v3-01-range-doctor.json` | `2146cbf9c7886f3d1059d496f0469d3fcff01aed1e18e5fb48813c7a4421826f` |
 | `docket/advantage/v3/specs/v3-02-yield-router.json` | `1292fbf63c0616a983b41cee7a3e727c867c78f12d01adbab576d45d5f85e15d` |

@@ -274,23 +274,42 @@ If any limb misses, Warden stays `beta`. It is not presented as strong, and Term
 high-stakes criterion remains exposed. That is the recorded outcome; do not hide a failed
 scan, replace a primary, edit a sheet, or soften a falsifier.
 
-## 6. The prior Warden record, derived once from committed artifacts
+## 6. The prior and post-deploy Warden records, recomputed from committed artifacts
 
 V1's single hostile payload contained four manually identified vectors. The Warden arm found
 1 of 4 (25.00% vector coverage on that one payload); a decision-level precision rate cannot be
 formed from that hostile-only `n=1` record.
 
-The committed v2 corpus run scored 47 of 47 payloads: 31 labelled attacks and 16 benign cases.
-Warden's decision recall was 14/31 = 45.16%, and its decision precision was 14/15 = 93.33%.
-The registered keyword null had recall 12/31 = 38.71% and precision 12/16 = 75.00%, so Warden
-caught two more labelled attacks than that authored word list. Nine of the 141 scan attempts
-failed, but every payload had at least one successful pass and therefore stayed in the 47-case
-scored population. V1 and v2 are not substitutes for the frozen v3 gate above.
+The unchanged `03-security-corpus` run observed the live detector on 2026-08-10. Its exact
+source revision and deploy date were not recorded; it predates
+`0583853ed7fca7d03c98a5cc4c2383cc6b149248`, deployed 2026-08-24. All 47 payloads were
+scored: 31 labelled attacks and 16 benign cases. Warden's decision recall was 14/31 =
+45.16%, and precision was 14/15 = 93.33%. The keyword null was 12/31 = 38.71% recall and
+12/16 = 75.00% precision; flag-everything was 31/31 recall and 31/47 precision;
+flag-nothing was 0/31 recall with undefined precision. Nine of 141 logical scans failed on
+HTTP 429, but every payload had at least one successful pass. The old run remains
+byte-for-byte unchanged and readable beside the new one.
 
-Regenerate those v2 figures from the report object; do not transcribe them from this page:
+The separate `05-security-corpus-postfix` run measured the declared revision above on
+2026-08-24 using the same corpus, three passes per payload, first-success selection, and
+`trials.run_trials` retry/backoff discipline. Sixteen of 141 logical scans failed on HTTP
+429. One hostile payload had no successful scan and left every numerator and denominator,
+so all arms were scored over the same 46-payload subset: 30 attacks and 16 benign controls.
+Warden recall was 15/30 = 50.00% and precision was 15/16 = 93.75%. The keyword null was
+12/30 = 40.00% recall and 12/16 = 75.00% precision; flag-everything was 30/30 recall and
+30/46 precision; flag-nothing was 0/30 recall with undefined precision. Warden beat the
+keyword null on recall and precision and beat flag-everything on precision; flag-nothing
+emitted no positive decision, so its precision is undefined rather than a comparable zero.
+
+The post-deploy result does not clear the conjunctive v3-04 ship gate: 50.00% recall is
+below the 90% floor even though 93.75% precision is above its 90% floor. This separate v2
+corpus is not the registered held-out v3-04 experiment. V1 and both v2 runs are not
+substitutes for that frozen gate, and Warden remains `beta`.
+
+Regenerate both v2 records from the report object; do not transcribe them from this page:
 
 ```powershell
-.\.venv\Scripts\python.exe -c "from docket.advantage.v2.report import report; e=next(x for x in report()['experiments'] if x['experiment_id']=='03-security-corpus'); s=e['scores']; print({name:{metric:(row['decision_level'][metric]['numerator'],row['decision_level'][metric]['denominator'],row['decision_level'][metric]['value']) for metric in ('recall','precision')} for name,row in (('warden',s['warden']),('keyword_match',s['keyword_match']))}); print(s['warden']['counts'])"
+.\.venv\Scripts\python.exe -c "from docket.advantage.v2.report import report; rows={x['experiment_id']:x for x in report()['experiments']}; ids=('03-security-corpus','05-security-corpus-postfix'); print({i:{'detector':rows[i]['detector'],'scores':{name:{metric:(row['decision_level'][metric]['numerator'],row['decision_level'][metric]['denominator'],row['decision_level'][metric]['value']) for metric in ('recall','precision')} for name,row in rows[i]['scores'].items()},'counts':rows[i]['scores']['warden']['counts']} for i in ids})"
 ```
 
 ## 7. BSC archive RPC decision — research checked 2026-08-23

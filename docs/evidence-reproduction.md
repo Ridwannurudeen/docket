@@ -39,6 +39,7 @@ SHA-256 is over exact file bytes. The primary committed files at this build are:
 | `docket/advantage/v2/corpus/series/bnbusdt-1h-2026-07.json` | `d642d970928d9ec45b228c047b4bc7fd99a62964515b68342c5eeb64c5003b72` |
 | `docket/advantage/v2/runs/01-liquidity-arithmetic.json` | `bcb4836197192cb275a4d520646ef2c4d345023dcc547cbdb2d7a5afe10f35a7` |
 | `docket/advantage/v2/runs/03-security-corpus.json` | `b67f0d3c1b923065c505705fe3358d0e7dacb64e6c15da4d0d33f2896afa34f0` |
+| `docket/advantage/v2/runs/05-security-corpus-postfix.json` | `456e1ee9cc5656097e7eb24dbf50fd234b5d31ade5e900edfd18f1bc71211a33` |
 | `docket/advantage/v2/runs/04-grid-replay.json` | `7a81088a5b7189c5b260e0957e1221b2557711bc8f71f934515b0dbc82128af4` |
 | `experiments/e1c-result.json` | `eae28a4b029b6c656afb82f244e591aaa859a35468e94188a0c762d1b9fb5dc4` |
 
@@ -82,13 +83,20 @@ Build the same report object used by the API:
 python -c "from docket.advantage.v2.report import report; r=report(); print(r['summary'])"
 ```
 
-The three registered identities are:
+The four registered identities are:
 
 | Experiment | Spec hash | Dataset SHA-256 |
 |---|---|---|
 | `01-liquidity-arithmetic` | `0x56af9f16038fd3bbfa94ab19eb14ab492e8d60656e7f9f86a5bcd7ea4bc002bd` | `f60b68ed4b7b4a04dec6f3772c9f8aab0955d0c1ad5d44397a16fddccfc015d5` |
 | `03-security-corpus` | `0x4538a0aaba0aae1c73485c050745265af7ceba5fad47858884b3cf99abd4594f` | `11e9094f5a4a106d2f85be7a143c8c28ee6ee56c0521d1a0cda9672edab9f60a` |
+| `05-security-corpus-postfix` | `0xd01c85bf7fc471ec93dd077cb153ff1e05924b2e2712120f51b0b029dfc863a8` | `11e9094f5a4a106d2f85be7a143c8c28ee6ee56c0521d1a0cda9672edab9f60a` |
 | `04-grid-replay` | `0xe7da3328dfb4b92df7430679b224727e1a0a26a7850b99bca5e8234934239699` | `d642d970928d9ec45b228c047b4bc7fd99a62964515b68342c5eeb64c5003b72` |
+
+The two security identities deliberately cite the same frozen corpus. The 2026-08-10 run
+measured a live detector whose exact source revision and deploy date were not recorded and
+remains byte-identical at the hash above. The separate 2026-08-24 run declares Warden revision
+`0583853ed7fca7d03c98a5cc4c2383cc6b149248`, deployed that date; its endpoint did not
+self-attest a source commit.
 
 Read each report's `registration_provenance`, `null_baselines`, denominator fields, all
 trials, and `falsifier_result`. V2 is not a human comparison and one claim is refuted; the
@@ -96,15 +104,16 @@ report summary states that rather than discarding it.
 
 ## V3
 
-V3 has exactly three stage-one specifications:
+V3 has exactly four stage-one specifications:
 
 | Spec | Stage-one protocol hash | Current spec hash |
 |---|---|---|
 | Range | `0x5436fe80f16558d06f2f8f09f2eb4bbad6a2f3e26e5bbbbbafd143b7f14d2fce` | `0x4844dfcf708d257c92d8d5c00f502c14af8fb187464d3b1a5314d1592c720d82` |
-| Yield | `0x52930b5854db990fbde1fe2f66e63b1f1ab0b396b07f6f0a07eab9833840d7a7` | `0xb1b203db589bf1c78eccea132af9c82dee60b4e99e67268f5b010b90d4e6e1da` |
-| Warden | `0xcd4c698f55c316fdedaa2eb52d80091c3a08d004175d7d156527f224c4e941eb` | `0x9321343763a7b8ff215b54f356ef8cc781ad4db56924d1bc5f23b3a53b7e618e` |
+| Yield | `0x10d0fb31ea70c4bb31581952b99b6776d5f25d2c51bdf9543d47d07781266d3c` | `0x3037f77abf461e4d9fffebf6156847bab2488b4d5cd683e0f37b464b4e2b173b` |
+| Warden v3-03, superseded before input lock | `0xcd4c698f55c316fdedaa2eb52d80091c3a08d004175d7d156527f224c4e941eb` | `0x9321343763a7b8ff215b54f356ef8cc781ad4db56924d1bc5f23b3a53b7e618e` |
+| Warden v3-04, active | `0x9e2206f6c9293e8f41528893aa1b526bfd917a099a5ae7dbe826c486d8a6b62e` | `0xfffddc138698db64566c965b20311dd7746cc91091160936dfb15105a7b7a862` |
 
-For all three, `inputs_sha256` is the empty string. The referenced input files do not exist,
+For all four, `inputs_sha256` is the empty string. The referenced input files do not exist,
 and there is no runs directory. `load()` can validate the stage-one file; `assert_runnable()`
 must refuse it.
 
