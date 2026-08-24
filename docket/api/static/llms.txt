@@ -438,9 +438,9 @@ GET /advantage
     curl -s "$DOCKET/advantage"
 
 GET /advantage/v2.json
-    The second report: three hashed experiments with registration provenance stated per
-    experiment. Git establishes 04's specification-before-run ordering; 01 and 03 are
-    self-attested because each specification and completed run first entered git together.
+    The second report: four hashed experiments with registration provenance stated per
+    experiment. Git establishes 04 and 05's specification-before-run ordering; 01 and 03
+    are self-attested because each specification and completed run first entered git together.
     Every run is behind them, and each registered falsifier is evaluated against what was
     measured.
     Additive — /advantage.json above is untouched and is the prior version rather than
@@ -449,13 +449,14 @@ GET /advantage/v2.json
     where:
 
       summary        {n_experiments, n_claims_refuted, claims_refuted, statement}. Read
-                     it first: one of the three claims IS refuted, and this names it
+                     it first: one of the four claims IS refuted, and this names it
                      before any experiment is described
       experiments[]  each carrying:
-        experiment_id   01-liquidity-arithmetic, 03-security-corpus or 04-grid-replay
+        experiment_id   01-liquidity-arithmetic, 03-security-corpus,
+                        05-security-corpus-postfix or 04-grid-replay
         registration_provenance
-                        git-provable for 04; self-attested for 01 and 03, with the
-                        relevant commits and any post-run re-registrations
+                        git-provable for 04 and 05; self-attested for 01 and 03, with
+                        the relevant commits and any post-run re-registrations
         spec            the hashed specification: claim, metric with its formula
                         written out, null_baselines with the argument for each,
                         n_planned, stopping_rule, falsifier, dataset_ref and its sha256
@@ -466,11 +467,17 @@ GET /advantage/v2.json
                         served rather than left to be subtracted
         falsifier_result {checks: [{clause, refuted, observed}], refuted}, computed from
                         the measured figures rather than restated
-        scores          03 only: the hired scanner and all three nulls, precision and
+        scores          03 and 05: the hired scanner and all three nulls, precision and
                         recall at class and decision level, every rate as
                         {numerator, denominator, value}
-        dataset         03 only: the labelled corpus itself, so a rate can be checked
-                        against the ground truth it was computed over
+        dataset         03 and 05: the same frozen labelled corpus, so each rate can be
+                        checked against the ground truth it was computed over
+        detector        03 and 05: observation date, detector revision state, run-file
+                        SHA-256, and the boundary on how the revision is known
+        run_status      03 and 05: whether every payload had a successful scan and the
+                        exact scored subset when one did not
+        v3_04_ship_gate 05 only: why this separate v2 measurement does not qualify the
+                        held-out v3-04 gate, including both 90% metric floors
 
     Every rate here carries its two counts, and a rate over no observations reports
     value null rather than zero. Read "The advantage report" below before quoting any
@@ -1001,11 +1008,11 @@ the three tasks above and nothing in it rewrites them: v1 is where the only comp
 against a person lives, performed by hand, once. v2 measures agent work against null
 baselines that are computed rather than asserted, over repeated trials, against a
 metric and a falsifier in a hashed specification that every run record cites. Git
-establishes 04's specification-before-run ordering; 01 and 03 are self-attested because
-each specification and completed run first entered git together. The provenance object
-also discloses 03's post-run claim and question re-registrations.
+establishes 04 and 05's specification-before-run ordering; 01 and 03 are self-attested
+because each specification and completed run first entered git together. The provenance
+object also discloses 03's post-run claim and question re-registrations.
 
-One of its three claims is refuted by its own falsifier. That is stated in `summary`
+One of its four claims is refuted by its own falsifier. That is stated in `summary`
 before the experiments, and the experiment behind it is served in full:
 
   01-liquidity-arithmetic   Survived. Over 22 eligible PancakeSwap v3 pools in one
@@ -1024,9 +1031,9 @@ before the experiments, and the experiment behind it is served in full:
                             31. Quote the margin with the figure: it is two payloads.
                             The benign-meeting-note label is contestable. Reclassifying it
                             as a ROLE_OVERRIDE attack gives the hired scanner 14 of 32 and
-                            keyword_match 13 of 32, so the claim survives by one payload
-                            rather than two. The corpus is left unedited because its bytes
-                            are hashed into the registration.
+                            keyword_match 13 of 32, so their margin is 1 payload. The corpus
+                            is left unedited because its bytes are hashed into the
+                            registration.
                             Its decision-level precision is 14 of 15 against a corpus
                             base rate of 31 of 47. It named the labelled class on 13 of
                             31. All nine of the 141 scan failures were identical HTTP 429
@@ -1040,6 +1047,21 @@ before the experiments, and the experiment behind it is served in full:
                             unlike outputs. It now asks the decision-level comparison in the
                             claim and unchanged falsifier. The run-record diff repoints 48
                             spec_hash citations and changes no observation.
+
+  05-security-corpus-postfix
+                            Survived, by three payloads. This separate experiment measured
+                            Warden revision 0583853ed7fca7d03c98a5cc4c2383cc6b149248,
+                            deployed 2026-08-24, against the unchanged corpus. First-success
+                            scoring covered 46 payloads: 30 attacks and 16 benign controls.
+                            The scanner flagged 15 of 30 attacks where the same stated
+                            keyword list flagged 12 of 30; precision was 15 of 16 against a
+                            scored-subset base rate of 30 of 46. Sixteen of 141 logical
+                            scans failed and one hostile payload was unscored, so that
+                            payload left every numerator and denominator. Decision recall
+                            was 50.00%, below the 90% v3-04 floor; precision was 93.75%,
+                            above its 90% floor. This v2 run is not the registered held-out
+                            v3-04 experiment, the conjunctive gate remains unmet, and Warden
+                            remains beta.
 
   04-grid-replay            REFUTED. No transaction was sent: this is a replay of the
                             committed grid plan against 744 recorded hourly candles of
@@ -1057,6 +1079,11 @@ before the experiments, and the experiment behind it is served in full:
 
 Do not quote a v2 figure without the null it was read against — the nulls are in the
 same object, which is why they are there.
+
+Every failed security scan in both dated runs was an HTTP 429 rate limit. The
+03-security-corpus run measured the live detector observed 2026-08-10; its exact source
+revision and deploy date were not recorded, it predates the 2026-08-24 deployment above,
+and its bytes remain unmodified beside the newer experiment.
 
 ### v3: registered paired evaluation, with state derived from artifacts
 

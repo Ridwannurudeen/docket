@@ -20,18 +20,22 @@ import hashlib
 import json
 from pathlib import Path
 
-from docket.advantage.v2 import scoring
+from docket.advantage.v2 import page, report, scoring
 from docket.advantage.v2.spec import load
 
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS_PATH = ROOT / "docket/advantage/v2/corpus/security/payloads.json"
 SPEC_PATH = ROOT / "docket/advantage/v2/specs/03-security-corpus.json"
 RUN_PATH = ROOT / "docket/advantage/v2/runs/03-security-corpus.json"
+POSTFIX_SPEC_PATH = ROOT / "docket/advantage/v2/specs/05-security-corpus-postfix.json"
+POSTFIX_RUN_PATH = ROOT / "docket/advantage/v2/runs/05-security-corpus-postfix.json"
 
 CORPUS = json.loads(CORPUS_PATH.read_text(encoding="utf-8"))
 PAYLOADS = {payload["payload_id"]: payload for payload in CORPUS["payloads"]}
 RUN = json.loads(RUN_PATH.read_text(encoding="utf-8"))
 OBSERVED = scoring.scan_results(RUN)
+POSTFIX_RUN = json.loads(POSTFIX_RUN_PATH.read_text(encoding="utf-8"))
+POSTFIX_OBSERVED = scoring.scan_results(POSTFIX_RUN)
 
 
 def test_every_payload_is_labelled_or_explicitly_benign():
@@ -43,7 +47,9 @@ def test_every_payload_is_labelled_or_explicitly_benign():
     for payload in CORPUS["payloads"]:
         assert isinstance(payload["labels"], list), payload["payload_id"]
         assert set(payload["labels"]) <= vocabulary, payload["payload_id"]
-        assert len(set(payload["labels"])) == len(payload["labels"]), payload["payload_id"]
+        assert len(set(payload["labels"])) == len(payload["labels"]), payload[
+            "payload_id"
+        ]
         for field in ("payload_id", "text", "provenance", "why_this_label"):
             assert payload[field].strip(), f"{payload['payload_id']}: {field}"
 
@@ -91,7 +97,10 @@ def test_the_minimal_pair_differs_only_by_the_newline():
     # And the same thing again on the wire, where a multi-byte character either side of the
     # join would make one differing character into several differing bytes.
     assert len(space.encode("utf-8")) == len(newline.encode("utf-8"))
-    assert sum(1 for a, b in zip(space.encode("utf-8"), newline.encode("utf-8")) if a != b) == 1
+    assert (
+        sum(1 for a, b in zip(space.encode("utf-8"), newline.encode("utf-8")) if a != b)
+        == 1
+    )
     # Same intent, so the same label: the pair is only evidence if it is not two questions.
     assert PAYLOADS["minimal-pair-space-joined"]["labels"] == ["SECRET_EXFIL"]
     assert PAYLOADS["minimal-pair-newline-joined"]["labels"] == ["SECRET_EXFIL"]
@@ -146,11 +155,15 @@ def test_the_keyword_null_the_spec_registered_is_the_list_the_scorer_runs():
     than to a copy of it: editing either one alone breaks here."""
     spec = load(SPEC_PATH)
     keyword_null = next(
-        baseline for baseline in spec.null_baselines if baseline["name"] == "keyword_match"
+        baseline
+        for baseline in spec.null_baselines
+        if baseline["name"] == "keyword_match"
     )
 
     assert tuple(keyword_null["keywords"]) == scoring.KEYWORDS
-    assert "same hand that authored the corpus" in keyword_null["why_it_is_the_right_null"]
+    assert (
+        "same hand that authored the corpus" in keyword_null["why_it_is_the_right_null"]
+    )
     assert "decision level" in keyword_null["what_it_does"]
 
 
@@ -165,6 +178,20 @@ def test_the_spec_names_all_three_nulls_and_a_falsifier_the_run_could_meet():
     assert "keyword_match" in spec.falsifier
     assert "flag_everything" in spec.falsifier
     assert "refuted" in spec.falsifier
+
+
+def test_the_postfix_registration_reuses_the_frozen_corpus_and_yardsticks():
+    old = load(SPEC_PATH)
+    postfix = load(POSTFIX_SPEC_PATH)
+
+    assert postfix.spec_id == "05-security-corpus-postfix"
+    assert postfix.dataset_ref == old.dataset_ref
+    assert postfix.dataset_sha256 == old.dataset_sha256
+    assert postfix.metric == old.metric
+    assert postfix.null_baselines == old.null_baselines
+    assert postfix.n_planned == old.n_planned == 3
+    assert "retry=3" in postfix.stopping_rule
+    assert "0583853ed7fca7d03c98a5cc4c2383cc6b149248" in postfix.question
 
 
 def test_the_run_record_cites_the_registered_spec_and_covers_every_payload():
@@ -274,3 +301,120 @@ def test_the_newline_defect_reproduced_on_the_pair_that_differs_by_one_byte():
     assert newline["verdict"] == "ALLOW"
     assert newline["threat_classes"] == []
     assert OBSERVED["unstable"] == ()
+
+
+def test_the_old_run_is_unchanged_and_the_postfix_run_names_its_detector():
+    postfix = load(POSTFIX_SPEC_PATH)
+
+    assert hashlib.sha256(RUN_PATH.read_bytes()).hexdigest() == (
+        "b67f0d3c1b923065c505705fe3358d0e7dacb64e6c15da4d0d33f2896afa34f0"
+    )
+    assert hashlib.sha256(POSTFIX_RUN_PATH.read_bytes()).hexdigest() == (
+        "456e1ee9cc5656097e7eb24dbf50fd234b5d31ade5e900edfd18f1bc71211a33"
+    )
+    assert POSTFIX_RUN["spec_id"] == postfix.spec_id
+    assert POSTFIX_RUN["spec_hash"] == postfix.spec_hash
+    assert POSTFIX_RUN["dataset_sha256"] == postfix.dataset_sha256
+    assert POSTFIX_RUN["detector_revision"] == (
+        "0583853ed7fca7d03c98a5cc4c2383cc6b149248"
+    )
+    assert POSTFIX_RUN["detector_deployed_at"] == "2026-08-24"
+    assert (
+        "does not cryptographically self-attest"
+        in POSTFIX_RUN["detector_revision_evidence"]
+    )
+
+
+def test_the_postfix_figures_are_recomputed_from_its_first_successful_passes():
+    warden = scoring.score(
+        CORPUS,
+        POSTFIX_OBSERVED["results"],
+        failed_scans=POSTFIX_OBSERVED["failed_scans"],
+        unstable=POSTFIX_OBSERVED["unstable"],
+    )
+    scored_ids = set(POSTFIX_OBSERVED["results"])
+    scored_corpus = CORPUS | {
+        "payloads": [
+            payload
+            for payload in CORPUS["payloads"]
+            if payload["payload_id"] in scored_ids
+        ]
+    }
+    keyword = scoring.score(scored_corpus, scoring.keyword_match(scored_corpus))
+    everything = scoring.score(scored_corpus, scoring.flag_everything(scored_corpus))
+
+    assert warden["decision_level"] == {
+        "recall": {"numerator": 15, "denominator": 30, "value": 0.5},
+        "precision": {"numerator": 15, "denominator": 16, "value": 0.9375},
+    }
+    assert warden["class_level"]["overall_recall"] == {
+        "numerator": 13,
+        "denominator": 30,
+        "value": 13 / 30,
+    }
+    assert warden["counts"] == {
+        "n_payloads": 47,
+        "n_scored": 46,
+        "n_attacks_scored": 30,
+        "n_benign_scored": 16,
+        "n_failed_scans": 16,
+        "n_payloads_unscored": 1,
+        "payloads_unscored": ["prompt-injection-in-tool-output"],
+        "n_payloads_unstable": 0,
+        "payloads_unstable": [],
+    }
+    assert keyword["decision_level"] == {
+        "recall": {"numerator": 12, "denominator": 30, "value": 0.4},
+        "precision": {"numerator": 12, "denominator": 16, "value": 0.75},
+    }
+    assert everything["decision_level"] == {
+        "recall": {"numerator": 30, "denominator": 30, "value": 1.0},
+        "precision": {"numerator": 30, "denominator": 46, "value": 30 / 46},
+    }
+
+
+def test_both_security_runs_are_reported_side_by_side_with_detector_scope():
+    payload = report.report()
+    experiments = {
+        experiment["experiment_id"]: experiment for experiment in payload["experiments"]
+    }
+    old = experiments["03-security-corpus"]
+    postfix = experiments["05-security-corpus-postfix"]
+
+    assert old["detector"] == {
+        "observed_at": "2026-08-10",
+        "revision": None,
+        "deployed_at": None,
+        "revision_state": "unrecorded",
+        "retained_unmodified": True,
+        "run_sha256": "b67f0d3c1b923065c505705fe3358d0e7dacb64e6c15da4d0d33f2896afa34f0",
+        "statement": (
+            "This run measured the detector live on 2026-08-10. Its exact source "
+            "revision and deploy date were not recorded; it predates the deployment of "
+            "0583853ed7fca7d03c98a5cc4c2383cc6b149248 on 2026-08-24. The old run is "
+            "retained byte-for-byte rather than rewritten after the detector changed."
+        ),
+    }
+    assert postfix["detector"]["revision"] == (
+        "0583853ed7fca7d03c98a5cc4c2383cc6b149248"
+    )
+    assert postfix["detector"]["deployed_at"] == "2026-08-24"
+    assert postfix["detector"]["run_sha256"] == (
+        "456e1ee9cc5656097e7eb24dbf50fd234b5d31ade5e900edfd18f1bc71211a33"
+    )
+    assert postfix["scores"]["warden"]["decision_level"] == {
+        "recall": {"numerator": 15, "denominator": 30, "value": 0.5},
+        "precision": {"numerator": 15, "denominator": 16, "value": 0.9375},
+    }
+    assert postfix["v3_04_ship_gate"]["passes"] is False
+    assert postfix["v3_04_ship_gate"]["status"] == "beta"
+    assert postfix["v3_04_ship_gate"]["recall_passes"] is False
+    assert postfix["v3_04_ship_gate"]["precision_passes"] is True
+    assert "does not qualify v3-04" in postfix["v3_04_ship_gate"]["statement"]
+
+    rendered = page.render(payload)
+    assert "03-security-corpus" in rendered
+    assert "05-security-corpus-postfix" in rendered
+    assert old["detector"]["statement"] in rendered
+    assert postfix["detector"]["statement"] in rendered
+    assert postfix["v3_04_ship_gate"]["statement"] in rendered

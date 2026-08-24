@@ -7,9 +7,9 @@ files — a test that catches drift after it has been written. Here the drift is
 the document by construction, and the authored half of the page holds no numbers at all.
 
 What the page shows that an aggregate would not: every pool row behind the two liquidity
-distributions, every one of the 141 security scans including the nine that failed, and every
-trigger the replay fired. Failures are rendered in their place in the denominator rather than
-filtered out, which is the whole reason they were retained.
+distributions, every security scan from both dated detector experiments, including the ones
+that failed, and every trigger the replay fired. Failures are rendered in their place in the
+denominator rather than filtered out, which is the whole reason they were retained.
 
 Everything from a record is escaped on the way out. Most of it is prose this repository wrote,
 but the security corpus is 47 hand-authored hostile payloads and the scan outputs quote them
@@ -107,7 +107,7 @@ def _headline(headline: dict) -> str:
     interpretation = headline.get("null_interpretation")
     interpretation_html = (
         '<div class="panel"><h4>Null interpretation</h4>'
-        f'<p>{_esc(interpretation["statement"])}</p></div>'
+        f"<p>{_esc(interpretation['statement'])}</p></div>"
         if interpretation
         else ""
     )
@@ -155,14 +155,14 @@ def _provenance(provenance: dict) -> str:
         else "No executable producer for the committed run is present in the repository."
     )
     changes = "".join(
-        f'<dt>Post-run re-registration</dt><dd>{_esc(change["statement"])}</dd>'
+        f"<dt>Post-run re-registration</dt><dd>{_esc(change['statement'])}</dd>"
         for change in provenance["post_run_re_registrations"]
     )
     return (
         '<div class="panel"><h4>Registration provenance</h4><dl class="deflist">'
         f'<dt>State</dt><dd><span class="mono">{_esc(provenance["state"])}</span></dd>'
-        f'<dt>What git establishes</dt><dd>{_esc(provenance["statement"])}</dd>'
-        f'<dt>Run producer</dt><dd>{_esc(producer_text)}</dd>'
+        f"<dt>What git establishes</dt><dd>{_esc(provenance['statement'])}</dd>"
+        f"<dt>Run producer</dt><dd>{_esc(producer_text)}</dd>"
         f"{changes}"
         "</dl></div>"
     )
@@ -215,14 +215,18 @@ def _pass_cell(trial: dict) -> str:
 
 
 def _payload_rows(experiment: dict) -> str:
-    labels = {payload["payload_id"]: payload for payload in experiment["dataset"]["payloads"]}
+    labels = {
+        payload["payload_id"]: payload for payload in experiment["dataset"]["payloads"]
+    }
     rows = []
     for entry in experiment["run"]["payloads"]:
         payload = labels[entry["arm_name"]]
         cells = [_esc(", ".join(payload["labels"]) or "benign control")]
         cells += [_pass_cell(trial) for trial in entry["trials"]]
         cells.append(_esc(sum(trial["attempts"] for trial in entry["trials"])))
-        rows.append(_row(cells, header=f'<span class="mono">{_esc(entry["arm_name"])}</span>'))
+        rows.append(
+            _row(cells, header=f'<span class="mono">{_esc(entry["arm_name"])}</span>')
+        )
     counts = experiment["scores"]["warden"]["counts"]
     return _table(
         f"All {counts['n_payloads']} payloads, three passes each — {len(rows) * 3} scans, of "
@@ -235,13 +239,17 @@ def _payload_rows(experiment: dict) -> str:
 
 def _minimal_pair(experiment: dict) -> str:
     """The two payloads that differ by one byte, printed with the byte made visible."""
-    payloads = {payload["payload_id"]: payload for payload in experiment["dataset"]["payloads"]}
+    payloads = {
+        payload["payload_id"]: payload for payload in experiment["dataset"]["payloads"]
+    }
     scored = {entry["arm_name"]: entry for entry in experiment["run"]["payloads"]}
     blocks = []
     for payload_id in MINIMAL_PAIR:
         payload = payloads[payload_id]
         text = payload["text"].replace("\n", "↵\n")
-        verdicts = " / ".join(_pass_cell(trial) for trial in scored[payload_id]["trials"])
+        verdicts = " / ".join(
+            _pass_cell(trial) for trial in scored[payload_id]["trials"]
+        )
         blocks.append(
             f'<dt><span class="mono">{_esc(payload_id)}</span></dt>'
             f'<dd><pre class="mono">{_esc(text)}</pre><p>{verdicts}</p>'
@@ -289,7 +297,10 @@ def _replay_rows(run: dict) -> str:
                 (
                     _esc(run["replay"]["n_buy_triggers"]),
                     _esc(run["replay"]["quote_committed"]),
-                    _esc(run["replay"]["average_buy_price"] or "none — nothing was bought"),
+                    _esc(
+                        run["replay"]["average_buy_price"]
+                        or "none — nothing was bought"
+                    ),
                     _esc(run["replay"]["base_acquired"]),
                 ),
                 header="replay",
@@ -328,7 +339,7 @@ def _runs(experiment: dict) -> str:
     experiment_id = experiment["experiment_id"]
     if experiment_id == "01-liquidity-arithmetic":
         return _pool_rows(experiment["run"])
-    if experiment_id == "03-security-corpus":
+    if experiment_id in ("03-security-corpus", "05-security-corpus-postfix"):
         return _minimal_pair(experiment) + _payload_rows(experiment)
     return _replay_rows(experiment["run"])
 
@@ -341,8 +352,24 @@ def _experiment(experiment: dict) -> str:
     run_status = experiment.get("run_status")
     run_status_html = (
         '<div class="panel"><h4>Run status</h4>'
-        f'<p>{_esc(run_status["statement"])}</p></div>'
+        f"<p>{_esc(run_status['statement'])}</p></div>"
         if run_status
+        else ""
+    )
+    detector = experiment.get("detector")
+    detector_html = (
+        '<div class="panel"><h4>Detector measured</h4>'
+        f"<p>{_esc(detector['statement'])}</p>"
+        f'<p class="status-line"><span class="status-key">Run SHA-256</span>'
+        f'<span class="mono">{_esc(detector["run_sha256"])}</span></p></div>'
+        if detector
+        else ""
+    )
+    ship_gate = experiment.get("v3_04_ship_gate")
+    ship_gate_html = (
+        '<div class="panel"><h4>v3-04 ship gate</h4>'
+        f"<p>{_esc(ship_gate['statement'])}</p></div>"
+        if ship_gate
         else ""
     )
     return (
@@ -350,6 +377,8 @@ def _experiment(experiment: dict) -> str:
         f'<h2 id="{_esc(experiment_id)}-h">{_esc(experiment_id)}</h2>'
         f"<p>{_esc(spec['question'])}</p>"
         + run_status_html
+        + detector_html
+        + ship_gate_html
         + _headline(experiment["headline"])
         + _provenance(experiment["registration_provenance"])
         + _registration(spec)
@@ -380,7 +409,9 @@ def render(report: dict) -> str:
                 _row(
                     (
                         _esc(experiment["spec"]["claim"]),
-                        "refuted" if experiment["falsifier_result"]["refuted"] else "survived",
+                        "refuted"
+                        if experiment["falsifier_result"]["refuted"]
+                        else "survived",
                     ),
                     header=f'<a href="#{_esc(experiment["experiment_id"])}">'
                     f"{_esc(experiment['experiment_id'])}</a>",

@@ -32,6 +32,12 @@ _WARDEN = _SECURITY["warden"]["decision_level"]
 _KEYWORD = _SECURITY["keyword_match"]["decision_level"]
 _EVERYTHING = _SECURITY["flag_everything"]["decision_level"]
 _SECURITY_COUNTS = _SECURITY["warden"]["counts"]
+_POSTFIX_SECURITY = security_scores("05-security-corpus-postfix")
+_POSTFIX_SECURITY_RUN = v2_run("05-security-corpus-postfix")
+_POSTFIX_WARDEN = _POSTFIX_SECURITY["warden"]["decision_level"]
+_POSTFIX_KEYWORD = _POSTFIX_SECURITY["keyword_match"]["decision_level"]
+_POSTFIX_EVERYTHING = _POSTFIX_SECURITY["flag_everything"]["decision_level"]
+_POSTFIX_SECURITY_COUNTS = _POSTFIX_SECURITY["warden"]["counts"]
 
 _HEALTH_READ = load_record("health-guard")
 _GRID_READ = load_record("grid-operator")
@@ -428,7 +434,10 @@ SERVICES: dict[str, ServiceRecord] = {
                 ),
                 observed_at=_SECURITY_RUN["finished_at"][:10],
                 method=(
-                    "advantage v2 experiment 03-security-corpus, decision level: payloads "
+                    "advantage v2 experiment 03-security-corpus measured the live detector "
+                    "observed on 2026-08-10; its exact source revision and deploy date were "
+                    "not recorded, and it predates 0583853ed7fca7d03c98a5cc4c2383cc6b149248. "
+                    "At decision level: payloads "
                     "labelled as attacks whose verdict was not ALLOW, computed from the "
                     "committed corpus and the committed run rather than transcribed. The "
                     f"stated keyword list flagged {_KEYWORD['recall']['numerator']} of the "
@@ -446,6 +455,40 @@ SERVICES: dict[str, ServiceRecord] = {
                     "failed trials rather than as misses"
                 ),
             ),
+            Metric(
+                name="Labelled attacks flagged after the 2026-08-24 detector deploy",
+                unit="labelled attack payloads in the scored corpus subset",
+                numerator=_POSTFIX_WARDEN["recall"]["numerator"],
+                denominator=_POSTFIX_WARDEN["recall"]["denominator"],
+                window=(
+                    f"{_POSTFIX_SECURITY_COUNTS['n_payloads']}-payload frozen corpus, "
+                    f"{_POSTFIX_SECURITY_COUNTS['n_scored']} payloads scored after three "
+                    "passes and first-success selection, one recorded run"
+                ),
+                observed_at=_POSTFIX_SECURITY_RUN["finished_at"][:10],
+                method=(
+                    "advantage v2 experiment 05-security-corpus-postfix measured Warden "
+                    "revision 0583853ed7fca7d03c98a5cc4c2383cc6b149248, deployed "
+                    "2026-08-24. At decision level, payloads labelled as attacks whose "
+                    "verdict was not ALLOW, computed from the unchanged committed corpus "
+                    "and the separate committed run rather than transcribed. The stated "
+                    f"keyword list flagged {_POSTFIX_KEYWORD['recall']['numerator']} of the "
+                    f"same {_POSTFIX_KEYWORD['recall']['denominator']}; an arm that flags "
+                    f"everything flags {_POSTFIX_EVERYTHING['recall']['numerator']} of "
+                    f"{_POSTFIX_EVERYTHING['recall']['denominator']} and is right about "
+                    f"{_POSTFIX_EVERYTHING['precision']['numerator']} of "
+                    f"{_POSTFIX_EVERYTHING['precision']['denominator']}. This scan is right "
+                    f"about {_POSTFIX_WARDEN['precision']['numerator']} of "
+                    f"{_POSTFIX_WARDEN['precision']['denominator']}. "
+                    f"{_POSTFIX_SECURITY_COUNTS['n_failed_scans']} of the "
+                    f"{_POSTFIX_SECURITY_COUNTS['n_payloads'] * 3} logical scans failed; "
+                    f"{_POSTFIX_SECURITY_COUNTS['n_payloads_unscored']} hostile payload was "
+                    "unscored "
+                    "and therefore left every numerator and denominator. Decision recall "
+                    "is below the 90% v3-04 floor, while precision clears 90%; this separate "
+                    "v2 run cannot qualify the held-out v3-04 gate"
+                ),
+            ),
         ),
         evidence=(
             EvidenceRef(
@@ -460,8 +503,18 @@ SERVICES: dict[str, ServiceRecord] = {
                 kind="advantage_task",
                 url="/advantage/v2#03-security-corpus",
                 label=(
-                    "The v2 experiment — a labelled corpus scanned three times over, every "
-                    "trial including the failures, and three null baselines computed beside it"
+                    "The 2026-08-10 v2 experiment — exact detector revision unrecorded; a "
+                    "labelled corpus scanned three times over, every trial including the "
+                    "failures, and three null baselines computed beside it"
+                ),
+            ),
+            EvidenceRef(
+                kind="advantage_task",
+                url="/advantage/v2#05-security-corpus-postfix",
+                label=(
+                    "The separate 2026-08-24 v2 experiment — detector revision "
+                    "0583853ed7fca7d03c98a5cc4c2383cc6b149248 against the same frozen "
+                    "corpus, with every trial and the same three null baselines"
                 ),
             ),
         ),
@@ -473,10 +526,13 @@ SERVICES: dict[str, ServiceRecord] = {
             "Docket added. On the one payload v1 has a record for, it named one of the "
             "four hostile vectors a manual read found, and three of those four survive "
             "verbatim in the sanitized text it returned. That is one observation, not a "
-            "pattern — and the run is published in full so a reader can weigh it. The v2 "
-            "experiment is the repeated version of that question over a labelled corpus, "
-            "and its figures are on this card with the nulls they are read against; both "
-            "runs are published in full."
+            "pattern — and the run is published in full so a reader can weigh it. The two "
+            "v2 experiments repeat that question over the same frozen labelled corpus before "
+            "and after the 2026-08-24 detector deploy; both dated figures and their nulls are "
+            "on this card, and the older run remains unmodified. The newer v2 run has 50% "
+            "decision recall and 93.75% decision precision, so it does not clear the "
+            "conjunctive 90%/90% v3-04 ship gate. It is not the registered held-out v3-04 "
+            "experiment, and Warden remains beta. All three records are published in full."
         ),
     ),
 }

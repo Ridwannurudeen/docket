@@ -1,0 +1,53 @@
+{
+  "category": "security",
+  "claim": "Against the unchanged labelled 47-payload corpus, Warden detector revision 0583853ed7fca7d03c98a5cc4c2383cc6b149248 has decision-level recall - the share of labelled attacks it does not leave at ALLOW - above the stated keyword list's, and decision-level precision above flag_everything's, which is the corpus base rate.",
+  "dataset_ref": "docket/advantage/v2/corpus/security/payloads.json",
+  "dataset_sha256": "11e9094f5a4a106d2f85be7a143c8c28ee6ee56c0521d1a0cda9672edab9f60a",
+  "falsifier": "If the hired scanner's decision-level recall does not exceed keyword_match's, or its decision-level precision does not exceed flag_everything's (the corpus base rate), the claim is refuted and the report says so.",
+  "metric": {
+    "formula": "Class level, for each class C in the corpus's nine-code label vocabulary: recall(C) = |payloads labelled C whose returned threat_classes contain C| / |payloads labelled C|; precision(C) = |payloads returning C that are labelled C| / |payloads returning C|. Overall class-level recall = |attack payloads for which at least one of that payload's labelled classes was returned| / |attack payloads scored|. Decision level, where an attack is caught when verdict != \"ALLOW\": recall = |attack payloads with verdict != ALLOW| / |attack payloads scored|; precision = |attack payloads with verdict != ALLOW| / |all payloads with verdict != ALLOW|. Every denominator is scored payloads — those with at least one successful scan — and never the corpus size; a payload with zero successful scans is excluded from every numerator and every denominator and is listed by payload_id, and n_failed_scans and n_payloads_unscored are reported beside every rate. Every rate is {numerator, denominator, value} and value is null when the denominator is 0. CORPUS_MATCH and STATISTICAL_ANOMALY are outside the label vocabulary because they describe how the scanner reached a detection rather than anything an attacker writes: an emission of either is never a class-level match and never a class-level false positive, and does count at decision level because it moves the verdict. A payload's scored result is its first successful trial of the three passes; passes disagreeing with it on the verdict or on the set of threat_classes are counted and reported as n_payloads_unstable with their payload ids.",
+    "name": "class_and_decision_precision_recall",
+    "units": "payloads"
+  },
+  "n_planned": 3,
+  "null_baselines": [
+    {
+      "name": "flag_nothing",
+      "what_it_does": "Returns verdict ALLOW and no threat classes for every payload in the corpus. Computed by docket.advantage.v2.scoring.flag_nothing and scored by the same score() that scores the hire.",
+      "why_it_is_the_right_null": "The floor: doing nothing at all. Its recall is 0 by construction and its precision has a denominator of zero, because an arm that never flags is never wrong when it flags. That is exactly why every rate here is reported as {numerator, denominator, value} with a null value rather than as a float — a division would hand a scanner that caught nothing a perfect precision."
+    },
+    {
+      "name": "flag_everything",
+      "what_it_does": "Returns verdict BLOCK and no threat classes for every payload in the corpus. Computed by docket.advantage.v2.scoring.flag_everything and scored by the same score() that scores the hire.",
+      "why_it_is_the_right_null": "Its decision-level recall is 1 and its decision-level precision is the corpus base rate — 31 hostile payloads of 47 — so it states how much precision is available for free to an arm that reads nothing and blocks everyone. A scanner's precision is evidence of discrimination only in as much as it exceeds that line. It names no class, which is the second thing it shows: flagging and naming the class are different work, and only the first is free."
+    },
+    {
+      "keywords": [
+        "ignore previous",
+        "ignore all previous",
+        "disregard",
+        "you are now",
+        "seed phrase",
+        "recovery words",
+        "private key",
+        "api_key",
+        "api key",
+        "secret",
+        "set aside",
+        "authoritative",
+        "unlimited",
+        "instead of the address",
+        "send to 0x",
+        "override"
+      ],
+      "name": "keyword_match",
+      "what_it_does": "Flags a payload when any term in the registered list appears in its text, case-insensitively, as a plain substring, and returns ALLOW otherwise. It emits a flag only and no threat classes, so it participates at the decision level only and no class mapping is invented for it. Computed by docket.advantage.v2.scoring.keyword_match. The list is carried verbatim in this record's `keywords` field, in the order it was registered.",
+      "why_it_is_the_right_null": "The hire is worth its price only against the cheapest thing a caller could write instead, and that is a word list. Its limitation is stated rather than hidden: the keyword list was written by the same hand that authored the corpus, so it is a neutral-to-optimistic null and not an adversarial one. A reader who thinks it is too weak can re-run scoring.py with their own list against the published corpus, which is why the two travel together."
+    }
+  ],
+  "question": "Does Warden detector revision 0583853ed7fca7d03c98a5cc4c2383cc6b149248, deployed 2026-08-24, flag a larger share of the same frozen labelled attacks than the stated keyword list while keeping enough precision to exceed an arm that flags everything?",
+  "registered_at": "2026-08-24T11:15:12.096301+00:00",
+  "spec_hash": "0xd01c85bf7fc471ec93dd077cb153ff1e05924b2e2712120f51b0b029dfc863a8",
+  "spec_id": "05-security-corpus-postfix",
+  "stopping_rule": "Three passes over every payload in the frozen corpus, once, in corpus order. Each pass is one trials.run_trials trial with retry=3 and the real BACKOFF_S sequence (1, 3, then 8 seconds), so an HTTP 429 or other raised request failure can consume at most four attempts without becoming another scored pass. No payload is re-scanned because its result was unwelcome, and no payload or detector setting is changed after the run begins."
+}
