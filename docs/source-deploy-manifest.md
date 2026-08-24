@@ -141,6 +141,7 @@ artifact. The warning remains a backend-maintenance risk; this build does not hi
 | `docket/advantage/v3/sources/warden-v4-calibration-set.json` | `68850351a675ef6a6f0293d9108112318b42324477c6f87cbb2fe41841d5e55b` |
 | `docket/advantage/v3/sources/warden-v4-heldout-cases.json` | `a06795b6c2eabbd0581be61cd26c5ed163eb406c5b958885e32c06834b658df7` |
 | `docket/advantage/v3/provenance/warden-v3-03-pilot.json` | `8ed4c761e10c590da88c04764536d791ab5c3f2aa68d0945378c41f572cb99ef` |
+| `docket/advantage/v3/provenance/warden-pilot-history.json` | `2221f0c31f594c8dcf90aeaaf2de241b77c095cdb4730b6cabb248f8103419` |
 | `W17-RECOMMENDATION.md` | `3f321533647a1689dadd80ddf9687c07c0e786f1970d4ad69a1b7e0db84b97c0` |
 
 ## Deployment record required for parity
