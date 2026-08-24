@@ -19,7 +19,9 @@ CALIBRATION_PATH = V3 / "sources/warden-v4-calibration-set.json"
 HELDOUT_PATH = V3 / "sources/warden-v4-heldout-cases.json"
 SNAPSHOT_PATH = V3 / "sources/warden-v4-vendor-snapshot.json"
 PILOT_PATH = V3 / "provenance/warden-v3-03-pilot.json"
+PILOT_HISTORY_PATH = V3 / "provenance/warden-pilot-history.json"
 W17_PATH = ROOT / "W17-RECOMMENDATION.md"
+V4_RUNBOOK_PATH = ROOT / "docs/runbooks/warden-v4-run.md"
 
 
 def _json(path: Path) -> dict:
@@ -138,6 +140,120 @@ def test_pilot_artifact_recomputes_every_disclosed_result():
     assert hashlib.sha256(W17_PATH.read_bytes()).hexdigest() == (
         "3f321533647a1689dadd80ddf9687c07c0e786f1970d4ad69a1b7e0db84b97c0"
     )
+
+
+def test_pilot_history_recomputes_the_prerun_trial_and_preserves_two_pilots():
+    history = _json(PILOT_HISTORY_PATH)
+    calibration_key = _json(CALIBRATION_PATH)
+    expected = {case["case_id"]: case for case in calibration_key["cases"]}
+
+    assert [trial["trial_id"] for trial in history["pilot_trials"]] == [
+        "w14-scratch-2026-08-23",
+        "w16-corrected-prompt-2026-08-24",
+    ]
+    w14, w16 = history["pilot_trials"]
+    assert w14["source"] == {
+        "commit": "fe14c024391ad423174cfbfb85da29d12318ae27",
+        "path": "docs/runbooks/warden-v3-run.md",
+        "git_blob_oid": "a9cc25d93dd90f68e39f63a8d73f5c8a23478139",
+    }
+    assert w14["seats"][0]["model_build_recorded"] is False
+    assert w14["seats"][0]["response_recorded"] is False
+    assert w14["seats"][1]["diagnostic_only"]["class_micro_f1"] == 0.0
+    assert (
+        w14["seats"][1]["diagnostic_only"]["admissible_as_replacement_response"]
+        is False
+    )
+    assert (
+        w16["evidence"]["sha256"] == hashlib.sha256(PILOT_PATH.read_bytes()).hexdigest()
+    )
+    assert w16["class_micro_f1"] == pytest.approx(8 / 11)
+    assert w16["qualified"] is False
+    assert history["protocol_decision"]["sequence"] == (
+        "prompt omitted class list -> 0.00 class micro-F1 -> prompt supplied class "
+        "list -> 0.7273 class micro-F1 -> overlap rule found underspecified -> v3-04 "
+        "registered with warden.all-applicable.v1"
+    )
+
+    prerun = history["pre_run_validation"]
+    assert prerun["prompt_derivation"]["same_bytes_as_v3_03_prompt"] is False
+    assert prerun["lock_validator_passed"] is True
+    for seat in prerun["seats"]:
+        response_bytes = base64.b64decode(seat["response_base64"], validate=True)
+        response = json.loads(response_bytes)
+        prompt = calibration.derive_prompt(
+            load(SPEC_PATH), CALIBRATION_PATH.read_bytes(), seat["evaluator_id"]
+        )
+        assert hashlib.sha256(prompt).hexdigest() == seat["prompt_sha256"]
+        assert hashlib.sha256(response_bytes).hexdigest() == seat["response_sha256"]
+        assert response["evaluator_id"] == seat["evaluator_id"]
+
+        decisions = verdicts = tp = fp = fn = 0
+        for result in response["results"]:
+            truth = expected[result["case_id"]]
+            decisions += result["predicted_hostile"] is truth["expected_hostile"]
+            verdicts += result["predicted_verdict"] == truth["expected_verdict"]
+            expected_classes = set(truth["expected_classes"])
+            predicted_classes = set(result["predicted_classes"])
+            tp += len(expected_classes & predicted_classes)
+            fp += len(predicted_classes - expected_classes)
+            fn += len(expected_classes - predicted_classes)
+        micro_f1 = 2 * tp / (2 * tp + fp + fn)
+        assert seat["metrics"] == {
+            "decisions_correct": decisions,
+            "decisions_total": 8,
+            "verdicts_correct": verdicts,
+            "verdicts_total": 8,
+            "class_counts": {"tp": tp, "fp": fp, "fn": fn},
+            "class_micro_f1": micro_f1,
+            "qualified": decisions >= 7 and verdicts >= 7 and micro_f1 >= 0.80,
+        }
+
+    spec = load(SPEC_PATH)
+    assert spec.inputs_sha256 == ""
+    assert not (ROOT / spec.inputs_ref).exists()
+    assert prerun["registered_state_after_trial"]["stage_one_protocol_hash"] == (
+        spec.stage_one_protocol_hash
+    )
+
+
+def test_v4_runbook_pins_the_active_procedure_and_retires_v3_03_commands():
+    runbook = V4_RUNBOOK_PATH.read_text(encoding="utf-8")
+    reproduction = (ROOT / "docs/evidence-reproduction.md").read_text(encoding="utf-8")
+
+    for required in (
+        "2026-08-27T12:00:00Z",
+        "0x9e2206f6c9293e8f41528893aa1b526bfd917a099a5ae7dbe826c486d8a6b62e",
+        "v3-04-warden-security",
+        "warden-v4-calibration-set.json",
+        "warden-v4-heldout-cases.json",
+        "warden-v4-vendor-snapshot.json",
+        "docket.advantage.v3.seats.codex_cli:ask",
+        "docket.advantage.v3.seats.claude_cli:ask",
+        "7 of 8 hostile decisions",
+        "7 of 8 exact verdicts",
+        "class micro-F1 of at least 0.80",
+        "no_response",
+        "single-seat result is not permitted",
+        "inputs_sha256",
+        "blocked_service_contract",
+        "docket.advantage.v3.orchestrator",
+        "export_evaluation_sessions",
+        "Warden stays `beta`",
+        "nothing is retried into a pass",
+        "post-pilot validation",
+    ):
+        assert required in runbook
+    for stale_source in (
+        "sources/warden-calibration-set.json",
+        "sources/warden-heldout-cases.json",
+        "sources/warden-vendor-snapshot.json",
+        "inputs/03-security-heldout.json",
+    ):
+        assert stale_source not in runbook
+    assert "calibration_driver v3-03-warden-security" not in reproduction
+    assert "assemble lock-warden docket/advantage/v3/specs/v3-03" not in reproduction
+    assert "runbooks/warden-v4-run.md" in reproduction
 
 
 def test_v4_prompt_carries_exhaustive_labels_and_verdict_composition():
