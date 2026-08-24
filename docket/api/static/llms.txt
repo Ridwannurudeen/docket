@@ -492,7 +492,7 @@ GET /advantage/v2
     curl -s "$DOCKET/advantage/v2"
 
 GET /advantage/v3.json
-    The third report: five pre-registered paired task families and the artifact-derived
+    The third report: five registered paired task families and the artifact-derived
     execution state of each one. The closed state vocabulary is
     registered_waiting_for_inputs, superseded_before_input_lock, locked_not_run, running,
     complete_unscored, refuted, and not_refuted. It never reports "proved".
@@ -1090,7 +1090,7 @@ and its bytes remain unmodified beside the newer experiment.
 
 A third report at GET /advantage/v3.json and GET /advantage/v3. The three reports are
 additive and none supersedes another: v1 is the original paired eligibility artifact at
-n=1; v2 is agent-versus-computed-null armour with no human arm; v3 is the pre-registered
+n=1; v2 is agent-versus-computed-null armour with no human arm; v3 is the registered
 paired evaluation scored by two prompt-blinded model seats run by one operator.
 
 V3 currently reports three of five families as registered_waiting_for_inputs. The unlocked

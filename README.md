@@ -54,8 +54,10 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
 - **C-07.** A Docket receipt binds the request and result hashes to a delivery record; it
   does not establish that the result is correct or that a reported settlement reached
   chain finality.
-- **C-08.** The v3 registration sequence is reachable from `origin/docs/deliberation-round2`,
-  and GitHub recorded that ref at `2026-08-15T06:08:36Z` — a timestamp this repository
+- **C-08.** The initial v3 registration commit
+  `88cc2bc883ab7b904e8a7baf9f4f019b10631eca` is reachable from
+  `origin/docs/deliberation-round2`, and GitHub recorded that ref at
+  `2026-08-15T06:08:36Z` — a timestamp this repository
   cannot set. That establishes only that the content pushed at that moment existed by
   then. Commits registered afterwards are not covered by it, committer dates are still
   set locally, and branch protection is unavailable on a private repository, so the ref

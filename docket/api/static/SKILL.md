@@ -64,7 +64,7 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/advantage` | The same report as a page for a human |
 | GET | `/advantage/v2.json` | Hashed experiments with per-experiment registration provenance: every run, the nulls beside every figure, each falsifier's computed result |
 | GET | `/advantage/v2` | The same v2 report as a page for a human |
-| GET | `/advantage/v3.json` | Five pre-registered paired families and each artifact-derived execution or scoring state |
+| GET | `/advantage/v3.json` | Five registered paired families and each artifact-derived execution or scoring state |
 | GET | `/advantage/v3` | The same startup-bound v3 report as a page for a human |
 | GET | `/pancake` | JSON source map by default; the live PancakeSwap evidence dashboard for HTML callers |
 | GET | `/llms.txt` | Full plain-text reference |
@@ -367,7 +367,7 @@ curl -s "$DOCKET/advantage/v3.json"
 
 The reports are additive and none supersedes another. v1 is the original paired eligibility
 artifact at n=1. v2 is agent-versus-computed-null armour with no human arm. v3 is the
-pre-registered paired evaluation scored by two prompt-blinded model seats run by one
+registered paired evaluation scored by two prompt-blinded model seats run by one
 operator.
 
 Read `summary.states` before describing v3. Today every registered `inputs_sha256` is empty,
