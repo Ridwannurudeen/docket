@@ -1,6 +1,7 @@
 """Run the v3 evidence path against an isolated, synthetic throwaway family."""
 
 import argparse
+import hashlib
 import json
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -43,6 +44,9 @@ TOKENS = tuple(f"0x{index:040x}" for index in range(1, 9))
 WARDEN_SPEC_ID = "v3-04-warden-security-REHEARSAL-NOT-REGISTERED"
 WARDEN_AGENT_SERVICE_ID = "rehearsal-warden-scan"
 WARDEN_FAMILY_SALT = "warden-v4-rehearsal-blinding"
+RANGE_SPEC_ID = "v3-05-range-doctor-REHEARSAL-NOT-REGISTERED"
+RANGE_AGENT_SERVICE_ID = "range-doctor"
+RANGE_FAMILY_SALT = "range-v5-rehearsal-blinding"
 
 
 class RehearsalRefused(RuntimeError):
@@ -98,6 +102,33 @@ def _registered_warden_rehearsal_family():
             del spec_module.INPUT_VALIDATORS[WARDEN_SPEC_ID]
         if scoring.FAMILY_PROTOCOLS.get(WARDEN_SPEC_ID) is protocol:
             del scoring.FAMILY_PROTOCOLS[WARDEN_SPEC_ID]
+
+
+@contextmanager
+def _registered_range_rehearsal_family():
+    if (
+        RANGE_SPEC_ID in spec_module.INPUT_VALIDATORS
+        or RANGE_SPEC_ID in scoring.FAMILY_PROTOCOLS
+    ):
+        raise RehearsalRefused(
+            f"the throwaway family {RANGE_SPEC_ID!r} is already registered"
+        )
+    protocol = dict(scoring.FAMILY_PROTOCOLS["v3-05-range-doctor"])
+    protocol["family_salt"] = RANGE_FAMILY_SALT
+    spec_module.INPUT_VALIDATORS[RANGE_SPEC_ID] = (
+        spec_module._validate_range_successor_inputs
+    )
+    scoring.FAMILY_PROTOCOLS[RANGE_SPEC_ID] = protocol
+    try:
+        yield
+    finally:
+        if (
+            spec_module.INPUT_VALIDATORS.get(RANGE_SPEC_ID)
+            is spec_module._validate_range_successor_inputs
+        ):
+            del spec_module.INPUT_VALIDATORS[RANGE_SPEC_ID]
+        if scoring.FAMILY_PROTOCOLS.get(RANGE_SPEC_ID) is protocol:
+            del scoring.FAMILY_PROTOCOLS[RANGE_SPEC_ID]
 
 
 def _stage_spec(root: Path) -> tuple[PairedSpec, Path]:
@@ -164,6 +195,7 @@ def _pool(index: int, *, tvl=1_000_000.0, fee=500.0, volume=None) -> dict:
         "tvlUSD": tvl,
         "volumeUSD24h": tvl / 10 if volume is None else volume,
         "feeUSD24h": fee,
+        "feeTier": 500,
         "protocolFeeUSD24h": 100.0,
     }
 
@@ -405,14 +437,21 @@ def _score(spec: PairedSpec, root: Path) -> None:
             for output in case["outputs"]:
                 if not output["judgment_required"]:
                     continue
+                fixture_matches = spec.spec_id != RANGE_SPEC_ID or output[
+                    "output"
+                ] == _range_expected_output(case["reference"], root)
                 for criterion in spec.quality_rubric["criteria"]:
                     rows.append(
                         {
                             "case_label": case["case_label"],
                             "arm_label": output["arm_label"],
                             "criterion": criterion["name"],
-                            "score": 3,
-                            "rationale": "The synthetic output carries every fixture field.",
+                            "score": 3 if fixture_matches else 0,
+                            "rationale": (
+                                "The synthetic output carries every fixture field."
+                                if fixture_matches
+                                else "The synthetic output contradicts its frozen fixture."
+                            ),
                             "evidence_quote": "synthetic rehearsal evidence",
                         }
                     )
@@ -432,6 +471,321 @@ def _score(spec: PairedSpec, root: Path) -> None:
         root / "mappings",
         repo_root=root,
     )
+
+
+def _stage_range_spec(root: Path) -> tuple[PairedSpec, Path]:
+    packaged = (
+        resources.files("docket.advantage") / "v3" / "specs" / "v3-05-range-doctor.json"
+    )
+    registered = load(Path(str(packaged)))
+    body = registered._stage_one_body()
+    body.update(
+        {
+            "spec_id": RANGE_SPEC_ID,
+            "inputs_ref": "inputs/range-v5-rehearsal-positions.json",
+            "registration_provenance": (
+                "REHEARSAL ONLY. This synthetic enumerable Range family is created and "
+                "consumed inside one scratch tree. It is not the registered v3-05 "
+                "validation and cannot produce a public Range result."
+            ),
+        }
+    )
+    execution = dict(body["execution_protocol"])
+    execution["agent_endpoint"] = (
+        f"https://rehearsal.invalid/hire/{RANGE_AGENT_SERVICE_ID}"
+    )
+    body["execution_protocol"] = execution
+    scoring_protocol = dict(body["scoring"])
+    scoring_protocol["randomisation"] = scoring_protocol["randomisation"].replace(
+        "range-v5-blinding", RANGE_FAMILY_SALT
+    )
+    body["scoring"] = scoring_protocol
+    spec = PairedSpec(**body)
+    path = root / "specs" / f"{RANGE_SPEC_ID}.json"
+    save(spec, path, repo_root=root)
+    return spec, path
+
+
+def _range_sources(spec: PairedSpec, root: Path) -> list[dict]:
+    derived = spec_module.range_sample_indices(spec, 4_908_719)
+    pools = [_pool(0), _pool(1), _pool(2, tvl=5_000.0)]
+    live = {
+        0: {"pool": pools[0], "current_tick": 0, "tick_lower": -10, "tick_upper": 10},
+        1: {"pool": pools[1], "current_tick": 20, "tick_lower": -10, "tick_upper": 10},
+        2: {"pool": pools[2], "current_tick": 0, "tick_lower": -10, "tick_upper": 10},
+    }
+    rows = []
+    for ordinal, index_row in enumerate(derived):
+        owner = f"0x{0xB000 + ordinal:040x}"
+        token_id = 8_000_000 + ordinal
+        base = index_row | {
+            "token_id": token_id,
+            "owner": owner,
+            "staking_beneficiary": None,
+        }
+        if ordinal == 3:
+            base["token_id"] = 7141050
+            base["owner"] = next(iter(spec_module.RANGE_CONTROLLED_WALLETS))
+            rows.append(base)
+            continue
+        position = live.get(ordinal)
+        if position is None:
+            rows.append(
+                base
+                | {
+                    "liquidity": 0,
+                    "token0": TOKENS[0],
+                    "token1": TOKENS[1],
+                    "fee": 500,
+                    "tick_lower": -10,
+                    "tick_upper": 10,
+                }
+            )
+            continue
+        pool = position["pool"]
+        rows.append(
+            base
+            | {
+                "liquidity": 1000 + ordinal,
+                "token0": pool["token0"]["id"],
+                "token1": pool["token1"]["id"],
+                "fee": 500,
+                "tick_lower": position["tick_lower"],
+                "tick_upper": position["tick_upper"],
+                "pool_id": pool["id"],
+                "current_tick": position["current_tick"],
+            }
+        )
+    accounting = {
+        "eth_blockNumber": 1,
+        "eth_getBlockByNumber": 1,
+        "totalSupply": 1,
+        "tokenByIndex": 1024,
+        "ownerOf": 1024,
+        "userPositionInfos": 0,
+        "positions": 1023,
+        "getPool": 3,
+        "slot0": 3,
+        "eth_getLogs": 0,
+    }
+    accounting["total"] = sum(accounting.values())
+    definition = spec.case_selection["frame_definition"]
+    frame = {
+        "chain_id": 56,
+        "position_manager": spec_module.RANGE_POSITION_MANAGER,
+        "observation_block": definition["observation_block"],
+        "observation_block_hash": definition["observation_block_hash"],
+        "observation_time": definition["observation_time"],
+        "total_supply": 4_908_719,
+        "sample_size": 1024,
+        "complete": True,
+        "rows": rows,
+        "rpc_call_accounting": accounting,
+    }
+    pools_raw = json.dumps(pools, sort_keys=True).encode("utf-8")
+    tokens_raw = json.dumps(
+        {"tokens": [{"chainId": 56, "address": token} for token in TOKENS]},
+        sort_keys=True,
+    ).encode("utf-8")
+    scheduled = datetime.fromisoformat(
+        definition["pool_truth_capture_attempts"][0].replace("Z", "+00:00")
+    )
+
+    def capture_attempt(urls, *, ordinal, scheduled_at):
+        assert urls == (
+            spec_module.YIELD_SOURCE_URLS["pools"],
+            spec_module.YIELD_SOURCE_URLS["token_list"],
+        )
+        observed = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
+        return {
+            "attempt_ordinal": ordinal,
+            "scheduled_at": scheduled_at,
+            "pools_observed_at": (observed + timedelta(seconds=1))
+            .isoformat()
+            .replace("+00:00", "Z"),
+            "token_list_observed_at": (observed + timedelta(seconds=2))
+            .isoformat()
+            .replace("+00:00", "Z"),
+            "pools_status": 200,
+            "token_list_status": 200,
+            "transport_errors": [None, None],
+            "succeeded": True,
+            "attempt_outcome": "succeeded",
+            "_bodies": (pools_raw, tokens_raw),
+        }
+
+    capture_result = capture.run_registered_capture(
+        spec,
+        now=scheduled,
+        attempt=capture_attempt,
+    )
+    pool_truth = assemble.range_pool_truth(capture_result)
+    source_dir = root / "sources"
+    source_dir.mkdir(parents=True)
+    sources = []
+    for kind, filename, body in (
+        ("enumerable_position_frame", "range-v5-enumerable-frame.json", frame),
+        ("pool_truth", "range-v5-pool-truth.json", pool_truth),
+    ):
+        raw = (json.dumps(body, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        (source_dir / filename).write_bytes(raw)
+        sources.append(
+            {
+                "kind": kind,
+                "ref": f"sources/{filename}",
+                "sha256": hashlib.sha256(raw).hexdigest(),
+            }
+        )
+    return sources
+
+
+def _range_calibration_set(spec: PairedSpec) -> bytes:
+    ticks = (-20, 0, 20, -15, 5, 25, -25, 8)
+    cases = []
+    for index, current_tick in enumerate(ticks, start=1):
+        scenario = {
+            "current_tick": current_tick,
+            "tick_lower": -10,
+            "tick_upper": 10,
+            "fee_usd_24h": 500.0 + index,
+            "protocol_fee_usd_24h": 100.0,
+            "tvl_usd": 1_000_000.0,
+            "declared_position_value_usd": 10000,
+            "estimated_recenter_cost_usd": 25,
+        }
+        cases.append(
+            {
+                "case_id": f"range-rehearsal-cal-{index:02d}",
+                "input": scenario,
+                "expected": spec_module._computed_calibration_truth(spec, scenario),
+            }
+        )
+    return json.dumps({"spec_id": spec.spec_id, "cases": cases}, sort_keys=True).encode(
+        "utf-8"
+    )
+
+
+def _lock_range(spec: PairedSpec, spec_path: Path, root: Path) -> PairedSpec:
+    calibration_set = _range_calibration_set(spec)
+    evaluator_calibration = _capture_calibration(spec, root, calibration_set)
+    envelope = assemble.assemble_range_envelope(
+        spec,
+        _range_sources(spec, root),
+        repo_root=root,
+        calibration_dir=root / "calibration",
+        calibration_set=calibration_set,
+        evaluator_calibration=evaluator_calibration,
+    )
+    assemble.write_envelope(spec, envelope, repo_root=root)
+    locked = lock_inputs(spec, repo_root=root)
+    save(locked, spec_path, repo_root=root)
+    return locked
+
+
+def _range_expected_output(case: dict, root: Path) -> dict:
+    truth = case["truth"]
+    return {
+        "position": {"wallet": case["wallet"], "token_id": case["token_id"]},
+        "observation": {
+            "block": case["observation_block"],
+            "time": case["observation_time"],
+        },
+        "range": {
+            "status": truth["range_status"],
+            "current_tick": truth["current_tick"],
+            "lower_tick": truth["tick_lower"],
+            "upper_tick": truth["tick_upper"],
+        },
+        "pool_evidence": {
+            "gate_passes": truth["pool_gate_passes"],
+            "first_failed_gate": truth["first_failed_gate"],
+        },
+        "rates": {
+            "gross_apr": truth["gross_apr"],
+            "net_apr": truth["net_apr"],
+            "fee_usd_24h": truth["fee_usd_24h"],
+            "protocol_fee_usd_24h": truth["protocol_fee_usd_24h"],
+            "tvl_usd": truth["tvl_usd"],
+        },
+        "dollars": {
+            "declared_position_value_usd": case["declared_position_value_usd"],
+            "annual_gross_usd": truth["annual_gross_usd"],
+            "annual_net_usd": truth["annual_net_usd"],
+            "annual_overstatement_usd": truth["annual_overstatement_usd"],
+        },
+        "action": {"decision": "WAIT", "conditional_actions": "Recheck later."},
+        "coverage": {
+            "frame_sample_size": 1024,
+            "frame_unique_indices": 1024,
+            "frame_complete": True,
+            "conflicts_removed_before_outcomes": True,
+            "population_scope": "enumerable-index sample, not every historical holder, wallet or LP arrangement",
+        },
+        "limitations": ["Synthetic rehearsal evidence only."],
+        "sources": scoring._range_source_summaries(case, root),
+    }
+
+
+def _range_output(case: dict, root: Path) -> dict:
+    return _range_expected_output(case, root)
+
+
+class _RangeRunClock:
+    def __init__(self):
+        self.calls = 0
+        self.current = 0
+
+    def __call__(self) -> int:
+        slot_index = self.calls // 2
+        ending = self.calls % 2 == 1
+        self.calls += 1
+        if ending:
+            self.current += 40_000_000_000 if slot_index < 3 else 1_000_000_000
+        return self.current
+
+
+def _run_range_arms(spec: PairedSpec, root: Path) -> None:
+    inputs = scoring.load_inputs(spec, repo_root=root)
+    truth_by_token = {case["token_id"]: case for case in inputs["cases"]}
+
+    def stub_endpoint(url, *, json, headers, timeout, client=None):
+        if url != spec.execution_protocol["agent_endpoint"]:
+            raise AssertionError("the rehearsal called an unregistered endpoint")
+        result = _range_output(truth_by_token[json["token_id"]], root)
+        return httpx.Response(
+            200,
+            json={
+                "result": result,
+                "receipt": {
+                    "service": RANGE_AGENT_SERVICE_ID,
+                    "input_hash": canonical_hash(json),
+                    "output_hash": canonical_hash(result),
+                    "payment": {
+                        "status": "free_tier",
+                        "amount": "0",
+                        "asset": "REHEARSAL",
+                    },
+                },
+            },
+        )
+
+    def invoke(slot, revealed):
+        case = truth_by_token[revealed["token_id"]]
+        if slot.arm == "manual":
+            return {"raw_output": _range_output(case, root)}
+        return orchestrator.hire_agent(spec, revealed, hire=stub_endpoint)
+
+    terminals = orchestrator.run_remaining(
+        spec,
+        root / "runs",
+        repo_root=root,
+        invoke=invoke,
+        clock=_RangeRunClock(),
+    )
+    if len(terminals) != spec.n_planned * 2 or any(
+        terminal.get("outcome") != runner.SUCCEEDED for terminal in terminals
+    ):
+        raise RehearsalRefused("not every registered Range rehearsal slot succeeded")
 
 
 def _stage_warden_spec(root: Path) -> tuple[PairedSpec, Path]:
@@ -497,7 +851,8 @@ def _warden_sources(spec: PairedSpec, root: Path) -> tuple[bytes, bytes, bytes]:
     )
     calibration_body["spec_id"] = spec.spec_id
     calibration_set = (
-        json.dumps(calibration_body, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+        json.dumps(calibration_body, indent=2, sort_keys=True, ensure_ascii=False)
+        + "\n"
     ).encode("utf-8")
     heldout = (packaged / "warden-v4-heldout-cases.json").read_bytes()
     vendor = (packaged / "warden-v4-vendor-snapshot.json").read_bytes()
@@ -642,6 +997,33 @@ def run_warden(output: Path) -> dict:
         spec, spec_path = _stage_warden_spec(root)
         locked = _lock_warden(spec, spec_path, root)
         _run_warden_arms(locked, root)
+        _score(locked, root)
+        payload = report.report(
+            specs_dir=root / "specs",
+            runs_dir=root / "runs",
+            sheets_dir=root / "sheets",
+            mappings_dir=root / "mappings",
+            repo_root=root,
+        )
+        report_path = root / "advantage-v3.json"
+        report_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return payload
+
+
+def run_range(output: Path) -> dict:
+    """Run the full enumerable Range path under a scratch-only family identity."""
+    root = Path(output)
+    if root.exists():
+        raise RehearsalRefused(
+            f"{root} already exists; rehearsal evidence is first-write"
+        )
+    root.mkdir(parents=True)
+    with _registered_range_rehearsal_family():
+        spec, spec_path = _stage_range_spec(root)
+        locked = _lock_range(spec, spec_path, root)
+        _run_range_arms(locked, root)
         _score(locked, root)
         payload = report.report(
             specs_dir=root / "specs",

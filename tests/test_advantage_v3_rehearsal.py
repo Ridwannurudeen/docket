@@ -2,6 +2,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from docket.advantage.v3 import rehearsal, report, runner, scoring
 import docket.advantage.v3.spec as spec_module
 
@@ -11,9 +13,12 @@ REGISTERED_SPEC = (
     / "docket/advantage/v3/specs/v3-02-yield-router.json"
 )
 REGISTERED_WARDEN_SPECS = tuple(
-    Path(__file__).resolve().parents[1]
-    / f"docket/advantage/v3/specs/{spec_id}.json"
+    Path(__file__).resolve().parents[1] / f"docket/advantage/v3/specs/{spec_id}.json"
     for spec_id in ("v3-03-warden-security", "v3-04-warden-security")
+)
+REGISTERED_RANGE_SPECS = tuple(
+    Path(__file__).resolve().parents[1] / f"docket/advantage/v3/specs/{spec_id}.json"
+    for spec_id in ("v3-01-range-doctor", "v3-05-range-doctor")
 )
 
 
@@ -125,9 +130,7 @@ def test_warden_rehearsal_locks_and_scores_all_slots_without_consuming_registrat
     terminals = [
         event for event in family["ledger"] if event["kind"] == runner.TERMINATED
     ]
-    assert [event["arm"] for event in terminals] == ["manual"] * 12 + [
-        "agent"
-    ] * 12
+    assert [event["arm"] for event in terminals] == ["manual"] * 12 + ["agent"] * 12
     assert all(event["receipt"] is None for event in terminals[:12])
     assert all(
         event["receipt"]["service"] == rehearsal.WARDEN_AGENT_SERVICE_ID
@@ -135,3 +138,126 @@ def test_warden_rehearsal_locks_and_scores_all_slots_without_consuming_registrat
     )
     assert (output / "inputs/warden-v4-rehearsal-cases.json").is_file()
     assert len(list((output / "calibration").glob("**/attempt-01.response.json"))) == 2
+
+
+def test_range_rehearsal_locks_and_scores_all_slots_without_consuming_registration(
+    tmp_path, monkeypatch
+):
+    registered_before = {path: path.read_bytes() for path in REGISTERED_RANGE_SPECS}
+    validator_before = spec_module.INPUT_VALIDATORS["v3-05-range-doctor"]
+    protocol_before = scoring.FAMILY_PROTOCOLS["v3-05-range-doctor"]
+    production_artifacts = (
+        Path(__file__).resolve().parents[1]
+        / "docket/advantage/v3/inputs/range-v5-positions.json",
+        Path(__file__).resolve().parents[1]
+        / "docket/advantage/v3/runs/v3-05-range-doctor.jsonl",
+    )
+    assert not any(path.exists() for path in production_artifacts)
+
+    class ForbiddenClient:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError(
+                "the Range rehearsal must not create a real HTTP client"
+            )
+
+    monkeypatch.setattr(rehearsal.httpx, "Client", ForbiddenClient)
+    output = tmp_path / "range-throwaway"
+
+    payload = rehearsal.run_range(output)
+
+    assert {path: path.read_bytes() for path in REGISTERED_RANGE_SPECS} == (
+        registered_before
+    )
+    assert rehearsal.RANGE_SPEC_ID not in spec_module.INPUT_VALIDATORS
+    assert rehearsal.RANGE_SPEC_ID not in scoring.FAMILY_PROTOCOLS
+    assert spec_module.INPUT_VALIDATORS["v3-05-range-doctor"] is validator_before
+    assert scoring.FAMILY_PROTOCOLS["v3-05-range-doctor"] is protocol_before
+    assert not any(path.exists() for path in production_artifacts)
+    assert (
+        json.loads((output / "advantage-v3.json").read_text(encoding="utf-8"))
+        == payload
+    )
+    family = payload["families"][0]
+    assert family["spec_id"] == rehearsal.RANGE_SPEC_ID
+    assert family["state"] == report.NOT_REFUTED
+    assert family["calibration"]["all_seats_qualified"] is True
+    assert family["run_progress"] == {
+        "scheduled_primaries": 6,
+        "claimed_primaries": 6,
+        "terminal_primaries": 6,
+        "outcomes": {runner.SUCCEEDED: 6},
+    }
+    assert family["speed"]["material"] is True
+    assert len(family["score_sheets"]) == 2
+    assert family["mapping"] is not None
+    terminals = [
+        event for event in family["ledger"] if event["kind"] == runner.TERMINATED
+    ]
+    assert [event["arm"] for event in terminals] == ["manual"] * 3 + ["agent"] * 3
+    assert all(event["receipt"] is None for event in terminals[:3])
+    assert all(
+        event["receipt"]["service"] == rehearsal.RANGE_AGENT_SERVICE_ID
+        for event in terminals[3:]
+    )
+    frame = json.loads(
+        (output / "sources/range-v5-enumerable-frame.json").read_text(encoding="utf-8")
+    )
+    assert len(frame["rows"]) == 1024
+    assert len({row["index"] for row in frame["rows"]}) == 1024
+    controlled = next(row for row in frame["rows"] if row["token_id"] == 7141050)
+    assert set(controlled) == {
+        "sample_ordinal",
+        "derivation_counter",
+        "index",
+        "token_id",
+        "owner",
+        "staking_beneficiary",
+    }
+    assert frame["rpc_call_accounting"]["eth_getLogs"] == 0
+    pool_truth = json.loads(
+        (output / "sources/range-v5-pool-truth.json").read_text(encoding="utf-8")
+    )
+    assert pool_truth["capture_log"] == [
+        {
+            "attempt_ordinal": 1,
+            "scheduled_at": "2026-08-26T12:10:00Z",
+            "pools_status": 200,
+            "token_list_status": 200,
+        }
+    ]
+    assert len(list((output / "sheets").glob("**/*.json"))) == 2
+    assert len(list((output / "mappings").glob("*.json"))) == 1
+    assert len(list((output / "calibration").glob("**/attempt-01.response.json"))) == 2
+
+
+def test_range_rehearsal_scores_a_corrupted_agent_fixture_as_refuted(
+    tmp_path, monkeypatch
+):
+    original = rehearsal._range_output
+    calls = 0
+
+    def corrupted(case, root):
+        nonlocal calls
+        calls += 1
+        output = original(case, root)
+        if calls > 3:
+            output["range"]["status"] = "wrong_range"
+        return output
+
+    monkeypatch.setattr(rehearsal, "_range_output", corrupted)
+    payload = rehearsal.run_range(tmp_path / "corrupted-range")
+
+    assert calls == 6
+    assert payload["families"][0]["state"] == report.REFUTED
+
+
+def test_range_rehearsal_refuses_existing_evidence(tmp_path):
+    output = tmp_path / "existing-range"
+    output.mkdir()
+    sentinel = output / "sentinel.txt"
+    sentinel.write_text("keep\n", encoding="utf-8")
+
+    with pytest.raises(rehearsal.RehearsalRefused, match="first-write"):
+        rehearsal.run_range(output)
+    assert sentinel.read_text(encoding="utf-8") == "keep\n"
+    assert list(output.iterdir()) == [sentinel]
