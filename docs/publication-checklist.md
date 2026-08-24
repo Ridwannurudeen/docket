@@ -13,35 +13,46 @@ and no live credential in any reachable object.
 1. [ ] Review the uncommitted W13 report's exact release, clean-clone, and full-history
    sweep results; approve accept-and-harden only if it lists paths and finding kinds without
    values: `Get-Content -Raw .\BUILD-REPORT.md`
-2. [ ] Confirm the local release branch is `main` and that the only permitted untracked
-   handoff is `BUILD-REPORT.md`: `git branch --show-current; git status --short`
+2. [ ] Fast-forward the approved integration tip onto local `main`, then confirm the only
+   permitted untracked handoff is `BUILD-REPORT.md`:
+   `git switch main; git merge --ff-only build/integration; git status --short`
 3. [ ] Confirm the default-branch tip contains the public landing files, CI, and this
    checklist: `git ls-tree -r --name-only HEAD -- README.md LICENSE AI_USAGE.md .github/workflows/ci.yml docs/publication-checklist.md`
-4. [ ] Review every retained Actions log because GitHub makes Actions history and logs
+4. [ ] Inventory every remote head that will become public; the expected set is `main`,
+   `docs/deliberation-round2`, and `feat/phase0`: `git ls-remote --heads origin`
+5. [ ] Retain both non-main historical heads: neither has a commit outside release `main`,
+   deleting either would not remove reachable history, and `docs/deliberation-round2`
+   preserves the reachability evidence cited by claim C-08:
+   `git fetch --prune origin; git rev-list --count origin/docs/deliberation-round2 origin/feat/phase0 --not main`
+   Stop unless the count is `0`.
+6. [ ] Review every retained Actions log because GitHub makes Actions history and logs
    public with the repository: GitHub > **Actions** > **ci** > each retained run > inspect
    its jobs and logs; stop and rotate before publication if a credential appears.
-5. [ ] Record the exact tip that will become public: `git rev-parse HEAD`
-6. [ ] Push that exact `main` tip to GitHub: `git push origin main`
-7. [ ] Require both jobs on that pushed tip to pass: GitHub > **Actions** > **ci** > the
+7. [ ] Record the exact tip that will become public: `git rev-parse HEAD`
+8. [ ] Push that exact `main` tip to GitHub: `git push origin main`
+9. [ ] Require both jobs on that pushed tip to pass: GitHub > **Actions** > **ci** > the
    run for the recorded commit > confirm **test** and **package** are green.
-8. [ ] Confirm the repository still names `main` as its default branch: GitHub >
+10. [ ] Confirm the repository still names `main` as its default branch: GitHub >
    **Settings** > **General** > **Default branch** > `main`.
-9. [ ] Set the repository's public landing metadata: repository page > **About** gear >
+11. [ ] Set the repository's public landing metadata: repository page > **About** gear >
    add `https://docket.gudman.xyz/` as the website and save.
-10. [ ] Change visibility only after steps 1-9 pass: GitHub > **Settings** > **General** >
+12. [ ] Change visibility only after steps 1-11 pass: GitHub > **Settings** > **General** >
     **Danger Zone** > **Change repository visibility** > **Public** > confirm the
     repository, click **I have read and understand these effects**, then click
     **Make this repository public**.
-11. [ ] Protect the now-public default branch: GitHub > **Settings** > **Rules** >
-    **Rulesets** > **New branch ruleset** > target `main`, require **test** and **package**,
-    then activate the ruleset.
-12. [ ] Verify visibility and the default branch from GitHub's API:
+13. [ ] Re-establish protection after the visibility conversion, which disables all push
+    rulesets: GitHub > **Settings** > **Rules** > **Rulesets** > **New branch ruleset** >
+    target `main`, block force pushes, require **test** and **package**, then activate it.
+14. [ ] Enable the public-repository credential guard: GitHub > **Settings** >
+    **Advanced Security** > enable **Secret Protection**, **Secret scanning**, and
+    **Push protection**.
+15. [ ] Verify visibility and the default branch from GitHub's API:
     `gh repo view Ridwannurudeen/docket --json visibility,defaultBranchRef,url`
-13. [ ] Verify an anonymous Git client can read the published `main` tip:
-    `$env:GIT_TERMINAL_PROMPT='0'; git -c credential.helper= ls-remote https://github.com/Ridwannurudeen/docket.git refs/heads/main`
-14. [ ] Verify the public README and live judge route both answer:
+16. [ ] Verify an anonymous Git client reads the same `main` SHA as the tested local release:
+    `$env:GIT_TERMINAL_PROMPT='0'; $publicSha = (git -c credential.helper= ls-remote https://github.com/Ridwannurudeen/docket.git refs/heads/main).Split()[0]; if ($publicSha -ne (git rev-parse main)) { throw "public main SHA does not match local main" }; $publicSha`
+17. [ ] Verify the public README and live judge route both answer:
     `@('https://raw.githubusercontent.com/Ridwannurudeen/docket/main/README.md','https://docket.gudman.xyz/') | ForEach-Object { (Invoke-WebRequest -UseBasicParsing -Uri $_ -Headers @{Accept='text/html'}).StatusCode }`
-15. [ ] Keep the repository public and the live site reachable through 2026-09-23; check
+18. [ ] Keep the repository public and the live site reachable through 2026-09-23; check
     daily: `@('https://github.com/Ridwannurudeen/docket','https://docket.gudman.xyz/') | ForEach-Object { (Invoke-WebRequest -UseBasicParsing -Uri $_ -Headers @{Accept='text/html'}).StatusCode }`
 
 Publication is not hackathon submission approval. Do not submit, publish a release, or
