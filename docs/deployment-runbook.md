@@ -60,7 +60,7 @@ nondeterministic.
 The VPS release is a copied tree under `/opt/docket`, not a Git checkout. Build the wheel
 outside the checkout, then run the following from Git Bash at the exact tested commit. Every
 release identifier and digest below is computed; none is typed. The tar stream carries the
-wheel plus the complete `deploy/` directory, including all eight unit files.
+wheel plus the complete `deploy/` directory, including all ten unit files.
 
 ```bash
 repo_root=$(pwd -P)
@@ -80,7 +80,7 @@ ssh root@gudman.xyz \
 `preflight.sh` requires `nginx -t` to exit successfully, print `test is successful`, and
 emit exactly the operator-supplied number of lines containing the fixed `[warn]` token, whether
 nginx uses timestamped error-log or `nginx: [warn]` form. It also requires at least 2 GiB free
-under `/opt`, verifies all eight tracked units with `systemd-analyze verify`, and prints the
+under `/opt`, verifies all ten tracked units with `systemd-analyze verify`, and prints the
 current journal disk use. It never edits or reloads nginx. The tracked rate-limit example is
 still an owner-reviewed, separately applied nginx change.
 
@@ -107,12 +107,13 @@ retained as `/opt/docket.bak-<UTC timestamp>`; it is never deleted by the releas
 The `.venv` link is flipped with a temporary symlink and `mv -T`. Unit files are installed
 only when their bytes differ, with a unified diff printed before each replacement. The old
 Aug-21 capture timer is retired and the Aug-26 pre-arm timer replaces it. The release reloads
-systemd, enables and starts the host-managed `docket.service`, and enables these four timers:
+systemd, enables and starts the host-managed `docket.service`, and enables these five timers:
 
 - `docket-canary.timer`
 - `docket-lp-record.timer`
 - `docket-refresh.timer`
 - `docket-v3-capture.timer`
+- `docket-v3-range-capture.timer`
 
 The live application service remains host-managed and uses `User=docket`,
 `WorkingDirectory=/var/lib/docket`, `DOCKET_DB=/var/lib/docket/data/agents.sqlite3`, and
@@ -261,7 +262,7 @@ separately after it returns success:
 ssh root@gudman.xyz \
   'readlink -f /opt/docket/.venv; cat /opt/docket/RELEASE-commit.txt /opt/docket/WHEEL-sha256.txt; /opt/docket/.venv/bin/python -c '\''import importlib.metadata as metadata; print(metadata.version("docket"))'\''; /opt/docket/.venv/bin/python -m pip check'
 ssh root@gudman.xyz \
-  'curl -fsS http://127.0.0.1:8090/services | sha256sum; curl -fsS http://127.0.0.1:8090/stats; systemctl list-timers docket-canary.timer docket-lp-record.timer docket-refresh.timer docket-v3-capture.timer'
+  'curl -fsS http://127.0.0.1:8090/services | sha256sum; curl -fsS http://127.0.0.1:8090/stats; systemctl list-timers docket-canary.timer docket-lp-record.timer docket-refresh.timer docket-v3-capture.timer docket-v3-range-capture.timer'
 ```
 
 Expected shape, not expected changing numbers:

@@ -429,7 +429,7 @@ def test_release_refuses_a_health_response_without_ok_status(tmp_path):
     assert (root / "opt" / "docket" / "old-release.txt").is_file()
 
 
-def test_release_retires_the_aug21_timer_and_enables_all_four_new_timers(tmp_path):
+def test_release_retires_the_aug21_timer_and_enables_all_five_new_timers(tmp_path):
     root = tmp_path / "root"
     _prepare_live_release(root)
     units = root / "etc" / "systemd" / "system"
@@ -464,6 +464,7 @@ def test_release_retires_the_aug21_timer_and_enables_all_four_new_timers(tmp_pat
         "docket-lp-record.timer",
         "docket-refresh.timer",
         "docket-v3-capture.timer",
+        "docket-v3-range-capture.timer",
     ):
         assert f"systemctl enable --now {timer}" in result.stdout
 

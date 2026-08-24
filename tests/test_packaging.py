@@ -151,3 +151,26 @@ def test_the_capture_timer_prearms_without_jitter_and_persists():
     assert "RandomizedDelaySec" not in timer
     assert timer["Persistent"] == "true"
     assert timer["AccuracySec"] == "1s"
+
+
+def test_the_range_capture_timer_names_its_registered_family_and_output():
+    from docket.advantage.v3.capture import _resolve_spec
+
+    exec_start = _unit_directives("docket-v3-range-capture.service")[
+        "ExecStart"
+    ].split()
+    module = exec_start.index("docket.advantage.v3.capture")
+    assert exec_start[module + 1 :] == [
+        "v3-05-range-doctor",
+        "/var/lib/docket/v3-capture/range",
+    ]
+    assert _resolve_spec(exec_start[module + 1]).is_file()
+
+
+def test_the_range_capture_timer_prearms_after_yield_without_jitter_and_persists():
+    timer = _unit_directives("docket-v3-range-capture.timer")
+    assert timer["OnCalendar"] == "2026-08-26 12:03:00 UTC"
+    assert timer["Unit"] == "docket-v3-range-capture.service"
+    assert "RandomizedDelaySec" not in timer
+    assert timer["Persistent"] == "true"
+    assert timer["AccuracySec"] == "1s"

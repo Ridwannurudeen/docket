@@ -230,12 +230,15 @@ readonly -a UNIT_NAMES=(
     docket-refresh.timer
     docket-v3-capture.service
     docket-v3-capture.timer
+    docket-v3-range-capture.service
+    docket-v3-range-capture.timer
 )
 readonly -a TIMER_NAMES=(
     docket-canary.timer
     docket-lp-record.timer
     docket-refresh.timer
     docket-v3-capture.timer
+    docket-v3-range-capture.timer
 )
 for name in "${UNIT_NAMES[@]}"; do
     [[ -f "${SCRIPT_DIR}/systemd/${name}" ]] || fatal \

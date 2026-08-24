@@ -64,6 +64,8 @@ readonly -a UNIT_NAMES=(
     docket-refresh.timer
     docket-v3-capture.service
     docket-v3-capture.timer
+    docket-v3-range-capture.service
+    docket-v3-range-capture.timer
 )
 UNIT_FILES=()
 for name in "${UNIT_NAMES[@]}"; do

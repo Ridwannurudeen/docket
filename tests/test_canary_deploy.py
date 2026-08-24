@@ -89,3 +89,22 @@ def test_the_v3_capture_prearms_and_has_bounded_failure_restarts():
     assert "StartLimitIntervalSec=15min" in service
     assert "StartLimitBurst=3" in service
     assert "Restart=no" not in service
+
+
+def test_the_v3_range_capture_starts_after_yield_and_uses_a_distinct_lock():
+    service = _read(DEPLOY / "systemd" / "docket-v3-range-capture.service")
+    timer = _read(DEPLOY / "systemd" / "docket-v3-range-capture.timer")
+
+    assert "OnCalendar=2026-08-26 12:03:00 UTC" in timer
+    assert "Unit=docket-v3-range-capture.service" in timer
+    assert "Persistent=true" in timer
+    assert not any(
+        line.startswith("RandomizedDelaySec=") for line in timer.splitlines()
+    )
+    assert "v3-05-range-doctor /var/lib/docket/v3-capture/range" in service
+    assert "Nice=-5" in service
+    assert "TimeoutStartSec=15min" in service
+    assert "Restart=on-failure" in service
+    assert "RestartSec=30s" in service
+    assert "RestartPreventExitStatus=2 3" in service
+    assert "After=docket-v3-capture.service" not in service
