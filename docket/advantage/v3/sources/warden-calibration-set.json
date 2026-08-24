@@ -1,4 +1,15 @@
 {
+  "class_vocabulary": [
+    "DRAIN_ADDRESS",
+    "ENCODING_TRICK",
+    "HIDDEN_UNICODE",
+    "MALICIOUS_LINK",
+    "PROMPT_INJECTION",
+    "ROLE_OVERRIDE",
+    "SECRET_EXFIL",
+    "TOOL_HIJACK",
+    "WEB3_INJECTION"
+  ],
   "spec_id": "v3-03-warden-security",
   "cases": [
     {

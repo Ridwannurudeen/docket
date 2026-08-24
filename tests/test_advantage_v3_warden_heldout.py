@@ -111,6 +111,30 @@ def test_the_twelve_authored_cases_pass_the_real_input_lock(tmp_path):
     assert len(locked.inputs_sha256) == 64
 
 
+def test_input_lock_refuses_a_calibration_vocabulary_that_drifted(tmp_path):
+    root = _stage(tmp_path)
+    spec = load(root / "spec.json", repo_root=root)
+    input_path = root / spec.inputs_ref
+    envelope = json.loads(input_path.read_text(encoding="utf-8"))
+    calibration = json.loads(
+        base64.b64decode(envelope["calibration_set"]["body_base64"])
+    )
+    calibration["class_vocabulary"].pop()
+    raw = json.dumps(calibration, sort_keys=True).encode()
+    envelope["calibration_set"] = {
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "body_base64": base64.b64encode(raw).decode("ascii"),
+    }
+    input_path.write_text(
+        json.dumps(envelope, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    with pytest.raises(ValueError, match="calibration vocabulary.*vendor snapshot"):
+        lock_inputs(spec, repo_root=root)
+
+
 def test_the_population_counts_the_registration_demands_are_met():
     hostile = [c for c in CASES if c["hostile"]]
     benign = [c for c in CASES if not c["hostile"]]

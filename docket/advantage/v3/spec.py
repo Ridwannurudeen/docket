@@ -1654,6 +1654,13 @@ def _validate_evaluator_calibration(
     _required_fields(shared_body, {"spec_id", "cases"}, "shared calibration set")
     if shared_body["spec_id"] != spec.spec_id:
         raise ValueError("spec: shared calibration set names a different family")
+    if spec.spec_id == "v3-03-warden-security" and (
+        not _valid_labels(shared_body.get("class_vocabulary"))
+        or set(shared_body["class_vocabulary"]) != vendor_classes
+    ):
+        raise ValueError(
+            "spec: Warden calibration vocabulary differs from the frozen vendor snapshot"
+        )
     shared_cases = shared_body["cases"]
     if not isinstance(shared_cases, list) or len(shared_cases) != 8:
         raise ValueError(
