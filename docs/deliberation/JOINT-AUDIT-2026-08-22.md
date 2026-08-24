@@ -203,7 +203,7 @@ hashes *[Codex]*. CTAs read "Open preview" / "Price after admission" / "Paid-sto
 *[seat]*. `index.html:6` metadata still claims every service has a recorded run *[Codex]*. The
 staleness line shows a green "Complete snapshot" dot beside a seven-digit second count
 (`app.js:262-289`) *[seat]*. The deliberation tree contains admissions of a hash-bound false
-statement and an invented hash suffix, ~102 absolute `C:\Users\…` paths across 14 files, and four
+statement and an invented hash suffix, ~102 absolute `<user-home>` paths across 14 files, and four
 lines publishing the VPS IP with a root-SSH recipe (`docs/plans/2026-08-06-phase0-foundations.md:470-473`)
 *[seat]*. None of it is a secret (history scan: no keys, tokens, mnemonics in 1,981 objects; `data/`
 never committed *[seat]*), but all of it is sponsor-facing the moment the repo flips.

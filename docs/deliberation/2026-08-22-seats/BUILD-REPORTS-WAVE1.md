@@ -876,7 +876,7 @@ V3 spec-loader check: `V3_DOC_HASH_SYNC=3/3`. Redaction-only semantic comparison
 Final residue checks:
 
 ```text
-rg -n --pcre2 'C:\\Users\\|/C:/Users/|75\.119\.153\.252|ssh\s+root@|scp\s+.*root@' docs
+rg -n --pcre2 'C:\\Users\\|<user-home>\.119\.153\.252|ssh\s+root@|scp\s+.*root@' docs
 zero matches
 ```
 
