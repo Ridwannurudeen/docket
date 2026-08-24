@@ -55,6 +55,7 @@ class FakeArchive:
         malformed_selector=None,
         duplicate_second=False,
         zero_pool=False,
+        state_block_hash=None,
     ):
         self.spec = spec
         self.frame = _range_successor_frame(spec)
@@ -76,6 +77,7 @@ class FakeArchive:
         self.header_updates = header_updates or {}
         self.malformed_selector = malformed_selector
         self.zero_pool = zero_pool
+        self.state_block_hash = state_block_hash or self.frame["observation_block_hash"]
         self.requests = []
 
     def __call__(self, request):
@@ -96,6 +98,19 @@ class FakeArchive:
                 "timestamp": hex(timestamp),
             } | self.header_updates
         elif method == "eth_call":
+            block_reference = body["params"][1]
+            if (
+                isinstance(block_reference, dict)
+                and block_reference.get("blockHash") != self.state_block_hash
+            ):
+                return httpx.Response(
+                    200,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": body["id"],
+                        "error": {"code": -32001, "message": "block not found"},
+                    },
+                )
             result = self._eth_call(body["params"])
         else:
             raise AssertionError(f"unexpected JSON-RPC method {method}")
@@ -105,7 +120,10 @@ class FakeArchive:
 
     def _eth_call(self, params):
         assert len(params) == 2
-        assert params[1] == hex(self.frame["observation_block"])
+        assert params[1] == {
+            "blockHash": self.frame["observation_block_hash"],
+            "requireCanonical": True,
+        }
         call = params[0]
         selector = call["data"][:10]
         if selector == self.malformed_selector:
@@ -334,7 +352,10 @@ def test_cli_captures_complete_pinned_first_write_frame(tmp_path, capsys):
         "eth_call",
     }
     assert method_counts["eth_call"] == 3_074
-    block_tag = hex(_range_successor_frame(spec)["observation_block"])
+    block_tag = {
+        "blockHash": _range_successor_frame(spec)["observation_block_hash"],
+        "requireCanonical": True,
+    }
     assert all(
         request["params"][1] == block_tag
         for request in archive.requests
@@ -397,6 +418,77 @@ def test_registered_block_header_mismatch_aborts_before_contract_calls(header_up
         "eth_blockNumber",
         "eth_getBlockByNumber",
     ]
+
+
+def test_matching_header_with_different_state_block_refuses():
+    spec = _spec()
+    archive = FakeArchive(spec, state_block_hash="0x" + "00" * 32)
+
+    with _client(archive) as client:
+        with pytest.raises(RangeCaptureRefused, match="invalid response during eth_call"):
+            collect_from_environment(
+                spec,
+                environment={"DOCKET_ARCHIVE_RPC": ENDPOINT},
+                client=client,
+            )
+
+    assert archive.requests[1]["params"] == [
+        hex(_range_successor_frame(spec)["observation_block"]),
+        False,
+    ]
+    assert [request["method"] for request in archive.requests] == [
+        "eth_blockNumber",
+        "eth_getBlockByNumber",
+        "eth_call",
+    ]
+
+
+def test_state_reads_use_registered_block_hash_reference_not_number():
+    spec = _spec()
+    archive = FakeArchive(spec)
+    with _client(archive) as client:
+        collect_from_environment(
+            spec,
+            environment={"DOCKET_ARCHIVE_RPC": ENDPOINT},
+            client=client,
+        )
+
+    references = [
+        request["params"][1]
+        for request in archive.requests
+        if request["method"] == "eth_call"
+    ]
+    assert references
+    assert all(isinstance(reference, dict) for reference in references)
+    assert {json.dumps(reference, sort_keys=True) for reference in references} == {
+        json.dumps(
+            {
+                "blockHash": _range_successor_frame(spec)["observation_block_hash"],
+                "requireCanonical": True,
+            },
+            sort_keys=True,
+        )
+    }
+
+
+def test_state_read_reference_spells_require_canonical_exactly():
+    spec = _spec()
+    archive = FakeArchive(spec)
+    with _client(archive) as client:
+        collect_from_environment(
+            spec,
+            environment={"DOCKET_ARCHIVE_RPC": ENDPOINT},
+            client=client,
+        )
+
+    reference = next(
+        request["params"][1]
+        for request in archive.requests
+        if request["method"] == "eth_call"
+    )
+    assert set(reference) == {"blockHash", "requireCanonical"}
+    assert reference["requireCanonical"] is True
+    assert "requireCanonicalChain" not in reference
 
 
 def test_malformed_abi_aborts_without_retry():

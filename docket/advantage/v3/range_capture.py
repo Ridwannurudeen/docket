@@ -186,7 +186,7 @@ def _contract_call(
     address: str,
     function: ContractFunction,
     arguments: tuple,
-    block_tag: str,
+    block_tag: str | dict[str, str | bool],
 ) -> tuple:
     try:
         encoded = abi_encode(function.input_types, arguments)
@@ -223,9 +223,9 @@ def _header(
     observation_block = frame_definition["observation_block"]
     if head < observation_block:
         raise RangeCaptureRefused("the archive RPC head precedes the registered block")
-    block_tag = hex(observation_block)
+    block_number_tag = hex(observation_block)
     accounting["eth_getBlockByNumber"] += 1
-    block = rpc.call("eth_getBlockByNumber", [block_tag, False])
+    block = rpc.call("eth_getBlockByNumber", [block_number_tag, False])
     if not isinstance(block, dict):
         raise RangeCaptureRefused("eth_getBlockByNumber returned no block object")
     number = _quantity(block.get("number"), "registered block number")
@@ -272,9 +272,12 @@ def collect_frame(spec: PairedSpec, rpc: JsonRpcClient) -> dict:
         "eth_getLogs": 0,
     }
     _header(rpc, frame_definition, accounting)
-    block_tag = hex(frame_definition["observation_block"])
+    block_reference = {
+        "blockHash": frame_definition["observation_block_hash"],
+        "requireCanonical": True,
+    }
     total_supply = _contract_call(
-        rpc, accounting, "totalSupply", NPM, TOTAL_SUPPLY, (), block_tag
+        rpc, accounting, "totalSupply", NPM, TOTAL_SUPPLY, (), block_reference
     )[0]
     indices = range_sample_indices(spec, total_supply)
     rows = []
@@ -289,7 +292,7 @@ def collect_frame(spec: PairedSpec, rpc: JsonRpcClient) -> dict:
             NPM,
             TOKEN_BY_INDEX,
             (derived["index"],),
-            block_tag,
+            block_reference,
         )[0]
         if token_id in token_ids:
             raise RangeCaptureRefused("tokenByIndex returned a repeated token id")
@@ -302,7 +305,7 @@ def collect_frame(spec: PairedSpec, rpc: JsonRpcClient) -> dict:
                 NPM,
                 OWNER_OF,
                 (token_id,),
-                block_tag,
+                block_reference,
             )[0],
             "ownerOf result",
         )
@@ -315,7 +318,7 @@ def collect_frame(spec: PairedSpec, rpc: JsonRpcClient) -> dict:
                 MASTER_CHEF_V3,
                 USER_POSITION_INFOS,
                 (token_id,),
-                block_tag,
+                block_reference,
             )
             beneficiary = _address(
                 farm[USER_POSITION_OWNER_INDEX], "MasterChef beneficiary"
@@ -340,7 +343,7 @@ def collect_frame(spec: PairedSpec, rpc: JsonRpcClient) -> dict:
             NPM,
             POSITIONS,
             (token_id,),
-            block_tag,
+            block_reference,
         )
         token0 = _address(position[2], "positions token0")
         token1 = _address(position[3], "positions token1")
@@ -372,7 +375,7 @@ def collect_frame(spec: PairedSpec, rpc: JsonRpcClient) -> dict:
                         FACTORY,
                         GET_POOL,
                         position_key,
-                        block_tag,
+                        block_reference,
                     )[0],
                     "getPool result",
                 )
@@ -386,7 +389,7 @@ def collect_frame(spec: PairedSpec, rpc: JsonRpcClient) -> dict:
                     pool_id,
                     SLOT0,
                     (),
-                    block_tag,
+                    block_reference,
                 )[1]
                 tick_by_pool[pool_id] = current_tick
             row.update({"pool_id": pool_id, "current_tick": current_tick})
