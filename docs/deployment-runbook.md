@@ -183,10 +183,63 @@ set +a
 
 The command performs read-only chain calls and one facilitator `/verify`; it never calls
 `/settle` or broadcasts a transaction. Require `ready: true`, an empty `missing` list, and
-`settlement_attempted: false`. If it names `allowance`, submit one owner-approved USDT
-`approve(0xE1Af7DaEa624bA3B5073f24A6Ea5531434D82d88, 500000000000000000)` transaction,
-then rerun the preflight. Configuration alone does not change `paid_stock`; the service
-admission must also pass.
+`settlement_attempted: false`. A `balance` or `allowance` entry is a funding boundary, not
+permission to submit a transaction. Configuration alone does not change `paid_stock`; the
+service admission must also pass.
+
+### Canary payer prepared on 2026-08-24
+
+The canary payer is `0x4821b5445f1cE8328806f83bAfBdBE7D668E6fd3`. Its key exists only at
+`/etc/docket/docket-canary-payment.key`, owned by `root:docket` at mode `0640`. The canary
+configuration names that path and the decided payment recipient:
+
+```text
+DOCKET_PAY_TO=0xe55816904796341bf8535e25f6c8b647927fc946
+DOCKET_CANARY_PRIVATE_KEY_FILE=/etc/docket/docket-canary-payment.key
+```
+
+Never print, copy, or pass the key as an argument. The recipient is not the payer: fund only
+the payer address above. The RelayerV3 proxy is the spender, not a funding destination.
+
+Use a bounded `15.0 USDT` allowance (`15000000000000000000` atomic), not an unlimited
+approval. This covers 30 scheduled daily hires from 2026-08-25 through 2026-09-23 inclusive
+at `0.50 USDT` each. At BSC block `117845533` (`2026-08-24T17:10:18Z`), the actual payer's
+pending nonce was 0, `eth_gasPrice` was 50,000,000 wei (0.05 gwei), and
+`eth_estimateGas` returned 46,576 gas. The resulting unsigned transaction was:
+
+```json
+{
+  "from": "0x4821b5445f1cE8328806f83bAfBdBE7D668E6fd3",
+  "nonce": 0,
+  "chainId": 56,
+  "gas": 46576,
+  "gasPrice": 50000000,
+  "value": 0,
+  "to": "0x55d398326f99059fF775485246999027B3197955",
+  "data": "0x095ea7b3000000000000000000000000e1af7daea624ba3b5073f24a6ea5531434d82d88000000000000000000000000000000000000000000000000d02ab486cedc0000"
+}
+```
+
+The approval costs `46576 * 50000000 = 2328800000000` wei, or `0.0000023288 BNB`, at that
+observation. Successful settlement transaction
+`0xa092c8b48d5a34604d75db8a4f20127dbfb2b97c07b557854402e45cb9f63729`
+used 94,876 gas and was sent by the facilitator's EOA, not by the payer. For a conservative
+comparison, one approval plus 30 settlements is 2,892,856 gas, or `0.0001446428 BNB` at the
+observed gas price; the facilitator bears the settlement gas. Fund the payer with exactly
+`0.001 BNB` as the operational floor, leaving more than six times that whole-chain comparison
+for a higher gas price, a replacement, or a second bounded approval.
+
+The full-window funding instruction is therefore exactly `15.0 USDT` plus `0.001 BNB` on
+BSC to `0x4821b5445f1cE8328806f83bAfBdBE7D668E6fd3`. To stage the proof first, `2.0 USDT`
+plus the same `0.001 BNB` covers four exact hires; it does not fund the 30-run window. After
+funding, refresh the nonce, gas price, and estimate if the payer has sent any transaction,
+then sign and broadcast one bounded approval with owner tooling. Docket has no signing or
+broadcast command. Run the preflight block above afterward; that is the one command that
+confirms setup, and it must return `ready: true` before any settlement attempt.
+
+The deployed signer must serialize its 65-byte EIP-712 signature with the `0x` prefix expected
+by the facilitator. A prefix-less build returns `signature_error` before the facilitator reads
+balance or allowance. Do not fund on the strength of a preflight that still reports that error.
 
 Before paid stock opens, the owner may merge the tracked nginx `limit_req` example into the
 live `http` and `/hire/` contexts. Run `deploy/preflight.sh 22` afterward and reload nginx only
@@ -274,7 +327,8 @@ run is only a few sequential public HTTP reads. After the owner supplies a funde
 LP and the payment key file, it adds at most one free controlled-position preflight plus one
 exact 0.50 USDT paid execution and its rejected replay per day. The preflight proves the
 decision-grade result before anything is spent; the replay is refused before work repeats.
-From Aug 15 through Sep 23 inclusive that is at most 40 runs and 20 USDT.
+For the payer prepared on Aug 24, the first possible daily run is Aug 25, so the inclusive
+Aug 25-Sep 23 window is 30 runs and 15.0 USDT.
 
 The canary and registry refresh have different scopes. The canary protects the primary paid
 service and controlled-position claims. The refresh keeps the small, feedback-filtered ERC-8004
@@ -296,13 +350,11 @@ are owner actions. The owner-supplied key file must be readable by `docket` with
 public (for example, `root:docket` mode `0640`). Never put a private key value in the config
 or a unit.
 
-For one real paid hire, fund the payer named by the preflight with at least 0.50 USDT on
-BSC and enough BNB for its one approval transaction, approve exactly the RelayerV3 proxy
-above for at least `500000000000000000` atomic USDT, install the key file, set the payment
-environment above plus `DOCKET_CANARY_PRIVATE_KEY_FILE`, and require the preflight to pass.
-The hire transfers exactly 0.50 USDT. The payer also bears the BNB gas for approval; its
-exact amount is determined by that transaction's gas use and gas price, so this runbook does
-not invent a fixed figure.
+The prepared payer, bounded approval, measured gas, and funding instruction are recorded in
+the Configuration section. Funding and approval do not set `true_settlement` and do not put
+any service into paid stock. Those facts remain false until a real settlement has completed,
+the transaction has been checked, the paid result is nonempty, the identical authorization
+is refused as a replay, and the remaining admission limbs pass.
 
 ## Six-hour targeted registry refresh
 
