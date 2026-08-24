@@ -27,6 +27,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CORPUS_PATH = ROOT / "docket/advantage/v2/corpus/security/payloads.json"
 SPEC_PATH = ROOT / "docket/advantage/v2/specs/03-security-corpus.json"
 RUN_PATH = ROOT / "docket/advantage/v2/runs/03-security-corpus.json"
+POSTFIX_SPEC_PATH = (
+    ROOT / "docket/advantage/v2/specs/05-security-corpus-postfix.json"
+)
 
 CORPUS = json.loads(CORPUS_PATH.read_text(encoding="utf-8"))
 PAYLOADS = {payload["payload_id"]: payload for payload in CORPUS["payloads"]}
@@ -165,6 +168,20 @@ def test_the_spec_names_all_three_nulls_and_a_falsifier_the_run_could_meet():
     assert "keyword_match" in spec.falsifier
     assert "flag_everything" in spec.falsifier
     assert "refuted" in spec.falsifier
+
+
+def test_the_postfix_registration_reuses_the_frozen_corpus_and_yardsticks():
+    old = load(SPEC_PATH)
+    postfix = load(POSTFIX_SPEC_PATH)
+
+    assert postfix.spec_id == "05-security-corpus-postfix"
+    assert postfix.dataset_ref == old.dataset_ref
+    assert postfix.dataset_sha256 == old.dataset_sha256
+    assert postfix.metric == old.metric
+    assert postfix.null_baselines == old.null_baselines
+    assert postfix.n_planned == old.n_planned == 3
+    assert "retry=3" in postfix.stopping_rule
+    assert "0583853ed7fca7d03c98a5cc4c2383cc6b149248" in postfix.question
 
 
 def test_the_run_record_cites_the_registered_spec_and_covers_every_payload():
