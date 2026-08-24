@@ -43,15 +43,19 @@ def _score_completed_family(spec, inputs, tmp_path, *, scores):
     )
 
 
-def test_the_committed_families_are_registered_waiting_for_inputs():
+def test_the_committed_families_include_the_superseded_unlocked_pilot():
     payload = report.report()
 
     assert [family["state"] for family in payload["families"]] == [
         report.REGISTERED_WAITING,
         report.REGISTERED_WAITING,
+        report.SUPERSEDED_BEFORE_INPUT_LOCK,
         report.REGISTERED_WAITING,
     ]
-    assert set(payload["summary"]["states"]) == {report.REGISTERED_WAITING}
+    assert set(payload["summary"]["states"]) == {
+        report.REGISTERED_WAITING,
+        report.SUPERSEDED_BEFORE_INPUT_LOCK,
+    }
     assert "proved" not in json.dumps(payload).lower()
 
 

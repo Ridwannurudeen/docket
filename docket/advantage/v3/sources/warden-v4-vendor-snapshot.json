@@ -1,0 +1,43 @@
+{
+  "captured_at": "2026-08-24T07:08:13Z",
+  "classes": [
+    "DRAIN_ADDRESS",
+    "ENCODING_TRICK",
+    "HIDDEN_UNICODE",
+    "MALICIOUS_LINK",
+    "PROMPT_INJECTION",
+    "ROLE_OVERRIDE",
+    "SECRET_EXFIL",
+    "TOOL_HIJACK",
+    "WEB3_INJECTION"
+  ],
+  "excluded_reason_codes": [
+    "CORPUS_MATCH",
+    "STATISTICAL_ANOMALY"
+  ],
+  "published_default_actions": {
+    "DRAIN_ADDRESS": "BLOCK",
+    "ENCODING_TRICK": "SANITIZE",
+    "HIDDEN_UNICODE": "SANITIZE",
+    "MALICIOUS_LINK": "SANITIZE",
+    "PROMPT_INJECTION": "SANITIZE",
+    "ROLE_OVERRIDE": "SANITIZE",
+    "SECRET_EXFIL": "BLOCK",
+    "TOOL_HIJACK": "SANITIZE",
+    "WEB3_INJECTION": "SANITIZE"
+  },
+  "source": "https://warden.gudman.xyz/docs",
+  "source_pages": [
+    "https://warden.gudman.xyz/docs/prompt-injection",
+    "https://warden.gudman.xyz/docs/role-override",
+    "https://warden.gudman.xyz/docs/web3-injection",
+    "https://warden.gudman.xyz/docs/hidden-unicode",
+    "https://warden.gudman.xyz/docs/encoding-trick",
+    "https://warden.gudman.xyz/docs/drain-address",
+    "https://warden.gudman.xyz/docs/tool-hijack",
+    "https://warden.gudman.xyz/docs/secret-exfiltration",
+    "https://warden.gudman.xyz/docs/malicious-link"
+  ],
+  "version": "0.1.0",
+  "warning": "The vendor pages publish rough class scopes and observed action rows, but no exhaustive annotation, cardinality, precedence, or multi-class verdict-composition rule. Docket's all-applicable labels and deterministic verdict composition are registered study policy, not vendor law."
+}

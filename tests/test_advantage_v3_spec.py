@@ -667,12 +667,13 @@ def test_a_snapshot_from_the_superseded_yield_moment_is_refused():
 def test_registered_families_refuse_a_generic_envelope_without_their_truth_schema(
     tmp_path,
 ):
-    """The three claims need different truth artifacts; planned case ids alone cannot
+    """The four claims need family truth artifacts; planned case ids alone cannot
     establish a Range position, a complete Yield partition, or Warden security labels."""
     expected = {
         "v3-01-range-doctor": "selection_manifest",
         "v3-02-yield-router": "pools and token_list snapshots",
         "v3-03-warden-security": "vendor_snapshot",
+        "v3-04-warden-security": "vendor_snapshot",
     }
     for path in REGISTERED:
         spec = load(path)
@@ -1244,13 +1245,14 @@ def test_save_and_load_round_trip_to_the_same_two_digests(tmp_path):
 # ------------------------------------------------- the three registered families
 
 
-def test_all_three_families_are_registered_but_no_input_is_locked():
+def test_all_four_families_are_registered_but_no_input_is_locked():
     """Repair precedes input selection. A registered family therefore carries the stable
     protocol identity but must still refuse to run until a later git-witnessed lock."""
     assert [p.stem for p in REGISTERED] == [
         "v3-01-range-doctor",
         "v3-02-yield-router",
         "v3-03-warden-security",
+        "v3-04-warden-security",
     ]
     specs = [load(p) for p in REGISTERED]
     assert any(spec.category == "security" for spec in specs)
@@ -1325,12 +1327,18 @@ def test_each_family_is_legibly_a_correction_before_input_lock():
             "ed5bbe50edb9ff8675f5d6e11a82a41f6019e94b8f75f6813932f1ba792a5bda",
             "38953631ae932a439e7d824a689aea58c465bd9a92fb8f635295ee79e6ea5bbc",
         ],
+        "v3-04-warden-security": [
+            "ed5bbe50edb9ff8675f5d6e11a82a41f6019e94b8f75f6813932f1ba792a5bda",
+            "38953631ae932a439e7d824a689aea58c465bd9a92fb8f635295ee79e6ea5bbc",
+            "cd4c698f55c316fdedaa2eb52d80091c3a08d004175d7d156527f224c4e941eb",
+        ],
     }
     # What each family's most recent correction was actually about.
     subject = {
         "v3-01-range-doctor": "false statement",
         "v3-02-yield-router": "registered source capture",
         "v3-03-warden-security": "seat",
+        "v3-04-warden-security": "distinct post-pilot",
     }
     for spec in map(load, REGISTERED):
         correction = spec.protocol_correction
@@ -1483,8 +1491,8 @@ def test_the_execution_protocol_is_covered_by_the_stage_one_hash():
     assert base.stage_one_protocol_hash != changed.stage_one_protocol_hash
 
 
-def test_all_three_registered_families_fix_the_same_execution_protocol():
-    """The three families differ in what they measure, not in how the evidence is produced.
+def test_all_four_registered_families_fix_the_same_execution_protocol():
+    """The four families differ in what they measure, not in how the evidence is produced.
     A per-family order or polarity would be a place for one family's result to be shaped."""
     protocols = [load(path).execution_protocol for path in REGISTERED]
     assert {p["arm_block_order"] for p in protocols} == {MANUAL_FIRST}

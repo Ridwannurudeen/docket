@@ -24,6 +24,7 @@ docket/advantage/v2/runs/*.json -text
 # packaging test for the same reason.
 docket/advantage/v3/sources/* -text
 docket/advantage/v3/specs/*.json -text
+docket/advantage/v3/provenance/*.json -text
 # The locked input envelope is reopened and rehashed by assert_runnable immediately before
 # either arm runs, on a machine that is not this one. Every other sha256-cited path here is
 # already protected; this one was not, and it is the one a checkout setting would break

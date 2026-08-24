@@ -1,6 +1,21 @@
-# Warden v3 run — Aug 25 operator runbook
+# Warden v3-03 run — superseded operator record
 
-This is the operator sequence for `v3-03-warden-security`. Run it from the repository
+> **STOP: do not execute this runbook.** `v3-03-warden-security` was superseded before
+> input lock by `v3-04-warden-security` after the disclosed W16 pilot exposed an ambiguous
+> overlap rule. The commands below are retained only to explain the abandoned protocol.
+> They must not lock v3-03 inputs or consume any arm. A real v3-04 calibration, input lock,
+> or arm run is a separate owner-scheduled action after its registered not-before moment.
+
+The permitted machinery check is the scratch-only Warden rehearsal:
+
+```powershell
+$scratch = Join-Path $env:TEMP "docket-warden-v4-rehearsal-20260824"
+.\.venv\Scripts\python.exe -c "from pathlib import Path; from docket.advantage.v3.rehearsal import run_warden; run_warden(Path(r'$scratch'))"
+```
+
+It uses `v3-04-warden-security-REHEARSAL-NOT-REGISTERED` and cannot count as validation.
+
+The superseded sequence was written for `v3-03-warden-security`. It assumed execution from the repository
 root in PowerShell with `build/w11-warden-readiness` integrated. Do not edit
 `docket/advantage/v3/specs/v3-03-warden-security.json` by hand. Its registered stage-one
 protocol hash is frozen; the lock command is the only permitted operation that fills

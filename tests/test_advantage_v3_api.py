@@ -30,9 +30,11 @@ def test_the_current_surface_waits_for_inputs_and_never_says_proved(client):
     assert [family["state"] for family in document.json()["families"]] == [
         report.REGISTERED_WAITING,
         report.REGISTERED_WAITING,
+        report.SUPERSEDED_BEFORE_INPUT_LOCK,
         report.REGISTERED_WAITING,
     ]
     assert rendered.text.count(report.REGISTERED_WAITING) >= 3
+    assert report.SUPERSEDED_BEFORE_INPUT_LOCK in rendered.text
     assert "No input artifact is locked. No arm has run." in rendered.text
     for body in (document.text, rendered.text):
         assert "proved" not in body.lower()
@@ -68,6 +70,10 @@ def test_the_report_is_built_once_and_both_routes_use_that_startup_payload(
     ("state", "statement"),
     (
         (report.REGISTERED_WAITING, "No input artifact is locked. No arm has run."),
+        (
+            report.SUPERSEDED_BEFORE_INPUT_LOCK,
+            "A later pilot-informed registration superseded this unlocked family. No arm ran.",
+        ),
         (
             report.LOCKED_NOT_RUN,
             "Inputs are locked. No primary attempt has been claimed.",

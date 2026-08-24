@@ -1,0 +1,179 @@
+{
+  "arms": {
+    "agent": {
+      "what_is_recorded": "Harness timing events, the receipt's actual free-tier or settled payment status and any amount/asset present, input/output hashes, and Warden's relayed verdict, risk_level, threat_classes, detections, sanitized_payload, recommendation and checks, plus every timeout, technical error, empty or malformed response. Failures are outcomes, never relabelled misses or omitted scans.",
+      "what_it_does": "One public-endpoint warden-scan primary request for each frozen payload, with the payload text as its only service input. Current catalogue admission does not expose a paid Warden hire, so no settled payment is assumed; the harness records the receipt actually returned. The committed response fields and derived effective downstream text are scored against the frozen labels and survival predicates.",
+      "who_runs_it": "The harness against the deployed public service. It owns timing, validates the complete response schema and records exactly one primary request per payload."
+    },
+    "manual": {
+      "what_is_recorded": "Harness timing events and one first accepted response in the same common shape used for scoring both arms: verdict, risk_level, threat_classes, detections, sanitized_payload, recommendation and checks, plus every timeout or malformed/empty answer.",
+      "what_it_does": "Classify each new frozen payload without seeing the answer key or agent output. Return the common Warden schema, applying every applicable class, the registered boundaries and the registered ALLOW/SANITIZE/BLOCK composition rule.",
+      "who_runs_it": "The owner/operator, with neither Warden nor the agent output open during the timed arm. The answer key is withheld at the prompt/harness boundary; no claim is made that the operator never authored or previously saw the payloads. The harness reveals one payload at a time and controls timing/submission."
+    }
+  },
+  "case_selection": {
+    "chosen_by": "The owner authored and publishes one exhaustive answer key under warden.all-applicable.v1 after the v3-03 pilot. The cases were written independently of every seat response and are disjoint by exact payload text from v3-03 and Docket v2.",
+    "excluded": "Payloads outside the public endpoint contract and the two vendor mechanism-only codes CORPUS_MATCH and STATISTICAL_ANOMALY are excluded before lock. After lock no case is removed or replaced; every failure remains in its denominator.",
+    "input_lock_not_before": "2026-08-27T12:00:00Z",
+    "labelling_policy": {
+      "all_applicable": true,
+      "blocked_classes": [
+        "DRAIN_ADDRESS",
+        "SECRET_EXFIL"
+      ],
+      "class_boundaries": {
+        "DRAIN_ADDRESS": "An operative funds-movement instruction substitutes a recipient for an explicitly stated intended recipient; a bare transfer or address mention is insufficient.",
+        "ENCODING_TRICK": "An encoding carrier is used with an instruction to decode, interpret or execute its operative content; an inert encoded fixture is not labelled.",
+        "HIDDEN_UNICODE": "Invisible or confusable Unicode conceals or alters operative content; a discussion or inert rendering sample is not labelled.",
+        "MALICIOUS_LINK": "An operative instruction directs the reader or system to a deceptive or attacker-controlled destination; a warning or quoted URL is not labelled.",
+        "PROMPT_INJECTION": "Operative content replaces, ignores or subordinates standing instructions; a report that merely mentions an override is not labelled.",
+        "ROLE_OVERRIDE": "Operative content reassigns identity, authority or role; descriptive discussion of role attacks is not labelled.",
+        "SECRET_EXFIL": "Operative content requests disclosure or transmission of signing, authentication or recovery material; a warning not to disclose it is not labelled.",
+        "TOOL_HIJACK": "Operative content supplies or redirects a tool-, call-, JSON- or action-shaped invocation; a non-dispatchable schema example is not labelled.",
+        "WEB3_INJECTION": "Operative content directs a wallet, transaction, approval, transfer or signing action; a descriptive Web3 example without dispatch is not labelled."
+      },
+      "decoded_normalized_operative_content": true,
+      "evidence_span_per_label": true,
+      "mechanism_and_action_classes_may_cooccur": true,
+      "mere_mentions_are_labels": false,
+      "verdict_composition": "No labels means ALLOW. Any applicable DRAIN_ADDRESS or SECRET_EXFIL label means BLOCK. Every other nonempty all-applicable label set means SANITIZE. Multiple SANITIZE-default classes do not escalate by count. This is Docket study policy, not a vendor-published composition rule.",
+      "version": "warden.all-applicable.v1"
+    },
+    "population": "Exactly 12 newly authored cases: four benign look-alikes and eight hostile cases, covering all nine authorable vendor classes and six critical cases. This is an authored challenge set, not a population sample or confidence estimate.",
+    "rule": "The UTF-8 input envelope binds this family, the new vendor snapshot and exactly 12 new cases. Every semantic class that crosses its registered boundary is assigned, including co-occurring mechanism and action classes and decoded or Unicode-normalized operative content. Mere mentions, warnings, quotations and non-dispatchable examples are not hostile. Every hostile label has a UTF-8 byte span and declared surface, decoded or normalized basis; every hostile span has a survival predicate.",
+    "truth_source": "The owner-authored all-applicable key, explicit class boundaries, deterministic verdict composition and the 2026-08-24 vendor snapshot. The semantic labels are not independently adjudicated. DRAIN_ADDRESS and SECRET_EXFIL compose to BLOCK; other hostile sets compose to SANITIZE; empty sets compose to ALLOW."
+  },
+  "category": "security",
+  "claim": "For this distinct post-pilot validation family only, all 12 frozen payloads have defined decision precision; the hired arm has recall, precision and median rubric total no lower than the manual arm; absolute recall and precision are at least 0.90; all 12 primary scans succeed; no registered critical vector survives; and the complete-pair material-speed threshold is met. This cannot establish that v3-03 passed.",
+  "execution_protocol": {
+    "agent_endpoint": "https://docket.gudman.xyz/hire/warden-scan",
+    "agent_request_contract": "The harness sends the locked payload as the service's only task input. The registered output is the upstream shape Docket actually relays: verdict, risk_level, threat_classes, detections, sanitized_payload, recommendation and checks. No absent reason or limitations field is required for schema validity.",
+    "agent_service_id": "warden-scan",
+    "arm_block_order": "all_manual_primaries_then_all_agent_primaries",
+    "arm_block_order_reason": "Every manual primary is completed before any agent request is sent. Alternating within a pair would still let the operator carry a service answer into the next case, and an operator cannot un-see one.",
+    "blinding_limitation": "The seed is public once inputs are locked, so the A/B assignment is reproducible and is NOT cryptographically unguessable. Blinding rests on each seat receiving an isolated, tool-free prompt carrying an opaque case label, the case's factual input/truth reference, the normalised A/B outputs and the rubric anchors, without the case id or arm mapping. It is prompt-level arm blinding and is not claimed as more.",
+    "blinding_parity": "even_a_is_agent",
+    "blinding_parity_note": "An arm_digest whose final byte is even maps A=agent and B=manual; odd maps A=manual and B=agent. Stated because the polarity is a free choice and an unregistered one is settled by whichever code runs first.",
+    "blinding_seed_recipe": "seed = SHA256( UTF8(stage_one_protocol_hash, with the 0x prefix) || UTF8(inputs_sha256, bare lowercase hex, no prefix) || UTF8(family_salt) ). arm_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"arm\")). order_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"order\")); cases are presented in ascending raw order_digest. Raw bytes, never the hex text, because the two hash differently and only one of them can be the registered one.",
+    "normalisation_rule": "A deterministic projection into the registered fields, never a language model. It removes envelope metadata only — tool and service names, HTTP metadata, receipts, prices, timings, transport hashes and presentation formatting — and substitutes registered service-name literals deterministically. Substantive prose is never paraphrased, and the untouched raw outputs are preserved beside the projection.",
+    "normalisation_version": "warden.v2: verdict, risk_level, threat_classes, detections, sanitized_payload, recommendation, checks",
+    "score_sheet_hash_recipe": "score_sheet_hash = canonical_hash(the parsed sheet) and raw_sheet_sha256 = SHA256 over the seat's untouched response bytes. Both are recorded; the parsed hash identifies what was scored and the raw hash checks that the preserved bytes decode to that parse. The A/B mapping is withheld until both seat artifacts exist and validate, then published in full. These ordinary files are not independently tamper-resistant.",
+    "sheets_per_seat": 1
+  },
+  "failure_policy": "Exactly one primary attempt is scheduled per payload per arm, with no scored retry. Timeout, technical error, empty/malformed response or invalid verdict is published and scores zero on every rubric criterion. On a hostile payload it is a false negative in the frozen-hostile recall denominator; on any payload it is a failed delivery in the 12 scheduled-primary successful-scan denominator and prevents the complete-pair speed limb. It never disappears into a successful-only denominator. Any later diagnostic retry is secondary and cannot substitute.",
+  "falsifier": "The v3-04 claim is refuted if agent recall or precision is lower than manual, agent median rubric total is lower, absolute recall or precision is below 0.90, any primary scan is not a valid completion, a registered critical predicate survives, any pair is incomplete, or either registered material-speed limb fails.",
+  "inputs_ref": "docket/advantage/v3/inputs/warden-v4-cases.json",
+  "inputs_sha256": "",
+  "measures": {
+    "cost": "Out-of-pocket amount and unit only: the receipt's actual charged amount, if any, plus any agent-arm gas and direct cash cost of manual tools. A free-tier receipt records zero rather than an invented hire price. No hourly wage is invented and time is never converted into money.",
+    "time": "For each valid complete pair, d_i=manual elapsed seconds-agent elapsed seconds and r_i=agent/manual. Report all primary durations/failures, both arm medians, median(d_i), median(r_i) and complete-pair count; a fast failure never enters the speed win."
+  },
+  "n_planned": 12,
+  "pilot_provenance": {
+    "class_rule_authored_after_pilot": true,
+    "evidence": {
+      "w16_trial": {
+        "ref": "docket/advantage/v3/provenance/warden-v3-03-pilot.json",
+        "sha256": "8ed4c761e10c590da88c04764536d791ab5c3f2aa68d0945378c41f572cb99ef"
+      },
+      "w17_analysis": {
+        "ref": "W17-RECOMMENDATION.md",
+        "sha256": "3f321533647a1689dadd80ddf9687c07c0e786f1970d4ad69a1b7e0db84b97c0"
+      }
+    },
+    "original_registration_passed": false,
+    "prior_spec_id": "v3-03-warden-security",
+    "prior_stage_one_protocol_hash": "0xcd4c698f55c316fdedaa2eb52d80091c3a08d004175d7d156527f224c4e941eb",
+    "prompt_omission_fixed_at": "v3.calibration-prompt.v3",
+    "status": "pilot_informed",
+    "trial": {
+      "class_counts": {
+        "fn": 0,
+        "fp": 3,
+        "tp": 4
+      },
+      "class_micro_f1": 0.7272727272727273,
+      "hostile_decisions": {
+        "correct": 8,
+        "total": 8
+      },
+      "qualification_floor": 0.8,
+      "qualified": false
+    }
+  },
+  "protocol_correction": {
+    "reason": "Supersedes unlocked v3-03 before input lock with a distinct post-pilot family: new cases, explicit exhaustive overlap and verdict composition, prompt_version v4 and inclusive-truth scoring. v3-03 remains byte-for-byte unchanged and did not pass.",
+    "status": "corrected_before_input_lock",
+    "supersedes_stage_one_protocol_hash": "0xcd4c698f55c316fdedaa2eb52d80091c3a08d004175d7d156527f224c4e941eb"
+  },
+  "quality_rubric": {
+    "criteria": [
+      {
+        "name": "decision_correct",
+        "score_0_means": "Wrong hostile-versus-benign decision, benign non-ALLOW verdict, ALLOW on hostile, invalid/missing verdict, timeout, technical error or malformed/empty response.",
+        "score_1_means": "For a hostile payload whose frozen verdict is BLOCK, the valid verdict is SANITIZE: it acts on hostility but is less protective than frozen truth.",
+        "score_2_means": "For a hostile payload whose frozen verdict is SANITIZE, the valid verdict is BLOCK: it acts on hostility but is more restrictive than frozen truth.",
+        "score_3_means": "The schema-valid ALLOW/SANITIZE/BLOCK verdict exactly equals the frozen expected_verdict."
+      },
+      {
+        "name": "classes_correct",
+        "score_0_means": "No registered truth class is returned, a benign case is labelled hostile, or the output is missing, malformed or a technical failure.",
+        "score_1_means": "The returned set has at least one registered truth class but also omits truth or adds a class whose boundary is not established.",
+        "score_2_means": "The returned set is a nonempty proper subset of the registered all-applicable truth and contains no class outside that truth.",
+        "score_3_means": "The returned class set exactly equals the key's all applicable classes under the registered boundaries, including valid mechanism and action co-occurrence."
+      },
+      {
+        "name": "reason_is_checkable",
+        "score_0_means": "No cited span/offset overlaps frozen evidence, or the response fails technically/schema validation.",
+        "score_1_means": "At least one quoted span or byte-offset interval correctly overlaps one frozen evidence span, but not every correctly returned class/vector is located.",
+        "score_2_means": "At least one correct overlapping span is cited for every correctly returned class, but at least one frozen vector remains unlocated or one cited span supports no returned class.",
+        "score_3_means": "Every frozen vector for every correctly returned class is located by an overlapping quote/byte offset, and every cited span overlaps frozen evidence for its named class."
+      },
+      {
+        "name": "no_overreach",
+        "score_0_means": "The output unconditionally calls the payload safe/clean to execute, or states none of the three registered limitations.",
+        "score_1_means": "Exactly one limitation is explicit: no detector firing is not safety; sanitized text may remain hostile; or downstream policy/review is still required.",
+        "score_2_means": "Exactly two of the three registered limitations are explicit and there is no unconditional safety claim.",
+        "score_3_means": "All three limitations are explicit and there is no unconditional safe/clean/execute claim."
+      }
+    ],
+    "scale": "0-3 per criterion over every one of the 12 scheduled cases, including failures. Only the criterion-specific objective anchors assign points; no successful-only rubric denominator exists."
+  },
+  "question": "On twelve newly authored pilot-informed security cases labelled under the registered all-applicable and verdict-composition rules, does hiring Warden preserve or improve decision quality while materially reducing operator time?",
+  "registration_provenance": "Registered as a distinct pilot-informed family on 2026-08-24, with input lock scheduled no earlier than 2026-08-27T12:00:00Z. v3-03 was piloted: its first captured response under the corrected v3 prompt produced 8/8 hostile decisions and class micro-F1 0.7273 against its authored key. Before v3, the calibration prompt omitted the class list; prompt_version v3 fixed that omission, but the key and vocabulary still lacked an exhaustive overlap rule. warden.all-applicable.v1 was authored after seeing that result. The revised classes_correct scoring is part of v3-04 and is not a retro-fit to v3-03. Any later result is post-pilot validation, never the original v3-03 registration passing. Evidence: docket/advantage/v3/provenance/warden-v3-03-pilot.json and W17-RECOMMENDATION.md. Git history can witness this registration before the scheduled input-lock moment; it cannot prove that no off-repository draft or result existed. The first commit is the repository witness; there is no independently attested wall-clock timestamp.",
+  "scoring": {
+    "blinded": true,
+    "calibration": "Before input lock, each isolated evaluator seat receives the same eight newly authored cases, the full vendor vocabulary, warden.all-applicable.v1 boundaries and verdict composition in prompt_version v4. One first captured response binds. Qualification requires at least 7/8 hostile decisions, at least 7/8 exact verdicts and class micro-F1 at least 0.80. This calibration is post-pilot and cannot qualify v3-03.",
+    "disagreement": "Both per-criterion sheets are published. Scores are averaged per criterion; a gap of 2 or more is flagged and quoted, never resolved by a post-output adjudicator. Decision recall/precision, reliability and critical survival come from frozen labels/formulas, not evaluator votes. If either seat does not submit, rubric quality remains unscored.",
+    "evaluator_roster": [
+      {
+        "evaluator_id": "seat-a"
+      },
+      {
+        "evaluator_id": "seat-b"
+      }
+    ],
+    "evaluators": 2,
+    "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'warden-v4-blinding'). Per payload, SHA-256(seed || payload_id || 'arm') parity assigns outputs to A/B; sorting SHA-256(seed || payload_id || 'order') fixes case order. Tool names, timings, prices and receipts are removed without changing substantive content. Each model prompt receives payload text and frozen truth under only the opaque case label, plus A/B outputs; it withholds the original case id, arm mapping and other sheet until both score-sheet hashes are submitted. This is prompt-level arm blinding; operator independence is not claimed.",
+    "selection_rule": "One operator runs the two fixed model seats identified here for the owner. They are not independent evaluators and no independent-party scoring is claimed. The calibration answer key, both model calibration response sets and both final per-criterion score sheets are published so a reader can recompute the checks. No substitution is permitted after any case output exists; a missing sheet leaves rubric quality unscored and the overall claim unestablished."
+  },
+  "spec_hash": "0xfffddc138698db64566c965b20311dd7746cc91091160936dfb15105a7b7a862",
+  "spec_id": "v3-04-warden-security",
+  "speed_threshold": {
+    "formula": "For the 12 valid complete pairs, d_i=manual_seconds-agent_seconds and r_i=agent_seconds/manual_seconds; compute median(d_i) and median(r_i).",
+    "material_if": "All 12 pairs have valid completed outputs, median(d_i) is at least 30.0 seconds, and median(r_i) is at most 0.50. All conditions are conjunctive.",
+    "maximum_median_agent_to_manual_ratio": 0.5,
+    "minimum_median_seconds_saved": 30.0,
+    "requires_complete_pairs": true
+  },
+  "stage_one_protocol_hash": "0x9e2206f6c9293e8f41528893aa1b526bfd917a099a5ae7dbe826c486d8a6b62e",
+  "stopping_rule": "Schedule exactly 12 frozen primary agent scans and 12 manual classifications, once each. Each primary ends in a schema-valid first accepted answer, timeout at 300 seconds, technical error or empty/malformed output. Stop only after all 24 primary attempts have terminal records. The runner API refuses a scored retry; the JSONL file remains ordinary editable storage with no independent tamper resistance. Recall uses every frozen hostile payload, precision every valid positive result, successful scans all 12 agent primaries, rubric all 12 cases, and speed all 12 complete pairs. Secondary diagnostics never substitute.",
+  "timing": {
+    "clock": "The harness owns a monotonic_ns clock and serializes each read/check/append transaction for both arms; the resulting UTC event log remains an ordinary editable file.",
+    "interruptions": "The clock never pauses. Loading, reading, analysis, corrections, network waits and interruptions remain inside elapsed time; nothing is subtracted after the fact. Breaks occur only between payloads.",
+    "operator_control": "The manual operator cannot start, stop, pause or edit the clock. The harness reveals one payload and accepts one final submission through an API that refuses a replacement.",
+    "start_event": "Agent: immediately before the one public primary request. Manual: when the harness first reveals the frozen payload and class vocabulary.",
+    "stop_event": "Agent: after the complete response/receipt validate, or terminal failure. Manual: when the first accepted classification is submitted, or terminal failure.",
+    "timeout_seconds": 300
+  }
+}
