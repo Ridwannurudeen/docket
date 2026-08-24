@@ -30,11 +30,14 @@ RUN_PATH = ROOT / "docket/advantage/v2/runs/03-security-corpus.json"
 POSTFIX_SPEC_PATH = (
     ROOT / "docket/advantage/v2/specs/05-security-corpus-postfix.json"
 )
+POSTFIX_RUN_PATH = ROOT / "docket/advantage/v2/runs/05-security-corpus-postfix.json"
 
 CORPUS = json.loads(CORPUS_PATH.read_text(encoding="utf-8"))
 PAYLOADS = {payload["payload_id"]: payload for payload in CORPUS["payloads"]}
 RUN = json.loads(RUN_PATH.read_text(encoding="utf-8"))
 OBSERVED = scoring.scan_results(RUN)
+POSTFIX_RUN = json.loads(POSTFIX_RUN_PATH.read_text(encoding="utf-8"))
+POSTFIX_OBSERVED = scoring.scan_results(POSTFIX_RUN)
 
 
 def test_every_payload_is_labelled_or_explicitly_benign():
@@ -291,3 +294,72 @@ def test_the_newline_defect_reproduced_on_the_pair_that_differs_by_one_byte():
     assert newline["verdict"] == "ALLOW"
     assert newline["threat_classes"] == []
     assert OBSERVED["unstable"] == ()
+
+
+def test_the_old_run_is_unchanged_and_the_postfix_run_names_its_detector():
+    postfix = load(POSTFIX_SPEC_PATH)
+
+    assert hashlib.sha256(RUN_PATH.read_bytes()).hexdigest() == (
+        "b67f0d3c1b923065c505705fe3358d0e7dacb64e6c15da4d0d33f2896afa34f0"
+    )
+    assert hashlib.sha256(POSTFIX_RUN_PATH.read_bytes()).hexdigest() == (
+        "456e1ee9cc5656097e7eb24dbf50fd234b5d31ade5e900edfd18f1bc71211a33"
+    )
+    assert POSTFIX_RUN["spec_id"] == postfix.spec_id
+    assert POSTFIX_RUN["spec_hash"] == postfix.spec_hash
+    assert POSTFIX_RUN["dataset_sha256"] == postfix.dataset_sha256
+    assert POSTFIX_RUN["detector_revision"] == (
+        "0583853ed7fca7d03c98a5cc4c2383cc6b149248"
+    )
+    assert POSTFIX_RUN["detector_deployed_at"] == "2026-08-24"
+    assert "does not cryptographically self-attest" in POSTFIX_RUN[
+        "detector_revision_evidence"
+    ]
+
+
+def test_the_postfix_figures_are_recomputed_from_its_first_successful_passes():
+    warden = scoring.score(
+        CORPUS,
+        POSTFIX_OBSERVED["results"],
+        failed_scans=POSTFIX_OBSERVED["failed_scans"],
+        unstable=POSTFIX_OBSERVED["unstable"],
+    )
+    scored_ids = set(POSTFIX_OBSERVED["results"])
+    scored_corpus = CORPUS | {
+        "payloads": [
+            payload
+            for payload in CORPUS["payloads"]
+            if payload["payload_id"] in scored_ids
+        ]
+    }
+    keyword = scoring.score(scored_corpus, scoring.keyword_match(scored_corpus))
+    everything = scoring.score(scored_corpus, scoring.flag_everything(scored_corpus))
+
+    assert warden["decision_level"] == {
+        "recall": {"numerator": 15, "denominator": 30, "value": 0.5},
+        "precision": {"numerator": 15, "denominator": 16, "value": 0.9375},
+    }
+    assert warden["class_level"]["overall_recall"] == {
+        "numerator": 13,
+        "denominator": 30,
+        "value": 13 / 30,
+    }
+    assert warden["counts"] == {
+        "n_payloads": 47,
+        "n_scored": 46,
+        "n_attacks_scored": 30,
+        "n_benign_scored": 16,
+        "n_failed_scans": 16,
+        "n_payloads_unscored": 1,
+        "payloads_unscored": ["prompt-injection-in-tool-output"],
+        "n_payloads_unstable": 0,
+        "payloads_unstable": [],
+    }
+    assert keyword["decision_level"] == {
+        "recall": {"numerator": 12, "denominator": 30, "value": 0.4},
+        "precision": {"numerator": 12, "denominator": 16, "value": 0.75},
+    }
+    assert everything["decision_level"] == {
+        "recall": {"numerator": 30, "denominator": 30, "value": 1.0},
+        "precision": {"numerator": 30, "denominator": 46, "value": 30 / 46},
+    }
