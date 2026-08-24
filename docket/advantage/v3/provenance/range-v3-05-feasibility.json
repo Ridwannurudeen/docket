@@ -1,0 +1,52 @@
+{
+  "capture_environment": "this worktree, read-only RPC calls",
+  "frame_call_baseline": 3075,
+  "frame_call_formula": "3075 - conflict_rows + farm_held_rows + 2 * unique_live_pools; 3075 is the zero-conflict, zero-farm, zero-live-pool baseline, not an absolute lower bound",
+  "frame_call_absolute_ceiling": 6147,
+  "frame_uses_eth_getLogs": false,
+  "local_archive_endpoint_result": "The configured owner archive initially did not resolve from this worktree, then resolved during the final read-only recheck and matched the registered block header.",
+  "measured_calls": 30,
+  "measured_calls_per_second": 4.026641,
+  "measured_elapsed_seconds": 7.4504,
+  "measured_serial_baseline_minutes": 12.7277,
+  "measured_serial_absolute_ceiling_minutes": 25.443,
+  "observation_block": 117841891,
+  "observation_block_hash": "0x5881782f547a332f473be1d4b1279912799bc11d3955e1015a3d27a48320b9ff",
+  "observation_time": "2026-08-24T16:42:59Z",
+  "header_probe": {
+    "hash": "0x5881782f547a332f473be1d4b1279912799bc11d3955e1015a3d27a48320b9ff",
+    "method": "eth_getBlockByNumber",
+    "number": "0x7061fe3",
+    "timestamp": "2026-08-24T16:42:59Z",
+    "verified_at": "2026-08-24T17:29:07Z"
+  },
+  "measured_probe": {
+    "getPool_calls": 2,
+    "ownerOf_calls": 8,
+    "positions_calls": 8,
+    "slot0_calls": 2,
+    "tokenByIndex_calls": 8,
+    "totalSupply_calls": 2,
+    "userPositionInfos_calls": 0
+  },
+  "retry_result": "The public fallback later refused the pinned block as pruned. The configured owner archive subsequently served the registered header and all 30 pinned calls in the final recheck.",
+  "final_archive_recheck": {
+    "at": "2026-08-24T17:45:14Z",
+    "draft_stage_one_protocol_hash": "0xf1e432fad8765f7e101d536253c38fb5813f07e8b0fd63099b6908bf929af3ae",
+    "header_matched": true,
+    "sampled_tokenByIndex_calls": 8,
+    "scope": "The eight indices came from this superseded draft hash. Recording this recheck changes the evidence digest and final stage-one hash; no indexed chain read is made after final recomputation.",
+    "totalSupply": 4908719
+  },
+  "separate_farm_probe": {
+    "calls": 3,
+    "included_in_measured_elapsed_seconds": false,
+    "methods": [
+      "ownerOf",
+      "positions",
+      "userPositionInfos"
+    ],
+    "succeeded": true
+  },
+  "total_supply": 4908719
+}

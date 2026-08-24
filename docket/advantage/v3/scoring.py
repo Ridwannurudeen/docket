@@ -25,7 +25,20 @@ from pathlib import Path
 
 from ...hire.receipts import canonical_hash
 from . import runner
-from .spec import PairedSpec, assert_runnable, is_warden_family
+from .spec import PairedSpec, assert_runnable, is_range_family, is_warden_family
+
+RANGE_FIELDS = (
+    "position",
+    "observation",
+    "range",
+    "pool_evidence",
+    "rates",
+    "dollars",
+    "action",
+    "coverage",
+    "limitations",
+    "sources",
+)
 
 FAMILY_PROTOCOLS = {
     "v3-01-range-doctor": {
@@ -33,18 +46,7 @@ FAMILY_PROTOCOLS = {
             "range.v1: position, observation, range, pool_evidence, rates, dollars, "
             "action, coverage, limitations, sources"
         ),
-        "fields": (
-            "position",
-            "observation",
-            "range",
-            "pool_evidence",
-            "rates",
-            "dollars",
-            "action",
-            "coverage",
-            "limitations",
-            "sources",
-        ),
+        "fields": RANGE_FIELDS,
         "family_salt": "range-blinding",
         "service_literals": ("Range Doctor", "range-doctor", "range_doctor"),
     },
@@ -96,6 +98,15 @@ FAMILY_PROTOCOLS = {
         ),
         "family_salt": "warden-v4-blinding",
         "service_literals": ("Warden Payload Scan", "warden-scan", "Warden"),
+    },
+    "v3-05-range-doctor": {
+        "normalisation_version": (
+            "range.v2: position, observation, range, pool_evidence, rates, dollars, "
+            "action, coverage, limitations, sources"
+        ),
+        "fields": RANGE_FIELDS,
+        "family_salt": "range-v5-blinding",
+        "service_literals": ("Range Doctor", "range-doctor", "range_doctor"),
     },
 }
 
@@ -195,7 +206,7 @@ def _strip_envelope(value, literals: tuple[str, ...]):
 
 
 def _range_projection(body: dict) -> dict:
-    if all(field in body for field in FAMILY_PROTOCOLS["v3-01-range-doctor"]["fields"]):
+    if all(field in body for field in RANGE_FIELDS):
         return body
     positions = body.get("positions") if isinstance(body.get("positions"), list) else []
     entry = positions[0] if positions and isinstance(positions[0], dict) else {}
@@ -350,7 +361,7 @@ def _project_output(spec: PairedSpec, raw_output, case: dict | None) -> dict:
         body = body["result"]
     if not isinstance(body, dict):
         body = {}
-    if spec.spec_id == "v3-01-range-doctor":
+    if is_range_family(spec):
         projected = _range_projection(body)
     elif spec.spec_id == "v3-02-yield-router":
         projected = _yield_projection(body)
@@ -626,7 +637,7 @@ def _valid_completed_output(
         )
     projection = normalise_output(spec, raw, case=case)
     if (
-        spec.spec_id == "v3-01-range-doctor"
+        is_range_family(spec)
         and case is not None
         and {"token_id", "observation_block", "source_refs", "truth"} <= set(case)
     ):
@@ -634,9 +645,7 @@ def _valid_completed_output(
         observation = projection.get("observation")
         coverage = projection.get("coverage")
         truth = case["truth"]
-        if not all(
-            isinstance(value, dict) for value in (position, observation, coverage)
-        ):
+        if not all(isinstance(value, dict) for value in (position, observation)):
             return False
         if (
             position.get("token_id") != case["token_id"]
@@ -645,13 +654,29 @@ def _valid_completed_output(
             or observation.get("time", observation.get("observation_time"))
             != case.get("observation_time")
             or projection.get("sources") != _range_source_summaries(case, repo_root)
-            or any(
-                coverage.get(name) != truth.get(name)
-                for name in (
-                    "positions_held",
-                    "positions_examined",
-                    "closed_skipped",
-                    "scan_complete",
+            or (spec.spec_id == "v3-01-range-doctor" and not isinstance(coverage, dict))
+            or (spec.spec_id == "v3-05-range-doctor" and not isinstance(coverage, dict))
+            or (
+                spec.spec_id == "v3-01-range-doctor"
+                and any(
+                    coverage.get(name) != truth.get(name)
+                    for name in (
+                        "positions_held",
+                        "positions_examined",
+                        "closed_skipped",
+                        "scan_complete",
+                    )
+                )
+            )
+            or (
+                spec.spec_id == "v3-05-range-doctor"
+                and any(
+                    coverage.get(name) != truth.get(name)
+                    for name in (
+                        "frame_sample_size",
+                        "frame_unique_indices",
+                        "frame_complete",
+                    )
                 )
             )
         ):
@@ -683,9 +708,7 @@ def build_blinded_bundle(
     inputs = load_inputs(spec, repo_root=repo_root)
     cases_by_id = {case["case_id"]: case for case in inputs["cases"]}
     vocabulary = (
-        _warden_vocabulary(inputs, repo_root)
-        if is_warden_family(spec)
-        else None
+        _warden_vocabulary(inputs, repo_root) if is_warden_family(spec) else None
     )
     attempts = primary_attempts(spec, ledger_path, repo_root=repo_root)
     terminals = [attempt["terminal"] for attempt in attempts.values()]
@@ -1674,8 +1697,7 @@ def calibration_metrics(spec: PairedSpec, inputs: dict) -> dict:
                 "qualified": decisions >= 7
                 and micro_f1 >= 0.80
                 and (
-                    spec.case_selection.get("labelling_policy") is None
-                    or verdicts >= 7
+                    spec.case_selection.get("labelling_policy") is None or verdicts >= 7
                 ),
             }
         else:

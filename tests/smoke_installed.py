@@ -57,6 +57,7 @@ with tempfile.TemporaryDirectory(prefix="docket-installed-smoke-") as scratch:
         "v3-02-yield-router",
         "v3-03-warden-security",
         "v3-04-warden-security",
+        "v3-05-range-doctor",
     ]
     assert {family["state"] for family in families} == {
         "registered_waiting_for_inputs",

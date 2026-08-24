@@ -28,9 +28,10 @@ def test_the_current_surface_waits_for_inputs_and_never_says_proved(client):
     assert rendered.status_code == 200
     assert rendered.headers["content-type"].startswith("text/html")
     assert [family["state"] for family in document.json()["families"]] == [
-        report.REGISTERED_WAITING,
+        report.SUPERSEDED_BEFORE_INPUT_LOCK,
         report.REGISTERED_WAITING,
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
+        report.REGISTERED_WAITING,
         report.REGISTERED_WAITING,
     ]
     assert rendered.text.count(report.REGISTERED_WAITING) >= 3
@@ -140,6 +141,8 @@ def test_both_agent_facing_documents_name_both_v3_routes(client):
         body = client.get(path).text
         assert "/advantage/v3.json" in body, path
         assert "/advantage/v3" in body, path
+        assert "v3-05-range-doctor" in body, path
+        assert "v3-01-range-doctor" in body, path
 
 
 def test_the_root_index_adds_v3_without_moving_the_prior_reports(client):

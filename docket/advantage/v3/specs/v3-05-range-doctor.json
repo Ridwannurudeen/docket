@@ -1,0 +1,216 @@
+{
+  "arms": {
+    "agent": {
+      "what_is_recorded": "Harness timing, receipt status and any amount/asset, input/output hashes, complete response and every timeout, error, empty result or wrong-position result.",
+      "what_it_does": "One public-endpoint hire for exactly the frozen position tuple and frozen pool-source bytes. The response must diagnose that token id at the pinned block.",
+      "who_runs_it": "The harness against the deployed public service. It owns the clock and validates the returned position id and evidence block; it does not call Range Doctor in process."
+    },
+    "manual": {
+      "what_is_recorded": "Harness timing, every source used, complete arithmetic and final answer, plus every timeout, error or unanswered field.",
+      "what_it_does": "Answer the identical frozen position tuple from the pinned archive and frozen pool evidence: diagnose range, gate, registered rates and fixed-notional consequence.",
+      "who_runs_it": "One operator with neither Docket nor agent output visible. The harness reveals one case at a time, owns the clock and accepts one final answer."
+    }
+  },
+  "case_selection": {
+    "chosen_by": "After this stage-one protocol hash exists, derive 1,024 distinct indices with frame_definition.index_derivation and its registered collision rule. After the complete frame and frozen pool truth exist, remove conflicts before outcome classification and choose the lowest registered selection hash in each of the three ordered strata. No arm runs unless all three strata are nonempty.",
+    "conflict_exclusion": {
+      "excluded_reason": "experiment_party_controlled",
+      "token_ids": [
+        7141050
+      ],
+      "wallets": [
+        "0xe55816904796341bf8535e25f6c8b647927fc946"
+      ]
+    },
+    "excluded": "Token id 7141050, direct owner 0xe55816904796341bf8535e25f6c8b647927fc946, or that wallet as a MasterChefV3 staking beneficiary is recorded as experiment_party_controlled before any outcome field is read and cannot fill a stratum. Zero-liquidity positions cannot fill a stratum. A missing or failed pinned call, changed block hash, incomplete or non-unique sample, changed derivation, absent stratum, source mismatch or post-lock replacement invalidates the whole input lock.",
+    "frame_definition": {
+      "chain_id": 56,
+      "collision_handling": "If index modulo totalSupply was already emitted, increment counter and hash again. sample_ordinal advances only after a new index is emitted.",
+      "complete_required": true,
+      "index_derivation": {
+        "counter_start": 0,
+        "digest": "SHA-256",
+        "integer_encoding": "unsigned_big_endian",
+        "modulus": "totalSupply_at_observation_block",
+        "preimage": "UTF8(stage_one_protocol_hash || '|56|' || lowercase(position_manager) || '|' || decimal(observation_block) || '|' || decimal(counter))"
+      },
+      "master_chef": "0x556b9306565093c855aea9ae92a594704c2cd59e",
+      "observation_block": 117841891,
+      "observation_block_hash": "0x5881782f547a332f473be1d4b1279912799bc11d3955e1015a3d27a48320b9ff",
+      "observation_time": "2026-08-24T16:42:59Z",
+      "pool_truth_capture_attempts": [
+        "2026-08-26T12:10:00Z",
+        "2026-08-26T12:11:00Z",
+        "2026-08-26T12:12:00Z"
+      ],
+      "pool_truth_sources": {
+        "pools": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
+        "token_list": "https://tokens.pancakeswap.finance/pancakeswap-extended.json"
+      },
+      "position_manager": "0x46a15b0b27311cedf172ab29e4f4766fbe7f4364",
+      "rpc_failure_policy": "Each registered JSON-RPC call is made once against DOCKET_ARCHIVE_RPC. Any transport, JSON-RPC, ABI, pinned-header or completeness failure aborts the frame without substituting an endpoint or retrying a sampled call.",
+      "sample_size": 1024,
+      "selection_rule": {
+        "digest": "SHA-256",
+        "order": "ascending_digest",
+        "preimage": "UTF8(stage_one_protocol_hash || '|56|' || lowercase(position_manager) || '|' || decimal(token_id) || '|' || stratum_name)",
+        "take": "one_per_stratum"
+      },
+      "source_methods": [
+        "eth_blockNumber",
+        "eth_getBlockByNumber",
+        "totalSupply",
+        "tokenByIndex",
+        "ownerOf",
+        "userPositionInfos_if_farm_held",
+        "positions_if_conflict_free",
+        "getPool_and_slot0_per_unique_live_pool"
+      ],
+      "strata": [
+        {
+          "definition": "positive liquidity, passing frozen pool gate, and tick_lower <= current_tick < tick_upper",
+          "name": "passing_gate_in_range"
+        },
+        {
+          "definition": "positive liquidity, passing frozen pool gate, and current_tick < tick_lower or current_tick >= tick_upper",
+          "name": "passing_gate_out_of_range"
+        },
+        {
+          "definition": "positive liquidity and the frozen pool gate has a first failed gate",
+          "name": "nonzero_liquidity_failed_gate"
+        }
+      ],
+      "version": "range.enumerable-1024.v1"
+    },
+    "population": "Exactly 1,024 distinct tokenByIndex indices derived from totalSupply on PancakeSwap v3 NPM 0x46A15B0b27311cedF172AB29E4f4766fbE7F4364 at BSC block 117841891. This is an enumerable-index sample at one archive-pinned block, not every historical holder, wallet or LP arrangement.",
+    "rule": "The UTF-8 input envelope binds this spec_id and stage_one_protocol_hash, one exact enumerable_position_frame source, one exact pool_truth source, the complete 1,024-row derivation manifest, every conflict exclusion and exactly three cases. Conflict classification uses token id, direct owner and farm beneficiary before positions, liquidity, range, gate or stratum fields are read. Within each stratum choose the minimum SHA-256(UTF8(stage_one_protocol_hash || '|56|' || lowercase(position_manager) || '|' || decimal(token_id) || '|' || stratum_name)).",
+    "truth_source": "Pinned eth_call results at block 117841891 establish totalSupply, tokenByIndex, ownerOf, conditional MasterChefV3 beneficiary, conflict-free positions, pool identity and the historical tick. Separately dated frozen PancakeSwap top-pool and extended-token-list bytes from the first successful 2026-08-26 registered capture attempt establish the later pool gate and 24-hour fee, protocol-fee, volume and TVL inputs. This is a registered two-time validation: it classifies the historical position/range frame using the later frozen gate and economics, not a contemporaneous diagnosis at either time. Passing rows use gross_apr=feeUSD24h*365/tvlUSD and net_apr=(feeUSD24h-protocolFeeUSD24h)*365/tvlUSD. These are fixed-notional annualisations of one 24-hour observation, not realised profit or a forecast."
+  },
+  "category": "yield/LP",
+  "claim": "Across the three exact two-time post-pilot validation cases, the hired arm's median rubric total is no lower than the manual arm's and it is materially faster under the registered complete-pair threshold: median paired saving at least 30.0 seconds and median agent/manual elapsed ratio at most 0.50. This cannot establish that v3-01 passed or a contemporaneous diagnosis.",
+  "execution_protocol": {
+    "agent_endpoint": "https://docket.gudman.xyz/hire/range-doctor",
+    "agent_request_contract": "The harness derives wallet, token_id, observation_block, declared_position_value_usd, estimated_recenter_cost_usd, decision_horizon_days, the exact base64 pool/token-list response bytes, their bare SHA-256 digests and the frozen source refs from the locked case. The endpoint must use those bytes rather than fetch live pool metadata.",
+    "agent_service_id": "range-doctor",
+    "arm_block_order": "all_manual_primaries_then_all_agent_primaries",
+    "arm_block_order_reason": "Every manual primary is completed before any agent request is sent. Alternating within a pair would still let the operator carry a service answer into the next case, and an operator cannot un-see one.",
+    "blinding_limitation": "The seed is public once inputs are locked, so the A/B assignment is reproducible and is NOT cryptographically unguessable. Blinding rests on each seat receiving an isolated, tool-free prompt carrying an opaque case label, the case's factual input/truth reference, the normalised A/B outputs and the rubric anchors, without the case id or arm mapping. It is prompt-level arm blinding and is not claimed as more.",
+    "blinding_parity": "even_a_is_agent",
+    "blinding_parity_note": "An arm_digest whose final byte is even maps A=agent and B=manual; odd maps A=manual and B=agent. Stated because the polarity is a free choice and an unregistered one is settled by whichever code runs first.",
+    "blinding_seed_recipe": "seed = SHA256( UTF8(stage_one_protocol_hash, with the 0x prefix) || UTF8(inputs_sha256, bare lowercase hex, no prefix) || UTF8(family_salt) ). arm_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"arm\")). order_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"order\")); cases are presented in ascending raw order_digest. Raw bytes, never the hex text, because the two hash differently and only one of them can be the registered one.",
+    "normalisation_rule": "A deterministic projection into the registered fields, never a language model. It removes envelope metadata only \u2014 tool and service names, HTTP metadata, receipts, prices, timings, transport hashes and presentation formatting \u2014 and substitutes registered service-name literals deterministically. Substantive prose is never paraphrased, and the untouched raw outputs are preserved beside the projection.",
+    "normalisation_version": "range.v2: position, observation, range, pool_evidence, rates, dollars, action, coverage, limitations, sources",
+    "score_sheet_hash_recipe": "score_sheet_hash = canonical_hash(the parsed sheet) and raw_sheet_sha256 = SHA256 over the seat's untouched response bytes. Both are recorded; the parsed hash identifies what was scored and the raw hash checks that the preserved bytes decode to that parse. The A/B mapping is withheld until both seat artifacts exist and validate, then published in full. These ordinary files are not independently tamper-resistant.",
+    "sheets_per_seat": 1
+  },
+  "failure_policy": "Exactly one primary attempt is scheduled per case per arm. A timeout, technical error, empty or malformed response, wrong token id/block, or incomplete answer is published, scores zero on every criterion, stays in the three-case quality and reliability denominators, and prevents the complete-pair speed limb.",
+  "falsifier": "The quality limb is refuted if the hired arm's median rubric total is lower than the manual arm's. The speed limb is refuted if any of the three pairs lacks two valid completed outputs, median(manual_seconds-agent_seconds) is below 30.0 seconds, or median(agent_seconds/manual_seconds) exceeds 0.50. A fast error cannot support speed.",
+  "inputs_ref": "docket/advantage/v3/inputs/range-v5-positions.json",
+  "inputs_sha256": "",
+  "measures": {
+    "cost": "Out-of-pocket amount and unit only: the receipt's actual charged amount, if any, plus any agent-arm gas and direct cash cost of manual tools. A free-tier receipt records zero rather than an invented hire price. No hourly wage is invented and time is never converted into money.",
+    "time": "For each complete pair, d_i=manual elapsed seconds-agent elapsed seconds and r_i=agent/manual. Report every raw duration, both medians, median(d_i), median(r_i), timeout count and complete-pair count."
+  },
+  "n_planned": 3,
+  "pilot_provenance": {
+    "dry_run_preregistered_nothing": true,
+    "evidence": {
+      "live_feasibility": {
+        "ref": "docket/advantage/v3/provenance/range-v3-05-feasibility.json",
+        "sha256": "6f878193b0b8fbf973c363f358ab5e932515a3f9770934406048d55d5b565874"
+      },
+      "range_replacement_dry_run": {
+        "ref": "docs/deliberation/RANGE-REPLACEMENT-DRYRUN-2026-08-15.md",
+        "sha256": "724f851cf9e7966d2b6c0aeb4e6955745c47926f87a99bfbd1904923017fbe84"
+      }
+    },
+    "feasibility_probe_preceded_registration": true,
+    "new_frame_read_before_registration": false,
+    "original_registration_passed": false,
+    "prior_spec_id": "v3-01-range-doctor",
+    "prior_stage_one_protocol_hash": "0x5436fe80f16558d06f2f8f09f2eb4bbad6a2f3e26e5bbbbbafd143b7f14d2fce",
+    "status": "pilot_informed"
+  },
+  "protocol_correction": {
+    "reason": "Supersedes unlocked v3-01 before input lock with a distinct post-pilot family. v3-01's mandatory block-zero two-contract log sweep requires 47,138 capped log calls at the measured head and was not attempted. The successor uses an archive-pinned enumerable, hash-derived 1,024-index frame and no eth_getLogs. v3-01 remains byte-for-byte unchanged and did not pass.",
+    "status": "corrected_before_input_lock",
+    "supersedes_stage_one_protocol_hash": "0x5436fe80f16558d06f2f8f09f2eb4bbad6a2f3e26e5bbbbbafd143b7f14d2fce"
+  },
+  "quality_rubric": {
+    "criteria": [
+      {
+        "name": "range_status_correct",
+        "score_0_means": "Wrong or absent token id/range status, or any stated current/lower/upper tick contradicts the frozen chain truth.",
+        "score_1_means": "The exact token id and range status are correct, but fewer than two of current tick, lower tick and upper tick are stated; no stated tick may be wrong.",
+        "score_2_means": "The token id, range status and all three ticks exactly match truth, but the observation block or observation time is absent or wrong.",
+        "score_3_means": "Token id, range status, current tick, lower tick, upper tick, observation block and observation time all exactly match the frozen truth."
+      },
+      {
+        "name": "net_rate_and_its_derivation",
+        "score_0_means": "On a passing gate: no net APR, gross presented as net, or net APR outside tolerance. On a failed gate: any rate is quoted or the stated failed gate contradicts truth.",
+        "score_1_means": "On a passing gate, net APR is within tolerance but derivation/limitation are absent. On a failed gate, the answer refuses a rate but does not name the exact first failed gate.",
+        "score_2_means": "On a passing gate, net APR and raw inputs/formula are correct but the 24h-not-a-forecast limitation is absent. On a failed gate, no rate is quoted and the exact failed gate is named, but raw evidence or the limitation is absent.",
+        "score_3_means": "On a passing gate, gross/net APR, raw inputs and formula are correct within tolerance and the 24h observation limitation is explicit. On a failed gate, no rate is quoted, the exact first failed gate and raw evidence are shown, and the answer says no rate can be established from that row."
+      },
+      {
+        "name": "economic_consequence",
+        "score_0_means": "On a passing gate: no dollar result, wrong value/units/horizon/sign, or any required dollar figure outside tolerance. On a failed gate: any dollar consequence is fabricated or the refusal reason is wrong.",
+        "score_1_means": "On a passing gate, annual overstatement dollars are correct but gross/net dollars or formula are absent. On a failed gate, the answer omits dollars but gives no reason.",
+        "score_2_means": "On a passing gate, declared value and annual gross/net/overstatement dollars are correct within tolerance with formula, but state consequence/fixed-notional limitation is absent. On a failed gate, it correctly says dollar consequence is uncomputable and names the failed gate, but omits the fixed-notional limitation.",
+        "score_3_means": "On a passing gate, every required dollar figure is correct within tolerance, formula/value/state consequence are shown and fixed-notional/24h/not-realized-profit limits are explicit. On a failed gate, no dollar is invented and the exact failed gate plus those limits explain why truth has no dollar consequence."
+      },
+      {
+        "name": "actionability",
+        "score_0_means": "No action, or an action that contradicts the frozen range state.",
+        "score_1_means": "One state-consistent wait/recenter or fresh-data action is named, without the registered assumption/cost comparison.",
+        "score_2_means": "On a passing gate, wait/recenter alternatives name their trigger, the frozen recenter cost within $0.01 and realized-IL caveat; on a failed gate, the answer requires fresh valid pool data before rate-based action. The cost-only break-even or exact position link is absent.",
+        "score_3_means": "On a passing gate, alternatives/triggers, frozen cost, IL caveat, cost-only break-even within tolerance, its exclusions and exact position link are correct. On a failed gate, it refuses rate-based recentering, names the required fresh evidence and gives the exact position link without inventing break-even."
+      },
+      {
+        "name": "coverage_and_limits",
+        "score_0_means": "The enumerable-frame scope is absent, any sample count is false, or an incomplete frame is presented as complete.",
+        "score_1_means": "The answer gives one correct frame fact but not the registered sample-size, unique-index and completeness tuple.",
+        "score_2_means": "The answer exactly states 1,024 sampled and 1,024 unique indices with a complete frame, but omits either the conflict-before-outcome exclusion or the enumerable-sample limitation.",
+        "score_3_means": "The answer exactly states the 1,024 sampled/1,024 unique/complete tuple, says controlled conflicts were removed before outcome classification, and says this is an enumerable-index sample rather than every historical holder, wallet or LP arrangement."
+      }
+    ],
+    "scale": "0-3 per criterion, summed per output. Only the criterion-specific factual anchors above assign 0, 1, 2 or 3; evaluator beliefs about what a reader might do are not a scoring rule."
+  },
+  "question": "On three deterministically selected historical positions from an archive-pinned 1,024-index PancakeSwap v3 enumerable frame, classified by the separately dated registered pool-gate capture, does hiring Range Doctor preserve or improve answer quality while materially reducing operator time?",
+  "registration_provenance": "Registered on 2026-08-24 as a distinct archive-pinned successor after the v3-01 block-zero log frame was found unexecutable. From block 0 through 117,840,000 inclusive, a 5,000-block cap requires ceil(117,840,001/5,000)=23,569 calls per contract, 47,138 across NPM and MasterChefV3, or 2,356.9 seconds (39 minutes 16.9 seconds) at 20 requests/second before latency and retries. v3-01 also rejects anything except from_block=0 and complete=true, so deployment height cannot repair it. The Aug-15 dry run informed this successor but explicitly preregistered nothing. Today's read-only probes fixed the observation block and independently matched its eth_getBlockByNumber hash and timestamp. A final configured-archive recheck measured totalSupply and eight tokenByIndex values under superseded draft stage hash 0xf1e432fad8765f7e101d536253c38fb5813f07e8b0fd63099b6908bf929af3ae; binding that recheck here changes the final stage hash, and no chain read was made from the final hash-derived index sequence. The historical chain frame and the separately dated 2026-08-26 pool-gate capture form a disclosed two-time validation, not a contemporaneous diagnosis. Any later result is post-pilot validation, never v3-01 passing. Git history can witness registration before input lock. The first commit is the repository witness; there is no independently attested wall-clock timestamp, and git cannot attest that no off-repository draft existed.",
+  "scoring": {
+    "blinded": true,
+    "calibration": "Before input lock, the owner publishes one SHA-256-bound base64 UTF-8 JSON answer key for exactly eight Pancake v3 cases. Its literal tick, fee, TVL, notional and cost inputs must cover in/above/below range; the lock recomputes every expected range status, gross/net APR, dollar consequence and break-even value from the registered formulas. For each model seat, the input envelope publishes the exact model/build, session id, canonical hash of the registered objective rubric anchors and all eight structured responses. Each seat must exactly match at least seven complete canonical answers. The lock rejects invented answer-key values and computes the pass count from the published responses. This proves calibration against the published key, not evaluator independence.",
+    "disagreement": "Both per-criterion sheets are published. Scores are averaged per criterion; a gap of 2 or more is flagged and quoted, never resolved by a post-output adjudicator. If either named seat does not submit, the family remains unscored.",
+    "evaluator_roster": [
+      {
+        "evaluator_id": "seat-a"
+      },
+      {
+        "evaluator_id": "seat-b"
+      }
+    ],
+    "evaluators": 2,
+    "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'range-v5-blinding'). Per case, SHA-256(seed || case_id || 'arm') parity assigns agent/manual to A/B; sorting SHA-256(seed || case_id || 'order') fixes case order. The harness removes tool names, timings, prices, receipts and formatting tells. Each model prompt receives the frozen task and truth under only the opaque case label, plus A/B outputs; it withholds the original case id, arm mapping and other sheet until both sheet hashes are submitted. This is prompt-level arm blinding; operator independence is not claimed.",
+    "selection_rule": "One operator runs the two fixed model seats identified here for the owner. They are not independent evaluators and no independent-party scoring is claimed. The calibration answer key, both model calibration response sets and both final per-criterion score sheets are published so a reader can recompute the checks. No substitution is permitted after any case output exists; a missing sheet leaves the report unscored."
+  },
+  "spec_hash": "0xbc945b91d2b6649f077050da5eb1c8ee7472568dd9d76d9bdeb7f6974cfd449d",
+  "spec_id": "v3-05-range-doctor",
+  "speed_threshold": {
+    "formula": "For the three valid complete pairs, d_i=manual_seconds-agent_seconds and r_i=agent_seconds/manual_seconds; compute median(d_i) and median(r_i).",
+    "material_if": "All three pairs have valid completed outputs, median(d_i) is at least 30.0 seconds, and median(r_i) is at most 0.50. All conditions are conjunctive.",
+    "maximum_median_agent_to_manual_ratio": 0.5,
+    "minimum_median_seconds_saved": 30.0,
+    "requires_complete_pairs": true
+  },
+  "stage_one_protocol_hash": "0x2a83c1a331d579e5cef461d52c539711b4fa2bba6dd397aaad1bf38b6b47f9ab",
+  "stopping_rule": "Schedule exactly three frozen primary agent hires and three manual diagnoses, once each. Each primary ends in a schema-valid first accepted answer, timeout at 1,200 seconds, technical error or empty/malformed output. Stop only after all six primary attempts have terminal records. Secondary diagnostics never substitute.",
+  "timing": {
+    "clock": "The harness owns a monotonic_ns clock and serializes each read/check/append transaction for both arms; the resulting UTC event log remains an ordinary editable file.",
+    "interruptions": "The clock never pauses. Loading, reading, research, arithmetic, corrections, network waits and interruptions remain inside elapsed time; nothing is subtracted after the fact. Breaks occur only between cases.",
+    "operator_control": "The manual operator cannot start, stop, pause or edit the clock. The harness reveals the case and accepts one final submission through an API that refuses a replacement.",
+    "start_event": "Agent: immediately before the public request is sent. Manual: when the harness first reveals the frozen case tuple and source-access instructions.",
+    "stop_event": "Agent: after the complete response and receipt validate, or at terminal failure. Manual: when the first accepted final answer is submitted, or at terminal failure.",
+    "timeout_seconds": 1200
+  }
+}

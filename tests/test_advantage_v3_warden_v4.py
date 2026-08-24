@@ -63,9 +63,10 @@ def test_v4_registration_discloses_the_pilot_and_post_pilot_scope():
     assert spec.inputs_sha256 == ""
     assert provenance["status"] == "pilot_informed"
     assert provenance["prior_spec_id"] == "v3-03-warden-security"
-    assert provenance["prior_stage_one_protocol_hash"] == load(
-        OLD_SPEC_PATH
-    ).stage_one_protocol_hash
+    assert (
+        provenance["prior_stage_one_protocol_hash"]
+        == load(OLD_SPEC_PATH).stage_one_protocol_hash
+    )
     assert provenance["class_rule_authored_after_pilot"] is True
     assert provenance["original_registration_passed"] is False
     assert provenance["trial"]["hostile_decisions"] == {"correct": 8, "total": 8}
@@ -77,12 +78,14 @@ def test_v4_registration_discloses_the_pilot_and_post_pilot_scope():
         PILOT_PATH.relative_to(ROOT)
     ).replace("\\", "/")
     assert provenance["evidence"]["w17_analysis"]["ref"] == "W17-RECOMMENDATION.md"
-    assert provenance["evidence"]["w16_trial"]["sha256"] == hashlib.sha256(
-        PILOT_PATH.read_bytes()
-    ).hexdigest()
-    assert provenance["evidence"]["w17_analysis"]["sha256"] == hashlib.sha256(
-        W17_PATH.read_bytes()
-    ).hexdigest()
+    assert (
+        provenance["evidence"]["w16_trial"]["sha256"]
+        == hashlib.sha256(PILOT_PATH.read_bytes()).hexdigest()
+    )
+    assert (
+        provenance["evidence"]["w17_analysis"]["sha256"]
+        == hashlib.sha256(W17_PATH.read_bytes()).hexdigest()
+    )
     assert spec.case_selection["input_lock_not_before"] == "2026-08-27T12:00:00Z"
     assert policy["version"] == "warden.all-applicable.v1"
     assert policy["all_applicable"] is True
@@ -290,12 +293,15 @@ def test_v4_cases_are_fresh_complete_and_follow_the_registered_composition():
     old_payloads = {
         case["input"]["payload"]
         for case in _json(V3 / "sources/warden-calibration-set.json")["cases"]
-    } | {case["text"] for case in _json(V3 / "sources/warden-heldout-cases.json")["cases"]}
+    } | {
+        case["text"]
+        for case in _json(V3 / "sources/warden-heldout-cases.json")["cases"]
+    }
     v2_payloads = {
         case["text"]
-        for case in _json(
-            ROOT / "docket/advantage/v2/corpus/security/payloads.json"
-        )["payloads"]
+        for case in _json(ROOT / "docket/advantage/v2/corpus/security/payloads.json")[
+            "payloads"
+        ]
     }
     new_payloads = {case["input"]["payload"] for case in calibration_cases} | {
         case["text"] for case in heldout_cases
@@ -304,17 +310,24 @@ def test_v4_cases_are_fresh_complete_and_follow_the_registered_composition():
     assert len(calibration_cases) == 8
     assert len(heldout_cases) == 12
     assert new_payloads.isdisjoint(old_payloads | v2_payloads)
-    assert set().union(*(set(case["expected_classes"]) for case in calibration_cases)) == classes
+    assert (
+        set().union(*(set(case["expected_classes"]) for case in calibration_cases))
+        == classes
+    )
     assert set().union(*(set(case["labels"]) for case in heldout_cases)) == classes
     assert sum(case["critical"] for case in heldout_cases) >= 2
     for case in calibration_cases:
         labels = set(case["expected_classes"])
-        expected = "ALLOW" if not labels else "BLOCK" if labels & blocked else "SANITIZE"
+        expected = (
+            "ALLOW" if not labels else "BLOCK" if labels & blocked else "SANITIZE"
+        )
         assert case["expected_verdict"] == expected
         assert {span["label"] for span in case["evidence_spans"]} == labels
     for case in heldout_cases:
         labels = set(case["labels"])
-        expected = "ALLOW" if not labels else "BLOCK" if labels & blocked else "SANITIZE"
+        expected = (
+            "ALLOW" if not labels else "BLOCK" if labels & blocked else "SANITIZE"
+        )
         assert case["expected_verdict"] == expected
         assert {span["label"] for span in case["evidence_spans"]} == labels
         if labels:
@@ -354,13 +367,11 @@ def test_report_discovers_v4_and_marks_the_unlocked_predecessor_superseded():
     payload = report.report()
     by_id = {family["spec_id"]: family for family in payload["families"]}
 
-    assert payload["summary"]["n_families"] == 4
+    assert payload["summary"]["n_families"] == 5
     assert by_id["v3-03-warden-security"]["state"] == (
         report.SUPERSEDED_BEFORE_INPUT_LOCK
     )
-    assert by_id["v3-03-warden-security"]["superseded_by"] == (
-        "v3-04-warden-security"
-    )
+    assert by_id["v3-03-warden-security"]["superseded_by"] == ("v3-04-warden-security")
     assert by_id["v3-04-warden-security"]["state"] == report.REGISTERED_WAITING
 
 
