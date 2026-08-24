@@ -14,7 +14,7 @@ v3-03 registration remains superseded; this post-pilot validation can never make
 
 The exact history is packaged at
 `docket/advantage/v3/provenance/warden-pilot-history.json`, SHA-256
-`2221f0c31f594c8dcf90aeaaf2de241b77c095cdb4730b6cabb248f8103419`:
+`2221f0c31f594c8dcf90aeaafaf2de241b77c095cdb4730b6cabb248f8103419`:
 
 1. W14, Aug 23: the prompt omitted the class list. Claude's non-admissible diagnostic
    extraction produced 8 of 8 hostile decisions and class micro-F1 0.00; Codex stopped

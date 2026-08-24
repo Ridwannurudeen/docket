@@ -220,6 +220,8 @@ def test_pilot_history_recomputes_the_prerun_trial_and_preserves_two_pilots():
 def test_v4_runbook_pins_the_active_procedure_and_retires_v3_03_commands():
     runbook = V4_RUNBOOK_PATH.read_text(encoding="utf-8")
     reproduction = (ROOT / "docs/evidence-reproduction.md").read_text(encoding="utf-8")
+    manifest = (ROOT / "docs/source-deploy-manifest.md").read_text(encoding="utf-8")
+    history_sha256 = hashlib.sha256(PILOT_HISTORY_PATH.read_bytes()).hexdigest()
 
     for required in (
         "2026-08-27T12:00:00Z",
@@ -254,6 +256,11 @@ def test_v4_runbook_pins_the_active_procedure_and_retires_v3_03_commands():
     assert "calibration_driver v3-03-warden-security" not in reproduction
     assert "assemble lock-warden docket/advantage/v3/specs/v3-03" not in reproduction
     assert "runbooks/warden-v4-run.md" in reproduction
+    assert history_sha256 in runbook
+    assert (
+        "| `docket/advantage/v3/provenance/warden-pilot-history.json` "
+        f"| `{history_sha256}` |"
+    ) in manifest
 
 
 def test_v4_prompt_carries_exhaustive_labels_and_verdict_composition():
