@@ -31,6 +31,7 @@ from .spec import (
     _validate_inputs,
     _yield_first_failed_gate,
     _yield_number,
+    is_warden_family,
     lock_inputs,
     save,
 )
@@ -59,8 +60,8 @@ def assemble_warden_envelope(
     calibration_set: bytes,
 ) -> dict:
     """Build Warden inputs from authored cases and both captured evaluator seats."""
-    if spec.spec_id != "v3-03-warden-security":
-        raise AssemblyRefused("lock-warden accepts only v3-03-warden-security")
+    if not is_warden_family(spec):
+        raise AssemblyRefused("lock-warden accepts only Warden security families")
     try:
         heldout = json.loads(heldout_cases.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:

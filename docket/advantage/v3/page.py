@@ -14,6 +14,9 @@ MARKER = "<!-- v3-records -->"
 
 STATE_TEXT = {
     report_module.REGISTERED_WAITING: "No input artifact is locked. No arm has run.",
+    report_module.SUPERSEDED_BEFORE_INPUT_LOCK: (
+        "A later pilot-informed registration superseded this unlocked family. No arm ran."
+    ),
     report_module.LOCKED_NOT_RUN: "Inputs are locked. No primary attempt has been claimed.",
     report_module.RUNNING: "The claim-once ledger has work in progress.",
     report_module.COMPLETE_UNSCORED: (
@@ -166,16 +169,29 @@ def _family(family: dict) -> str:
     spec = family["spec"]
     family_id = _esc(family["spec_id"])
     state = family["state"]
+    superseded = (
+        '<p class="status-line"><span class="status-key">Superseded by</span>'
+        f'<span class="mono">{_esc(family["superseded_by"])}</span></p>'
+        if family.get("superseded_by")
+        else ""
+    )
+    pilot = (
+        _json_record("Registered pilot provenance", spec["pilot_provenance"])
+        if spec.get("pilot_provenance") is not None
+        else ""
+    )
     return (
         f'<section id="{family_id}" aria-labelledby="{family_id}-heading">'
         f'<h2 id="{family_id}-heading">{family_id}</h2>'
         '<p class="status-line"><span class="status-key">State</span>'
         f'<span class="mono">{_esc(state)}</span><span>{_esc(STATE_TEXT[state])}</span></p>'
+        + superseded
         + _registration(spec)
         + _arms(spec)
         + _progress(family)
         + _json_record("Registered execution protocol", spec["execution_protocol"])
         + _json_record("Registered evaluation protocol", spec["scoring"])
+        + pilot
         + _artifacts(family)
         + "</section>"
     )

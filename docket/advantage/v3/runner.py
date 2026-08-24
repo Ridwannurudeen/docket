@@ -52,6 +52,7 @@ from .spec import (
     YIELD_SOURCE_URLS,
     PairedSpec,
     assert_runnable,
+    is_warden_family,
 )
 
 ARMS = ("manual", "agent")
@@ -993,7 +994,7 @@ def _agent_payload(spec: PairedSpec, inputs: dict, case: dict, repo_root: Path) 
             "pool_snapshot": inputs["source_snapshots"]["pools"],
             "token_list_snapshot": inputs["source_snapshots"]["token_list"],
         }
-    if spec.spec_id == "v3-03-warden-security":
+    if is_warden_family(spec):
         return {"payload": case["text"]}
     value = case.get("input")
     return value if isinstance(value, dict) else {}
