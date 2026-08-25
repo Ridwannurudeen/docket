@@ -82,6 +82,18 @@ def test_every_v3_state_artifact_has_a_package_data_path():
     assert "v3/runs/*.json" not in declared
 
 
+def test_the_live_audit_claim_evidence_is_resolved_as_package_data():
+    package_root = ROOT / "docket/advantage"
+    carried = {
+        path.relative_to(package_root).as_posix()
+        for pattern in _advantage_package_data()
+        for path in package_root.glob(pattern)
+        if path.is_file()
+    }
+
+    assert "experiments/01-liquidity/live-audit.json" in carried
+
+
 def test_the_published_evidence_hashes_match_the_files_they_name():
     """Hand-transcribed digests rot silently, and this table is the one a reader checks.
 

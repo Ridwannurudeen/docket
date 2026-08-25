@@ -375,9 +375,10 @@ def test_an_empty_result_says_which_empty_it_is():
     """`[]` is the most misleading thing this agent can return.
 
     A wallet holding nothing, a wallet holding only closed positions, and a wallet whose open
-    positions were never reached all produce the same empty list. The live evidence wallet is
-    the second of those — 21 held, 21 read, all 21 closed — and a reader given `[]` with no
-    sentence could reasonably conclude their positions were fine.
+    positions were never reached all produce the same empty list. The evidence wallet was the
+    second of those on 2026-08-08 — 21 held, 21 read, all 21 closed — and a reader given `[]`
+    with no sentence could reasonably conclude their positions were fine. These counts belong
+    to the 2026-08-08 block asserted below and must not be re-synced to a later live reading.
     """
     reader = _StubReader(
         {

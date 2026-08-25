@@ -271,7 +271,7 @@ def test_the_wallet_observation_survives_an_empty_result():
     """An all-closed wallet has no returned row to carry the block provenance.
 
     The observation therefore belongs to the wallet read itself. Otherwise the live
-    21-closed-position case cannot supply the block and time its empty decision was made at.
+    25-closed-position case cannot supply the block and time its empty decision was made at.
     """
     reader, _ = _reader()
     read = reader.wallet_positions(WALLET, limit=0)

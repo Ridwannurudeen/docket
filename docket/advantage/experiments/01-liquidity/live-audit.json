@@ -1,0 +1,114 @@
+{
+  "capture": {
+    "artifact_path": "docket/advantage/experiments/01-liquidity/live-audit.json",
+    "command": "Write-Output '{\"wallet\":\"0x451871A1753903FB8fdd64a6B838E95aB8D5B80f\",\"limit\":30}' | curl.exe --resolve docket.gudman.xyz:443:75.119.153.252 --connect-timeout 10 --max-time 300 -sS -i -H \"Content-Type: application/json\" --data-binary '@-' https://docket.gudman.xyz/hire/range-doctor",
+    "observed_at": "2026-08-25T11:36:12.115127+00:00",
+    "request": {
+      "body": {
+        "limit": 30,
+        "wallet": "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"
+      },
+      "method": "POST",
+      "url": "https://docket.gudman.xyz/hire/range-doctor"
+    }
+  },
+  "response": {
+    "receipt": {
+      "delivered_at": "2026-08-25T11:36:12.115127+00:00",
+      "input_hash": "0xc5fb8e7459afd46e9aec54a0add1e4d567cb76539802f0347ff2b898410c31a3",
+      "output_hash": "0x334493a486b81fbc4e6c0566fead56ffb2ae4c7d148bffc7d7dc0bad90e07c30",
+      "payment": {
+        "status": "free_tier"
+      },
+      "service": "range-doctor"
+    },
+    "result": {
+      "address": "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f",
+      "closed_skipped": 25,
+      "computed_at": "2026-08-25T11:36:12.112891+00:00",
+      "coverage": "all 25 of this wallet's position NFTs were read: every one of the 25 is closed — they hold no liquidity, so there is no position to diagnose and nothing here is earning or losing fees.",
+      "decision": "All 25 PancakeSwap v3 positions in this wallet are closed; none currently earns pool fees.",
+      "measured_value": {
+        "benchmark_unavailable_reason": "The preregistered v3 paired report has not run, so no paired manual time, quality result, or v3 report link exists yet.",
+        "paired_manual_seconds": null,
+        "quality_result": null,
+        "report_url": null,
+        "this_run_seconds": 17.844563027843833
+      },
+      "observation": {
+        "bsc_block": 117992875,
+        "observation_time": "2026-08-25T11:35:58+00:00"
+      },
+      "open_skipped": 0,
+      "pancake_headline": {
+        "fixed_notional_usd": 10000.0,
+        "median_annual_overstatement_usd": 126.7824095832535,
+        "median_payback_delay_days": 8.302442342571595,
+        "n_candidate_moves": 231,
+        "n_pools": 22,
+        "ranking_reversals": {
+          "denominator": 231,
+          "numerator": 0
+        },
+        "registration_state": "post_hoc",
+        "statement": "At a declared $10,000 fixed notional, the median annual fee overstatement across 22 eligible pools is $126.78. Across 231 candidate moves, real payback arrives a median 8.30 days later than gross implies. Ranking reversals were 0/231. Registration state: post_hoc."
+      },
+      "pools": {
+        "checked": 30,
+        "rejected": [
+          {
+            "fee_tier": 500,
+            "pair": "COSA/BTCB",
+            "pool": "0xb2b6c2882eee0129623308a7bcf13d9a62ed7eca",
+            "reason": "token0 COSA is not on PancakeSwap's token allowlist"
+          },
+          {
+            "fee_tier": 500,
+            "pair": "COSA/USDC",
+            "pool": "0xbaf2345dfd37afaa9ae2a6e74b4af2e2c0565d8d",
+            "reason": "token0 COSA is not on PancakeSwap's token allowlist"
+          },
+          {
+            "fee_tier": 500,
+            "pair": "ETH/COSA",
+            "pool": "0x408df36e6577f44504c3e52c376356f04504dbd7",
+            "reason": "token1 COSA is not on PancakeSwap's token allowlist"
+          },
+          {
+            "fee_tier": 500,
+            "pair": "COSA/DOGE",
+            "pool": "0xc8469ec692bc80a4a4ee702667c698b7632dedc7",
+            "reason": "token0 COSA is not on PancakeSwap's token allowlist"
+          },
+          {
+            "fee_tier": 2500,
+            "pair": "USDT/BTCLE",
+            "pool": "0x6a2dd37603c5b8c5bdd1d2c75111af9af8bdbcc2",
+            "reason": "token1 BTCLE is not on PancakeSwap's token allowlist"
+          },
+          {
+            "fee_tier": 100,
+            "pair": "$BANANA/WBNB",
+            "pool": "0x7f51bbf34156ba802deb0e38b7671dc4fa32041d",
+            "reason": "token0 $BANANA is not on PancakeSwap's token allowlist"
+          },
+          {
+            "fee_tier": 2500,
+            "pair": "USDT/SPCXB",
+            "pool": "0x977daffc095b33872e2741c19568925015c35b4d",
+            "reason": "token1 SPCXB is not on PancakeSwap's token allowlist"
+          }
+        ]
+      },
+      "positions": [],
+      "positions_examined": 25,
+      "positions_held": 25,
+      "primary_limitation": "No active position was available, so this run establishes no position-level economic consequence or decision impact.",
+      "scan_complete": true,
+      "sources": null,
+      "stopped_by": null,
+      "target_found": true,
+      "target_token_id": null
+    }
+  }
+}

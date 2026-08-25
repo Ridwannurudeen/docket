@@ -593,7 +593,7 @@ def test_range_doctor_renders_all_eight_sections_in_the_required_order():
 def test_an_empty_range_doctor_result_leads_with_a_decision_and_keeps_coverage():
     """The single most damaging thing this product can show a judge.
 
-    The live evidence wallet returns no positions — 21 held, all 21 closed — and a reader
+    The live evidence wallet returns no positions — 25 held, all 25 closed — and a reader
     who sees an empty list with nothing above it concludes their positions are fine. The
     presenter has to decide first, then keep the coverage sentence and say what an empty
     answer is not.
