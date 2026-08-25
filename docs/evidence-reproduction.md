@@ -32,7 +32,7 @@ SHA-256 is over exact file bytes. The primary committed files at this build are:
 | Artifact | SHA-256 |
 |---|---|
 | `docket/advantage/experiments/01-liquidity.json` | `c048e5ede594f4bb7055dcba871acf9c1c3a22bfd1100f5504377fa4f8394116` |
-| `docket/advantage/experiments/01-liquidity-live-audit.json` | `da04ab40cac4c661a37c58a7ec0903db8eb5fd9e2122bba8c0fdb6f4bce4702d` |
+| `docket/advantage/experiments/01-liquidity/live-audit.json` | `e02587a9c2745ba362f9b30a20a686a6222712c07f2a232e52a6c76db3a48e1d` |
 | `docket/advantage/experiments/02-trading.json` | `8735817bff88dc9b065f03fbdac7cefc5abaebbe28c94b16f9ebb4e9e90f4c17` |
 | `docket/advantage/experiments/03-security.json` | `f4ad3c87b8cef5101dc1d1ed2e947b5012c7f77d0ff9d6d81cef1941b5c53f0c` |
 | `docket/advantage/v2/corpus/liquidity/pools.json` | `f60b68ed4b7b4a04dec6f3772c9f8aab0955d0c1ad5d44397a16fddccfc015d5` |
