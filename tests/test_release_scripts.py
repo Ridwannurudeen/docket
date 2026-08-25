@@ -536,6 +536,11 @@ def test_release_retires_the_aug21_timer_and_enables_all_five_new_timers(tmp_pat
         "docket-v3-range-capture.timer",
     ):
         assert f"systemctl enable --now {timer}" in result.stdout
+    for name in (
+        "docket-v3-range-capture.service",
+        "docket-v3-range-capture.timer",
+    ):
+        assert (units / name).read_bytes() == (DEPLOY / "systemd" / name).read_bytes()
 
 
 def test_release_copies_only_changed_unit_files_and_prints_the_diff(tmp_path):

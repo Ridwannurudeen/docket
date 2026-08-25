@@ -159,6 +159,13 @@ def test_the_range_capture_timer_names_its_registered_family_and_output():
     exec_start = _unit_directives("docket-v3-range-capture.service")[
         "ExecStart"
     ].split()
+    assert exec_start == [
+        "/opt/docket/.venv/bin/python",
+        "-m",
+        "docket.advantage.v3.capture",
+        "v3-05-range-doctor",
+        "/var/lib/docket/v3-capture/range",
+    ]
     module = exec_start.index("docket.advantage.v3.capture")
     assert exec_start[module + 1 :] == [
         "v3-05-range-doctor",

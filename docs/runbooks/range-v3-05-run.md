@@ -7,9 +7,11 @@ repository root in PowerShell. The three evidence stages are different operation
 2. capture pool truth at 12:10Z, 12:11Z or 12:12Z;
 3. bind the successful capture and lock the input after Range calibration exists.
 
-Every evidence path below is first-write. Do not delete, rename, truncate or replace an
-artifact to make a second attempt possible. A scratch rehearsal is not the registered frame,
-and deploying or enabling the timer remains an owner action.
+Every registered evidence path below is first-write. Do not delete, rename, truncate or
+replace an artifact to make a second attempt possible. The uniquely named stage-3 transfer
+directory becomes registered evidence only when it is renamed once into the reserved path.
+A scratch rehearsal is not the registered frame, and deploying or enabling the timer remains
+an owner action.
 
 ## 0. Immutable state and rehearsal evidence
 
@@ -21,10 +23,10 @@ The registration pins block `117841891`, hash
 - `2026-08-26T12:11:00Z`
 - `2026-08-26T12:12:00Z`
 
-On 2026-08-24, the complete collector ran once against the configured BlockPI archive. It
-captured 1,024 rows with 3,173 read calls in 687.556 seconds (11m 27.556s), achieving
-4.614898 requests/second. There were no transient failures. The 458,954-byte frame SHA-256
-was `ea41a6391e2d40f15c394224d9c7b0699b3eeca4968a2de9f75c43df32469761`.
+On 2026-08-24, the complete collector captured 1,024 rows at block 117,841,891 in 11m27.6s
+using 3,173 read calls, with zero failures. The observed block and hash matched the
+registration. The frame SHA-256 was
+`ea41a6391e2d40f15c394224d9c7b0699b3eeca4968a2de9f75c43df32469761`.
 
 The real frame must match that digest byte-for-byte. A mismatch is a determinism defect: stop
 without assembling or locking.
@@ -34,7 +36,8 @@ frame and timer installation/arming are permitted. Do not fetch either pool-trut
 registered attempt before 12:10Z, create a substitute capture directory, bind pool truth or
 lock the input. The armed process owns the registered clock.
 
-Before any stage, require the unlocked registration and a clean explanation for every change:
+Before stage 1 or 2, require the unlocked registration and a clean explanation for every
+change:
 
 ```powershell
 git status --short
@@ -90,9 +93,11 @@ if ($frameSha -ne 'ea41a6391e2d40f15c394224d9c7b0699b3eeca4968a2de9f75c43df32469
 
 Success prints `captured 1024 rows ... with 3173 read calls`. Exit `2` and stderr beginning
 `range capture refused:` is a protocol refusal. Any RPC, ABI, header or completeness problem
-aborts before the output is linked into place. Preserve the exact error and stop; do not
-change endpoint, retry a sampled call or rerun the production path. An existing output also
-refuses before network access and must never be removed to permit another write.
+aborts before the output is linked into place. Preserve the exact error. If `$frame` is still
+absent, wait for the same configured endpoint to recover and rerun the exact full collector
+command above. Never retry sampled calls or switch endpoints. Stage 1 is not time-bound:
+continue stage 2 on schedule regardless. An existing output also refuses before network
+access and must never be removed or replaced to permit another write.
 
 ## 2. Registered pool truth — only the middle stage is time-bound
 
@@ -195,11 +200,54 @@ new empty directory.
 Copy the completed VPS directory once into the reserved local path:
 
 ```powershell
+$frame = 'docket/advantage/v3/sources/range-v5-enumerable-frame.json'
 $poolCapture = 'data/range-v5-pool-capture-20260826'
 if (Test-Path -LiteralPath $poolCapture) { throw "local capture already exists: $poolCapture" }
-scp -r root@gudman.xyz:/var/lib/docket/v3-capture/range $poolCapture
-if ($LASTEXITCODE -ne 0) { throw 'could not copy the completed Range capture' }
+$poolCaptureParent = Split-Path -Parent $poolCapture
+if (Test-Path -LiteralPath $poolCaptureParent -PathType Leaf) {
+  throw "capture parent is not a directory: $poolCaptureParent"
+}
+[IO.Directory]::CreateDirectory([IO.Path]::GetFullPath($poolCaptureParent)) | Out-Null
+$poolCaptureStaging = "$poolCapture.staging-$([guid]::NewGuid().ToString('N'))"
+scp -r root@gudman.xyz:/var/lib/docket/v3-capture/range $poolCaptureStaging
+if ($LASTEXITCODE -ne 0) {
+  throw "copy failed; only failed staging copy $poolCaptureStaging may be discarded before retry"
+}
+try {
+  $captureLog = Get-Content -Raw -LiteralPath "$poolCaptureStaging/capture-attempts.json" `
+    -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+} catch {
+  throw "staging copy has no readable capture log; only $poolCaptureStaging may be discarded"
+}
+$captureAttempts = @($captureLog.attempts)
+if (-not $captureLog.captured -or $captureAttempts.Count -lt 1) {
+  throw "staging copy is not a completed capture; only $poolCaptureStaging may be discarded"
+}
+$chosenAttempt = $captureAttempts[-1]
+if (-not $chosenAttempt.succeeded) {
+  throw "staging copy has no successful chosen attempt; only $poolCaptureStaging may be discarded"
+}
+$chosenOrdinal = [int]$chosenAttempt.attempt_ordinal
+foreach ($required in @(
+  "$poolCaptureStaging/capture-complete.json",
+  "$poolCaptureStaging/capture-attempts.json",
+  "$poolCaptureStaging/pools.raw.json",
+  "$poolCaptureStaging/token-list.raw.json",
+  ("$poolCaptureStaging/attempt-{0:D2}.pools.raw.json" -f $chosenOrdinal),
+  ("$poolCaptureStaging/attempt-{0:D2}.token-list.raw.json" -f $chosenOrdinal)
+)) {
+  if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
+    throw "staging copy is incomplete: $required; only $poolCaptureStaging may be discarded"
+  }
+}
+[IO.Directory]::Move(
+  [IO.Path]::GetFullPath($poolCaptureStaging),
+  [IO.Path]::GetFullPath($poolCapture)
+)
 ```
+
+Only a staging directory whose copy or verification failed may be discarded. Never discard
+the reserved final path or the VPS evidence directory.
 
 `lock-range` also requires three production calibration artifacts. They do not exist in the
 registered source tree as of this runbook. The calibration workstream must publish them at
@@ -210,6 +258,7 @@ $calibrationSet = 'docket/advantage/v3/sources/range-v5-calibration-set.json'
 $evaluatorCalibration = 'docket/advantage/v3/sources/range-v5-evaluator-calibration.json'
 $calibrationRoot = 'docket/advantage/v3/calibration-captures/2026-08-26-range-v5'
 $poolTruth = 'docket/advantage/v3/sources/range-v5-pool-truth.json'
+$specPath = 'docket/advantage/v3/specs/v3-05-range-doctor.json'
 
 foreach ($required in @(
   $frame,
@@ -223,24 +272,32 @@ foreach ($required in @(
 )) {
   if (-not (Test-Path -LiteralPath $required)) { throw "required input is absent: $required" }
 }
-if (Test-Path -LiteralPath $poolTruth) { throw "pool truth already exists: $poolTruth" }
-if (Test-Path -LiteralPath 'docket/advantage/v3/inputs/range-v5-positions.json') {
-  throw 'Range input already exists; do not relock'
+try {
+  $specState = Get-Content -Raw -LiteralPath $specPath -ErrorAction Stop | `
+    ConvertFrom-Json -ErrorAction Stop
+} catch {
+  throw 'could not read the Range registration'
 }
+$alreadyLocked = -not [string]::IsNullOrEmpty([string]$specState.inputs_sha256)
 ```
 
-Only after every preflight succeeds, bind and lock:
+Only after every preflight succeeds, bind and lock. If a crash left pool truth or the input
+envelope behind while the spec remains unlocked, rerun this exact command: byte-identical
+derived bytes are accepted and different bytes refuse. If the spec is already locked, do not
+rerun the command; continue directly to verification.
 
 ```powershell
-& .\.venv\Scripts\python.exe -m docket.advantage.v3.assemble lock-range `
-  docket/advantage/v3/specs/v3-05-range-doctor.json `
-  $frame `
-  $poolCapture `
-  $poolTruth `
-  $calibrationSet `
-  $evaluatorCalibration `
-  $calibrationRoot
-if ($LASTEXITCODE -ne 0) { throw 'v3-05 assembly/input lock refused; preserve every file' }
+if (-not $alreadyLocked) {
+  & .\.venv\Scripts\python.exe -m docket.advantage.v3.assemble lock-range `
+    $specPath `
+    $frame `
+    $poolCapture `
+    $poolTruth `
+    $calibrationSet `
+    $evaluatorCalibration `
+    $calibrationRoot
+  if ($LASTEXITCODE -ne 0) { throw 'v3-05 assembly/input lock refused; preserve every file' }
+}
 ```
 
 The command first-writes the bound pool truth and input envelope, then updates the spec. An

@@ -107,4 +107,6 @@ def test_the_v3_range_capture_starts_after_yield_and_uses_a_distinct_lock():
     assert "Restart=on-failure" in service
     assert "RestartSec=30s" in service
     assert "RestartPreventExitStatus=2 3" in service
+    assert "StartLimitIntervalSec=15min" in service
+    assert "StartLimitBurst=3" in service
     assert "After=docket-v3-capture.service" not in service
