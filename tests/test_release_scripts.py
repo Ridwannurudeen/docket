@@ -137,6 +137,16 @@ set -euo pipefail
 exit "${FAKE_RUNUSER_EXIT:-0}"
 """,
     )
+    _write_executable(
+        fake_bin / "systemctl",
+        """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == "is-active --quiet docket-canary.service" && "${FAKE_CANARY_ACTIVE:-0}" == 1 ]]; then
+    exit 0
+fi
+exit 3
+""",
+    )
     return fake_bin
 
 
@@ -358,6 +368,65 @@ def test_release_pins_canary_ownership_and_stops_it_before_the_app():
     stop_app = script.index("run_host systemctl stop docket.service", check_canary)
     move_live = script.index('run_fs mv -- "${OPT_DOCKET}" "${BACKUP}"', stop_app)
     assert stop_timer < check_canary < stop_app < move_live
+
+
+def test_active_canary_abort_restores_the_canary_timer(tmp_path):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        wheel.as_posix(),
+        COMMIT,
+        digest,
+        environment=_environment(
+            root,
+            fake_bin,
+            DOCKET_RELEASE_SYSTEMCTL=(fake_bin / "systemctl").as_posix(),
+            FAKE_CANARY_ACTIVE="1",
+        ),
+    )
+
+    assert result.returncode != 0
+    assert "docket-canary.service is active after its timer was stopped" in result.stderr
+    stop_timer = result.stdout.index("systemctl stop docket-canary.timer")
+    restore_timer = result.stdout.index(
+        "systemctl start docket-canary.timer", stop_timer
+    )
+    assert stop_timer < restore_timer
+    assert "systemctl stop docket.service" not in result.stdout
+    assert f"mv -- {root.as_posix()}/opt/docket " not in result.stdout
+    assert (root / "opt" / "docket" / "old-release.txt").is_file()
+
+
+def test_release_refuses_the_range_activation_window_before_stopping_units(tmp_path):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        wheel.as_posix(),
+        COMMIT,
+        digest,
+        environment=_environment(
+            root,
+            fake_bin,
+            DOCKET_RELEASE_NOW_UTC="2026-08-26T12:05:00Z",
+        ),
+    )
+
+    assert result.returncode != 0
+    assert "Range capture activation window" in result.stderr
+    assert "systemctl stop docket-canary.timer" not in result.stdout
+    assert (root / "opt" / "docket" / "old-release.txt").is_file()
 
 
 def test_release_tooling_never_changes_or_reloads_nginx():

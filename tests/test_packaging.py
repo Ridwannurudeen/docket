@@ -174,3 +174,22 @@ def test_the_range_capture_timer_prearms_after_yield_without_jitter_and_persists
     assert "RandomizedDelaySec" not in timer
     assert timer["Persistent"] == "true"
     assert timer["AccuracySec"] == "1s"
+
+
+def test_the_range_runbook_verifies_the_released_units_and_armed_state():
+    runbook = (ROOT / "docs/runbooks/range-v3-05-run.md").read_text(encoding="utf-8")
+
+    for required in (
+        "test \"$(</opt/docket/RELEASE-commit.txt)\" = \"$expected_commit\"",
+        'cmp -s "$service" /opt/docket/deploy/systemd/docket-v3-range-capture.service',
+        'cmp -s "$timer" /opt/docket/deploy/systemd/docket-v3-range-capture.timer',
+        '(timer, "OnCalendar", "2026-08-26 12:03:00 UTC")',
+        '(timer, "Unit", "docket-v3-range-capture.service")',
+        "docket.advantage.v3.capture v3-05-range-doctor /var/lib/docket/v3-capture/range",
+        "systemctl is-active docket-v3-range-capture.service && test -f",
+        "Range arm check failed; only if the timer missed 12:03Z",
+    ):
+        assert required in runbook
+    assert (
+        "systemctl is-active docket-v3-range-capture.service; test -f" not in runbook
+    )

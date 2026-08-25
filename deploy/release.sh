@@ -145,13 +145,15 @@ if (( DRY_RUN )); then
     CURL_COMMAND=${DOCKET_RELEASE_CURL:-curl}
     JOURNALCTL_COMMAND=${DOCKET_RELEASE_JOURNALCTL:-journalctl}
     RUNUSER_COMMAND=${DOCKET_RELEASE_RUNUSER:-runuser}
+    SYSTEMCTL_COMMAND=${DOCKET_RELEASE_SYSTEMCTL:-systemctl}
 else
     JSON_PYTHON="${OPT_DOCKET}/.venv/bin/python"
     CURL_COMMAND=curl
     JOURNALCTL_COMMAND=journalctl
     RUNUSER_COMMAND=runuser
+    SYSTEMCTL_COMMAND=systemctl
 fi
-readonly JSON_PYTHON CURL_COMMAND JOURNALCTL_COMMAND RUNUSER_COMMAND
+readonly JSON_PYTHON CURL_COMMAND JOURNALCTL_COMMAND RUNUSER_COMMAND SYSTEMCTL_COMMAND
 
 run_fs install -d -m 0755 "${OPT_ROOT}" "${VENV_ROOT}"
 if [[ -e "${VENV}" ]]; then
@@ -300,6 +302,7 @@ APP_STOPPED=0
 BACKUP_MOVED=0
 SWAPPED=0
 UNITS_TOUCHED=0
+TIMER_STATE_DIRTY=0
 RELEASE_OK=0
 
 atomic_venv_link() {
@@ -343,19 +346,21 @@ wait_for_health() {
 
 restore_units() {
     local name target saved destination
-    (( UNITS_TOUCHED )) || return 0
-    for name in "${UNIT_NAMES[@]}"; do
-        target="${SYSTEMD_ROOT}/${name}"
-        saved="${UNIT_BACKUP}/${name}"
-        if [[ "${UNIT_EXISTED[${name}]:-0}" == 1 ]]; then
-            install_file "${saved}" "${target}" || return 1
-        elif [[ -e "${target}" ]]; then
-            destination="${FAILED_RELEASE}/installed-units/${name}"
-            run_fs install -d -m 0755 "$(dirname -- "${destination}")" || return 1
-            run_fs mv -- "${target}" "${destination}" || return 1
-        fi
-    done
-    run_host systemctl daemon-reload || return 1
+    if (( UNITS_TOUCHED )); then
+        for name in "${UNIT_NAMES[@]}"; do
+            target="${SYSTEMD_ROOT}/${name}"
+            saved="${UNIT_BACKUP}/${name}"
+            if [[ "${UNIT_EXISTED[${name}]:-0}" == 1 ]]; then
+                install_file "${saved}" "${target}" || return 1
+            elif [[ -e "${target}" ]]; then
+                destination="${FAILED_RELEASE}/installed-units/${name}"
+                run_fs install -d -m 0755 "$(dirname -- "${destination}")" || return 1
+                run_fs mv -- "${target}" "${destination}" || return 1
+            fi
+        done
+        run_host systemctl daemon-reload || return 1
+    fi
+    (( TIMER_STATE_DIRTY )) || return 0
     for name in "${TIMER_NAMES[@]}"; do
         if [[ "${TIMER_WAS_ENABLED[${name}]:-0}" == 1 ]]; then
             run_host systemctl enable "${name}" || return 1
@@ -372,8 +377,10 @@ restore_units() {
 
 rollback() {
     local rollback_ok=1
-    printf 'Release failed after service stop: %s\n' "${FAILURE_REASON}" >&2
-    run_host systemctl stop docket.service || rollback_ok=0
+    printf 'Release failed after runtime state changed: %s\n' "${FAILURE_REASON}" >&2
+    if (( APP_STOPPED || BACKUP_MOVED || SWAPPED )); then
+        run_host systemctl stop docket.service || rollback_ok=0
+    fi
     if (( SWAPPED )) && [[ -d "${OPT_DOCKET}" ]]; then
         run_fs mv -- "${OPT_DOCKET}" "${FAILED_RELEASE}" || rollback_ok=0
     fi
@@ -382,8 +389,12 @@ rollback() {
         atomic_venv_link "${PREVIOUS_VENV_TARGET}" "${OPT_DOCKET}/.venv" || rollback_ok=0
     fi
     restore_units || rollback_ok=0
-    run_host systemctl start docket.service || rollback_ok=0
-    if (( rollback_ok )) && wait_for_health; then
+    if (( APP_STOPPED || BACKUP_MOVED || SWAPPED )); then
+        run_host systemctl start docket.service || rollback_ok=0
+    fi
+    if (( ! APP_STOPPED && ! BACKUP_MOVED && ! SWAPPED && rollback_ok )); then
+        printf '%s\n' 'Rollback completed and the captured timer state was restored.' >&2
+    elif (( rollback_ok )) && wait_for_health; then
         printf '%s\n' 'Rollback completed and the previous release is healthy.' >&2
     else
         printf '%s\n' 'Rollback attempted but the previous release did not pass health.' >&2
@@ -395,13 +406,25 @@ on_exit() {
     trap - EXIT
     if (( status != 0 && ! RELEASE_OK )); then
         set +e
-        if (( APP_STOPPED || BACKUP_MOVED || SWAPPED )); then
+        if (( APP_STOPPED || BACKUP_MOVED || SWAPPED || TIMER_STATE_DIRTY )); then
             rollback
         fi
     fi
     exit "${status}"
 }
 trap on_exit EXIT
+
+refuse_range_capture_window() {
+    local now_utc=${DOCKET_RELEASE_NOW_UTC:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
+    [[ "${now_utc}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || \
+        fatal 'release UTC clock must use YYYY-MM-DDTHH:MM:SSZ'
+    if [[ "${now_utc}" > '2026-08-26T12:02:54Z' && \
+        "${now_utc}" < '2026-08-26T12:10:06Z' ]]; then
+        fatal 'Range capture activation window is closed to releases through 2026-08-26T12:10:05Z'
+    fi
+}
+
+refuse_range_capture_window
 
 for name in "${TIMER_NAMES[@]}"; do
     if (( DRY_RUN )); then
@@ -424,8 +447,10 @@ for name in "${TIMER_NAMES[@]}"; do
 done
 
 run_host systemctl stop docket-canary.timer
+TIMER_STATE_DIRTY=1
 trace_command systemctl is-active --quiet docket-canary.service
-if (( ! DRY_RUN )) && systemctl is-active --quiet docket-canary.service; then
+if { (( ! DRY_RUN )) || [[ -n "${DOCKET_RELEASE_SYSTEMCTL:-}" ]]; } && \
+    "${SYSTEMCTL_COMMAND}" is-active --quiet docket-canary.service; then
     fatal 'docket-canary.service is active after its timer was stopped'
 fi
 run_host systemctl stop docket.service
@@ -509,6 +534,9 @@ fi
 
 run_host systemctl enable --now docket.service
 for name in "${TIMER_NAMES[@]}"; do
+    if [[ "${name}" == docket-v3-range-capture.timer ]]; then
+        refuse_range_capture_window
+    fi
     run_host systemctl enable --now "${name}"
 done
 

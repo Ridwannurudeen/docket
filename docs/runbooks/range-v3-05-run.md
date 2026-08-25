@@ -105,15 +105,58 @@ delay Range past its registered moment.
 After the owner releases the exact tested commit, verify the installed bytes and schedule:
 
 ```powershell
-ssh root@gudman.xyz 'systemd-analyze verify /etc/systemd/system/docket-v3-range-capture.service /etc/systemd/system/docket-v3-range-capture.timer && systemctl is-enabled docket-v3-range-capture.timer && systemctl list-timers docket-v3-range-capture.timer'
-if ($LASTEXITCODE -ne 0) { throw 'Range timer is not installed, enabled and verifiable' }
+$releasedCommit = (& git rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $releasedCommit -notmatch '^[0-9a-f]{40}$') {
+  throw 'could not identify the released commit'
+}
+$rangeUnitAudit = @'
+set -euo pipefail
+expected_commit=$1
+service=/etc/systemd/system/docket-v3-range-capture.service
+timer=/etc/systemd/system/docket-v3-range-capture.timer
+test "$(</opt/docket/RELEASE-commit.txt)" = "$expected_commit"
+cmp -s "$service" /opt/docket/deploy/systemd/docket-v3-range-capture.service
+cmp -s "$timer" /opt/docket/deploy/systemd/docket-v3-range-capture.timer
+python3 - "$service" "$timer" <<'PY'
+from pathlib import Path
+import sys
+
+def values(path, name):
+    text = Path(path).read_text(encoding="utf-8").replace("\\\n", " ")
+    found = []
+    for raw in text.splitlines():
+        key, sep, value = raw.strip().partition("=")
+        if sep and key.strip() == name:
+            found.append(" ".join(value.split()))
+    return found
+
+service, timer = sys.argv[1:]
+expected = (
+    (timer, "OnCalendar", "2026-08-26 12:03:00 UTC"),
+    (timer, "Unit", "docket-v3-range-capture.service"),
+    (service, "ExecStart", "/opt/docket/.venv/bin/python -m docket.advantage.v3.capture v3-05-range-doctor /var/lib/docket/v3-capture/range"),
+)
+for path, name, wanted in expected:
+    actual = values(path, name)
+    if actual != [wanted]:
+        raise SystemExit(f"{path}: expected exactly one {name}={wanted!r}, got {actual!r}")
+PY
+systemd-analyze verify "$service" "$timer"
+systemctl is-enabled docket-v3-range-capture.timer >/dev/null
+systemctl list-timers docket-v3-range-capture.timer
+'@
+$rangeUnitAudit | ssh root@gudman.xyz "bash -s -- $releasedCommit"
+if ($LASTEXITCODE -ne 0) {
+  throw 'released Range units or schedule do not match the tested commit'
+}
 ```
 
 At or after 12:03Z but before 12:10Z, the expected state is an active sleeping oneshot plus
 one first-write arm record:
 
 ```powershell
-ssh root@gudman.xyz 'systemctl is-active docket-v3-range-capture.service; test -f /var/lib/docket/v3-capture/range/armed.json; find /var/lib/docket/v3-capture/range -maxdepth 1 -type f -printf "%f\n" | sort'
+ssh root@gudman.xyz 'set -o pipefail; systemctl is-active docket-v3-range-capture.service && test -f /var/lib/docket/v3-capture/range/armed.json && find /var/lib/docket/v3-capture/range -maxdepth 1 -type f -printf "%f\n" | sort'
+if ($LASTEXITCODE -ne 0) { throw 'Range arm check failed; only if the timer missed 12:03Z and no Range service or artifact exists, follow the one-start recovery below' }
 ```
 
 If the timer is enabled but not yet due, do nothing. If it missed 12:03Z and no Range service
