@@ -1,0 +1,16 @@
+[Unit]
+Description=Pre-arm the v3 Range pool-truth capture before its registered moment
+
+[Timer]
+# Yield's last registered attempt can run through 12:02:55Z. Starting at 12:03 avoids that
+# capture while leaving seven minutes to persist armed.json and sleep to 12:10 in-process.
+OnCalendar=2026-08-26 12:03:00 UTC
+# No RandomizedDelaySec: this activation is tied to one registered observation.
+AccuracySec=1s
+# A late catch-up is safe for v3-05 specifically: capture.py resolves its registered Range
+# schedule, refuses past 12:10:05Z before HTTP, and first-writes the terminal refusal.
+Persistent=true
+Unit=docket-v3-range-capture.service
+
+[Install]
+WantedBy=timers.target

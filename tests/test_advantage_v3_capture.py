@@ -32,6 +32,11 @@ SPEC_PATH = (
 )
 SPEC = load(SPEC_PATH)
 SCHEDULED = datetime(2026, 8, 26, 12, 0, 0, tzinfo=timezone.utc)
+RANGE_SPEC_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "docket/advantage/v3/specs/v3-05-range-doctor.json"
+)
+RANGE_SCHEDULED = datetime(2026, 8, 26, 12, 10, 0, tzinfo=timezone.utc)
 
 # The exact keys spec.py demands of every capture-log entry. Restating them here is the point:
 # if either side moves, the shape test below fails instead of the Aug 26 input lock.
@@ -618,6 +623,25 @@ def test_running_the_capture_after_its_window_exits_refused_without_http(
     )
     assert refusal["outcome"] == "refused"
     assert "not the registered attempt" in refusal["reason"]
+    assert not (tmp_path / "armed.json").exists()
+
+
+def test_a_late_range_timer_catch_up_refuses_without_http(tmp_path, capsys):
+    def forbidden_attempt(*args, **kwargs):
+        raise AssertionError("a late Range activation must perform zero HTTP")
+
+    code = capture.main(
+        ["v3-05-range-doctor", str(tmp_path)],
+        now=RANGE_SCHEDULED + timedelta(minutes=3),
+        attempt=forbidden_attempt,
+    )
+
+    assert code == 2
+    assert "not the registered attempt" in capsys.readouterr().out
+    refusal = json.loads(
+        (tmp_path / "capture-refused.json").read_text(encoding="utf-8")
+    )
+    assert refusal["outcome"] == "refused"
     assert not (tmp_path / "armed.json").exists()
 
 
