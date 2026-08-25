@@ -32,6 +32,7 @@ SHA-256 is over exact file bytes. The primary committed files at this build are:
 | Artifact | SHA-256 |
 |---|---|
 | `docket/advantage/experiments/01-liquidity.json` | `c048e5ede594f4bb7055dcba871acf9c1c3a22bfd1100f5504377fa4f8394116` |
+| `docket/advantage/experiments/01-liquidity-live-audit.json` | `da04ab40cac4c661a37c58a7ec0903db8eb5fd9e2122bba8c0fdb6f4bce4702d` |
 | `docket/advantage/experiments/02-trading.json` | `8735817bff88dc9b065f03fbdac7cefc5abaebbe28c94b16f9ebb4e9e90f4c17` |
 | `docket/advantage/experiments/03-security.json` | `f4ad3c87b8cef5101dc1d1ed2e947b5012c7f77d0ff9d6d81cef1941b5c53f0c` |
 | `docket/advantage/v2/corpus/liquidity/pools.json` | `f60b68ed4b7b4a04dec6f3772c9f8aab0955d0c1ad5d44397a16fddccfc015d5` |
@@ -69,11 +70,13 @@ For Range, the committed receipt binds:
 - recorded coverage: 14 held/examined and 13 closed/skipped
 - payment status `free_tier`
 
-The repository's latest live audit later recorded the same address with 21 positions, all
-closed. That observation is in an audit record and regression fixture, not a frozen current
-chain snapshot in the v1 artifact. The original live result therefore cannot be reproduced
-against that address now; reproducing the file means checking its recorded bytes and
-arithmetic, not claiming the wallet still has the old state.
+The repository's frozen live audit later recorded the same address with 25 positions, all
+closed, at BSC block 117992875 on 2026-08-25. Its `limit=30` request returned
+`positions_held=25`, `positions_examined=25`, `closed_skipped=25`, `open_skipped=0`,
+`scan_complete=true`, and `stopped_by=null`, so the observation was not truncated. The
+original live result therefore cannot be reproduced against that address at the audit block;
+reproducing either file means checking its recorded bytes and arithmetic, not claiming the
+wallet retained that state after its observation.
 
 ## V2
 

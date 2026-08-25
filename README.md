@@ -49,7 +49,7 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
 - **C-05.** SOLVENT is halted and is presented as historical research evidence, not paid
   inventory; its one ERC-8004 identity is agent 136384 on BSC.
 - **C-06.** Range Doctor's recorded v1 run covered a wallet with 14 positions, 13 closed,
-  while the repository's latest live audit recorded 21 positions and all 21 closed, so
+  while the repository's latest live audit recorded 25 positions and all 25 closed, so
   that historical result is not reproducible against the same address now.
 - **C-07.** A Docket receipt binds the request and result hashes to a delivery record; it
   does not establish that the result is correct or that a reported settlement reached

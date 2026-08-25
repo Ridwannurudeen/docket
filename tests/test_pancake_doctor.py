@@ -376,15 +376,15 @@ def test_an_empty_result_says_which_empty_it_is():
 
     A wallet holding nothing, a wallet holding only closed positions, and a wallet whose open
     positions were never reached all produce the same empty list. The live evidence wallet is
-    the second of those — 21 held, 21 read, all 21 closed — and a reader given `[]` with no
+    the second of those — 25 held, 25 read, all 25 closed — and a reader given `[]` with no
     sentence could reasonably conclude their positions were fine.
     """
     reader = _StubReader(
         {
             "positions": [],
-            "positions_held": 21,
-            "positions_examined": 21,
-            "closed_skipped": 21,
+            "positions_held": 25,
+            "positions_examined": 25,
+            "closed_skipped": 25,
             "scan_complete": True,
         }
     )
@@ -394,7 +394,7 @@ def test_an_empty_result_says_which_empty_it_is():
     assert out["positions"] == []
     assert out["scan_complete"] is True
     assert out["decision"] == (
-        "All 21 PancakeSwap v3 positions in this wallet are closed; none currently earns "
+        "All 25 PancakeSwap v3 positions in this wallet are closed; none currently earns "
         "pool fees."
     )
     assert out["observation"] == {
@@ -402,8 +402,8 @@ def test_an_empty_result_says_which_empty_it_is():
         "observation_time": "2026-08-08T12:00:00+00:00",
     }
     coverage = out["coverage"]
-    assert "all 21" in coverage
-    assert "every one of the 21 is closed" in coverage
+    assert "all 25" in coverage
+    assert "every one of the 25 is closed" in coverage
     assert "no position to diagnose" in coverage
     assert "no active position was available" in out["primary_limitation"].lower()
 
