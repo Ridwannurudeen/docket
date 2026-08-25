@@ -189,8 +189,9 @@ Follow [the runbook](deployment-runbook.md#clean-installation). The proof is val
 
 The three files under `docket/advantage/recorded_runs/` are each a single recorded read;
 no paired run against a person exists for them. They are separate from
-`docket/advantage/experiments/` because that directory is the paired V1 report and every
-file there is loaded as a two-arm experiment.
+`docket/advantage/experiments/` because every top-level `*.json` there is loaded as a
+two-arm experiment. The nested `01-liquidity/live-audit.json` is claim evidence only and is
+excluded from that loader.
 
 The Health Guard wallet was selected read-only from a recent vUSDT `Borrow` event and then
 read through the catalogue runner. The address is an observation of chain activity, not a
