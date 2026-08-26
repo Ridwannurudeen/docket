@@ -10,14 +10,46 @@ from docket.hire.catalogue import (
     get_service,
 )
 
+RUBRIC_DESCRIPTION = "0-3 per criterion, summed per output."
+
+
+def _rubric_scale(criteria_count):
+    return {
+        "description": RUBRIC_DESCRIPTION,
+        "criterion_score_min": 0,
+        "criterion_score_max": 3,
+        "criteria_count": criteria_count,
+        "maximum_total_per_output": 3 * criteria_count,
+    }
+
 
 def _benchmark_report():
     pairings = {
-        "v3-01-range-doctor": ("range-doctor", "superseded_before_input_lock"),
-        "v3-02-yield-router": ("yield-router", "registered_waiting_for_inputs"),
-        "v3-03-warden-security": ("warden-scan", "superseded_before_input_lock"),
-        "v3-04-warden-security": ("warden-scan", "registered_waiting_for_inputs"),
-        "v3-05-range-doctor": ("range-doctor", "registered_waiting_for_inputs"),
+        "v3-01-range-doctor": (
+            "range-doctor",
+            "superseded_before_input_lock",
+            5,
+        ),
+        "v3-02-yield-router": (
+            "yield-router",
+            "registered_waiting_for_inputs",
+            5,
+        ),
+        "v3-03-warden-security": (
+            "warden-scan",
+            "superseded_before_input_lock",
+            4,
+        ),
+        "v3-04-warden-security": (
+            "warden-scan",
+            "registered_waiting_for_inputs",
+            4,
+        ),
+        "v3-05-range-doctor": (
+            "range-doctor",
+            "registered_waiting_for_inputs",
+            5,
+        ),
     }
     return {
         "families": [
@@ -26,9 +58,16 @@ def _benchmark_report():
                 "state": state,
                 "spec": {
                     "execution_protocol": {"agent_service_id": service_id},
+                    "quality_rubric": {
+                        "criteria": [
+                            {"name": f"criterion-{index}"}
+                            for index in range(criteria_count)
+                        ],
+                        "scale": RUBRIC_DESCRIPTION,
+                    },
                 },
             }
-            for spec_id, (service_id, state) in pairings.items()
+            for spec_id, (service_id, state, criteria_count) in pairings.items()
         ]
     }
 
@@ -211,7 +250,7 @@ def test_range_doctor_populates_only_its_scored_v3_family(monkeypatch):
     assert out["measured_value"] == {
         "this_run_seconds": 1.25,
         "paired_manual_seconds": 42.75,
-        "quality_result": quality,
+        "quality_result": quality | {"rubric_scale": _rubric_scale(5)},
         "report_url": "/advantage/v3#v3-05-range-doctor",
         "benchmark_state": "not_refuted",
         "falsifier_result": None,
@@ -427,7 +466,7 @@ def test_only_mapped_warden_and_yield_runners_gain_measured_value(monkeypatch):
     assert warden["measured_value"] == {
         "this_run_seconds": 1.0,
         "paired_manual_seconds": 27.25,
-        "quality_result": quality,
+        "quality_result": quality | {"rubric_scale": _rubric_scale(4)},
         "report_url": "/advantage/v3#v3-04-warden-security",
         "benchmark_state": "refuted",
         "falsifier_result": {"refuted": True, "checks": []},
@@ -436,7 +475,7 @@ def test_only_mapped_warden_and_yield_runners_gain_measured_value(monkeypatch):
     assert yield_result["measured_value"] == {
         "this_run_seconds": 2.5,
         "paired_manual_seconds": 61.5,
-        "quality_result": quality,
+        "quality_result": quality | {"rubric_scale": _rubric_scale(5)},
         "report_url": "/advantage/v3#v3-02-yield-router",
         "benchmark_state": "refuted",
         "falsifier_result": {"refuted": True, "checks": []},
@@ -465,7 +504,7 @@ def test_an_unavailable_benchmark_is_not_cached_after_the_family_scores(monkeypa
     assert available == {
         "this_run_seconds": 2.0,
         "paired_manual_seconds": 42.75,
-        "quality_result": quality,
+        "quality_result": quality | {"rubric_scale": _rubric_scale(5)},
         "report_url": "/advantage/v3#v3-05-range-doctor",
         "benchmark_state": "not_refuted",
         "falsifier_result": None,

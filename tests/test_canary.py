@@ -165,7 +165,17 @@ def _decision_grade_result():
         "measured_value": {
             "this_run_seconds": 1.25,
             "paired_manual_seconds": 12.5,
-            "quality_result": {"decision_grade": True},
+            "quality_result": {
+                "decision_grade": True,
+                "quality_refuted": False,
+                "rubric_scale": {
+                    "description": "0-3 per criterion, summed per output.",
+                    "criterion_score_min": 0,
+                    "criterion_score_max": 3,
+                    "criteria_count": 5,
+                    "maximum_total_per_output": 15,
+                },
+            },
             "report_url": "/advantage/v3#v3-05-range-doctor",
             "benchmark_state": "refuted",
             "falsifier_result": {

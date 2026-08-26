@@ -144,10 +144,21 @@ def _measured_value(service_id: str, elapsed: float) -> dict:
                     "manual pairs exist; no paired manual median is available."
                 ),
             }
+        rubric = family["spec"]["quality_rubric"]
+        criteria_count = len(rubric["criteria"])
+        quality_result = family["quality"] | {
+            "rubric_scale": {
+                "description": rubric["scale"],
+                "criterion_score_min": 0,
+                "criterion_score_max": 3,
+                "criteria_count": criteria_count,
+                "maximum_total_per_output": 3 * criteria_count,
+            }
+        }
         return {
             "this_run_seconds": elapsed,
             "paired_manual_seconds": manual_seconds,
-            "quality_result": family["quality"],
+            "quality_result": quality_result,
             "report_url": f"/advantage/v3#{spec_id}",
             "benchmark_state": state,
             "falsifier_result": family["falsifier_result"],
