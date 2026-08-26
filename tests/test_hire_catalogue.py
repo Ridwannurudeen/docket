@@ -1,7 +1,65 @@
 import pytest
 
 from docket.hire import catalogue
-from docket.hire.catalogue import SERVICES, get_service
+from docket.hire.catalogue import (
+    SERVICE_BENCHMARK_FAMILIES,
+    SERVICES,
+    _benchmark_family,
+    get_service,
+)
+
+
+def _benchmark_report():
+    pairings = {
+        "v3-01-range-doctor": ("range-doctor", "superseded_before_input_lock"),
+        "v3-02-yield-router": ("yield-router", "registered_waiting_for_inputs"),
+        "v3-03-warden-security": ("warden-scan", "superseded_before_input_lock"),
+        "v3-04-warden-security": ("warden-scan", "registered_waiting_for_inputs"),
+        "v3-05-range-doctor": ("range-doctor", "registered_waiting_for_inputs"),
+    }
+    return {
+        "families": [
+            {
+                "spec_id": spec_id,
+                "state": state,
+                "spec": {
+                    "execution_protocol": {"agent_service_id": service_id},
+                },
+            }
+            for spec_id, (service_id, state) in pairings.items()
+        ]
+    }
+
+
+def test_benchmark_mapping_resolves_only_its_registered_service_family():
+    payload = _benchmark_report()
+
+    for service_id, spec_id in SERVICE_BENCHMARK_FAMILIES.items():
+        family = _benchmark_family(service_id, payload)
+        assert family["spec_id"] == spec_id
+        assert family["spec"]["execution_protocol"]["agent_service_id"] == service_id
+
+    for service_id in ("grid-operator", "health-guard", "solvent-signal"):
+        assert _benchmark_family(service_id, payload) is None
+
+
+def test_benchmark_mapping_refuses_a_swapped_or_superseded_family(monkeypatch):
+    payload = _benchmark_report()
+    swapped = SERVICE_BENCHMARK_FAMILIES | {
+        "range-doctor": "v3-02-yield-router"
+    }
+    monkeypatch.setattr(catalogue, "SERVICE_BENCHMARK_FAMILIES", swapped)
+
+    with pytest.raises(RuntimeError, match="registered for yield-router, not range-doctor"):
+        _benchmark_family("range-doctor", payload)
+
+    superseded = SERVICE_BENCHMARK_FAMILIES | {
+        "range-doctor": "v3-01-range-doctor"
+    }
+    monkeypatch.setattr(catalogue, "SERVICE_BENCHMARK_FAMILIES", superseded)
+
+    with pytest.raises(RuntimeError, match="superseded"):
+        _benchmark_family("range-doctor", payload)
 
 
 def test_range_doctor_is_offered_and_describes_itself():

@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 
 import httpx
 
+from ..advantage.v3 import report as v3_report
 from ..agents.pancake import doctor
 from ..agents.pancake.positions import MAX_EXAMINED
 
@@ -91,6 +92,32 @@ UPSTREAM_TIMEOUT_S = 30.0
 # second failure is the upstream rather than the road to it.
 UPSTREAM_ATTEMPTS = 2
 UPSTREAM_RETRY_PAUSE_S = 1.0
+
+SERVICE_BENCHMARK_FAMILIES = {
+    "range-doctor": "v3-05-range-doctor",
+    "yield-router": "v3-02-yield-router",
+    "warden-scan": "v3-04-warden-security",
+}
+
+
+def _benchmark_family(service_id: str, payload: dict) -> dict | None:
+    spec_id = SERVICE_BENCHMARK_FAMILIES.get(service_id)
+    if spec_id is None:
+        return None
+    family = next(
+        (family for family in payload["families"] if family["spec_id"] == spec_id),
+        None,
+    )
+    if family is None:
+        raise RuntimeError(f"v3 report is missing mapped family {spec_id}")
+    registered_service = family["spec"]["execution_protocol"]["agent_service_id"]
+    if registered_service != service_id:
+        raise RuntimeError(
+            f"v3 family {spec_id} is registered for {registered_service}, not {service_id}"
+        )
+    if family["state"] == v3_report.SUPERSEDED_BEFORE_INPUT_LOCK:
+        raise RuntimeError(f"v3 family {spec_id} is superseded and cannot benchmark a hire")
+    return family
 
 
 @dataclass(frozen=True)
