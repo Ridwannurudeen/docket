@@ -47,8 +47,8 @@ from starlette.concurrency import run_in_threadpool
 from ..advantage.harness import compare, load
 from ..advantage.v2.page import fill as fill_v2_page
 from ..advantage.v2.report import report as advantage_v2_report
+from ..advantage.v3 import report_snapshot
 from ..advantage.v3.page import fill as fill_v3_page
-from ..advantage.v3.report import report as advantage_v3_report
 from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
 from ..escrow import constants as escrow_constants
 from ..escrow.chain import JobNotFound, JobReader
@@ -453,7 +453,7 @@ def create_app(
     )
     # V3 follows the same one-object boundary. Its state is reconstructed once from the durable
     # artifacts, then both representations stay pinned to that startup view until restart.
-    advantage_v3 = advantage_v3_report()
+    advantage_v3 = report_snapshot.get_report()
     advantage_v3_page = fill_v3_page(
         (WEB_DIR / "advantage-v3.html").read_text(encoding="utf-8"), advantage_v3
     )

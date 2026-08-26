@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from docket.advantage.v3 import report_snapshot
 from docket.hire import catalogue
 from docket.hire.catalogue import (
     SERVICE_BENCHMARK_FAMILIES,
@@ -184,8 +185,8 @@ def test_range_doctor_times_this_run_and_leaves_the_unrun_v3_fields_empty(monkey
     monkeypatch.setattr(catalogue.doctor, "report", report)
     monkeypatch.setattr(catalogue.time, "perf_counter", lambda: next(clock))
     monkeypatch.setattr(
-        catalogue.v3_report,
-        "report",
+        report_snapshot,
+        "get_report",
         lambda: _benchmark_state(
             "v3-05-range-doctor", "registered_waiting_for_inputs"
         ),
@@ -243,7 +244,7 @@ def test_range_doctor_populates_only_its_scored_v3_family(monkeypatch):
         lambda *args, **kwargs: {"positions": []},
     )
     monkeypatch.setattr(catalogue.time, "perf_counter", lambda: next(clock))
-    monkeypatch.setattr(catalogue.v3_report, "report", lambda: payload)
+    monkeypatch.setattr(report_snapshot, "get_report", lambda: payload)
 
     out = get_service("range-doctor").run({"wallet": "0xwallet"})
 
@@ -280,7 +281,7 @@ def test_refuted_benchmark_exposes_overall_verdict_and_fired_checks(monkeypatch)
         row for row in payload["families"] if row["spec_id"] == "v3-05-range-doctor"
     )
     family["falsifier_result"] = falsifier
-    monkeypatch.setattr(catalogue.v3_report, "report", lambda: payload)
+    monkeypatch.setattr(report_snapshot, "get_report", lambda: payload)
 
     measured = catalogue._measured_value("range-doctor", 1.25)
 
@@ -299,7 +300,7 @@ def test_a_scored_family_without_a_finite_manual_median_is_unavailable(
         quality={"quality_refuted": False},
         speed={"manual_median_seconds": manual_median},
     )
-    monkeypatch.setattr(catalogue.v3_report, "report", lambda: payload)
+    monkeypatch.setattr(report_snapshot, "get_report", lambda: payload)
 
     measured = catalogue._measured_value("range-doctor", 1.25)
 
@@ -345,8 +346,8 @@ def test_unavailable_v3_states_are_precise_and_never_borrow_v1(
     state, unscored_reason, expected_reason, monkeypatch
 ):
     monkeypatch.setattr(
-        catalogue.v3_report,
-        "report",
+        report_snapshot,
+        "get_report",
         lambda: _benchmark_state(
             "v3-05-range-doctor", state, unscored_reason=unscored_reason
         ),
@@ -386,7 +387,7 @@ def test_only_mapped_warden_and_yield_runners_gain_measured_value(monkeypatch):
             )
     clock = iter((10.0, 11.0, 20.0, 22.5))
     monkeypatch.setattr(catalogue.time, "perf_counter", lambda: next(clock))
-    monkeypatch.setattr(catalogue.v3_report, "report", lambda: payload)
+    monkeypatch.setattr(report_snapshot, "get_report", lambda: payload)
     monkeypatch.setattr(
         catalogue,
         "_call_upstream",
@@ -483,7 +484,7 @@ def test_only_mapped_warden_and_yield_runners_gain_measured_value(monkeypatch):
     }
 
 
-def test_an_unavailable_benchmark_is_not_cached_after_the_family_scores(monkeypatch):
+def test_hire_uses_the_process_pinned_report_until_reset(monkeypatch):
     waiting = _benchmark_state(
         "v3-05-range-doctor", "registered_waiting_for_inputs"
     )
@@ -495,14 +496,28 @@ def test_an_unavailable_benchmark_is_not_cached_after_the_family_scores(monkeypa
         speed={"manual_median_seconds": 42.75},
     )
     reports = iter((waiting, scored))
-    monkeypatch.setattr(catalogue.v3_report, "report", lambda: next(reports))
+    builds = []
 
-    unavailable = catalogue._measured_value("range-doctor", 1.0)
-    available = catalogue._measured_value("range-doctor", 2.0)
+    def build_report():
+        builds.append("built")
+        return next(reports)
 
-    assert unavailable["paired_manual_seconds"] is None
+    monkeypatch.setattr(report_snapshot.report_module, "report", build_report)
+    report_snapshot._reset_for_testing()
+
+    first = catalogue._measured_value("range-doctor", 1.0)
+    second = catalogue._measured_value("range-doctor", 2.0)
+
+    assert first["benchmark_state"] == "registered_waiting_for_inputs"
+    assert second["benchmark_state"] == "registered_waiting_for_inputs"
+    assert report_snapshot.get_report() is waiting
+    assert builds == ["built"]
+
+    report_snapshot._reset_for_testing()
+    available = catalogue._measured_value("range-doctor", 3.0)
+
     assert available == {
-        "this_run_seconds": 2.0,
+        "this_run_seconds": 3.0,
         "paired_manual_seconds": 42.75,
         "quality_result": quality | {"rubric_scale": _rubric_scale(5)},
         "report_url": "/advantage/v3#v3-05-range-doctor",
@@ -510,6 +525,9 @@ def test_an_unavailable_benchmark_is_not_cached_after_the_family_scores(monkeypa
         "falsifier_result": None,
         "benchmark_unavailable_reason": None,
     }
+    assert report_snapshot.get_report() is scored
+    assert builds == ["built", "built"]
+    report_snapshot._reset_for_testing()
 
 
 def test_unknown_service_returns_none():

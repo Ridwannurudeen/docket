@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 import httpx
 
 from ..advantage.v3 import report as v3_report
+from ..advantage.v3 import report_snapshot
 from ..agents.pancake import doctor
 from ..agents.pancake.positions import MAX_EXAMINED
 
@@ -120,71 +121,82 @@ def _benchmark_family(service_id: str, payload: dict) -> dict | None:
     return family
 
 
-def _measured_value(service_id: str, elapsed: float) -> dict:
-    family = _benchmark_family(service_id, v3_report.report())
-    if family is None:
-        raise RuntimeError(f"service {service_id} has no v3 benchmark family")
-    spec_id = family["spec_id"]
-    state = family["state"]
-    if state in (v3_report.REFUTED, v3_report.NOT_REFUTED):
-        manual_seconds = family["speed"]["manual_median_seconds"]
-        if (
-            isinstance(manual_seconds, bool)
-            or not isinstance(manual_seconds, (int, float))
-            or not math.isfinite(manual_seconds)
-        ):
-            return {
-                "this_run_seconds": elapsed,
-                "paired_manual_seconds": None,
-                "quality_result": None,
-                "report_url": None,
-                "benchmark_state": state,
-                "benchmark_unavailable_reason": (
-                    f"The v3 paired family {spec_id} is scored, but no complete "
-                    "manual pairs exist; no paired manual median is available."
-                ),
-            }
-        rubric = family["spec"]["quality_rubric"]
-        criteria_count = len(rubric["criteria"])
-        quality_result = family["quality"] | {
-            "rubric_scale": {
-                "description": rubric["scale"],
-                "criterion_score_min": 0,
-                "criterion_score_max": 3,
-                "criteria_count": criteria_count,
-                "maximum_total_per_output": 3 * criteria_count,
-            }
-        }
-        return {
-            "this_run_seconds": elapsed,
-            "paired_manual_seconds": manual_seconds,
-            "quality_result": quality_result,
-            "report_url": f"/advantage/v3#{spec_id}",
-            "benchmark_state": state,
-            "falsifier_result": family["falsifier_result"],
-            "benchmark_unavailable_reason": None,
-        }
-    if state == v3_report.REGISTERED_WAITING:
-        reason = f"The v3 paired family {spec_id} has no locked inputs."
-    elif state == v3_report.LOCKED_NOT_RUN:
-        reason = f"The v3 paired family {spec_id} has locked inputs but has not run."
-    elif state == v3_report.RUNNING:
-        reason = f"The v3 paired family {spec_id} is still running."
-    elif state == v3_report.COMPLETE_UNSCORED:
-        reason = (
-            f"The v3 paired family {spec_id} is complete but unscored: "
-            f"{family['unscored_reason']}."
-        )
-    else:
-        raise RuntimeError(f"v3 family {spec_id} has unknown benchmark state {state}")
+def _unavailable_measured_value(
+    elapsed: float, benchmark_state: str | None, reason: str
+) -> dict:
     return {
         "this_run_seconds": elapsed,
         "paired_manual_seconds": None,
         "quality_result": None,
         "report_url": None,
-        "benchmark_state": state,
+        "benchmark_state": benchmark_state,
         "benchmark_unavailable_reason": reason,
     }
+
+
+def _measured_value(service_id: str, elapsed: float) -> dict:
+    if service_id not in SERVICE_BENCHMARK_FAMILIES:
+        raise RuntimeError(f"service {service_id} has no v3 benchmark family")
+    try:
+        family = _benchmark_family(service_id, report_snapshot.get_report())
+        if family is None:
+            raise RuntimeError(f"service {service_id} has no v3 benchmark family")
+        spec_id = family["spec_id"]
+        state = family["state"]
+        if state in (v3_report.REFUTED, v3_report.NOT_REFUTED):
+            manual_seconds = family["speed"]["manual_median_seconds"]
+            if (
+                isinstance(manual_seconds, bool)
+                or not isinstance(manual_seconds, (int, float))
+                or not math.isfinite(manual_seconds)
+            ):
+                return _unavailable_measured_value(
+                    elapsed,
+                    state,
+                    f"The v3 paired family {spec_id} is scored, but no complete "
+                    "manual pairs exist; no paired manual median is available.",
+                )
+            rubric = family["spec"]["quality_rubric"]
+            criteria_count = len(rubric["criteria"])
+            quality_result = family["quality"] | {
+                "rubric_scale": {
+                    "description": rubric["scale"],
+                    "criterion_score_min": 0,
+                    "criterion_score_max": 3,
+                    "criteria_count": criteria_count,
+                    "maximum_total_per_output": 3 * criteria_count,
+                }
+            }
+            return {
+                "this_run_seconds": elapsed,
+                "paired_manual_seconds": manual_seconds,
+                "quality_result": quality_result,
+                "report_url": f"/advantage/v3#{spec_id}",
+                "benchmark_state": state,
+                "falsifier_result": family["falsifier_result"],
+                "benchmark_unavailable_reason": None,
+            }
+        if state == v3_report.REGISTERED_WAITING:
+            reason = f"The v3 paired family {spec_id} has no locked inputs."
+        elif state == v3_report.LOCKED_NOT_RUN:
+            reason = f"The v3 paired family {spec_id} has locked inputs but has not run."
+        elif state == v3_report.RUNNING:
+            reason = f"The v3 paired family {spec_id} is still running."
+        elif state == v3_report.COMPLETE_UNSCORED:
+            reason = (
+                f"The v3 paired family {spec_id} is complete but unscored: "
+                f"{family['unscored_reason']}."
+            )
+        else:
+            raise RuntimeError(f"v3 family {spec_id} has unknown benchmark state {state}")
+        return _unavailable_measured_value(elapsed, state, reason)
+    except Exception as exc:
+        return _unavailable_measured_value(
+            elapsed,
+            None,
+            "The v3 benchmark report failed while resolving measured value: "
+            f"{type(exc).__name__}: {exc}.",
+        )
 
 
 @dataclass(frozen=True)

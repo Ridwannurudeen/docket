@@ -5,10 +5,17 @@ from copy import deepcopy
 import pytest
 from fastapi.testclient import TestClient
 
-import docket.api.routes as routes_module
-from docket.advantage.v3 import page, report
+from docket.advantage.v3 import page, report, report_snapshot
 from docket.api import create_app
+from docket.hire import catalogue
 from docket.store import Store
+
+
+@pytest.fixture(autouse=True)
+def reset_report_snapshot():
+    report_snapshot._reset_for_testing()
+    yield
+    report_snapshot._reset_for_testing()
 
 
 @pytest.fixture
@@ -52,7 +59,7 @@ def test_the_report_is_built_once_and_both_routes_use_that_startup_payload(
         calls.append("built")
         return payload
 
-    monkeypatch.setattr(routes_module, "advantage_v3_report", build_report)
+    monkeypatch.setattr(report_snapshot.report_module, "report", build_report)
     db = tmp_path / "startup.sqlite3"
     app = create_app(db)
     client = TestClient(app)
@@ -64,7 +71,22 @@ def test_the_report_is_built_once_and_both_routes_use_that_startup_payload(
             == "startup-only sentinel"
         )
         assert "startup-only sentinel" in client.get("/advantage/v3").text
+        assert (
+            catalogue._measured_value("range-doctor", 1.0)["benchmark_state"]
+            == report.REGISTERED_WAITING
+        )
+        assert report_snapshot.get_report() is payload
     assert calls == ["built"]
+
+
+def test_v3_report_failure_still_stops_startup(tmp_path, monkeypatch):
+    def fail_report():
+        raise PermissionError("synthetic startup report failure")
+
+    monkeypatch.setattr(report_snapshot.report_module, "report", fail_report)
+
+    with pytest.raises(PermissionError, match="synthetic startup report failure"):
+        create_app(tmp_path / "startup-report-failure.sqlite3")
 
 
 @pytest.mark.parametrize(
