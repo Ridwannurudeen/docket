@@ -37,6 +37,8 @@ from datetime import datetime, timezone
 
 import httpx
 
+from ..advantage.v3 import report as v3_report
+from ..advantage.v3 import report_snapshot
 from ..agents.pancake import doctor
 from ..agents.pancake.positions import MAX_EXAMINED
 
@@ -91,6 +93,110 @@ UPSTREAM_TIMEOUT_S = 30.0
 # second failure is the upstream rather than the road to it.
 UPSTREAM_ATTEMPTS = 2
 UPSTREAM_RETRY_PAUSE_S = 1.0
+
+SERVICE_BENCHMARK_FAMILIES = {
+    "range-doctor": "v3-05-range-doctor",
+    "yield-router": "v3-02-yield-router",
+    "warden-scan": "v3-04-warden-security",
+}
+
+
+def _benchmark_family(service_id: str, payload: dict) -> dict | None:
+    spec_id = SERVICE_BENCHMARK_FAMILIES.get(service_id)
+    if spec_id is None:
+        return None
+    family = next(
+        (family for family in payload["families"] if family["spec_id"] == spec_id),
+        None,
+    )
+    if family is None:
+        raise RuntimeError(f"v3 report is missing mapped family {spec_id}")
+    registered_service = family["spec"]["execution_protocol"]["agent_service_id"]
+    if registered_service != service_id:
+        raise RuntimeError(
+            f"v3 family {spec_id} is registered for {registered_service}, not {service_id}"
+        )
+    if family["state"] == v3_report.SUPERSEDED_BEFORE_INPUT_LOCK:
+        raise RuntimeError(f"v3 family {spec_id} is superseded and cannot benchmark a hire")
+    return family
+
+
+def _unavailable_measured_value(
+    elapsed: float, benchmark_state: str | None, reason: str
+) -> dict:
+    return {
+        "this_run_seconds": elapsed,
+        "paired_manual_seconds": None,
+        "quality_result": None,
+        "report_url": None,
+        "benchmark_state": benchmark_state,
+        "benchmark_unavailable_reason": reason,
+    }
+
+
+def _measured_value(service_id: str, elapsed: float) -> dict:
+    if service_id not in SERVICE_BENCHMARK_FAMILIES:
+        raise RuntimeError(f"service {service_id} has no v3 benchmark family")
+    try:
+        family = _benchmark_family(service_id, report_snapshot.get_report())
+        if family is None:
+            raise RuntimeError(f"service {service_id} has no v3 benchmark family")
+        spec_id = family["spec_id"]
+        state = family["state"]
+        if state in (v3_report.REFUTED, v3_report.NOT_REFUTED):
+            manual_seconds = family["speed"]["manual_median_seconds"]
+            if (
+                isinstance(manual_seconds, bool)
+                or not isinstance(manual_seconds, (int, float))
+                or not math.isfinite(manual_seconds)
+            ):
+                return _unavailable_measured_value(
+                    elapsed,
+                    state,
+                    f"The v3 paired family {spec_id} is scored, but no complete "
+                    "manual pairs exist; no paired manual median is available.",
+                )
+            rubric = family["spec"]["quality_rubric"]
+            criteria_count = len(rubric["criteria"])
+            quality_result = family["quality"] | {
+                "rubric_scale": {
+                    "description": rubric["scale"],
+                    "criterion_score_min": 0,
+                    "criterion_score_max": 3,
+                    "criteria_count": criteria_count,
+                    "maximum_total_per_output": 3 * criteria_count,
+                }
+            }
+            return {
+                "this_run_seconds": elapsed,
+                "paired_manual_seconds": manual_seconds,
+                "quality_result": quality_result,
+                "report_url": f"/advantage/v3#{spec_id}",
+                "benchmark_state": state,
+                "falsifier_result": family["falsifier_result"],
+                "benchmark_unavailable_reason": None,
+            }
+        if state == v3_report.REGISTERED_WAITING:
+            reason = f"The v3 paired family {spec_id} has no locked inputs."
+        elif state == v3_report.LOCKED_NOT_RUN:
+            reason = f"The v3 paired family {spec_id} has locked inputs but has not run."
+        elif state == v3_report.RUNNING:
+            reason = f"The v3 paired family {spec_id} is still running."
+        elif state == v3_report.COMPLETE_UNSCORED:
+            reason = (
+                f"The v3 paired family {spec_id} is complete but unscored: "
+                f"{family['unscored_reason']}."
+            )
+        else:
+            raise RuntimeError(f"v3 family {spec_id} has unknown benchmark state {state}")
+        return _unavailable_measured_value(elapsed, state, reason)
+    except Exception as exc:
+        return _unavailable_measured_value(
+            elapsed,
+            None,
+            "The v3 benchmark report failed while resolving measured value: "
+            f"{type(exc).__name__}: {exc}.",
+        )
 
 
 @dataclass(frozen=True)
@@ -184,7 +290,10 @@ def _run_solvent_signal(payload: dict) -> dict:
 
 def _run_warden_scan(payload: dict) -> dict:
     """Only the declared field travels upstream; whatever else a caller sent stays here."""
-    return _call_upstream("POST", WARDEN_SCAN_URL, {"payload": payload["payload"]})
+    started = time.perf_counter()
+    result = _call_upstream("POST", WARDEN_SCAN_URL, {"payload": payload["payload"]})
+    elapsed = max(0.0, time.perf_counter() - started)
+    return result | {"measured_value": _measured_value("warden-scan", elapsed)}
 
 
 def _declared_number(payload: dict, field: str, *, allow_zero: bool) -> float | None:
@@ -377,18 +486,7 @@ def _run_range_doctor(payload: dict) -> dict:
         )
     result = doctor.report(payload["wallet"], **report_kwargs)
     elapsed = max(0.0, time.perf_counter() - started)
-    return result | {
-        "measured_value": {
-            "this_run_seconds": elapsed,
-            "paired_manual_seconds": None,
-            "quality_result": None,
-            "report_url": None,
-            "benchmark_unavailable_reason": (
-                "The preregistered v3 paired report has not run, so no paired manual time, "
-                "quality result, or v3 report link exists yet."
-            ),
-        }
-    }
+    return result | {"measured_value": _measured_value("range-doctor", elapsed)}
 
 
 def _run_grid_operator(payload: dict) -> dict:
@@ -512,6 +610,7 @@ def _run_yield_router(payload: dict) -> dict:
     from ..agents.yield_router.universe import eligible_pools
     from ..execution.simulate import BscQuoteReader
 
+    started = time.perf_counter()
     pool_snapshot = payload.get("pool_snapshot")
     token_snapshot = payload.get("token_list_snapshot")
     if (pool_snapshot is None) != (token_snapshot is None):
@@ -552,7 +651,7 @@ def _run_yield_router(payload: dict) -> dict:
         observed_at=pools_evidence["observed_at"],
     )
     if not universe.included:
-        return {
+        result = {
             "current": None,
             "candidates": [],
             "universe": universe.as_record(),
@@ -563,6 +662,8 @@ def _run_yield_router(payload: dict) -> dict:
                 "reason under universe.excluded"
             ),
         }
+        elapsed = max(0.0, time.perf_counter() - started)
+        return result | {"measured_value": _measured_value("yield-router", elapsed)}
 
     # Three outcomes, and each one gets its own sentence. A named pool that is not in the
     # set has to say so: substituting the baseline silently and then reporting "no pool was
@@ -623,10 +724,12 @@ def _run_yield_router(payload: dict) -> dict:
         amount=amount,
         cap=cap,
     )
-    return out | {
+    result = out | {
         "current_pool_chosen_by": chosen_by,
         "sources": sources,
     }
+    elapsed = max(0.0, time.perf_counter() - started)
+    return result | {"measured_value": _measured_value("yield-router", elapsed)}
 
 
 SERVICES: dict[str, Service] = {

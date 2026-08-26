@@ -16,6 +16,7 @@ from docket.agents.pancake import doctor
 from docket.api import create_app
 from docket.api import routes
 from docket.api.routes import FREE_TIER_HIRES
+from docket.hire import catalogue
 from docket.hire.catalogue import SERVICES, USDT_TOKEN, PaidStockAdmission, get_service
 from docket.hire.x402 import (
     B402_NETWORK,
@@ -208,8 +209,8 @@ def test_a_hire_returns_a_receipt_the_caller_can_recompute(tmp_path, monkeypatch
     assert body["result"]["measured_value"]["this_run_seconds"] >= 0
     assert body["result"]["measured_value"]["paired_manual_seconds"] is None
     assert (
-        "has not run"
-        in body["result"]["measured_value"]["benchmark_unavailable_reason"]
+        body["result"]["measured_value"]["benchmark_unavailable_reason"]
+        == "The v3 paired family v3-05-range-doctor has no locked inputs."
     )
 
 
@@ -506,6 +507,51 @@ def test_a_paid_preflight_settles_once_and_rejects_the_exact_replay(
     assert receipt["output_hash"] == _sha256_of_canonical_json(first.json()["result"])
     assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
     assert work_calls == [WALLET]
+
+
+def test_a_paid_hire_settles_when_the_benchmark_report_fails(tmp_path, monkeypatch):
+    facilitator = FixtureFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="report-failure",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+
+    def fail_report():
+        raise PermissionError("synthetic report lock failure")
+
+    monkeypatch.setattr(catalogue.report_snapshot, "get_report", fail_report)
+    response = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={
+            "X-PAYMENT": _authorization(
+                Account.create(), nonce="0x" + "13" * 32
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["result"]["address"] == WALLET
+    assert body["result"]["measured_value"] | {
+        "this_run_seconds": None
+    } == {
+        "this_run_seconds": None,
+        "paired_manual_seconds": None,
+        "quality_result": None,
+        "report_url": None,
+        "benchmark_state": None,
+        "benchmark_unavailable_reason": (
+            "The v3 benchmark report failed while resolving measured value: "
+            "PermissionError: synthetic report lock failure."
+        ),
+    }
+    assert body["receipt"]["payment"]["status"] == "settled"
+    assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
 
 
 def test_b402_configuration_maps_the_payment_and_accepts_its_network(
