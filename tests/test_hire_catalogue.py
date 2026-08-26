@@ -263,6 +263,119 @@ def test_unavailable_v3_states_are_precise_and_never_borrow_v1(
     assert "528.31" not in json.dumps(measured, sort_keys=True)
 
 
+def test_only_mapped_warden_and_yield_runners_gain_measured_value(monkeypatch):
+    quality = {"quality_refuted": False}
+    payload = _benchmark_report()
+    manual_seconds = {
+        "v3-02-yield-router": 61.5,
+        "v3-04-warden-security": 27.25,
+    }
+    for family in payload["families"]:
+        if family["spec_id"] in manual_seconds:
+            family.update(
+                {
+                    "state": "refuted",
+                    "quality": quality,
+                    "speed": {
+                        "manual_median_seconds": manual_seconds[family["spec_id"]]
+                    },
+                }
+            )
+    clock = iter((10.0, 11.0, 20.0, 22.5))
+    monkeypatch.setattr(catalogue.time, "perf_counter", lambda: next(clock))
+    monkeypatch.setattr(catalogue.v3_report, "report", lambda: payload)
+    monkeypatch.setattr(
+        catalogue,
+        "_call_upstream",
+        lambda method, url, body=None: (
+            {"verdict": "ALLOW"} if method == "POST" else {"regime": "neutral"}
+        ),
+    )
+
+    class PoolClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def top_pools_snapshot(self):
+            return [], b"[]"
+
+        def token_allowlist_snapshot(self):
+            return set(), b'{"tokens":[]}'
+
+    class EmptyUniverse:
+        included = ()
+
+        def as_record(self):
+            return {"included": []}
+
+    class GridPreview:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def preview(self, *, filled):
+            return {"kind": "grid", "filled": list(filled)}
+
+    class HealthGuardPreview:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def preview(self, wallet):
+            return {"kind": "health", "wallet": wallet}
+
+    class Record:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    monkeypatch.setattr("docket.agents.pancake.pools.PoolClient", PoolClient)
+    monkeypatch.setattr(
+        "docket.agents.yield_router.universe.eligible_pools",
+        lambda *args, **kwargs: EmptyUniverse(),
+    )
+    monkeypatch.setattr(
+        "docket.agents.grid.operator.observe_price",
+        lambda *args, **kwargs: Record(price=100),
+    )
+    monkeypatch.setattr("docket.agents.grid.operator.GridPreview", GridPreview)
+    monkeypatch.setattr(
+        "docket.agents.grid.plan.build_plan", lambda **kwargs: kwargs
+    )
+    monkeypatch.setattr("docket.execution.simulate.BscQuoteReader", object)
+    monkeypatch.setattr(
+        "docket.agents.venus.guard.HealthGuardPreview", HealthGuardPreview
+    )
+    monkeypatch.setattr("docket.agents.venus.guard.GuardPolicy", Record)
+    monkeypatch.setattr("docket.agents.venus.guard.MarketPolicy", Record)
+    monkeypatch.setattr("docket.agents.venus.markets.VenusReader", object)
+
+    warden = get_service("warden-scan").run({"payload": "hello"})
+    yield_result = get_service("yield-router").run({})
+    grid = get_service("grid-operator").run({"wallet": "0xwallet"})
+    health = get_service("health-guard").run({"wallet": "0xwallet"})
+    solvent = get_service("solvent-signal").run({})
+
+    assert grid == {"kind": "grid", "filled": []}
+    assert health == {"kind": "health", "wallet": "0xwallet"}
+    assert solvent == {"regime": "neutral"}
+    assert "measured_value" not in grid | health | solvent
+    assert warden["measured_value"] == {
+        "this_run_seconds": 1.0,
+        "paired_manual_seconds": 27.25,
+        "quality_result": quality,
+        "report_url": "/advantage/v3#v3-04-warden-security",
+        "benchmark_unavailable_reason": None,
+    }
+    assert yield_result["measured_value"] == {
+        "this_run_seconds": 2.5,
+        "paired_manual_seconds": 61.5,
+        "quality_result": quality,
+        "report_url": "/advantage/v3#v3-02-yield-router",
+        "benchmark_unavailable_reason": None,
+    }
+
+
 def test_unknown_service_returns_none():
     assert get_service("nope") is None
 

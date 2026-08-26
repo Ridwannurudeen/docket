@@ -247,7 +247,10 @@ def _run_solvent_signal(payload: dict) -> dict:
 
 def _run_warden_scan(payload: dict) -> dict:
     """Only the declared field travels upstream; whatever else a caller sent stays here."""
-    return _call_upstream("POST", WARDEN_SCAN_URL, {"payload": payload["payload"]})
+    started = time.perf_counter()
+    result = _call_upstream("POST", WARDEN_SCAN_URL, {"payload": payload["payload"]})
+    elapsed = max(0.0, time.perf_counter() - started)
+    return result | {"measured_value": _measured_value("warden-scan", elapsed)}
 
 
 def _declared_number(payload: dict, field: str, *, allow_zero: bool) -> float | None:
@@ -564,6 +567,7 @@ def _run_yield_router(payload: dict) -> dict:
     from ..agents.yield_router.universe import eligible_pools
     from ..execution.simulate import BscQuoteReader
 
+    started = time.perf_counter()
     pool_snapshot = payload.get("pool_snapshot")
     token_snapshot = payload.get("token_list_snapshot")
     if (pool_snapshot is None) != (token_snapshot is None):
@@ -604,7 +608,7 @@ def _run_yield_router(payload: dict) -> dict:
         observed_at=pools_evidence["observed_at"],
     )
     if not universe.included:
-        return {
+        result = {
             "current": None,
             "candidates": [],
             "universe": universe.as_record(),
@@ -615,6 +619,8 @@ def _run_yield_router(payload: dict) -> dict:
                 "reason under universe.excluded"
             ),
         }
+        elapsed = max(0.0, time.perf_counter() - started)
+        return result | {"measured_value": _measured_value("yield-router", elapsed)}
 
     # Three outcomes, and each one gets its own sentence. A named pool that is not in the
     # set has to say so: substituting the baseline silently and then reporting "no pool was
@@ -675,10 +681,12 @@ def _run_yield_router(payload: dict) -> dict:
         amount=amount,
         cap=cap,
     )
-    return out | {
+    result = out | {
         "current_pool_chosen_by": chosen_by,
         "sources": sources,
     }
+    elapsed = max(0.0, time.perf_counter() - started)
+    return result | {"measured_value": _measured_value("yield-router", elapsed)}
 
 
 SERVICES: dict[str, Service] = {
