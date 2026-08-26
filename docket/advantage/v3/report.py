@@ -159,13 +159,15 @@ def _progress(attempts: dict) -> dict:
         and attempt["terminal"] is None
         and datetime.fromisoformat(attempt["started"]["deadline_at"]) <= observed_at
     ]
-    return {
+    progress = {
         "scheduled_primaries": scheduled,
         "claimed_primaries": claimed,
         "terminal_primaries": terminal,
         "outcomes": dict(sorted(outcomes.items())),
-        "stale_primaries": stale,
     }
+    if stale:
+        progress["stale_primaries"] = stale
+    return progress
 
 
 def _empty_family(spec, state: str) -> dict:
