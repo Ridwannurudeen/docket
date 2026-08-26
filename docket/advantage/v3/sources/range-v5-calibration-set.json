@@ -20,8 +20,8 @@
         "net_apr": 0.03285,
         "annual_gross_usd": 365.0,
         "annual_net_usd": 328.5,
-        "annual_overstatement_usd": 36.50000000000001,
-        "cost_only_break_even_days": 27.77777777777778
+        "annual_overstatement_usd": 36.5,
+        "cost_only_break_even_days": 27.777777777778
       }
     },
     {
@@ -42,8 +42,8 @@
         "net_apr": 0.03285,
         "annual_gross_usd": 438.0,
         "annual_net_usd": 394.2,
-        "annual_overstatement_usd": 43.800000000000004,
-        "cost_only_break_even_days": 27.777777777777775
+        "annual_overstatement_usd": 43.8,
+        "cost_only_break_even_days": 27.777777777778
       }
     },
     {
@@ -65,7 +65,7 @@
         "annual_gross_usd": 328.5,
         "annual_net_usd": 295.65,
         "annual_overstatement_usd": 32.85,
-        "cost_only_break_even_days": 24.69135802469136
+        "cost_only_break_even_days": 24.691358024691
       }
     },
     {
@@ -85,9 +85,9 @@
         "gross_apr": 0.0365,
         "net_apr": 0.03285,
         "annual_gross_usd": 401.5,
-        "annual_net_usd": 361.34999999999997,
-        "annual_overstatement_usd": 40.150000000000006,
-        "cost_only_break_even_days": 22.222222222222225
+        "annual_net_usd": 361.35,
+        "annual_overstatement_usd": 40.15,
+        "cost_only_break_even_days": 22.222222222222
       }
     },
     {
@@ -108,8 +108,8 @@
         "net_apr": 0.03285,
         "annual_gross_usd": 346.75,
         "annual_net_usd": 312.075,
-        "annual_overstatement_usd": 34.675000000000004,
-        "cost_only_break_even_days": 28.070175438596493
+        "annual_overstatement_usd": 34.675,
+        "cost_only_break_even_days": 28.070175438596
       }
     },
     {
@@ -149,10 +149,10 @@
       "expected": {
         "range_status": "in_range",
         "gross_apr": 0.0365,
-        "net_apr": 0.03406666666666667,
+        "net_apr": 0.034066666667,
         "annual_gross_usd": 547.5,
-        "annual_net_usd": 511.00000000000006,
-        "annual_overstatement_usd": 36.499999999999936,
+        "annual_net_usd": 511.0,
+        "annual_overstatement_usd": 36.5,
         "cost_only_break_even_days": 0.0
       }
     },

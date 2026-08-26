@@ -136,12 +136,59 @@ def derive_prompt(spec: PairedSpec, calibration_set: bytes, evaluator_id: str) -
                 "This is a calibration set; it is scored once and cannot be reattempted."
             )
     else:
-        prompt_version = "v3.calibration-prompt.v2"
-        instruction = (
-            "Answer every case below under the registered rubric. Return JSON: "
-            '{"evaluator_id": ..., "results": [{"case_id", "submitted"}]}. '
-            "This is a calibration set; it is scored once and cannot be reattempted."
-        )
+        prompt_version = "v3.calibration-prompt.v5"
+        if spec.spec_id == "v3-02-yield-router":
+            instruction = (
+                "Answer every case below under the registered rubric. Return exactly one "
+                "JSON object with this shape: "
+                '{"evaluator_id": ..., "results": [{"case_id", "submitted"}]}. For '
+                "Yield, submitted must contain exactly these fields: "
+                "current_first_failed_gate, destination_first_failed_gate, "
+                "current_net_apr, destination_net_apr, extra_usd_per_day, "
+                "days_to_recover, decision. For each pool apply these six gates in order: "
+                "token0_allowlist, token1_allowlist, tvl_floor, turnover_ceiling, "
+                "feeUSD24h_non_null, protocolFeeUSD24h_non_null. The first two require "
+                "the respective token id to be in allowlist; tvl_floor requires tvlUSD "
+                ">= 10000; turnover_ceiling requires volumeUSD24h / tvlUSD <= 50; the "
+                "last two require the named fee value to be non-null. Report only the "
+                "first failed gate for each pool, or null if all pass. For an eligible "
+                "pool, net_apr = (feeUSD24h - protocolFeeUSD24h) * 365 / tvlUSD; otherwise "
+                "its net APR is null. extra_usd_per_day = position_value_usd * "
+                "(destination_net_apr - current_net_apr) / 365 when both pools are "
+                "eligible, otherwise null. days_to_recover = switching_cost_usd / "
+                "extra_usd_per_day when extra_usd_per_day > 0, otherwise null. The "
+                "decision is null if either pool is ineligible; otherwise it is MOVE iff "
+                "days_to_recover is non-null and days_to_recover <= "
+                "decision_horizon_days, and STAY otherwise. Compute with unrounded "
+                "intermediates; when serializing final fields, round every fractional "
+                "number to 12 decimal places (Python round(x, 12)); submit integers as "
+                "integers; use null where the formula yields no value. Do not include "
+                "prose or Markdown fences. This calibration is scored once and cannot be "
+                "reattempted."
+            )
+        else:
+            instruction = (
+                "Answer every case below under the registered rubric. Return exactly one "
+                "JSON object with this shape: "
+                '{"evaluator_id": ..., "results": [{"case_id", "submitted"}]}. For '
+                "Range, submitted must contain exactly these fields: range_status, "
+                "gross_apr, net_apr, annual_gross_usd, annual_net_usd, "
+                "annual_overstatement_usd, cost_only_break_even_days. range_status is "
+                "below_range when current_tick < tick_lower, above_range when current_tick "
+                ">= tick_upper, and in_range otherwise: the lower boundary is inclusive "
+                "and the upper boundary is exclusive. gross_apr = fee_usd_24h * 365 / "
+                "tvl_usd. net_apr = (fee_usd_24h - protocol_fee_usd_24h) * 365 / tvl_usd. "
+                "annual_gross_usd = declared_position_value_usd * gross_apr. "
+                "annual_net_usd = declared_position_value_usd * net_apr. "
+                "annual_overstatement_usd = declared_position_value_usd * (gross_apr - "
+                "net_apr). cost_only_break_even_days = estimated_recenter_cost_usd / "
+                "(declared_position_value_usd * net_apr / 365) when net_apr > 0, otherwise "
+                "null. Compute with unrounded intermediates; when serializing final "
+                "fields, round every fractional number to 12 decimal places (Python "
+                "round(x, 12)); submit integers as integers; use null where the formula "
+                "yields no value. Do not include prose or Markdown fences. This "
+                "calibration is scored once and cannot be reattempted."
+            )
     body = {
         "prompt_version": prompt_version,
         "spec_id": spec.spec_id,

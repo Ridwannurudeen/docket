@@ -42,8 +42,8 @@
         "destination_first_failed_gate": null,
         "current_net_apr": 0.3285,
         "destination_net_apr": 0.4745,
-        "extra_usd_per_day": 3.9999999999999987,
-        "days_to_recover": 6.250000000000002,
+        "extra_usd_per_day": 4.0,
+        "days_to_recover": 6.25,
         "decision": "MOVE"
       }
     },
@@ -87,8 +87,8 @@
         "destination_first_failed_gate": null,
         "current_net_apr": 0.3285,
         "destination_net_apr": 0.34675,
-        "extra_usd_per_day": 0.49999999999999967,
-        "days_to_recover": 50.000000000000036,
+        "extra_usd_per_day": 0.5,
+        "days_to_recover": 50.0,
         "decision": "STAY"
       }
     },
@@ -131,8 +131,8 @@
         "current_first_failed_gate": null,
         "destination_first_failed_gate": null,
         "current_net_apr": 0.0,
-        "destination_net_apr": 0.030416666666666668,
-        "extra_usd_per_day": 0.8333333333333334,
+        "destination_net_apr": 0.030416666667,
+        "extra_usd_per_day": 0.833333333333,
         "days_to_recover": 30.0,
         "decision": "MOVE"
       }

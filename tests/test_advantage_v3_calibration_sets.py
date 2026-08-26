@@ -1,12 +1,16 @@
+import hashlib
 import json
+from base64 import b64encode
 from pathlib import Path
 
 import pytest
 
 from docket.advantage.v3 import calibration
+from docket.hire.receipts import canonical_hash
 from docket.advantage.v3.spec import (
     _calibration_truth_matches,
     _computed_calibration_truth,
+    _validate_evaluator_calibration,
     load,
 )
 
@@ -62,6 +66,111 @@ def _load_set(filename: str) -> tuple[bytes, dict]:
     return raw, json.loads(raw.decode("utf-8"))
 
 
+def _canonicalize(value):
+    if isinstance(value, float):
+        return round(value, 12)
+    if isinstance(value, dict):
+        return {name: _canonicalize(item) for name, item in value.items()}
+    if isinstance(value, list):
+        return [_canonicalize(item) for item in value]
+    return value
+
+
+def _range_truth_from_prompt(inputs: dict) -> dict:
+    current = inputs["current_tick"]
+    lower = inputs["tick_lower"]
+    upper = inputs["tick_upper"]
+    status = (
+        "below_range"
+        if current < lower
+        else "above_range"
+        if current >= upper
+        else "in_range"
+    )
+    gross_apr = inputs["fee_usd_24h"] * 365 / inputs["tvl_usd"]
+    net_apr = (
+        (inputs["fee_usd_24h"] - inputs["protocol_fee_usd_24h"])
+        * 365
+        / inputs["tvl_usd"]
+    )
+    position_value = inputs["declared_position_value_usd"]
+    return {
+        "range_status": status,
+        "gross_apr": gross_apr,
+        "net_apr": net_apr,
+        "annual_gross_usd": position_value * gross_apr,
+        "annual_net_usd": position_value * net_apr,
+        "annual_overstatement_usd": position_value * (gross_apr - net_apr),
+        "cost_only_break_even_days": (
+            inputs["estimated_recenter_cost_usd"] / (position_value * net_apr / 365)
+            if net_apr > 0
+            else None
+        ),
+    }
+
+
+def _yield_first_failed_gate_from_prompt(pool: dict, allowlist: set[str]):
+    if pool["token0"]["id"].lower() not in allowlist:
+        return "token0_allowlist"
+    if pool["token1"]["id"].lower() not in allowlist:
+        return "token1_allowlist"
+    if pool["tvlUSD"] < 10000:
+        return "tvl_floor"
+    if pool["volumeUSD24h"] / pool["tvlUSD"] > 50:
+        return "turnover_ceiling"
+    if pool["feeUSD24h"] is None:
+        return "feeUSD24h_non_null"
+    if pool["protocolFeeUSD24h"] is None:
+        return "protocolFeeUSD24h_non_null"
+    return None
+
+
+def _yield_truth_from_prompt(inputs: dict) -> dict:
+    allowlist = {address.lower() for address in inputs["allowlist"]}
+    current = inputs["current_pool"]
+    destination = inputs["destination_pool"]
+    current_gate = _yield_first_failed_gate_from_prompt(current, allowlist)
+    destination_gate = _yield_first_failed_gate_from_prompt(destination, allowlist)
+    current_net = (
+        (current["feeUSD24h"] - current["protocolFeeUSD24h"]) * 365 / current["tvlUSD"]
+        if current_gate is None
+        else None
+    )
+    destination_net = (
+        (destination["feeUSD24h"] - destination["protocolFeeUSD24h"])
+        * 365
+        / destination["tvlUSD"]
+        if destination_gate is None
+        else None
+    )
+    extra_per_day = (
+        inputs["position_value_usd"] * (destination_net - current_net) / 365
+        if current_net is not None and destination_net is not None
+        else None
+    )
+    days = (
+        inputs["switching_cost_usd"] / extra_per_day
+        if extra_per_day is not None and extra_per_day > 0
+        else None
+    )
+    decision = (
+        None
+        if current_gate is not None or destination_gate is not None
+        else "MOVE"
+        if days is not None and days <= inputs["decision_horizon_days"]
+        else "STAY"
+    )
+    return {
+        "current_first_failed_gate": current_gate,
+        "destination_first_failed_gate": destination_gate,
+        "current_net_apr": current_net,
+        "destination_net_apr": destination_net,
+        "extra_usd_per_day": extra_per_day,
+        "days_to_recover": days,
+        "decision": decision,
+    }
+
+
 @pytest.mark.parametrize(
     ("set_filename", "spec_filename", "spec_id", "input_fields"), SETS
 )
@@ -89,9 +198,112 @@ def test_calibration_set_contract_and_truth(
                 assert set(pool["token1"]) == {"id"}
         computed = _computed_calibration_truth(spec, case["input"])
         assert computed is not None
-        assert _calibration_truth_matches(case["expected"], computed)
+        assert case["expected"] == _canonicalize(computed), case["case_id"]
+        assert _calibration_truth_matches(case["expected"], computed), case["case_id"]
 
     assert isinstance(calibration.derive_prompt(spec, raw, "seat-a"), bytes)
+
+
+@pytest.mark.parametrize(
+    ("set_filename", "spec_filename", "truth_from_prompt", "declarations"),
+    (
+        (
+            "range-v5-calibration-set.json",
+            "v3-05-range-doctor.json",
+            _range_truth_from_prompt,
+            (
+                "range_status, gross_apr, net_apr, annual_gross_usd, "
+                "annual_net_usd, annual_overstatement_usd, "
+                "cost_only_break_even_days",
+                "current_tick >= tick_upper",
+                "gross_apr = fee_usd_24h * 365 / tvl_usd",
+                "net_apr = (fee_usd_24h - protocol_fee_usd_24h) * 365 / tvl_usd",
+            ),
+        ),
+        (
+            "yield-v2-calibration-set.json",
+            "v3-02-yield-router.json",
+            _yield_truth_from_prompt,
+            (
+                "current_first_failed_gate, destination_first_failed_gate, "
+                "current_net_apr, destination_net_apr, extra_usd_per_day, "
+                "days_to_recover, decision",
+                "token0_allowlist, token1_allowlist, tvl_floor, turnover_ceiling, "
+                "feeUSD24h_non_null, protocolFeeUSD24h_non_null",
+                "days_to_recover <= decision_horizon_days",
+            ),
+        ),
+    ),
+)
+def test_prompt_only_seat_reproduces_every_canonical_answer(
+    set_filename, spec_filename, truth_from_prompt, declarations
+):
+    raw, answer_key = _load_set(set_filename)
+    spec = load(SPECS_DIR / spec_filename)
+    prompt = json.loads(calibration.derive_prompt(spec, raw, "seat-a"))
+
+    assert prompt["prompt_version"] == "v3.calibration-prompt.v5"
+    assert all(text in prompt["instruction"] for text in declarations)
+    assert (
+        "round every fractional number to 12 decimal places " in prompt["instruction"]
+    )
+    assert "Python round(x, 12)" in prompt["instruction"]
+    assert all("expected" not in case for case in prompt["cases"])
+
+    expected_by_id = {case["case_id"]: case["expected"] for case in answer_key["cases"]}
+    unrounded = {
+        case["case_id"]: truth_from_prompt(case["input"]) for case in prompt["cases"]
+    }
+    rounded = {case_id: _canonicalize(answer) for case_id, answer in unrounded.items()}
+
+    assert (
+        sum(
+            rounded[case_id] == expected for case_id, expected in expected_by_id.items()
+        )
+        == 8
+    )
+    assert any(
+        unrounded[case_id] != expected for case_id, expected in expected_by_id.items()
+    )
+
+
+@pytest.mark.parametrize(
+    ("set_filename", "spec_filename"),
+    ((item[0], item[1]) for item in SETS),
+)
+def test_canonical_set_passes_real_assembled_calibration_validation(
+    set_filename, spec_filename
+):
+    raw, body = _load_set(set_filename)
+    spec = load(SPECS_DIR / spec_filename)
+    rows = []
+    for ordinal, seat in enumerate(spec.scoring["evaluator_roster"], start=1):
+        rows.append(
+            {
+                "evaluator_id": seat["evaluator_id"],
+                "model_build": f"stub-build-{ordinal}",
+                "session_id": f"stub-session-{ordinal}",
+                "rubric_anchor_hash": canonical_hash(spec.quality_rubric["criteria"]),
+                "calibration_results": [
+                    {
+                        "case_id": case["case_id"],
+                        "input": case["input"],
+                        "expected": case["expected"],
+                        "submitted": case["expected"],
+                    }
+                    for case in body["cases"]
+                ],
+            }
+        )
+    envelope = {
+        "calibration_set": {
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "body_base64": b64encode(raw).decode("ascii"),
+        },
+        "evaluator_calibration": rows,
+    }
+
+    _validate_evaluator_calibration(spec, envelope, [], ROOT)
 
 
 def test_range_calibration_covers_every_range_state():
@@ -106,9 +318,7 @@ def test_range_calibration_covers_every_range_state():
 
 def test_yield_calibration_covers_eligibility_and_exclusions():
     _, body = _load_set("yield-v2-calibration-set.json")
-    gates = {
-        case["expected"]["current_first_failed_gate"] for case in body["cases"]
-    }
+    gates = {case["expected"]["current_first_failed_gate"] for case in body["cases"]}
 
     assert None in gates
     assert len(gates) >= 3
