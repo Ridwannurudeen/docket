@@ -132,6 +132,8 @@ def _measured_value(service_id: str, elapsed: float) -> dict:
             "paired_manual_seconds": family["speed"]["manual_median_seconds"],
             "quality_result": family["quality"],
             "report_url": f"/advantage/v3#{spec_id}",
+            "benchmark_state": state,
+            "falsifier_result": family["falsifier_result"],
             "benchmark_unavailable_reason": None,
         }
     if state == v3_report.REGISTERED_WAITING:
@@ -152,6 +154,7 @@ def _measured_value(service_id: str, elapsed: float) -> dict:
         "paired_manual_seconds": None,
         "quality_result": None,
         "report_url": None,
+        "benchmark_state": state,
         "benchmark_unavailable_reason": reason,
     }
 

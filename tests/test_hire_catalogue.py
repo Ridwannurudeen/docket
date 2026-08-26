@@ -41,6 +41,7 @@ def _benchmark_state(spec_id, state, *, quality=None, speed=None, unscored_reaso
             "state": state,
             "quality": quality,
             "speed": speed,
+            "falsifier_result": None,
             "unscored_reason": unscored_reason,
         }
     )
@@ -175,6 +176,7 @@ def test_range_doctor_times_this_run_and_leaves_the_unrun_v3_fields_empty(monkey
     assert out["measured_value"]["paired_manual_seconds"] is None
     assert out["measured_value"]["quality_result"] is None
     assert out["measured_value"]["report_url"] is None
+    assert out["measured_value"]["benchmark_state"] == "registered_waiting_for_inputs"
     assert (
         out["measured_value"]["benchmark_unavailable_reason"]
         == "The v3 paired family v3-05-range-doctor has no locked inputs."
@@ -211,8 +213,41 @@ def test_range_doctor_populates_only_its_scored_v3_family(monkeypatch):
         "paired_manual_seconds": 42.75,
         "quality_result": quality,
         "report_url": "/advantage/v3#v3-05-range-doctor",
+        "benchmark_state": "not_refuted",
+        "falsifier_result": None,
         "benchmark_unavailable_reason": None,
     }
+
+
+def test_refuted_benchmark_exposes_overall_verdict_and_fired_checks(monkeypatch):
+    quality = {"quality_refuted": False}
+    falsifier = {
+        "refuted": True,
+        "checks": [
+            {
+                "name": "any_pair_is_incomplete",
+                "refuted": True,
+                "observed": {"complete_pairs": 2, "planned_pairs": 3},
+            }
+        ],
+    }
+    payload = _benchmark_state(
+        "v3-05-range-doctor",
+        "refuted",
+        quality=quality,
+        speed={"manual_median_seconds": 42.75},
+    )
+    family = next(
+        row for row in payload["families"] if row["spec_id"] == "v3-05-range-doctor"
+    )
+    family["falsifier_result"] = falsifier
+    monkeypatch.setattr(catalogue.v3_report, "report", lambda: payload)
+
+    measured = catalogue._measured_value("range-doctor", 1.25)
+
+    assert measured["benchmark_state"] == "refuted"
+    assert measured["falsifier_result"] == falsifier
+    assert measured["quality_result"]["quality_refuted"] is False
 
 
 @pytest.mark.parametrize(
@@ -258,6 +293,7 @@ def test_unavailable_v3_states_are_precise_and_never_borrow_v1(
         "paired_manual_seconds": None,
         "quality_result": None,
         "report_url": None,
+        "benchmark_state": state,
         "benchmark_unavailable_reason": expected_reason,
     }
     assert "528.31" not in json.dumps(measured, sort_keys=True)
@@ -279,6 +315,7 @@ def test_only_mapped_warden_and_yield_runners_gain_measured_value(monkeypatch):
                     "speed": {
                         "manual_median_seconds": manual_seconds[family["spec_id"]]
                     },
+                    "falsifier_result": {"refuted": True, "checks": []},
                 }
             )
     clock = iter((10.0, 11.0, 20.0, 22.5))
@@ -365,6 +402,8 @@ def test_only_mapped_warden_and_yield_runners_gain_measured_value(monkeypatch):
         "paired_manual_seconds": 27.25,
         "quality_result": quality,
         "report_url": "/advantage/v3#v3-04-warden-security",
+        "benchmark_state": "refuted",
+        "falsifier_result": {"refuted": True, "checks": []},
         "benchmark_unavailable_reason": None,
     }
     assert yield_result["measured_value"] == {
@@ -372,6 +411,8 @@ def test_only_mapped_warden_and_yield_runners_gain_measured_value(monkeypatch):
         "paired_manual_seconds": 61.5,
         "quality_result": quality,
         "report_url": "/advantage/v3#v3-02-yield-router",
+        "benchmark_state": "refuted",
+        "falsifier_result": {"refuted": True, "checks": []},
         "benchmark_unavailable_reason": None,
     }
 
@@ -399,6 +440,8 @@ def test_an_unavailable_benchmark_is_not_cached_after_the_family_scores(monkeypa
         "paired_manual_seconds": 42.75,
         "quality_result": quality,
         "report_url": "/advantage/v3#v3-05-range-doctor",
+        "benchmark_state": "not_refuted",
+        "falsifier_result": None,
         "benchmark_unavailable_reason": None,
     }
 

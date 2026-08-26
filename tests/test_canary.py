@@ -167,6 +167,18 @@ def _decision_grade_result():
             "paired_manual_seconds": 12.5,
             "quality_result": {"decision_grade": True},
             "report_url": "/advantage/v3#v3-05-range-doctor",
+            "benchmark_state": "refuted",
+            "falsifier_result": {
+                "refuted": True,
+                "checks": [
+                    {
+                        "name": "any_pair_is_incomplete",
+                        "refuted": True,
+                        "observed": {"complete_pairs": 2, "planned_pairs": 3},
+                    }
+                ],
+            },
+            "benchmark_unavailable_reason": None,
         },
     }
 
