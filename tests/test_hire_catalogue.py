@@ -376,6 +376,33 @@ def test_only_mapped_warden_and_yield_runners_gain_measured_value(monkeypatch):
     }
 
 
+def test_an_unavailable_benchmark_is_not_cached_after_the_family_scores(monkeypatch):
+    waiting = _benchmark_state(
+        "v3-05-range-doctor", "registered_waiting_for_inputs"
+    )
+    quality = {"quality_refuted": False}
+    scored = _benchmark_state(
+        "v3-05-range-doctor",
+        "not_refuted",
+        quality=quality,
+        speed={"manual_median_seconds": 42.75},
+    )
+    reports = iter((waiting, scored))
+    monkeypatch.setattr(catalogue.v3_report, "report", lambda: next(reports))
+
+    unavailable = catalogue._measured_value("range-doctor", 1.0)
+    available = catalogue._measured_value("range-doctor", 2.0)
+
+    assert unavailable["paired_manual_seconds"] is None
+    assert available == {
+        "this_run_seconds": 2.0,
+        "paired_manual_seconds": 42.75,
+        "quality_result": quality,
+        "report_url": "/advantage/v3#v3-05-range-doctor",
+        "benchmark_unavailable_reason": None,
+    }
+
+
 def test_unknown_service_returns_none():
     assert get_service("nope") is None
 
