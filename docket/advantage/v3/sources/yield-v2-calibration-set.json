@@ -3,7 +3,7 @@
   "spec_id": "v3-02-yield-router",
   "cases": [
     {
-      "case_id": "yield-clean-move",
+      "case_id": "y2-cal-01",
       "input": {
         "allowlist": [
           "0x0000000000000000000000000000000000000001",
@@ -48,7 +48,97 @@
       }
     },
     {
-      "case_id": "yield-clean-stay",
+      "case_id": "y2-cal-02",
+      "input": {
+        "allowlist": [
+          "0x0000000000000000000000000000000000000001",
+          "0x0000000000000000000000000000000000000002"
+        ],
+        "current_pool": {
+          "token0": {
+            "id": "0x0000000000000000000000000000000000000003"
+          },
+          "token1": {
+            "id": "0x0000000000000000000000000000000000000002"
+          },
+          "tvlUSD": 9999,
+          "volumeUSD24h": 1000,
+          "feeUSD24h": 100,
+          "protocolFeeUSD24h": 10
+        },
+        "destination_pool": {
+          "token0": {
+            "id": "0x0000000000000000000000000000000000000001"
+          },
+          "token1": {
+            "id": "0x0000000000000000000000000000000000000002"
+          },
+          "tvlUSD": 100000,
+          "volumeUSD24h": 1000,
+          "feeUSD24h": 135,
+          "protocolFeeUSD24h": 10
+        },
+        "position_value_usd": 10000,
+        "switching_cost_usd": 25,
+        "decision_horizon_days": 30
+      },
+      "expected": {
+        "current_first_failed_gate": "token0_allowlist",
+        "destination_first_failed_gate": null,
+        "current_net_apr": null,
+        "destination_net_apr": 0.45625,
+        "extra_usd_per_day": null,
+        "days_to_recover": null,
+        "decision": null
+      }
+    },
+    {
+      "case_id": "y2-cal-03",
+      "input": {
+        "allowlist": [
+          "0x0000000000000000000000000000000000000001",
+          "0x0000000000000000000000000000000000000002"
+        ],
+        "current_pool": {
+          "token0": {
+            "id": "0x0000000000000000000000000000000000000001"
+          },
+          "token1": {
+            "id": "0x0000000000000000000000000000000000000002"
+          },
+          "tvlUSD": 9999,
+          "volumeUSD24h": 500001,
+          "feeUSD24h": 100,
+          "protocolFeeUSD24h": 10
+        },
+        "destination_pool": {
+          "token0": {
+            "id": "0x0000000000000000000000000000000000000001"
+          },
+          "token1": {
+            "id": "0x0000000000000000000000000000000000000002"
+          },
+          "tvlUSD": 100000,
+          "volumeUSD24h": 1000,
+          "feeUSD24h": 145,
+          "protocolFeeUSD24h": 10
+        },
+        "position_value_usd": 10000,
+        "switching_cost_usd": 25,
+        "decision_horizon_days": 30
+      },
+      "expected": {
+        "current_first_failed_gate": "tvl_floor",
+        "destination_first_failed_gate": null,
+        "current_net_apr": null,
+        "destination_net_apr": 0.49275,
+        "extra_usd_per_day": null,
+        "days_to_recover": null,
+        "decision": null
+      }
+    },
+    {
+      "case_id": "y2-cal-04",
       "input": {
         "allowlist": [
           "0x0000000000000000000000000000000000000001",
@@ -93,142 +183,7 @@
       }
     },
     {
-      "case_id": "yield-boundary-recovery",
-      "input": {
-        "allowlist": [
-          "0x0000000000000000000000000000000000000001",
-          "0x0000000000000000000000000000000000000002"
-        ],
-        "current_pool": {
-          "token0": {
-            "id": "0x0000000000000000000000000000000000000001"
-          },
-          "token1": {
-            "id": "0x0000000000000000000000000000000000000002"
-          },
-          "tvlUSD": 12000,
-          "volumeUSD24h": 1000,
-          "feeUSD24h": 0,
-          "protocolFeeUSD24h": 0
-        },
-        "destination_pool": {
-          "token0": {
-            "id": "0x0000000000000000000000000000000000000001"
-          },
-          "token1": {
-            "id": "0x0000000000000000000000000000000000000002"
-          },
-          "tvlUSD": 12000,
-          "volumeUSD24h": 1000,
-          "feeUSD24h": 1,
-          "protocolFeeUSD24h": 0
-        },
-        "position_value_usd": 10000,
-        "switching_cost_usd": 25,
-        "decision_horizon_days": 30
-      },
-      "expected": {
-        "current_first_failed_gate": null,
-        "destination_first_failed_gate": null,
-        "current_net_apr": 0.0,
-        "destination_net_apr": 0.030416666667,
-        "extra_usd_per_day": 0.833333333333,
-        "days_to_recover": 30.0,
-        "decision": "MOVE"
-      }
-    },
-    {
-      "case_id": "yield-current-token0-excluded",
-      "input": {
-        "allowlist": [
-          "0x0000000000000000000000000000000000000001",
-          "0x0000000000000000000000000000000000000002"
-        ],
-        "current_pool": {
-          "token0": {
-            "id": "0x0000000000000000000000000000000000000003"
-          },
-          "token1": {
-            "id": "0x0000000000000000000000000000000000000002"
-          },
-          "tvlUSD": 100000,
-          "volumeUSD24h": 1000,
-          "feeUSD24h": 100,
-          "protocolFeeUSD24h": 10
-        },
-        "destination_pool": {
-          "token0": {
-            "id": "0x0000000000000000000000000000000000000001"
-          },
-          "token1": {
-            "id": "0x0000000000000000000000000000000000000002"
-          },
-          "tvlUSD": 100000,
-          "volumeUSD24h": 1000,
-          "feeUSD24h": 140,
-          "protocolFeeUSD24h": 10
-        },
-        "position_value_usd": 10000,
-        "switching_cost_usd": 25,
-        "decision_horizon_days": 30
-      },
-      "expected": {
-        "current_first_failed_gate": "token0_allowlist",
-        "destination_first_failed_gate": null,
-        "current_net_apr": null,
-        "destination_net_apr": 0.4745,
-        "extra_usd_per_day": null,
-        "days_to_recover": null,
-        "decision": null
-      }
-    },
-    {
-      "case_id": "yield-current-tvl-floor",
-      "input": {
-        "allowlist": [
-          "0x0000000000000000000000000000000000000001",
-          "0x0000000000000000000000000000000000000002"
-        ],
-        "current_pool": {
-          "token0": {
-            "id": "0x0000000000000000000000000000000000000001"
-          },
-          "token1": {
-            "id": "0x0000000000000000000000000000000000000002"
-          },
-          "tvlUSD": 9999,
-          "volumeUSD24h": 1000,
-          "feeUSD24h": 100,
-          "protocolFeeUSD24h": 10
-        },
-        "destination_pool": {
-          "token0": {
-            "id": "0x0000000000000000000000000000000000000001"
-          },
-          "token1": {
-            "id": "0x0000000000000000000000000000000000000002"
-          },
-          "tvlUSD": 100000,
-          "volumeUSD24h": 1000,
-          "feeUSD24h": 140,
-          "protocolFeeUSD24h": 10
-        },
-        "position_value_usd": 10000,
-        "switching_cost_usd": 25,
-        "decision_horizon_days": 30
-      },
-      "expected": {
-        "current_first_failed_gate": "tvl_floor",
-        "destination_first_failed_gate": null,
-        "current_net_apr": null,
-        "destination_net_apr": 0.4745,
-        "extra_usd_per_day": null,
-        "days_to_recover": null,
-        "decision": null
-      }
-    },
-    {
-      "case_id": "yield-current-turnover-ceiling",
+      "case_id": "y2-cal-05",
       "input": {
         "allowlist": [
           "0x0000000000000000000000000000000000000001",
@@ -273,7 +228,52 @@
       }
     },
     {
-      "case_id": "yield-current-fee-null",
+      "case_id": "y2-cal-06",
+      "input": {
+        "allowlist": [
+          "0x0000000000000000000000000000000000000001",
+          "0x0000000000000000000000000000000000000002"
+        ],
+        "current_pool": {
+          "token0": {
+            "id": "0x0000000000000000000000000000000000000001"
+          },
+          "token1": {
+            "id": "0x0000000000000000000000000000000000000002"
+          },
+          "tvlUSD": 12000,
+          "volumeUSD24h": 1000,
+          "feeUSD24h": 50,
+          "protocolFeeUSD24h": 10
+        },
+        "destination_pool": {
+          "token0": {
+            "id": "0x0000000000000000000000000000000000000001"
+          },
+          "token1": {
+            "id": "0x0000000000000000000000000000000000000002"
+          },
+          "tvlUSD": 12000,
+          "volumeUSD24h": 1000,
+          "feeUSD24h": 51,
+          "protocolFeeUSD24h": 10
+        },
+        "position_value_usd": 10000,
+        "switching_cost_usd": 25,
+        "decision_horizon_days": 30
+      },
+      "expected": {
+        "current_first_failed_gate": null,
+        "destination_first_failed_gate": null,
+        "current_net_apr": 1.216666666667,
+        "destination_net_apr": 1.247083333333,
+        "extra_usd_per_day": 0.833333333333,
+        "days_to_recover": 30.0,
+        "decision": "MOVE"
+      }
+    },
+    {
+      "case_id": "y2-cal-07",
       "input": {
         "allowlist": [
           "0x0000000000000000000000000000000000000001",
@@ -318,7 +318,7 @@
       }
     },
     {
-      "case_id": "yield-current-protocol-fee-null",
+      "case_id": "y2-cal-08",
       "input": {
         "allowlist": [
           "0x0000000000000000000000000000000000000001",

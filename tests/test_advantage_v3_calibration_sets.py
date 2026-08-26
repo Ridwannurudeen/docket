@@ -309,19 +309,82 @@ def test_canonical_set_passes_real_assembled_calibration_validation(
 def test_range_calibration_covers_every_range_state():
     _, body = _load_set("range-v5-calibration-set.json")
 
+    assert [case["case_id"] for case in body["cases"]] == [
+        f"r5-cal-{ordinal:02d}" for ordinal in range(1, 9)
+    ]
     assert {case["expected"]["range_status"] for case in body["cases"]} == {
         "in_range",
         "above_range",
         "below_range",
     }
+    below, baseline = body["cases"][:2]
+    below_net_fee_ratio = (
+        below["input"]["fee_usd_24h"] - below["input"]["protocol_fee_usd_24h"]
+    ) / below["input"]["tvl_usd"]
+    baseline_net_fee_ratio = (
+        baseline["input"]["fee_usd_24h"]
+        - baseline["input"]["protocol_fee_usd_24h"]
+    ) / baseline["input"]["tvl_usd"]
+    assert below_net_fee_ratio != baseline_net_fee_ratio
 
 
 def test_yield_calibration_covers_eligibility_and_exclusions():
     _, body = _load_set("yield-v2-calibration-set.json")
     gates = {case["expected"]["current_first_failed_gate"] for case in body["cases"]}
 
+    assert [case["case_id"] for case in body["cases"]] == [
+        f"y2-cal-{ordinal:02d}" for ordinal in range(1, 9)
+    ]
     assert None in gates
     assert len(gates) >= 3
+    assert [
+        case["expected"]["current_first_failed_gate"] for case in body["cases"]
+    ] == [
+        None,
+        "token0_allowlist",
+        "tvl_floor",
+        None,
+        "turnover_ceiling",
+        None,
+        "feeUSD24h_non_null",
+        "protocolFeeUSD24h_non_null",
+    ]
+
+
+def test_yield_calibration_exercises_first_gate_precedence_and_varied_fees():
+    _, body = _load_set("yield-v2-calibration-set.json")
+    by_id = {case["case_id"]: case for case in body["cases"]}
+
+    token0_then_tvl = by_id["y2-cal-02"]
+    assert token0_then_tvl["input"]["current_pool"]["token0"]["id"] not in {
+        address.lower() for address in token0_then_tvl["input"]["allowlist"]
+    }
+    assert token0_then_tvl["input"]["current_pool"]["tvlUSD"] < 10000
+    assert token0_then_tvl["expected"]["current_first_failed_gate"] == (
+        "token0_allowlist"
+    )
+
+    tvl_then_turnover = by_id["y2-cal-03"]
+    current_pool = tvl_then_turnover["input"]["current_pool"]
+    assert current_pool["tvlUSD"] < 10000
+    assert current_pool["volumeUSD24h"] / current_pool["tvlUSD"] > 50
+    assert tvl_then_turnover["expected"]["current_first_failed_gate"] == "tvl_floor"
+
+    assert token0_then_tvl["input"]["destination_pool"]["feeUSD24h"] == 135
+    assert tvl_then_turnover["input"]["destination_pool"]["feeUSD24h"] == 145
+
+    boundary = by_id["y2-cal-06"]["input"]
+    current_net_fee = (
+        boundary["current_pool"]["feeUSD24h"]
+        - boundary["current_pool"]["protocolFeeUSD24h"]
+    )
+    destination_net_fee = (
+        boundary["destination_pool"]["feeUSD24h"]
+        - boundary["destination_pool"]["protocolFeeUSD24h"]
+    )
+    assert boundary["current_pool"]["feeUSD24h"] > 0
+    assert boundary["destination_pool"]["feeUSD24h"] > 0
+    assert destination_net_fee - current_net_fee == 1
 
 
 @pytest.mark.parametrize(
