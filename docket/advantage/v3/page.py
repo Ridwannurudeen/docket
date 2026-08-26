@@ -211,8 +211,23 @@ def _family(family: dict) -> str:
     )
 
 
+def _failure(payload: dict) -> str:
+    error = payload["error"]
+    return (
+        '<section aria-labelledby="v3-unavailable"><h2 id="v3-unavailable">'
+        "V3 report unavailable</h2>"
+        '<p class="status-line"><span class="status-key">Error</span>'
+        f'<span class="mono">{_esc(error["code"])}</span></p>'
+        f'<p class="lede">{_esc(error["message"])}</p>'
+        "<p>No family state is shown because reconstruction failed; an empty family list "
+        "would falsely describe the evidence as absent.</p></section>"
+    )
+
+
 def render(payload: dict) -> str:
     """Render the summary and all families from one already-built report payload."""
+    if "error" in payload:
+        return _failure(payload)
     return _state_summary(payload) + "".join(
         _family(family) for family in payload["families"]
     )

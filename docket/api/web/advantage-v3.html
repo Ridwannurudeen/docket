@@ -51,7 +51,8 @@
             V3 is a paired agent-versus-manual evaluation. Its questions, arm order, clocks,
             stopping rules, failure treatment, material-speed thresholds, model seats, prompt-level
             blinding recipe, and falsifiers were registered before any input lock or arm output.
-            The page derives each family state from the artifacts available at process startup.
+            At process startup, the page derives each family state from the available artifacts or
+            shows an explicit reconstruction failure without inventing an empty report.
           </p>
           <p>
             The two evaluation seats are run by one operator. Prompt-level blinding keeps the A/B
@@ -61,7 +62,7 @@
           <p class="status-line">
             <span class="status-key">The same startup report as data:</span>
             <a href="/advantage/v3.json">/advantage/v3.json</a>
-            <span>full registrations and every artifact-derived state field.</span>
+            <span>the same startup resolution, including an explicit reconstruction error.</span>
           </p>
         </section>
 
@@ -100,11 +101,12 @@
           <h2 id="state-method">How to read the state</h2>
           <div class="panel">
             <p>
-              The state is reconstructed, never typed into this shell. A missing input digest stops
-              at registration. A locked input with no claimed primary stops before running. Ledger
-              events move a family through work in progress and terminal-but-unscored states. Only
-              durable sheets plus the published A/B mapping permit the registered falsifier checks
-              to produce either terminal claim state.
+              When reconstruction succeeds, the state is derived rather than typed into this shell.
+              A missing input digest stops at registration. A locked input with no claimed primary
+              stops before running. Ledger events move a family through work in progress and
+              terminal-but-unscored states. Only durable sheets plus the published A/B mapping permit
+              the registered falsifier checks to produce either terminal claim state. If
+              reconstruction fails, the report area says so instead of presenting zero families.
             </p>
             <p class="dim">
               The HTML below is rendered from the exact object returned by the JSON route. The
