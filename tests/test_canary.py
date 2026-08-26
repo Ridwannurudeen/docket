@@ -9,6 +9,7 @@ from docket.canary import (
     END_AT,
     HIRE_PRICE_ATOMIC,
     LEG_NAMES,
+    _decision_grade,
     main,
     run_from_environment,
 )
@@ -165,7 +166,7 @@ def _decision_grade_result():
             "this_run_seconds": 1.25,
             "paired_manual_seconds": 12.5,
             "quality_result": {"decision_grade": True},
-            "report_url": "/advantage/v3/range-doctor",
+            "report_url": "/advantage/v3#v3-05-range-doctor",
         },
     }
 
@@ -201,6 +202,41 @@ def _b402_challenge(request, *, asset=USDT_TOKEN, extra_overrides=None):
         },
         request=request,
     )
+
+
+def test_measured_value_controls_the_real_canary_decision_grade():
+    payload = {
+        "wallet": WALLET,
+        "token_id": TOKEN_ID,
+        "declared_position_value_usd": 10_000.0,
+        "estimated_recenter_cost_usd": 25.0,
+    }
+    populated = _decision_grade_result()
+    assert (
+        populated["measured_value"]["report_url"]
+        == "/advantage/v3#v3-05-range-doctor"
+    )
+
+    failures, observed = _decision_grade(populated, payload)
+
+    assert failures == []
+    assert observed["measured_value_present"] is True
+
+    unavailable = _decision_grade_result()
+    unavailable["measured_value"] = {
+        "this_run_seconds": 1.25,
+        "paired_manual_seconds": None,
+        "quality_result": None,
+        "report_url": None,
+        "benchmark_unavailable_reason": (
+            "The v3 paired family v3-05-range-doctor has no locked inputs."
+        ),
+    }
+
+    failures, observed = _decision_grade(unavailable, payload)
+
+    assert failures == ["measured_value_incomplete"]
+    assert observed["measured_value_present"] is False
 
 
 def test_an_unfunded_canary_records_three_passes_and_never_greens_skipped_legs(
