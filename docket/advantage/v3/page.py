@@ -18,7 +18,10 @@ STATE_TEXT = {
         "A later pilot-informed registration superseded this unlocked family. No arm ran."
     ),
     report_module.LOCKED_NOT_RUN: "Inputs are locked. No primary attempt has been claimed.",
-    report_module.RUNNING: "The claim-once ledger has work in progress.",
+    report_module.RUNNING: (
+        "The claim-once ledger has claimed work without a terminal event. Expired "
+        "deadlines are shown as stale; this report does not repair the ledger."
+    ),
     report_module.COMPLETE_UNSCORED: (
         "Every scheduled primary has a terminal ledger event; performance remains unscored."
     ),
@@ -127,13 +130,24 @@ def _progress(family: dict) -> str:
     progress = family["run_progress"]
     if progress is None:
         return ""
+    stale = progress.get("stale_primaries", [])
     return (
         '<div class="panel"><h3>Ledger progress</h3><dl class="deflist">'
         f'<dt>Scheduled primaries</dt><dd class="num">{_esc(progress["scheduled_primaries"])}</dd>'
         f'<dt>Claimed primaries</dt><dd class="num">{_esc(progress["claimed_primaries"])}</dd>'
         f'<dt>Terminal primaries</dt><dd class="num">{_esc(progress["terminal_primaries"])}</dd>'
         f'<dt>Terminal outcomes</dt><dd class="mono">{_esc(progress["outcomes"])}</dd>'
-        "</dl></div>"
+        f'<dt>Stale claimed primaries</dt><dd class="num">{_esc(len(stale))}</dd>'
+        "</dl>"
+        + (
+            _json_record(
+                "Claimed primaries past deadline with no terminal event",
+                stale,
+            )
+            if stale
+            else ""
+        )
+        + "</div>"
     )
 
 

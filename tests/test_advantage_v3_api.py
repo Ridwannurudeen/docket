@@ -101,7 +101,10 @@ def test_v3_report_failure_still_stops_startup(tmp_path, monkeypatch):
             report.LOCKED_NOT_RUN,
             "Inputs are locked. No primary attempt has been claimed.",
         ),
-        (report.RUNNING, "The claim-once ledger has work in progress."),
+        (
+            report.RUNNING,
+            "Expired deadlines are shown as stale; this report does not repair the ledger.",
+        ),
         (
             report.COMPLETE_UNSCORED,
             "Every scheduled primary has a terminal ledger event; performance remains unscored.",

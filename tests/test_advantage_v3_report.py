@@ -1,6 +1,8 @@
 """The v3 report is a view over evidence, never a place to type a result."""
 
 import json
+import os
+from pathlib import Path
 
 from docket.advantage.v3 import report, runner, scoring
 
@@ -41,6 +43,37 @@ def _score_completed_family(spec, inputs, tmp_path, *, scores):
         tmp_path / "mappings",
         repo_root=tmp_path,
     )
+
+
+def _files_under(path):
+    return {
+        candidate.relative_to(path): candidate.read_bytes()
+        for candidate in path.rglob("*")
+        if candidate.is_file()
+    }
+
+
+def _forbid_filesystem_writes(monkeypatch):
+    real_open = Path.open
+    real_os_open = os.open
+
+    def read_only_open(path, mode="r", *args, **kwargs):
+        if any(flag in mode for flag in "wax+"):
+            raise AssertionError(f"report attempted to open {path} with mode {mode!r}")
+        return real_open(path, mode, *args, **kwargs)
+
+    def fail_mkdir(path, *args, **kwargs):
+        raise AssertionError(f"report attempted to create directory {path}")
+
+    def fail_os_open(path, flags, *args, **kwargs):
+        write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_TRUNC
+        if flags & write_flags:
+            raise AssertionError(f"report attempted to write through os.open: {path}")
+        return real_os_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", read_only_open)
+    monkeypatch.setattr(Path, "mkdir", fail_mkdir)
+    monkeypatch.setattr(os, "open", fail_os_open)
 
 
 def test_the_committed_families_include_the_superseded_unlocked_pilot():
@@ -99,7 +132,7 @@ def test_locked_not_run_running_and_complete_unscored_come_only_from_the_ledger(
     assert family["falsifier_result"] is None
 
 
-def test_report_closes_a_dangling_attempt_after_its_registered_deadline(
+def test_report_reads_an_expired_dangling_attempt_without_writing(
     tmp_path, monkeypatch
 ):
     spec, inputs = _locked_family(tmp_path, monkeypatch, "v3-01-range-doctor")
@@ -124,11 +157,36 @@ def test_report_closes_a_dangling_attempt_after_its_registered_deadline(
             "inputs_ref": spec.inputs_ref,
         },
     )
+    before = _files_under(tmp_path)
+    _forbid_filesystem_writes(monkeypatch)
 
     family = _build_report(tmp_path)["families"][0]
 
     assert family["state"] == report.RUNNING
-    assert any(event["kind"] == runner.INTERRUPTED for event in family["ledger"])
+    assert family["run_progress"]["stale_primaries"] == [
+        {
+            "case_id": case_id,
+            "arm": "manual",
+            "deadline_at": "2026-01-01T00:20:00+00:00",
+        }
+    ]
+    assert [event["kind"] for event in family["ledger"]] == [runner.STARTED]
+    assert _files_under(tmp_path) == before
+
+
+def test_report_reads_a_complete_family_without_writing(tmp_path, monkeypatch):
+    spec, inputs = _locked_family(tmp_path, monkeypatch, "v3-01-range-doctor")
+    ledger = tmp_path / "runs" / f"{spec.spec_id}.jsonl"
+    _complete_range_ledger(spec, inputs, ledger)
+    _score_completed_family(spec, inputs, tmp_path, scores={"agent": 3, "manual": 2})
+    before = _files_under(tmp_path)
+    _forbid_filesystem_writes(monkeypatch)
+
+    family = _build_report(tmp_path)["families"][0]
+
+    assert family["state"] == report.NOT_REFUTED
+    assert family["quality"]["arms"]["agent"]["median_total"] == 15
+    assert _files_under(tmp_path) == before
 
 
 def test_two_durable_sheets_and_mapping_produce_not_refuted_from_the_numbers(
