@@ -250,6 +250,33 @@ def test_refuted_benchmark_exposes_overall_verdict_and_fired_checks(monkeypatch)
     assert measured["quality_result"]["quality_refuted"] is False
 
 
+@pytest.mark.parametrize("manual_median", [None, float("nan"), float("inf")])
+def test_a_scored_family_without_a_finite_manual_median_is_unavailable(
+    manual_median, monkeypatch
+):
+    payload = _benchmark_state(
+        "v3-05-range-doctor",
+        "refuted",
+        quality={"quality_refuted": False},
+        speed={"manual_median_seconds": manual_median},
+    )
+    monkeypatch.setattr(catalogue.v3_report, "report", lambda: payload)
+
+    measured = catalogue._measured_value("range-doctor", 1.25)
+
+    assert measured == {
+        "this_run_seconds": 1.25,
+        "paired_manual_seconds": None,
+        "quality_result": None,
+        "report_url": None,
+        "benchmark_state": "refuted",
+        "benchmark_unavailable_reason": (
+            "The v3 paired family v3-05-range-doctor is scored, but no complete "
+            "manual pairs exist; no paired manual median is available."
+        ),
+    }
+
+
 @pytest.mark.parametrize(
     ("state", "unscored_reason", "expected_reason"),
     (

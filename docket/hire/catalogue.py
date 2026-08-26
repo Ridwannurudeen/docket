@@ -127,9 +127,26 @@ def _measured_value(service_id: str, elapsed: float) -> dict:
     spec_id = family["spec_id"]
     state = family["state"]
     if state in (v3_report.REFUTED, v3_report.NOT_REFUTED):
+        manual_seconds = family["speed"]["manual_median_seconds"]
+        if (
+            isinstance(manual_seconds, bool)
+            or not isinstance(manual_seconds, (int, float))
+            or not math.isfinite(manual_seconds)
+        ):
+            return {
+                "this_run_seconds": elapsed,
+                "paired_manual_seconds": None,
+                "quality_result": None,
+                "report_url": None,
+                "benchmark_state": state,
+                "benchmark_unavailable_reason": (
+                    f"The v3 paired family {spec_id} is scored, but no complete "
+                    "manual pairs exist; no paired manual median is available."
+                ),
+            }
         return {
             "this_run_seconds": elapsed,
-            "paired_manual_seconds": family["speed"]["manual_median_seconds"],
+            "paired_manual_seconds": manual_seconds,
             "quality_result": family["quality"],
             "report_url": f"/advantage/v3#{spec_id}",
             "benchmark_state": state,
