@@ -120,6 +120,42 @@ def _benchmark_family(service_id: str, payload: dict) -> dict | None:
     return family
 
 
+def _measured_value(service_id: str, elapsed: float) -> dict:
+    family = _benchmark_family(service_id, v3_report.report())
+    if family is None:
+        raise RuntimeError(f"service {service_id} has no v3 benchmark family")
+    spec_id = family["spec_id"]
+    state = family["state"]
+    if state in (v3_report.REFUTED, v3_report.NOT_REFUTED):
+        return {
+            "this_run_seconds": elapsed,
+            "paired_manual_seconds": family["speed"]["manual_median_seconds"],
+            "quality_result": family["quality"],
+            "report_url": f"/advantage/v3#{spec_id}",
+            "benchmark_unavailable_reason": None,
+        }
+    if state == v3_report.REGISTERED_WAITING:
+        reason = f"The v3 paired family {spec_id} has no locked inputs."
+    elif state == v3_report.LOCKED_NOT_RUN:
+        reason = f"The v3 paired family {spec_id} has locked inputs but has not run."
+    elif state == v3_report.RUNNING:
+        reason = f"The v3 paired family {spec_id} is still running."
+    elif state == v3_report.COMPLETE_UNSCORED:
+        reason = (
+            f"The v3 paired family {spec_id} is complete but unscored: "
+            f"{family['unscored_reason']}."
+        )
+    else:
+        raise RuntimeError(f"v3 family {spec_id} has unknown benchmark state {state}")
+    return {
+        "this_run_seconds": elapsed,
+        "paired_manual_seconds": None,
+        "quality_result": None,
+        "report_url": None,
+        "benchmark_unavailable_reason": reason,
+    }
+
+
 @dataclass(frozen=True)
 class PaidStockAdmission:
     """The four facts every personalized paid hire must establish before it is sold."""
@@ -404,18 +440,7 @@ def _run_range_doctor(payload: dict) -> dict:
         )
     result = doctor.report(payload["wallet"], **report_kwargs)
     elapsed = max(0.0, time.perf_counter() - started)
-    return result | {
-        "measured_value": {
-            "this_run_seconds": elapsed,
-            "paired_manual_seconds": None,
-            "quality_result": None,
-            "report_url": None,
-            "benchmark_unavailable_reason": (
-                "The preregistered v3 paired report has not run, so no paired manual time, "
-                "quality result, or v3 report link exists yet."
-            ),
-        }
-    }
+    return result | {"measured_value": _measured_value("range-doctor", elapsed)}
 
 
 def _run_grid_operator(payload: dict) -> dict:

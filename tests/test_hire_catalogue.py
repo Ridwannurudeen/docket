@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from docket.hire import catalogue
@@ -29,6 +31,20 @@ def _benchmark_report():
             for spec_id, (service_id, state) in pairings.items()
         ]
     }
+
+
+def _benchmark_state(spec_id, state, *, quality=None, speed=None, unscored_reason=None):
+    payload = _benchmark_report()
+    family = next(row for row in payload["families"] if row["spec_id"] == spec_id)
+    family.update(
+        {
+            "state": state,
+            "quality": quality,
+            "speed": speed,
+            "unscored_reason": unscored_reason,
+        }
+    )
+    return payload
 
 
 def test_benchmark_mapping_resolves_only_its_registered_service_family():
@@ -127,6 +143,13 @@ def test_range_doctor_times_this_run_and_leaves_the_unrun_v3_fields_empty(monkey
     clock = iter((100.0, 101.25))
     monkeypatch.setattr(catalogue.doctor, "report", report)
     monkeypatch.setattr(catalogue.time, "perf_counter", lambda: next(clock))
+    monkeypatch.setattr(
+        catalogue.v3_report,
+        "report",
+        lambda: _benchmark_state(
+            "v3-05-range-doctor", "registered_waiting_for_inputs"
+        ),
+    )
     out = get_service("range-doctor").run(
         {
             "wallet": "0xwallet",
@@ -152,7 +175,92 @@ def test_range_doctor_times_this_run_and_leaves_the_unrun_v3_fields_empty(monkey
     assert out["measured_value"]["paired_manual_seconds"] is None
     assert out["measured_value"]["quality_result"] is None
     assert out["measured_value"]["report_url"] is None
-    assert "has not run" in out["measured_value"]["benchmark_unavailable_reason"]
+    assert (
+        out["measured_value"]["benchmark_unavailable_reason"]
+        == "The v3 paired family v3-05-range-doctor has no locked inputs."
+    )
+
+
+def test_range_doctor_populates_only_its_scored_v3_family(monkeypatch):
+    quality = {
+        "arms": {
+            "agent": {"median_total": 15.0},
+            "manual": {"median_total": 10.0},
+        },
+        "quality_refuted": False,
+    }
+    payload = _benchmark_state(
+        "v3-05-range-doctor",
+        "not_refuted",
+        quality=quality,
+        speed={"manual_median_seconds": 42.75},
+    )
+    clock = iter((100.0, 101.25))
+    monkeypatch.setattr(
+        catalogue.doctor,
+        "report",
+        lambda *args, **kwargs: {"positions": []},
+    )
+    monkeypatch.setattr(catalogue.time, "perf_counter", lambda: next(clock))
+    monkeypatch.setattr(catalogue.v3_report, "report", lambda: payload)
+
+    out = get_service("range-doctor").run({"wallet": "0xwallet"})
+
+    assert out["measured_value"] == {
+        "this_run_seconds": 1.25,
+        "paired_manual_seconds": 42.75,
+        "quality_result": quality,
+        "report_url": "/advantage/v3#v3-05-range-doctor",
+        "benchmark_unavailable_reason": None,
+    }
+
+
+@pytest.mark.parametrize(
+    ("state", "unscored_reason", "expected_reason"),
+    (
+        (
+            "registered_waiting_for_inputs",
+            None,
+            "The v3 paired family v3-05-range-doctor has no locked inputs.",
+        ),
+        (
+            "locked_not_run",
+            None,
+            "The v3 paired family v3-05-range-doctor has locked inputs but has not run.",
+        ),
+        (
+            "running",
+            None,
+            "The v3 paired family v3-05-range-doctor is still running.",
+        ),
+        (
+            "complete_unscored",
+            "score_sheets_missing",
+            "The v3 paired family v3-05-range-doctor is complete but unscored: score_sheets_missing.",
+        ),
+    ),
+)
+def test_unavailable_v3_states_are_precise_and_never_borrow_v1(
+    state, unscored_reason, expected_reason, monkeypatch
+):
+    monkeypatch.setattr(
+        catalogue.v3_report,
+        "report",
+        lambda: _benchmark_state(
+            "v3-05-range-doctor", state, unscored_reason=unscored_reason
+        ),
+    )
+
+    measured = catalogue._measured_value("range-doctor", 1.25)
+
+    assert measured == {
+        "this_run_seconds": 1.25,
+        "paired_manual_seconds": None,
+        "quality_result": None,
+        "report_url": None,
+        "benchmark_unavailable_reason": expected_reason,
+    }
+    assert "528.31" not in json.dumps(measured, sort_keys=True)
 
 
 def test_unknown_service_returns_none():

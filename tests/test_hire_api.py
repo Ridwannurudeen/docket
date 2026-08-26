@@ -208,8 +208,8 @@ def test_a_hire_returns_a_receipt_the_caller_can_recompute(tmp_path, monkeypatch
     assert body["result"]["measured_value"]["this_run_seconds"] >= 0
     assert body["result"]["measured_value"]["paired_manual_seconds"] is None
     assert (
-        "has not run"
-        in body["result"]["measured_value"]["benchmark_unavailable_reason"]
+        body["result"]["measured_value"]["benchmark_unavailable_reason"]
+        == "The v3 paired family v3-05-range-doctor has no locked inputs."
     )
 
 
