@@ -66,7 +66,7 @@ repository. Load the endpoint without printing it:
 $frame = 'docket/advantage/v3/sources/range-v5-enumerable-frame.json'
 if (Test-Path -LiteralPath $frame) { throw "first-write frame already exists: $frame" }
 
-$archiveConfig = @(ssh -o BatchMode=yes root@gudman.xyz 'cat /etc/docket/docket-archive.conf')
+$archiveConfig = @(ssh -o BatchMode=yes <deploy-user>@<host> 'cat /etc/docket/docket-archive.conf')
 if ($LASTEXITCODE -ne 0) { throw 'could not read the archive configuration' }
 $rpcLines = @($archiveConfig | Where-Object { $_ -match '^DOCKET_ARCHIVE_RPC=' })
 if ($rpcLines.Count -ne 1) { throw 'archive configuration must contain one RPC assignment' }
@@ -150,7 +150,7 @@ systemd-analyze verify "$service" "$timer"
 systemctl is-enabled docket-v3-range-capture.timer >/dev/null
 systemctl list-timers docket-v3-range-capture.timer
 '@
-$rangeUnitAudit | ssh root@gudman.xyz "bash -s -- $releasedCommit"
+$rangeUnitAudit | ssh <deploy-user>@<host> "bash -s -- $releasedCommit"
 if ($LASTEXITCODE -ne 0) {
   throw 'released Range units or schedule do not match the tested commit'
 }
@@ -160,7 +160,7 @@ At or after 12:03Z but before 12:10Z, the expected state is an active sleeping o
 one first-write arm record:
 
 ```powershell
-ssh root@gudman.xyz 'set -o pipefail; systemctl is-active docket-v3-range-capture.service && test -f /var/lib/docket/v3-capture/range/armed.json && find /var/lib/docket/v3-capture/range -maxdepth 1 -type f -printf "%f\n" | sort'
+ssh <deploy-user>@<host> 'set -o pipefail; systemctl is-active docket-v3-range-capture.service && test -f /var/lib/docket/v3-capture/range/armed.json && find /var/lib/docket/v3-capture/range -maxdepth 1 -type f -printf "%f\n" | sort'
 if ($LASTEXITCODE -ne 0) { throw 'Range arm check failed; only if the timer missed 12:03Z and no Range service or artifact exists, follow the one-start recovery below' }
 ```
 
@@ -168,14 +168,14 @@ If the timer is enabled but not yet due, do nothing. If it missed 12:03Z and no 
 or artifact exists, the owner may start the tracked service once before 12:10Z:
 
 ```powershell
-ssh root@gudman.xyz 'systemctl start --no-block docket-v3-range-capture.service'
+ssh <deploy-user>@<host> 'systemctl start --no-block docket-v3-range-capture.service'
 ```
 
 Do not manually start it when `armed.json`, `armed-*.json` or any `attempt-*` file exists.
 After the service stops, inspect the evidence and journal without changing either:
 
 ```powershell
-ssh root@gudman.xyz 'systemctl show docket-v3-range-capture.service -p Result -p ExecMainCode -p ExecMainStatus; journalctl -u docket-v3-range-capture.service --since "2026-08-26 12:00:00 UTC" --no-pager; find /var/lib/docket/v3-capture/range -maxdepth 1 -type f -printf "%f\n" | sort'
+ssh <deploy-user>@<host> 'systemctl show docket-v3-range-capture.service -p Result -p ExecMainCode -p ExecMainStatus; journalctl -u docket-v3-range-capture.service --since "2026-08-26 12:00:00 UTC" --no-pager; find /var/lib/docket/v3-capture/range -maxdepth 1 -type f -printf "%f\n" | sort'
 ```
 
 Interpret the exit and files exactly:
@@ -209,7 +209,7 @@ if (Test-Path -LiteralPath $poolCaptureParent -PathType Leaf) {
 }
 [IO.Directory]::CreateDirectory([IO.Path]::GetFullPath($poolCaptureParent)) | Out-Null
 $poolCaptureStaging = "$poolCapture.staging-$([guid]::NewGuid().ToString('N'))"
-scp -r root@gudman.xyz:/var/lib/docket/v3-capture/range $poolCaptureStaging
+scp -r <deploy-user>@<host>:/var/lib/docket/v3-capture/range $poolCaptureStaging
 if ($LASTEXITCODE -ne 0) {
   throw "copy failed; only failed staging copy $poolCaptureStaging may be discarded before retry"
 }
