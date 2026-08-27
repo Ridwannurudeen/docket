@@ -109,9 +109,10 @@ Docket's BSC snapshot.
 The first-party planner skills shown in
 [PancakeSwap's execution model](https://github.com/pancakeswap/pancakeswap-ai) stop at
 generated deep links, the same boundary Range Doctor keeps. On 2026-08-22, a read-only
-`_meta { block { number timestamp } hasIndexingErrors }` query to the
-[PancakeSwap BSC V3 subgraph](https://thegraph.pancakeswap.com/exchange-v3-bsc) returned
-block 95193979, timestamp 1777389823 (2026-04-28T15:23:43Z), and
+`_meta { block { number timestamp } hasIndexingErrors }` query sent by GraphQL POST to the
+PancakeSwap BSC V3 subgraph endpoint (`https://thegraph.pancakeswap.com/exchange-v3-bsc`;
+see PancakeSwap's [official Subgraph documentation](https://developer.pancakeswap.finance/apis/subgraph))
+returned block 95193979, timestamp 1777389823 (2026-04-28T15:23:43Z), and
 `hasIndexingErrors: true`. Docket instead reads
 [PancakeSwap's live Explorer API](https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top)
 and SHA-pins the response bytes.
