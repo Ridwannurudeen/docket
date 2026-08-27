@@ -370,15 +370,26 @@ artifact at n=1. v2 is agent-versus-computed-null armour with no human arm. v3 i
 registered paired evaluation scored by two prompt-blinded model seats run by one
 operator.
 
-Read `summary.states` before describing v3. v3-04 Warden has locked inputs and its operator
-run has begun: manual primary `w4-ho-01` failed with `invoke_error` after a malformed operator
-answer; 11 manual and all 12 agent primaries remain unrun. No family result exists.
-`v3-02-yield-router` and `v3-05-range-doctor` remain `registered_waiting_for_inputs`;
-`v3-01-range-doctor` and `v3-03-warden-security` remain `superseded_before_input_lock`.
-The in-progress ledger is not yet in this checkout,
-so its artifact-derived state is `locked_not_run` until that ledger is included. Other state
-names are `running`, `complete_unscored`, `refuted`, and `not_refuted`. Never turn
-`not_refuted` into "proved".
+Read `summary.states` before describing v3. `v3-04-warden-security` is
+`complete_unscored` with `score_sheets_missing`. Both calibration seats passed first
+attempt at 8/8 decisions, 8/8 verdicts and class micro-F1 1.0000. All 24 primaries were
+claimed and terminal: 23 succeeded and manual `w4-ho-01` failed. The ledger proves
+`invoke_error` / `JSONDecodeError`; the operator's contemporaneous account says a crib
+sheet absent from this repository led to payload text being pasted instead of the required
+JSON answer object. Seat A returned 4,452 first-response bytes; seat B returned no response
+within the adapter's 300-second limit. The registered rule forbids another request or
+evaluator substitution, so no second sheet or A/B mapping exists, disagreement cannot be
+computed, rubric quality is permanently unscored, and no registered falsifier verdict exists.
+
+Read-only frozen-label formulas—not a published §10 result—give recall of 4/8 (0.50) for
+Warden and 6/8 (0.75) manually; precision of 4/4 (1.00) and 6/8 (0.75); valid scans of
+12/12 and 11/12; three Warden critical failures; 11/12 complete pairs; median saving
+27.86 seconds; and median agent/manual ratio 0.0610434. Warden missed its recall,
+zero-critical, complete-pair, and median-saving limbs. Missing rubric medians prevent the
+complete registered falsifier from being evaluated, so the report publishes neither
+`refuted` nor `not_refuted`. `v3-02-yield-router` and `v3-05-range-doctor` remain
+`registered_waiting_for_inputs`; `v3-01-range-doctor` and `v3-03-warden-security` remain
+`superseded_before_input_lock`. Never turn `not_refuted` into "proved".
 
 The process builds one v3 payload at startup and renders `/advantage/v3` from that exact
 object. Use the JSON for machine work and the page for a reader; neither changes until the

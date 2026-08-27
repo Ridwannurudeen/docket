@@ -223,10 +223,15 @@ before and after; nginx was never reloaded.
 
 ### What this evidence does not establish
 
-- V3 has no family result yet. The v3-04 Warden input is locked, and its operator run is
-  `running` after manual `w4-ho-01` failed with `invoke_error`; 11 manual and 12 agent
-  primaries remain unrun. v3-02 and v3-05 still wait for inputs; v3-01 and v3-03 remain
-  superseded. The in-progress ledger has not yet entered this checkout or deployed snapshot.
+- `v3-04-warden-security` is `complete_unscored` with `score_sheets_missing`: all 24
+  primaries are terminal (23 succeeded; manual `w4-ho-01` failed), but seat B returned no
+  first scoring response and the registered rule forbids retry or substitution. The ledger
+  proves `invoke_error` / `JSONDecodeError`; the operator's contemporaneous account says a
+  crib sheet absent from this repository led to payload text being pasted instead of the
+  required JSON answer object. Read-only frozen-label formulas show Warden recall 0.50
+  versus manual 0.75 and three Warden critical failures. Missing rubric medians prevent a
+  complete registered falsifier evaluation. v3-02 and v3-05 still wait for inputs; v3-01
+  and v3-03 remain superseded.
 - No settlement has occurred and no service is in paid stock.
 - The rehearsal proved only the mechanism at a scratch moment. The later registered Yield and Range
   captures completed on their first scheduled attempts, but they are inputs only: neither input is

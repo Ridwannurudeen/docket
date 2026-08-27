@@ -21,10 +21,12 @@ The longer evidence-led route is in [Judge start here](docs/submission/judge-sta
 
 - No service is in paid stock, and no settlement has run.
 - None of the four category services is bound to a BSC ERC-8004 identity.
-- V3 has no family result yet. The v3-04 Warden input is locked and its operator run has
-  begun: manual primary `w4-ho-01` failed with `invoke_error` after a malformed operator
-  answer; 11 manual and all 12 agent primaries remain unrun. v3-02 Yield and v3-05 Range
-  still wait for inputs; v3-01 Range and v3-03 Warden remain superseded before input lock.
+- V3 has one terminal but unscored family. `v3-04-warden-security` is
+  `complete_unscored`: all 24 primaries are terminal (23 succeeded; one manual primary
+  failed), but a named scoring seat returned no first response and substitution is
+  forbidden. Frozen-label formulas put Warden recall at 4/8 (0.50) versus manual 6/8
+  (0.75) and record three Warden critical failures. v3-02 Yield and v3-05 Range still
+  wait for inputs; v3-01 Range and v3-03 Warden remain superseded before input lock.
 - The controlled LP record links an Aug 24 `WAIT` decision to one prior and three later
   observations, but it proves neither causal improvement nor realized return.
 
@@ -46,11 +48,16 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
 - **C-03.** The exact x402 settlement path is implemented but disabled by default and,
   according to the owner, has never been exercised live; the repository contains no
   settled receipt or settlement transaction.
-- **C-04.** The v3 paired report has five stage-one specifications and no family result yet.
-  The v3-04 Warden input is locked and its operator run has begun: manual primary
-  `w4-ho-01` failed with `invoke_error` after a malformed operator answer; 11 manual and all
-  12 agent primaries remain unrun. v3-02 Yield and v3-05 Range still wait for inputs; v3-01
-  Range and v3-03 Warden remain superseded before input lock.
+- **C-04.** The v3 paired report has five stage-one specifications and one terminal family:
+  `v3-04-warden-security` is `complete_unscored` with `score_sheets_missing` after all 24
+  primaries became terminal (23 succeeded; manual `w4-ho-01` failed). Seat B returned no
+  first scoring response, and the registered no-retry/no-substitution rule makes rubric
+  quality permanently unscored. Read-only frozen-label formulas show Warden recall 4/8
+  (0.50) versus manual 6/8 (0.75), Warden precision 4/4 (1.00) versus manual 6/8 (0.75),
+  12/12 versus 11/12 valid scans, three Warden critical failures, 11/12 complete pairs, a
+  27.86-second median saving, and a 0.0610434 median agent/manual ratio. With no rubric
+  medians, no registered falsifier verdict exists. v3-02 Yield and v3-05 Range still wait
+  for inputs; v3-01 Range and v3-03 Warden remain superseded before input lock.
 - **C-05.** SOLVENT is halted and is presented as historical research evidence, not paid
   inventory; its one ERC-8004 identity is agent 136384 on BSC.
 - **C-06.** Range Doctor's recorded v1 run covered a wallet with 14 positions, 13 closed,
@@ -167,11 +174,23 @@ the installed v3 JSON, HTML, and agent-facing documentation.
 - V3 stores five stage-one specifications plus the claim-once runner, prompt-blinded
   scoring, report builder, and served page under `docket/advantage/v3/`. v3-04 Warden binds
   `inputs_sha256=23b09164c6940848ac109f05db3f7342f46a0bad71c17ebc9cac53dd4f8fc4e6`.
-  Its operator ledger records failed manual primary `w4-ho-01`; 23 primaries remain unrun,
-  so the operator state is `running` and no family result exists. That in-progress ledger
-  is not yet in this checkout, whose artifact-derived state is therefore `locked_not_run`.
-  v3-02 and v3-05 remain `registered_waiting_for_inputs`; v3-01 and v3-03 remain
-  `superseded_before_input_lock`.
+  Both calibration seats passed on their first attempt at 8/8 decisions, 8/8 verdicts,
+  and class micro-F1 1.0000. The ledger is complete at 24 claimed and 24 terminal: 23
+  succeeded, while manual `w4-ho-01` records `invoke_error` / `JSONDecodeError`. The
+  operator's contemporaneous account is that a crib sheet not present in this repository
+  led to payload text being pasted instead of the JSON answer object; the repository does
+  not prove that cause. Seat A's first response is preserved as 4,452 bytes; seat B returned
+  no response within the adapter's 300-second limit. The registered rule forbids another
+  request or a substitute, so no second sheet or A/B mapping exists, disagreement cannot be
+  computed, rubric quality is permanently unscored, and the report state is
+  `complete_unscored` with `score_sheets_missing`. Read-only formula limbs—not a published
+  §10 result—show Warden recall 4/8 (0.50) versus manual 6/8 (0.75), precision 4/4 (1.00)
+  versus 6/8 (0.75), valid scans 12/12 versus 11/12, three Warden critical failures,
+  11/12 complete pairs, median saving 27.86 seconds, and median agent/manual ratio
+  0.0610434. Warden missed its recall, zero-critical, complete-pair, and median-saving
+  limbs. Missing rubric medians prevent a complete falsifier evaluation, so the report
+  publishes neither `refuted` nor `not_refuted`. v3-02 and v3-05 remain
+  `registered_waiting_for_inputs`; v3-01 and v3-03 remain `superseded_before_input_lock`.
 
 Do not describe the v3 Git sequence as externally preregistered. A checkable witness would
 require the exact registration commit to be anchored outside the owner's control before

@@ -137,9 +137,11 @@ Three adjacent limits are also explicit:
   ([live services](https://docket.gudman.xyz/services)).
 - No settlement has occurred
   ([operational evidence](../operational-evidence.md#what-this-evidence-does-not-establish-1)).
-- V3 has no family result yet. v3-04 Warden is input-locked and `running` after one failed
-  manual primary; 11 manual and 12 agent primaries remain unrun. v3-02 and v3-05 wait for
-  inputs, while v3-01 and v3-03 remain superseded before input lock
+- `v3-04-warden-security` is `complete_unscored`: 24/24 primaries are terminal (23
+  succeeded; one manual input-format failure), but seat B returned no first scoring
+  response and retry or substitution is forbidden. Frozen-label formulas show manual
+  recall at 0.75 versus Warden at 0.50 and three Warden critical failures. v3-02 and
+  v3-05 wait for inputs, while v3-01 and v3-03 remain superseded before input lock
   ([live v3 report](https://docket.gudman.xyz/advantage/v3.json)).
 
 ## Adoption
@@ -179,6 +181,6 @@ this page does not describe either as complete
 | BNB-12 | The four Docket-run category services currently have no bound agent ID or registration URI. | [Live services](https://docket.gudman.xyz/services) |
 | BNB-13 | Each category registration document is served at its planned URI, is byte-identical to the committed file, and still contains no minted registration entry. | [Range](https://docket.gudman.xyz/registrations/range-doctor.json), [Grid](https://docket.gudman.xyz/registrations/grid-operator.json), [Yield](https://docket.gudman.xyz/registrations/yield-router.json), [Health](https://docket.gudman.xyz/registrations/health-guard.json), [committed files](../../docket/api/static/agents/) |
 | BNB-14 | The registration CLI preflights exact served bytes and emits only an unsigned plan; signing, broadcasting, receipt decoding, binding, and refresh remain owner/integrator steps. | [CLI source](../../docket/identity/register.py), [tests](../../tests/test_identity_register.py), [procedure](../deployment-runbook.md#register-the-four-identities) |
-| BNB-15 | No service is paid stock and no settlement has occurred. V3 has no family result yet; v3-04 is input-locked and running after one failed manual primary, with 23 primaries unrun. | [Services](https://docket.gudman.xyz/services), [operational evidence](../operational-evidence.md#what-this-evidence-does-not-establish-1), [v3](https://docket.gudman.xyz/advantage/v3.json) |
+| BNB-15 | No service is paid stock and no settlement has occurred. `v3-04-warden-security` is `complete_unscored`: 24/24 primaries are terminal, but a missing first seat-B response leaves rubric quality permanently unscored; formula limbs include Warden recall 0.50 versus manual 0.75 and three Warden critical failures. | [Services](https://docket.gudman.xyz/services), [operational evidence](../operational-evidence.md#what-this-evidence-does-not-establish-1), [v3](https://docket.gudman.xyz/advantage/v3.json) |
 | BNB-16 | The site is reachable now, while judging-window availability is still an operational obligation. | [Health](https://docket.gudman.xyz/health), [BNB gate](../deliberation/2026-08-14-BRIEFING-V2.md#11-bnb-chain--main-track-30000--adoption) |
 | BNB-17 | Category stock is committed in code and no third-party self-listing workflow exists today. | [Inventory](../../docket/marketplace/registry.py), [routes](../../docket/api/routes.py) |

@@ -60,7 +60,8 @@ def test_the_current_surface_shows_the_complete_unscored_family_and_never_says_p
     assert report.COMPLETE_UNSCORED in rendered.text
     assert report.SUPERSEDED_BEFORE_INPUT_LOCK in rendered.text
     assert (
-        "Every scheduled primary has a terminal ledger event; performance remains unscored."
+        "Every scheduled primary has a terminal ledger event; required scoring artifacts "
+        "are absent, so rubric quality and the registered falsifier remain unavailable."
         in rendered.text
     )
     for body in (document.text, rendered.text):
@@ -164,7 +165,8 @@ def test_v3_report_failure_is_pinned_and_served_without_killing_health(
         ),
         (
             report.COMPLETE_UNSCORED,
-            "Every scheduled primary has a terminal ledger event; performance remains unscored.",
+            "Every scheduled primary has a terminal ledger event; required scoring artifacts "
+            "are absent, so rubric quality and the registered falsifier remain unavailable.",
         ),
         (
             report.REFUTED,

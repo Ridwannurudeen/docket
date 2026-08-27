@@ -24,7 +24,21 @@ The four labels above are Docket's declared job categories, not fields emitted b
 
 Docket publishes observations, not verdicts. A public metric includes its numerator, denominator, observation window, method, and timestamp on the [service catalogue](https://docket.gudman.xyz/services); the [snapshot page](https://docket.gudman.xyz/stats) applies the same discipline to registry coverage and endpoint probes.
 
-The [v1 paired report](https://docket.gudman.xyz/advantage.json) contains three single-observation tasks—liquidity, trading, and security—with both arms and their actual outputs. The [v2 decision-impact section](https://docket.gudman.xyz/advantage/v2.json) is post-hoc: in its frozen liquidity corpus, fee correction produced 0 ordering changes across 231 eligible-pool pairs. Separately, the unchanged security corpus has two dated records: the live detector observed 2026-08-10, whose exact revision and deploy date were not recorded, flagged 14 of 31 attacks with precision 14 of 15; revision `0583853ed7fca7d03c98a5cc4c2383cc6b149248`, deployed 2026-08-24, flagged 15 of 30 scored attacks with precision 15 of 16, while one hostile payload was unscored. The newer 50.00% recall misses the 90% v3-04 limb, so Warden remains beta. V3 has five registered families and no family result yet. v3-04 Warden is input-locked and `running`: manual `w4-ho-01` failed with `invoke_error`, while 11 manual and 12 agent primaries remain unrun. v3-02 Yield and v3-05 Range remain `registered_waiting_for_inputs`; v3-01 Range and v3-03 Warden remain `superseded_before_input_lock`.
+The [v1 paired report](https://docket.gudman.xyz/advantage.json) contains three single-observation tasks—liquidity, trading, and security—with both arms and their actual outputs. The [v2 decision-impact section](https://docket.gudman.xyz/advantage/v2.json) is post-hoc: in its frozen liquidity corpus, fee correction produced 0 ordering changes across 231 eligible-pool pairs. Separately, the unchanged security corpus has two dated records: the live detector observed 2026-08-10, whose exact revision and deploy date were not recorded, flagged 14 of 31 attacks with precision 14 of 15; revision `0583853ed7fca7d03c98a5cc4c2383cc6b149248`, deployed 2026-08-24, flagged 15 of 30 scored attacks with precision 15 of 16, while one hostile payload was unscored. The newer 50.00% recall misses the 90% v3-04 limb, so Warden remains beta.
+
+V3 has one terminal but unscored family. `v3-04-warden-security` is `complete_unscored`
+with `score_sheets_missing`: all 24 primaries are terminal (23 succeeded; manual
+`w4-ho-01` failed), but seat B returned no first scoring response and retry or substitution
+is forbidden. The ledger proves `invoke_error` / `JSONDecodeError`; the operator's
+contemporaneous account says a crib sheet absent from this repository led to payload text
+being pasted instead of the required JSON answer object. Read-only frozen-label formulas—not
+a published §10 result—show Warden recall 4/8 (0.50) versus manual 6/8 (0.75), precision
+4/4 (1.00) versus 6/8 (0.75), 12/12 versus 11/12 valid scans, three Warden critical
+failures, 11/12 complete pairs, a 27.86-second median saving, and a 0.0610434 median
+agent/manual ratio. Missing rubric medians prevent a complete falsifier evaluation, so the
+report publishes neither `refuted` nor `not_refuted`. v3-02 Yield and v3-05 Range remain
+`registered_waiting_for_inputs`; v3-01 Range and v3-03 Warden remain
+`superseded_before_input_lock`.
 
 The registry snapshot is refreshed unattended every six hours by the [recorded timer and pipeline](../operational-evidence.md#the-registry-snapshot-is-no-longer-stale-and-it-moved-without-a-restart), while the live [Stats page](https://docket.gudman.xyz/stats) exposes the capture timestamp and current age so a judge does not have to accept a freshness claim on faith. All 4 of 4 category cards carry a recorded run and identify its evidence modality in the [catalogue response](https://docket.gudman.xyz/services).
 

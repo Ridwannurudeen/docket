@@ -11,9 +11,11 @@
 The honest answer today is mixed. Docket's v1 report alone satisfies that formal eligibility
 gate, but it contains one paired observation per task and records material losses as well as
 wins. The marketplace is not yet open for payment: 0 of 6 catalogue services are in paid stock,
-and no settlement has run. V3 has no family result yet. v3-04 Warden is input-locked and its
-operator run has begun: manual `w4-ho-01` failed with `invoke_error`; 23 primaries remain unrun.
-v3-02 and v3-05 still wait for inputs, while v3-01 and v3-03 remain superseded.
+and no settlement has run. `v3-04-warden-security` is `complete_unscored`: all 24 primaries
+are terminal, but seat B returned no first scoring response and substitution is forbidden.
+Frozen-label formulas show manual recall at 0.75 versus Warden at 0.50 and three Warden
+critical failures. v3-02 and v3-05 still wait for inputs, while v3-01 and v3-03 remain
+superseded.
 [Sources: [v1](https://docket.gudman.xyz/advantage.json),
 [catalogue](https://docket.gudman.xyz/hire),
 [canary history](https://docket.gudman.xyz/canary),
@@ -65,13 +67,29 @@ V2 does not add another human comparison: it explicitly describes its repeated t
 agent-versus-computed-null work and points back to v1 as the only current agent-versus-person
 report. [Source: [v2 method and prior-version note](https://docket.gudman.xyz/advantage/v2.json)]
 
-### What v3 has started — and what it has not established
+### What v3 completed—and what remains unscored
 
 V3 registers 3 Range Doctor cases, 5 Yield Router pairs, and 12 Warden pairs in the active
-v3-04 family, retaining first primary outputs and failures under fixed stopping and scoring
-rules. v3-04 Warden is input-locked and `running`: manual `w4-ho-01` failed with
-`invoke_error` after a malformed operator answer; the other 11 manual and all 12 agent
-primaries are unrun. No v3 family result exists. v3-05 Range and v3-02 Yield remain
+`v3-04-warden-security` family, retaining first primary outputs and failures under fixed
+stopping and scoring rules. Both calibration seats passed on their first attempt at 8/8
+decisions, 8/8 verdicts, and class micro-F1 1.0000. All 24 primaries were claimed and
+terminal: 23 succeeded and manual `w4-ho-01` failed. The ledger proves `invoke_error` /
+`JSONDecodeError`; the operator's contemporaneous account says a crib sheet absent from this
+repository led to payload text being pasted instead of the required JSON answer object. Seat A
+returned 4,452 first-response bytes; seat B returned no response within the adapter's
+300-second limit. The registered rule forbids another request or evaluator substitution, so
+no second sheet or A/B mapping exists, disagreement cannot be computed, rubric quality is
+permanently unscored, and the report state is `complete_unscored` with
+`score_sheets_missing`.
+
+Read-only frozen-label formulas—not a published §10 result—give recall of 4/8 (0.50) for
+Warden and 6/8 (0.75) manually; precision of 4/4 (1.00) and 6/8 (0.75); valid scans of
+12/12 and 11/12; three Warden critical failures; 11/12 complete pairs; median saving
+27.86 seconds; and median agent/manual ratio 0.0610434. Warden missed its 0.90 recall,
+zero-critical, complete-pair, and 30-second saving limbs; its precision, comparative
+precision, all-agent-scans, and ratio limbs passed. Missing rubric medians prevent the
+machinery from evaluating the complete registered falsifier, so the report publishes neither
+`refuted` nor `not_refuted`. v3-05 Range and v3-02 Yield remain
 `registered_waiting_for_inputs`; v3-01 Range and v3-03 Warden remain
 `superseded_before_input_lock`.
 [Sources: [live v3 state](https://docket.gudman.xyz/advantage/v3.json),
