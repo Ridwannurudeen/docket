@@ -5,20 +5,20 @@
 
 Docket answers that brief with Range Doctor: a read-only PancakeSwap V3 position analyst that reports current range state, pool economics, and conditional wait-or-recenter paths from BSC and PancakeSwap data. [Open the live position page](https://docket.gudman.xyz/pancake) or [inspect the service contract](https://docket.gudman.xyz/services/range-doctor).
 
-The public record is useful, but it does not yet close the full decision loop: the state, diagnosis, and later state are public; the owner-decision event is missing. [Inspect all stored rows](https://docket.gudman.xyz/lp-record).
+The public record contains 14 rows: 13 observations and the owner's 2026-08-24 `WAIT` decision. The decision links to its prior observation, and the Aug 25-27 observations link back to it. This proves record linkage, not causal improvement, realized return, or that Docket caused the choice. [Inspect all stored rows](https://docket.gudman.xyz/lp-record).
 
 ## The controlled-position loop
 
-Status below was checked on 2026-08-23 UTC against the public record. [Raw record](https://docket.gudman.xyz/lp-record).
+The historical pre-decision window below was checked on 2026-08-23 UTC. The live record has since added the linked decision and later states described above. [Raw record](https://docket.gudman.xyz/lp-record).
 
 | Limb | What the public evidence shows | Evidence |
 |---|---|---|
 | State | PancakeSwap V3 position NFT `7141050` was observed inside `[-65200, -63193)` on 2026-08-21 at BSC block `117181279`. | [Observation row](https://docket.gudman.xyz/lp-record) |
 | Diagnosis | On 2026-08-22 at block `117372750`, the current tick was `-65481`, below the lower bound `-65200`; Range Doctor reported that the position was outside its range and earning no pool fees, then returned conditional `RECENTER` and `WAIT` paths. | [Diagnosis and conditions](https://docket.gudman.xyz/lp-record) |
-| Owner decision | **Missing.** The nine public rows from 2026-08-15 through 2026-08-23 are `lp-record.v1` observations; none is an `owner_decision`, and none carries `prior_observation_sha256` or `answers_decision_sha256`. | [Nine public rows](https://docket.gudman.xyz/lp-record) |
+| Owner decision | Not yet recorded in this historical window. The first nine rows, from 2026-08-15 through 2026-08-23, are `lp-record.v1` observations. | [Historical rows](https://docket.gudman.xyz/lp-record) |
 | Later state | On 2026-08-23 at block `117565445`, the position was still below range at tick `-65263`. | [Later observation](https://docket.gudman.xyz/lp-record) |
 
-The repository contains the append-only observation → owner decision → later observation format and its narrow digest checks, but the documentation describes machinery rather than evidence that an owner decision was recorded. [Read the evidence-format limits](../controlled-lp-evidence.md#observation-decision-later-observation).
+The live record instantiates the repository's append-only observation → owner decision → later observation format and digest links. It establishes linkage only, not the quality, execution, or effect of the decision. [Read the evidence-format limits](../controlled-lp-evidence.md#observation-decision-later-observation).
 
 ## Structural safety
 
@@ -54,7 +54,7 @@ For the frozen v2 analysis, the corpus records the Explorer URL, fetch time, and
 
 ## Limits a judge should know
 
-- The public controlled-position history covers one position and currently lacks the owner-decision limb, so it does not show that Docket changed what the owner did. [Public history](https://docket.gudman.xyz/lp-record).
+- The public controlled-position history covers one position and links one `WAIT` decision to prior and later observations. It does not show that Docket changed or improved what the owner did. [Public history](https://docket.gudman.xyz/lp-record).
 - The v2 decision-impact measures are post-hoc, and the strongest pool-choice measure found 0 changes across 231 comparisons. [Registration and result](https://docket.gudman.xyz/advantage/v2.json).
 - The dollar figures apply pool-wide rates to declared fixed notionals; they are not this position's earned fees, a forecast, or realized return. [Run method](../../docket/advantage/v2/runs/01-liquidity-arithmetic.json#L25-L27).
 - The registered v3 Range successor has produced no result: v3-05 remains `registered_waiting_for_inputs`, while v3-01 is `superseded_before_input_lock`. [Live v3 report](https://docket.gudman.xyz/advantage/v3.json).
@@ -62,6 +62,6 @@ For the frozen v2 analysis, the corpus records the Explorer URL, fetch time, and
 ## Judge path
 
 1. Open the [PancakeSwap position page](https://docket.gudman.xyz/pancake) for the live read and conditional paths.
-2. Open the [raw LP record](https://docket.gudman.xyz/lp-record) and confirm the present owner-decision gap.
+2. Open the [raw LP record](https://docket.gudman.xyz/lp-record) and confirm the prior-decision-later-state digest links and their causal limits.
 3. Open the [raw v2 report](https://docket.gudman.xyz/advantage/v2.json) and inspect `decision_impact`, including its registration note, denominators, inputs, and limitations.
 4. Open the [Range Doctor service record](https://docket.gudman.xyz/services/range-doctor) for the callable contract and evidence links.

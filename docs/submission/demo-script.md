@@ -8,7 +8,7 @@ Record at 1280×720 or higher from a cold browser with no wallet extension conne
 
 **Action:** Paste the URL and press Enter; do not click anything while **Live decision** loads, because this page issues the worked Range Doctor request when it opens. Scroll through **Fixed-window record**, **Economics**, **Conditional actions**, **Structural safety**, and **Decision impact**.
 
-**Say:** “This is Docket's controlled PancakeSwap position. The top result is a fresh read, and the dated rows underneath are served from the public [LP record](https://docket.gudman.xyz/lp-record). The history currently proves observation, diagnosis, and later state; it does not yet include the owner's decision record. Range Doctor holds no key, requests no approval, and has no transaction-sending path, so the choice and execution stay with the owner.”
+**Say:** “This is Docket's controlled PancakeSwap position. The top result is a fresh read, and the public [LP record](https://docket.gudman.xyz/lp-record) has 13 observations plus the owner's August 24 `WAIT` decision. The decision links to its prior observation, and three later states link back to it. That proves record linkage, not causal improvement, realized return, or that Docket caused the choice. Range Doctor holds no key, requests no approval, and has no transaction-sending path, so the choice and execution stay with the owner.”
 
 **Point at:** the BSC block and observation time; the range-state rows; the fixed-notional and method labels; the post-hoc [v2](https://docket.gudman.xyz/advantage/v2.json) result in which protocol-fee correction produced `0/231` ordering changes across the frozen eligible-pool pairs.
 
@@ -66,6 +66,6 @@ Return to <https://docket.gudman.xyz/pancake> only if the live result has arrive
 
 ## Thirty-second version
 
-- **0:00–0:12:** Open <https://docket.gudman.xyz/pancake>. Say: “A fresh, read-only PancakeSwap position diagnosis sits above a public dated history; no key or transaction-sending path exists, and the owner-decision row is still missing.”
+- **0:00–0:12:** Open <https://docket.gudman.xyz/pancake>. Say: “A fresh, read-only PancakeSwap position diagnosis sits above a public dated history. Its August 24 `WAIT` decision links one prior and three later observations; that proves linkage, not that Docket caused or improved the choice.”
 - **0:12–0:22:** Open <https://docket.gudman.xyz/advantage>. Say: “Three completed single-task comparisons expose both arms and actual outputs, including Warden's layers finding one of four vectors identified by manual reading of the same security payload; v3 is registered but has no result.”
 - **0:22–0:30:** Open <https://docket.gudman.xyz/stats>. Say: “The live registry layer publishes its timestamp, sample denominator, population rule, and probe method. Hire by evidence, not promises.”

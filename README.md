@@ -23,7 +23,8 @@ The longer evidence-led route is in [Judge start here](docs/submission/judge-sta
 - None of the four category services is bound to a BSC ERC-8004 identity.
 - Three v3 families are waiting for inputs, while v3-01 Range and v3-03 Warden were
   superseded before input lock; no v3 arm has run.
-- The controlled LP record has observations but no owner-decision row.
+- The controlled LP record links an Aug 24 `WAIT` decision to one prior and three later
+  observations, but it proves neither causal improvement nor realized return.
 
 These limits are visible in the live service, v3, and LP-record responses; the
 [submission package](docs/submission/README.md) keeps the same boundary.
