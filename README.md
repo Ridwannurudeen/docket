@@ -184,4 +184,5 @@ timestamp/chain commitment whose time and digest can be read independently.
 
 ## License
 
-Docket is available under the [MIT License](LICENSE).
+Docket is available under the [MIT License](LICENSE). Four vendored ABI files retain BNB
+Chain's MIT notice; see [Third-party notices](THIRD_PARTY_NOTICES.md).
