@@ -9,6 +9,7 @@ before any input or output exists.
 import hashlib
 import json
 from base64 import b64decode, b64encode
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -660,7 +661,7 @@ def test_a_snapshot_from_the_superseded_yield_moment_is_refused():
         )
 
 
-def test_registered_families_refuse_a_generic_envelope_without_their_truth_schema(
+def test_each_family_stage_one_refuses_a_generic_envelope_without_its_truth_schema(
     tmp_path,
 ):
     """The five claims need family truth artifacts; planned case ids alone cannot
@@ -673,7 +674,7 @@ def test_registered_families_refuse_a_generic_envelope_without_their_truth_schem
         "v3-05-range-doctor": "selection_manifest",
     }
     for path in REGISTERED:
-        spec = load(path)
+        spec = replace(load(path), inputs_sha256="")
         input_path = tmp_path / spec.inputs_ref
         input_path.parent.mkdir(parents=True, exist_ok=True)
         input_path.write_text(json.dumps(_input_record(spec)), encoding="utf-8")
@@ -1242,9 +1243,9 @@ def test_save_and_load_round_trip_to_the_same_two_digests(tmp_path):
 # ------------------------------------------------- the five registered families
 
 
-def test_all_five_families_are_registered_but_no_input_is_locked():
-    """Repair precedes input selection. A registered family therefore carries the stable
-    protocol identity but must still refuse to run until a later git-witnessed lock."""
+def test_all_five_families_are_registered_and_only_v4_inputs_are_locked():
+    """Every family carries its stable protocol identity; only the registered v4 lock
+    makes one runnable, while the other four still refuse without locked inputs."""
     assert [p.stem for p in REGISTERED] == [
         "v3-01-range-doctor",
         "v3-02-yield-router",
@@ -1261,12 +1262,20 @@ def test_all_five_families_are_registered_but_no_input_is_locked():
         "v3-04-warden-security": 12,
         "v3-05-range-doctor": 3,
     }
+    assert {spec.spec_id for spec in specs if spec.runnable} == {
+        "v3-04-warden-security"
+    }
     for spec in specs:
-        assert spec.runnable is False
-        assert spec.inputs_sha256 == ""
-        assert not (ROOT / spec.inputs_ref).exists()
-        with pytest.raises(ValueError, match="no locked inputs"):
+        if spec.spec_id == "v3-04-warden-security":
+            input_path = ROOT / spec.inputs_ref
+            assert input_path.is_file()
+            assert spec.inputs_sha256 == hashlib.sha256(input_path.read_bytes()).hexdigest()
             assert_runnable(spec)
+        else:
+            assert spec.inputs_sha256 == ""
+            assert not (ROOT / spec.inputs_ref).exists()
+            with pytest.raises(ValueError, match="no locked inputs"):
+                assert_runnable(spec)
 
 
 def test_registered_protocol_hashes_are_independently_recomputable():
@@ -1295,7 +1304,7 @@ def test_registration_provenance_claims_only_what_git_can_witness():
         assert "wall-clock" in provenance
 
 
-def test_each_family_is_legibly_a_correction_before_input_lock():
+def test_each_family_records_a_legible_pre_lock_correction():
     """`protocol_correction` carries only the immediate predecessor, so the whole chain is
     written down here rather than lost.
 
@@ -1365,9 +1374,8 @@ def test_each_family_is_legibly_a_correction_before_input_lock():
         assert len(chain) >= 2
         assert len(set(chain)) == len(chain)
         assert spec.stage_one_protocol_hash not in {"0x" + link for link in chain}
-        # Only legitimate before a lock. After one it would be a protocol swapped out from
-        # under evidence already frozen against it.
-        assert spec.inputs_sha256 == ""
+        # This metadata records when the correction occurred. A later input-only stage-two
+        # transition does not turn that pre-lock correction into a protocol rewrite.
 
 
 def test_every_family_registers_objective_anchors_disclosed_model_seats_and_timing():

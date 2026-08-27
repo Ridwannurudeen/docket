@@ -53,14 +53,16 @@ def test_v3_03_remains_byte_for_byte_frozen_and_unlocked(tmp_path):
         _assert_v3_03_frozen(mutated)
 
 
-def test_v4_registration_discloses_the_pilot_and_post_pilot_scope():
+def test_v4_locked_registration_discloses_the_pilot_and_post_pilot_scope():
     spec = load(SPEC_PATH)
     provenance = spec.pilot_provenance
     policy = spec.case_selection["labelling_policy"]
 
     assert spec.spec_id == "v3-04-warden-security"
     assert spec.category == "security"
-    assert spec.inputs_sha256 == ""
+    input_path = ROOT / spec.inputs_ref
+    assert spec.runnable is True
+    assert spec.inputs_sha256 == hashlib.sha256(input_path.read_bytes()).hexdigest()
     assert provenance["status"] == "pilot_informed"
     assert provenance["prior_spec_id"] == "v3-03-warden-security"
     assert (
@@ -213,11 +215,11 @@ def test_pilot_history_recomputes_the_prerun_trial_and_preserves_two_pilots():
         }
 
     spec = load(SPEC_PATH)
-    assert spec.inputs_sha256 == ""
-    assert not (ROOT / spec.inputs_ref).exists()
-    assert prerun["registered_state_after_trial"]["stage_one_protocol_hash"] == (
-        spec.stage_one_protocol_hash
-    )
+    assert prerun["registered_state_after_trial"] == {
+        "input_exists": False,
+        "inputs_sha256": "",
+        "stage_one_protocol_hash": spec.stage_one_protocol_hash,
+    }
 
 
 def test_v4_runbook_pins_the_active_procedure_and_retires_v3_03_commands():
@@ -363,7 +365,7 @@ def test_v4_policy_is_hash_bound_and_rejects_incomplete_composition():
         replace(spec, case_selection=case_selection)
 
 
-def test_report_discovers_v4_and_marks_the_unlocked_predecessor_superseded():
+def test_report_marks_the_unlocked_predecessor_superseded_and_v4_locked():
     payload = report.report()
     by_id = {family["spec_id"]: family for family in payload["families"]}
 
@@ -372,7 +374,7 @@ def test_report_discovers_v4_and_marks_the_unlocked_predecessor_superseded():
         report.SUPERSEDED_BEFORE_INPUT_LOCK
     )
     assert by_id["v3-03-warden-security"]["superseded_by"] == ("v3-04-warden-security")
-    assert by_id["v3-04-warden-security"]["state"] == report.REGISTERED_WAITING
+    assert by_id["v3-04-warden-security"]["state"] == report.LOCKED_NOT_RUN
 
 
 def test_category_dispatch_builds_the_v4_agent_payload():

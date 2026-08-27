@@ -27,7 +27,7 @@ def client(tmp_path):
     return TestClient(create_app(db, snapshot_id=snapshot))
 
 
-def test_the_current_surface_waits_for_inputs_and_never_says_proved(client):
+def test_the_current_surface_shows_the_locked_family_and_never_says_proved(client):
     document = client.get("/advantage/v3.json")
     rendered = client.get("/advantage/v3", headers={"accept": "text/html"})
 
@@ -38,12 +38,13 @@ def test_the_current_surface_waits_for_inputs_and_never_says_proved(client):
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
         report.REGISTERED_WAITING,
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
-        report.REGISTERED_WAITING,
+        report.LOCKED_NOT_RUN,
         report.REGISTERED_WAITING,
     ]
-    assert rendered.text.count(report.REGISTERED_WAITING) >= 3
+    assert rendered.text.count(report.REGISTERED_WAITING) >= 2
+    assert report.LOCKED_NOT_RUN in rendered.text
     assert report.SUPERSEDED_BEFORE_INPUT_LOCK in rendered.text
-    assert "No input artifact is locked. No arm has run." in rendered.text
+    assert "Inputs are locked. No primary attempt has been claimed." in rendered.text
     for body in (document.text, rendered.text):
         assert "proved" not in body.lower()
 
