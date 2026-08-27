@@ -1303,9 +1303,9 @@ def create_app(
                 "to": c.ROUTER,
                 "permissionless": True,
                 "note": (
-                    "Anyone may call this once the window has elapsed and the job is "
-                    "undisputed, so Docket closes jobs it brokered without the buyer "
-                    "coming back. Check any job with GET /escrow/job/{job_id}."
+                    "Anyone may call this when the policy returns a final verdict. "
+                    "Docket reports the job state but does not schedule or broadcast "
+                    "settlement; arrange a caller with BNB for gas."
                 ),
             },
             "docket_does_not": [

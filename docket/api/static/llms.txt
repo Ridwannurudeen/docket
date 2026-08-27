@@ -950,10 +950,11 @@ the job id does not exist until createJob lands, and expiredAt depends on when y
 it. The steps that need the id say so in `needs`. Encode against the target contract's
 own ABI once you have your values.
 
-One thing does work in your favour: settle() is permissionless. Once the window has
-elapsed and the job is undisputed, any address can close it, so Docket closes jobs it
-brokered without you coming back a week later. GET /escrow/job/{job_id} tells you
-whether that has happened, and settle_at tells you when it can.
+One thing does work in your favour: settle() is permissionless. When the policy returns
+a final verdict, any address with BNB for gas may submit the settlement transaction.
+Docket publishes the job state and ships a separate, disarmed helper gated by
+DOCKET_SETTLE_KEY, but no public API route, timer or scheduler calls it. Automatic closing
+is neither wired nor demonstrated, and no Docket settlement has occurred; arrange a caller.
 
 This rail is BSC mainnet only. Testnet's equivalent policy is no longer whitelisted on
 its router, so a job there cannot be registered or funded at all — an honest dead end

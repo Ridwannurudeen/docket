@@ -3,6 +3,6 @@ agent now".
 
 Docket never takes a buyer's key, never proxies a signature, and never holds escrowed
 funds. It publishes the exact call sequence, reads the resulting job from chain, and
-closes the job once the dispute window elapses — which it can do because settle() is
-not gated on the caller.
+ships a disarmed, manually invoked settlement helper. The contract call is permissionless,
+but automatic settlement is not wired.
 """
