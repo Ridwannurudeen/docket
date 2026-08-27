@@ -45,7 +45,7 @@ $captureDir = 'data/yield-v2-capture-20260826'
 if (Test-Path -LiteralPath $captureDir) { throw "reserved capture path exists: $captureDir" }
 [IO.Directory]::CreateDirectory([IO.Path]::GetFullPath('data')) | Out-Null
 $captureStaging = "$captureDir.staging-$([guid]::NewGuid().ToString('N'))"
-scp -r root@gudman.xyz:/var/lib/docket/v3-capture/yield $captureStaging
+scp -r <deploy-user>@<host>:/var/lib/docket/v3-capture/yield $captureStaging
 if ($LASTEXITCODE -ne 0) {
   throw "copy failed; only failed staging path $captureStaging may be discarded"
 }

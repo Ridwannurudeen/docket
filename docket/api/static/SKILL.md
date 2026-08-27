@@ -405,13 +405,16 @@ Say these plainly if the rail comes up:
 - `hire_sequence` is a template: target, function and argument shape per step, and no
   calldata field on any of them. That is correct behaviour, not a truncated response.
   The steps needing a job id say so in `needs`; `createJob` has to land first.
-- `settle()` is permissionless, so the wait does not require the user to come back;
-  Docket closes jobs it brokered once `settle_at` passes.
+- `settle()` is permissionless: when the policy returns a final verdict, any address
+  with BNB for gas may submit it. Docket publishes the job state and ships a separate,
+  disarmed helper gated by `DOCKET_SETTLE_KEY`, but no public API route, timer or scheduler
+  calls it. Automatic closing is neither wired nor demonstrated; arrange a caller.
 - Mainnet only. The testnet route is dead at the router, not withheld.
 
 Read `settle_ready` and `settle_at` from `/escrow/job/{job_id}` rather than computing
-the date yourself, and never describe a job as settled because its window has passed —
-a disputed job stays open, and the same response tells you whether it is disputed.
+the date yourself, and never describe a job as settled because its window has passed.
+The state read is advisory; automatic settlement is not configured and no Docket settlement
+has occurred.
 
 ## Workflow 7: find a service by the job it does, then run it
 

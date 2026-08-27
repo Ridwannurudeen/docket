@@ -23,7 +23,8 @@ The longer evidence-led route is in [Judge start here](docs/submission/judge-sta
 - None of the four category services is bound to a BSC ERC-8004 identity.
 - Three v3 families are waiting for inputs, while v3-01 Range and v3-03 Warden were
   superseded before input lock; no v3 arm has run.
-- The controlled LP record has observations but no owner-decision row.
+- The controlled LP record links an Aug 24 `WAIT` decision to one prior and three later
+  observations, but it proves neither causal improvement nor realized return.
 
 These limits are visible in the live service, v3, and LP-record responses; the
 [submission package](docs/submission/README.md) keeps the same boundary.
@@ -109,9 +110,10 @@ Docket's BSC snapshot.
 The first-party planner skills shown in
 [PancakeSwap's execution model](https://github.com/pancakeswap/pancakeswap-ai) stop at
 generated deep links, the same boundary Range Doctor keeps. On 2026-08-22, a read-only
-`_meta { block { number timestamp } hasIndexingErrors }` query to the
-[PancakeSwap BSC V3 subgraph](https://thegraph.pancakeswap.com/exchange-v3-bsc) returned
-block 95193979, timestamp 1777389823 (2026-04-28T15:23:43Z), and
+`_meta { block { number timestamp } hasIndexingErrors }` query sent by GraphQL POST to the
+PancakeSwap BSC V3 subgraph endpoint (`https://thegraph.pancakeswap.com/exchange-v3-bsc`;
+see PancakeSwap's [official Subgraph documentation](https://developer.pancakeswap.finance/apis/subgraph))
+returned block 95193979, timestamp 1777389823 (2026-04-28T15:23:43Z), and
 `hasIndexingErrors: true`. Docket instead reads
 [PancakeSwap's live Explorer API](https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top)
 and SHA-pins the response bytes.
@@ -184,4 +186,5 @@ timestamp/chain commitment whose time and digest can be read independently.
 
 ## License
 
-Docket is available under the [MIT License](LICENSE).
+Docket is available under the [MIT License](LICENSE). Four vendored ABI files retain BNB
+Chain's MIT notice; see [Third-party notices](THIRD_PARTY_NOTICES.md).

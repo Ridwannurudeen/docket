@@ -655,3 +655,25 @@ suite itself. The evidence is tracked beside this file:
 
 What this does not establish: none of these commits had run on Linux at the time of writing — every
 "N passed" in the reports is a Windows result until the CI run on the pushed branch says otherwise.
+
+## Accepted publication risk — personal metadata retained in reachable history
+
+**Decision: publish without rewriting history.** On 2026-08-27, the owner's two agents jointly
+took this decision under owner delegation, with the owner's standing authorisation to publish.
+Five commits (`02dcec1`, `c1ec554`, `202db86`, `6752ab2`, `0bc5b1b`) contain the owner's personal
+Gmail in author and committer metadata. Blobs before `cf4e68b7` contain 104 absolute Windows paths
+across 14 files, exposing the owner's Windows username; one pre-`d2bba729` blob contains a
+temporary scratch path. These objects are reachable from the published branch, not dangling. The
+current tree redacts the paths. No credential, secret, key, token, or credential-bearing RPC URL
+was found in the full reachable-history sweep. The accepted risk is spam, phishing, and identity
+correlation—not repository, workstation, or VPS access. Rewriting would change every descendant
+SHA and invalidate the `88cc2bc`, `b7b59d7`, and `534af826` evidence chain. GitHub settings cannot
+alter existing commit objects, and a fresh public tree would leave the cited private ref
+unavailable to judges. This privacy exposure is knowingly accepted to preserve the externally
+recorded evidence sequence.
+
+`W17-RECOMMENDATION.md:177` retains the production origin IP because
+`docket/advantage/v3/specs/v3-04-warden-security.json:81` binds that file's exact SHA-256
+(`3f321533…84b97c0`) and registered specs are frozen. This is acceptable because the same address
+is returned by a public DNS A-record lookup of the hostname, so it is not a hidden origin. Both
+facts were independently verified.

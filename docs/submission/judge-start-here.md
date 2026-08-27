@@ -14,7 +14,7 @@ Read the limit on that same page: Range Doctor is not in paid stock, has no boun
 
 Open the [PancakeSwap decision page](https://docket.gudman.xyz/pancake).
 
-This proves a read-only position diagnosis, the dated controlled-position observations, disclosed fee arithmetic, conditional owner actions, and structural separation from signing or submission. The [raw LP record](https://docket.gudman.xyz/lp-record) currently contains observations and later states but no owner-decision row; the [controlled-evidence document](../controlled-lp-evidence.md) defines the decision link that still has to be recorded.
+This proves a read-only position diagnosis, dated controlled-position observations, disclosed fee arithmetic, conditional owner actions, and structural separation from signing or submission. The 14-row [raw LP record](https://docket.gudman.xyz/lp-record) contains 13 observations and the owner's 2026-08-24 `WAIT` decision: the decision links to its prior observation, and three later states link back to it. This proves record linkage, not causal improvement, realized return, or that Docket caused the choice. The [controlled-evidence document](../controlled-lp-evidence.md) defines the link.
 
 ## 3. Inspect the comparative evidence
 

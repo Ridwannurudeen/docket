@@ -70,10 +70,10 @@ wheel_name=$(basename "$wheel")
 wheel_sha=$(sha256sum "$wheel" | awk '{print $1}')
 remote_bundle="/var/tmp/docket-release-${source_commit:0:12}"
 
-ssh root@gudman.xyz "install -d -o root -g root -m 0700 '$remote_bundle'"
+ssh <deploy-user>@<host> "install -d -o root -g root -m 0700 '$remote_bundle'"
 tar -cf - -C "$repo_root" deploy -C "$(dirname "$wheel")" "$wheel_name" | \
-  ssh root@gudman.xyz "tar -xf - -C '$remote_bundle'"
-ssh root@gudman.xyz \
+  ssh <deploy-user>@<host> "tar -xf - -C '$remote_bundle'"
+ssh <deploy-user>@<host> \
   "bash '$remote_bundle/deploy/preflight.sh' 22"
 ```
 
@@ -88,9 +88,9 @@ After preflight, make a SQLite-consistent backup without copying the live databa
 shipped tree, then invoke the release with the computed values:
 
 ```bash
-ssh root@gudman.xyz \
+ssh <deploy-user>@<host> \
   'stamp=$(date -u +%Y%m%dT%H%M%SZ); install -d -o root -g root -m 0700 /var/backups/docket; /opt/docket/.venv/bin/python -c '\''import sqlite3,sys; source=sqlite3.connect("/var/lib/docket/data/agents.sqlite3"); destination=sqlite3.connect(sys.argv[1]); source.backup(destination); destination.close(); source.close()'\'' "/var/backups/docket/agents-${stamp}.sqlite3"'
-ssh root@gudman.xyz \
+ssh <deploy-user>@<host> \
   "bash '$remote_bundle/deploy/release.sh' '$remote_bundle/$wheel_name' '$source_commit' '$wheel_sha'"
 ```
 
@@ -266,9 +266,9 @@ The release checks response shape. Collect the deployed identity and exact respo
 separately after it returns success:
 
 ```bash
-ssh root@gudman.xyz \
+ssh <deploy-user>@<host> \
   'readlink -f /opt/docket/.venv; cat /opt/docket/RELEASE-commit.txt /opt/docket/WHEEL-sha256.txt; /opt/docket/.venv/bin/python -c '\''import importlib.metadata as metadata; print(metadata.version("docket"))'\''; /opt/docket/.venv/bin/python -m pip check'
-ssh root@gudman.xyz \
+ssh <deploy-user>@<host> \
   'curl -fsS http://127.0.0.1:8090/services | sha256sum; curl -fsS http://127.0.0.1:8090/stats; systemctl list-timers docket-canary.timer docket-lp-record.timer docket-refresh.timer docket-v3-capture.timer docket-v3-range-capture.timer'
 ```
 

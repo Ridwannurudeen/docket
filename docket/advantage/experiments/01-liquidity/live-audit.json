@@ -1,7 +1,7 @@
 {
   "capture": {
     "artifact_path": "docket/advantage/experiments/01-liquidity/live-audit.json",
-    "command": "Write-Output '{\"wallet\":\"0x451871A1753903FB8fdd64a6B838E95aB8D5B80f\",\"limit\":30}' | curl.exe --resolve docket.gudman.xyz:443:75.119.153.252 --connect-timeout 10 --max-time 300 -sS -i -H \"Content-Type: application/json\" --data-binary '@-' https://docket.gudman.xyz/hire/range-doctor",
+    "command": "Write-Output '{\"wallet\":\"0x451871A1753903FB8fdd64a6B838E95aB8D5B80f\",\"limit\":30}' | curl.exe --resolve docket.gudman.xyz:443:<resolved production address> --connect-timeout 10 --max-time 300 -sS -i -H \"Content-Type: application/json\" --data-binary '@-' https://docket.gudman.xyz/hire/range-doctor",
     "observed_at": "2026-08-25T11:36:12.115127+00:00",
     "request": {
       "body": {
