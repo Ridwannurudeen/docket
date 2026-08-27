@@ -13,6 +13,10 @@ directory becomes registered evidence only when it is renamed once into the rese
 A scratch rehearsal is not the registered frame, and deploying or enabling the timer remains
 an owner action.
 
+Experiment arms run on the workstation against the repository tree. The installed package is
+read-only and must not be used as a ledger target. A ledger becomes visible in production only
+after it is committed to the repository and that commit is redeployed.
+
 ## 0. Immutable state and rehearsal evidence
 
 The registration pins block `117841891`, hash
