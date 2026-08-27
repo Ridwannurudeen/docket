@@ -28,7 +28,7 @@ Record at 1280×720 or higher from a cold browser with no wallet extension conne
 
 **Clicks:** Click **Advantage report** in the top navigation; at the top of the report, click **v3**, then use Back once.
 
-**Say:** “The original report has three tasks, each run once with the service and once by hand, with both outputs attached. It includes the single-task security loss: manual reading of the frozen payload found four hostile vectors and Warden's layers identified one. The registered v3 report is also public, but it has no result yet—three families wait for inputs, while the earlier Range and Warden registrations were superseded before input lock.”
+**Say:** “The original report has three tasks, each run once with the service and once by hand, with both outputs attached. It includes the single-task security loss: manual reading of the frozen payload found four hostile vectors and Warden's layers identified one. V3 has no family result yet. Its v3-04 Warden input is locked and the run has begun: the first manual primary failed after a malformed operator answer, while 23 primaries remain unrun. Yield and the active Range successor still wait for inputs; the earlier Range and Warden registrations remain superseded.”
 
 **Point at:** the question, both arms, time, cost note, output hashes, and full output in the [v1 report](https://docket.gudman.xyz/advantage.json); then the empty state in the [v3 report](https://docket.gudman.xyz/advantage/v3.json).
 
@@ -67,5 +67,5 @@ Return to <https://docket.gudman.xyz/pancake> only if the live result has arrive
 ## Thirty-second version
 
 - **0:00–0:12:** Open <https://docket.gudman.xyz/pancake>. Say: “A fresh, read-only PancakeSwap position diagnosis sits above a public dated history. Its August 24 `WAIT` decision links one prior and three later observations; that proves linkage, not that Docket caused or improved the choice.”
-- **0:12–0:22:** Open <https://docket.gudman.xyz/advantage>. Say: “Three completed single-task comparisons expose both arms and actual outputs, including Warden's layers finding one of four vectors identified by manual reading of the same security payload; v3 is registered but has no result.”
+- **0:12–0:22:** Open <https://docket.gudman.xyz/advantage>. Say: “Three completed single-task comparisons expose both arms and actual outputs, including Warden's layers finding one of four vectors identified by manual reading of the same security payload. V3 has no family result yet: v3-04 is input-locked and running after one failed manual primary, with 23 primaries still unrun.”
 - **0:22–0:30:** Open <https://docket.gudman.xyz/stats>. Say: “The live registry layer publishes its timestamp, sample denominator, population rule, and probe method. Hire by evidence, not promises.”

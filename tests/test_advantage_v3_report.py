@@ -76,17 +76,18 @@ def _forbid_filesystem_writes(monkeypatch):
     monkeypatch.setattr(os, "open", fail_os_open)
 
 
-def test_the_committed_families_include_the_superseded_unlocked_pilot():
+def test_the_committed_families_include_the_superseded_pilot_and_locked_successor():
     payload = report.report()
 
     assert [family["state"] for family in payload["families"]] == [
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
         report.REGISTERED_WAITING,
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
-        report.REGISTERED_WAITING,
+        report.LOCKED_NOT_RUN,
         report.REGISTERED_WAITING,
     ]
     assert set(payload["summary"]["states"]) == {
+        report.LOCKED_NOT_RUN,
         report.REGISTERED_WAITING,
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
     }
@@ -94,6 +95,12 @@ def test_the_committed_families_include_the_superseded_unlocked_pilot():
     by_id = {family["spec_id"]: family for family in payload["families"]}
     assert by_id["v3-01-range-doctor"]["superseded_by"] == "v3-05-range-doctor"
     assert by_id["v3-03-warden-security"]["superseded_by"] == ("v3-04-warden-security")
+    assert by_id["v3-04-warden-security"]["run_progress"] == {
+        "scheduled_primaries": 24,
+        "claimed_primaries": 0,
+        "terminal_primaries": 0,
+        "outcomes": {},
+    }
 
 
 def test_locked_not_run_running_and_complete_unscored_come_only_from_the_ledger(

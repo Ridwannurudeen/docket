@@ -23,7 +23,7 @@ python -m pytest -q tests/test_advantage_v2_replay.py tests/test_advantage_v3_sp
 ```
 
 These tests recompute stored object identities, corpus hashes, spec-to-run links, null
-baselines, denominators, falsifiers, and the current v3 unrunnable state.
+baselines, denominators, falsifiers, and the current v3 artifact-derived states.
 
 ## Artifact byte hashes
 
@@ -107,18 +107,19 @@ report summary states that rather than discarding it.
 
 ## V3
 
-V3 has exactly four stage-one specifications:
+V3 has exactly five stage-one specifications:
 
 | Spec | Stage-one protocol hash | Current spec hash |
 |---|---|---|
-| Range | `0x5436fe80f16558d06f2f8f09f2eb4bbad6a2f3e26e5bbbbbafd143b7f14d2fce` | `0x4844dfcf708d257c92d8d5c00f502c14af8fb187464d3b1a5314d1592c720d82` |
+| Range v3-01, superseded before input lock | `0x5436fe80f16558d06f2f8f09f2eb4bbad6a2f3e26e5bbbbbafd143b7f14d2fce` | `0x4844dfcf708d257c92d8d5c00f502c14af8fb187464d3b1a5314d1592c720d82` |
 | Yield | `0x10d0fb31ea70c4bb31581952b99b6776d5f25d2c51bdf9543d47d07781266d3c` | `0x3037f77abf461e4d9fffebf6156847bab2488b4d5cd683e0f37b464b4e2b173b` |
 | Warden v3-03, superseded before input lock | `0xcd4c698f55c316fdedaa2eb52d80091c3a08d004175d7d156527f224c4e941eb` | `0x9321343763a7b8ff215b54f356ef8cc781ad4db56924d1bc5f23b3a53b7e618e` |
-| Warden v3-04, active | `0x9e2206f6c9293e8f41528893aa1b526bfd917a099a5ae7dbe826c486d8a6b62e` | `0xfffddc138698db64566c965b20311dd7746cc91091160936dfb15105a7b7a862` |
+| Warden v3-04, active | `0x9e2206f6c9293e8f41528893aa1b526bfd917a099a5ae7dbe826c486d8a6b62e` | `0x08ad28caac2d76da2c2d6844341b7930f9338383ee7e82b4e712d426f7791d49` |
+| Range v3-05, active | `0x2a83c1a331d579e5cef461d52c539711b4fa2bba6dd397aaad1bf38b6b47f9ab` | `0xbc945b91d2b6649f077050da5eb1c8ee7472568dd9d76d9bdeb7f6974cfd449d` |
 
-For all four, `inputs_sha256` is the empty string. The referenced input files do not exist,
-and there is no runs directory. `load()` can validate the stage-one file; `assert_runnable()`
-must refuse it.
+Only v3-04 has locked inputs: its digest is
+`23b09164c6940848ac109f05db3f7342f46a0bad71c17ebc9cac53dd4f8fc4e6`, and
+`assert_runnable()` accepts it. The other four input digests remain empty.
 
 Do not create the referenced inputs, call `lock_inputs`, or run an arm as part of
 reproduction. Those are future registered-protocol events, not read-only verification.
@@ -136,8 +137,11 @@ assembly and lock, all 24 primaries, blind scoring and the conjunctive ship deci
 two-pilot sequence and separate pre-run validation are preserved in
 [`warden-pilot-history.json`](../docket/advantage/v3/provenance/warden-pilot-history.json).
 
-Until that future procedure runs, the active v3-04 `inputs_sha256` remains empty and no
-registered input, primary, score sheet or mapping exists. Reproduction must not create one.
+The v3-04 input is locked and the operator run has begun. Manual primary `w4-ho-01` ended
+`failed` with `invoke_error` after a malformed operator answer; 11 manual and all 12 agent
+primaries remain unrun. No score sheet, mapping, falsifier result, or family result exists.
+The in-progress ledger is outside this checkout, so read-only reproduction here reports
+`locked_not_run`; it must not copy, alter, or advance the operator ledger.
 
 ## The Git witness
 

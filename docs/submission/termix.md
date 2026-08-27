@@ -11,8 +11,9 @@
 The honest answer today is mixed. Docket's v1 report alone satisfies that formal eligibility
 gate, but it contains one paired observation per task and records material losses as well as
 wins. The marketplace is not yet open for payment: 0 of 6 catalogue services are in paid stock,
-no settlement has run, and all 5 v3 families still have zero results: 3 wait for inputs, while
-v3-01 Range and v3-03 Warden were stopped before input lock.
+and no settlement has run. V3 has no family result yet. v3-04 Warden is input-locked and its
+operator run has begun: manual `w4-ho-01` failed with `invoke_error`; 23 primaries remain unrun.
+v3-02 and v3-05 still wait for inputs, while v3-01 and v3-03 remain superseded.
 [Sources: [v1](https://docket.gudman.xyz/advantage.json),
 [catalogue](https://docket.gudman.xyz/hire),
 [canary history](https://docket.gudman.xyz/canary),
@@ -64,21 +65,23 @@ V2 does not add another human comparison: it explicitly describes its repeated t
 agent-versus-computed-null work and points back to v1 as the only current agent-versus-person
 report. [Source: [v2 method and prior-version note](https://docket.gudman.xyz/advantage/v2.json)]
 
-### What v3 will add — and what it has not added
+### What v3 has started — and what it has not established
 
 V3 registers 3 Range Doctor cases, 5 Yield Router pairs, and 12 Warden pairs in the active
 v3-04 family, retaining first primary outputs and failures under fixed stopping and scoring
-rules. Today v3-05 Range, Yield, and v3-04 Warden remain `registered_waiting_for_inputs` with
-empty `inputs_sha256`; v3-01 Range and v3-03 Warden are `superseded_before_input_lock`. These
-are protocols, not results.
+rules. v3-04 Warden is input-locked and `running`: manual `w4-ho-01` failed with
+`invoke_error` after a malformed operator answer; the other 11 manual and all 12 agent
+primaries are unrun. No v3 family result exists. v3-05 Range and v3-02 Yield remain
+`registered_waiting_for_inputs`; v3-01 Range and v3-03 Warden remain
+`superseded_before_input_lock`.
 [Sources: [live v3 state](https://docket.gudman.xyz/advantage/v3.json),
 [Range protocol](../../docket/advantage/v3/specs/v3-05-range-doctor.json),
 [Yield protocol](../../docket/advantage/v3/specs/v3-02-yield-router.json),
 [Warden protocol](../../docket/advantage/v3/specs/v3-04-warden-security.json)]
 
 Yield and Range captured their registered source bytes on their first scheduled attempts on
-2026-08-26, at 12:00Z and 12:10Z respectively. These captures are inputs, not results: neither
-input is locked, no arm has run, and v3 contains no result.
+2026-08-26, at 12:00Z and 12:10Z respectively. Those two captures are inputs, not results:
+neither associated family has locked its input or run an arm.
 [Sources: [registered Yield protocol](../../docket/advantage/v3/specs/v3-02-yield-router.json),
 [registered Range protocol](../../docket/advantage/v3/specs/v3-05-range-doctor.json),
 [host rehearsal record](../operational-evidence.md#the-capture-rehearsal-on-this-host-with-the-installed-code)]

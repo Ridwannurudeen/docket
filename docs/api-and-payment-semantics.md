@@ -32,11 +32,13 @@ requesting JSON receives the endpoint index.
 | `GET /advantage/v3` | The same startup-bound V3 report rendered as HTML |
 | `GET /lp-record` | A bounded, tolerant read of the controlled PancakeSwap position journal |
 
-V3's closed states are `registered_waiting_for_inputs`, `locked_not_run`, `running`,
-`complete_unscored`, `refuted`, and `not_refuted`. All three families currently report the
-first state because every `inputs_sha256` is empty and no input or run artifact exists. The
-application builds one v3 report object at startup and renders its HTML from that exact
-object, so the JSON and page cannot drift within a process.
+V3's closed states are `registered_waiting_for_inputs`, `superseded_before_input_lock`,
+`locked_not_run`, `running`, `complete_unscored`, `refuted`, and `not_refuted`. v3-04 Warden
+has locked inputs; its operator ledger folds to `running` after one failed manual primary,
+but that ledger is not yet in this checkout, whose artifact-derived state is
+`locked_not_run`. v3-02 and v3-05 wait for inputs, while v3-01 and v3-03 are superseded.
+No family result exists. The application builds one v3 report object at startup and renders
+its HTML from that exact object, so the JSON and page cannot drift within a process.
 
 Unless `create_app` receives an explicit snapshot ID for inspection, each request resolves
 the newest complete snapshot that has been explicitly promoted. A finished refresh candidate
