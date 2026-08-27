@@ -511,6 +511,9 @@ def test_a_paid_preflight_settles_once_and_rejects_the_exact_replay(
 
 def test_a_paid_hire_settles_when_the_benchmark_report_fails(tmp_path, monkeypatch):
     facilitator = FixtureFacilitator()
+    exception_message = (
+        r"cannot read C:\opt\docket\docket\advantage\v3\runs\04-warden.jsonl"
+    )
     client = _client(
         tmp_path,
         monkeypatch,
@@ -521,7 +524,7 @@ def test_a_paid_hire_settles_when_the_benchmark_report_fails(tmp_path, monkeypat
     )
 
     def fail_report():
-        raise PermissionError("synthetic report lock failure")
+        raise PermissionError(exception_message)
 
     monkeypatch.setattr(catalogue.report_snapshot, "get_report", fail_report)
     response = client.post(
@@ -546,10 +549,11 @@ def test_a_paid_hire_settles_when_the_benchmark_report_fails(tmp_path, monkeypat
         "report_url": None,
         "benchmark_state": None,
         "benchmark_unavailable_reason": (
-            "The v3 benchmark report failed while resolving measured value: "
-            "PermissionError: synthetic report lock failure."
+            "The v3 benchmark report failed while resolving measured value "
+            "(PermissionError)."
         ),
     }
+    assert exception_message not in response.text
     assert body["receipt"]["payment"]["status"] == "settled"
     assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
 

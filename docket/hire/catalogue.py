@@ -194,8 +194,8 @@ def _measured_value(service_id: str, elapsed: float) -> dict:
         return _unavailable_measured_value(
             elapsed,
             None,
-            "The v3 benchmark report failed while resolving measured value: "
-            f"{type(exc).__name__}: {exc}.",
+            "The v3 benchmark report failed while resolving measured value "
+            f"({type(exc).__name__}).",
         )
 
 
