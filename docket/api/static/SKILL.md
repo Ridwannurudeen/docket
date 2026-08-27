@@ -370,13 +370,15 @@ artifact at n=1. v2 is agent-versus-computed-null armour with no human arm. v3 i
 registered paired evaluation scored by two prompt-blinded model seats run by one
 operator.
 
-Read `summary.states` before describing v3. Today every registered `inputs_sha256` is empty,
-no input or run artifact exists, no input is locked, and no timed arm has run. Three families
-are `registered_waiting_for_inputs`; v3-01-range-doctor is `superseded_before_input_lock` by the
-distinct archive-pinned v3-05-range-doctor family, and v3-03 Warden has that state under the distinct
-pilot-informed v3-04 family. The other state
-names are `locked_not_run`, `running`, `complete_unscored`, `refuted`, and `not_refuted`.
-Never turn `not_refuted` into "proved".
+Read `summary.states` before describing v3. v3-04 Warden has locked inputs and its operator
+run has begun: manual primary `w4-ho-01` failed with `invoke_error` after a malformed operator
+answer; 11 manual and all 12 agent primaries remain unrun. No family result exists.
+`v3-02-yield-router` and `v3-05-range-doctor` remain `registered_waiting_for_inputs`;
+`v3-01-range-doctor` and `v3-03-warden-security` remain `superseded_before_input_lock`.
+The in-progress ledger is not yet in this checkout,
+so its artifact-derived state is `locked_not_run` until that ledger is included. Other state
+names are `running`, `complete_unscored`, `refuted`, and `not_refuted`. Never turn
+`not_refuted` into "proved".
 
 The process builds one v3 payload at startup and renders `/advantage/v3` from that exact
 object. Use the JSON for machine work and the page for a reader; neither changes until the

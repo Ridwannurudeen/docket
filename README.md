@@ -21,8 +21,10 @@ The longer evidence-led route is in [Judge start here](docs/submission/judge-sta
 
 - No service is in paid stock, and no settlement has run.
 - None of the four category services is bound to a BSC ERC-8004 identity.
-- Three v3 families are waiting for inputs, while v3-01 Range and v3-03 Warden were
-  superseded before input lock; no v3 arm has run.
+- V3 has no family result yet. The v3-04 Warden input is locked and its operator run has
+  begun: manual primary `w4-ho-01` failed with `invoke_error` after a malformed operator
+  answer; 11 manual and all 12 agent primaries remain unrun. v3-02 Yield and v3-05 Range
+  still wait for inputs; v3-01 Range and v3-03 Warden remain superseded before input lock.
 - The controlled LP record links an Aug 24 `WAIT` decision to one prior and three later
   observations, but it proves neither causal improvement nor realized return.
 
@@ -44,9 +46,11 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
 - **C-03.** The exact x402 settlement path is implemented but disabled by default and,
   according to the owner, has never been exercised live; the repository contains no
   settled receipt or settlement transaction.
-- **C-04.** The v3 paired report has five stage-one specifications. The unlocked v3-01
-  Range and v3-03 Warden families are marked superseded by the distinct pilot-informed
-  v3-05 Range and v3-04 Warden families; no v3 input is locked and no timed arm has run.
+- **C-04.** The v3 paired report has five stage-one specifications and no family result yet.
+  The v3-04 Warden input is locked and its operator run has begun: manual primary
+  `w4-ho-01` failed with `invoke_error` after a malformed operator answer; 11 manual and all
+  12 agent primaries remain unrun. v3-02 Yield and v3-05 Range still wait for inputs; v3-01
+  Range and v3-03 Warden remain superseded before input lock.
 - **C-05.** SOLVENT is halted and is presented as historical research evidence, not paid
   inventory; its one ERC-8004 identity is agent 136384 on BSC.
 - **C-06.** Range Doctor's recorded v1 run covered a wallet with 14 positions, 13 closed,
@@ -161,11 +165,13 @@ the installed v3 JSON, HTML, and agent-facing documentation.
 - V2 stores its corpora, registered specifications, completed runs, null baselines, and
   computed falsifiers under `docket/advantage/v2/`.
 - V3 stores five stage-one specifications plus the claim-once runner, prompt-blinded
-  scoring, report builder, and served page under `docket/advantage/v3/`. There is no
-  `inputs/` or `runs/` directory and every `inputs_sha256` is empty. At
-  `/advantage/v3.json`, three families report `registered_waiting_for_inputs`; v3-01 Range
-  and v3-03 Warden report `superseded_before_input_lock`, with v3-05 and v3-04 named as
-  their respective successors.
+  scoring, report builder, and served page under `docket/advantage/v3/`. v3-04 Warden binds
+  `inputs_sha256=23b09164c6940848ac109f05db3f7342f46a0bad71c17ebc9cac53dd4f8fc4e6`.
+  Its operator ledger records failed manual primary `w4-ho-01`; 23 primaries remain unrun,
+  so the operator state is `running` and no family result exists. That in-progress ledger
+  is not yet in this checkout, whose artifact-derived state is therefore `locked_not_run`.
+  v3-02 and v3-05 remain `registered_waiting_for_inputs`; v3-01 and v3-03 remain
+  `superseded_before_input_lock`.
 
 Do not describe the v3 Git sequence as externally preregistered. A checkable witness would
 require the exact registration commit to be anchored outside the owner's control before

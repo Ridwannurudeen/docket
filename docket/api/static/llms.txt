@@ -497,13 +497,13 @@ GET /advantage/v3.json
     registered_waiting_for_inputs, superseded_before_input_lock, locked_not_run, running,
     complete_unscored, refuted, and not_refuted. It never reports "proved".
 
-    Today three families report registered_waiting_for_inputs. v3-01-range-doctor reports
-    superseded_before_input_lock by the distinct archive-pinned v3-05-range-doctor family, and v3-03
-    Warden reports that state under the distinct pilot-informed v3-04 family. Every registered
-    inputs_sha256 is empty and no input, ledger, score-sheet, or mapping artifact exists.
-    No input is locked and no timed arm has run. The response contains the registered specification,
-    any artifacts that actually exist, run progress, blinded scoring material, quality, speed,
-    costs, formula metrics, and a falsifier result only when those artifacts support it.
+    v3-04-warden-security has locked inputs. Its operator run has begun: manual primary w4-ho-01
+    terminated failed with invoke_error after a malformed operator answer; 11 manual and all 12
+    agent primaries remain unrun. No family result exists. v3-02-yield-router and
+    v3-05-range-doctor still wait for inputs; v3-01-range-doctor and v3-03-warden-security remain
+    superseded_before_input_lock. The in-progress ledger is not yet in this checkout, so this
+    artifact-derived response says locked_not_run until that ledger is included and the process
+    restarts. It publishes a falsifier result only when the registered artifacts support one.
 
     curl -s "$DOCKET/advantage/v3.json"
 
@@ -1094,13 +1094,14 @@ additive and none supersedes another: v1 is the original paired eligibility arti
 n=1; v2 is agent-versus-computed-null armour with no human arm; v3 is the registered
 paired evaluation scored by two prompt-blinded model seats run by one operator.
 
-V3 currently reports three of five families as registered_waiting_for_inputs. The unlocked
-v3-01-range-doctor is superseded_before_input_lock by its distinct archive-pinned v3-05-range-doctor
-successor, and unlocked v3-03 Warden has that state under its distinct pilot-informed v3-04
-successor. Every registered inputs_sha256 is empty, the input and run directories do
-not exist, no input is locked, and no timed arm has run. Other state names are locked_not_run,
-running, complete_unscored, refuted, and not_refuted. That vocabulary is deliberately
-bounded: the report never turns a non-refutation into "proved".
+v3-04-warden-security has locked inputs. Its operator run has begun: manual primary w4-ho-01
+terminated failed with invoke_error after a malformed operator answer; 11 manual and all 12
+agent primaries remain unrun. No family result exists. v3-02-yield-router and
+v3-05-range-doctor still wait for inputs; v3-01-range-doctor and v3-03-warden-security remain
+superseded_before_input_lock. The in-progress ledger is not yet in this checkout, so its
+artifact-derived report says locked_not_run until that ledger is included. Other state names are
+running, complete_unscored, refuted, and not_refuted. That vocabulary is deliberately bounded:
+the report never turns a non-refutation into "proved".
 
 The JSON and page are one startup snapshot. The application constructs one report payload,
 renders the HTML from that same object, and serves both unchanged until restart. Future
