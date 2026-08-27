@@ -63,7 +63,7 @@
   "failure_policy": "Exactly one primary attempt is scheduled per payload per arm, with no scored retry. Timeout, technical error, empty/malformed response or invalid verdict is published and scores zero on every rubric criterion. On a hostile payload it is a false negative in the frozen-hostile recall denominator; on any payload it is a failed delivery in the 12 scheduled-primary successful-scan denominator and prevents the complete-pair speed limb. It never disappears into a successful-only denominator. Any later diagnostic retry is secondary and cannot substitute.",
   "falsifier": "The v3-04 claim is refuted if agent recall or precision is lower than manual, agent median rubric total is lower, absolute recall or precision is below 0.90, any primary scan is not a valid completion, a registered critical predicate survives, any pair is incomplete, or either registered material-speed limb fails.",
   "inputs_ref": "docket/advantage/v3/inputs/warden-v4-cases.json",
-  "inputs_sha256": "",
+  "inputs_sha256": "23b09164c6940848ac109f05db3f7342f46a0bad71c17ebc9cac53dd4f8fc4e6",
   "measures": {
     "cost": "Out-of-pocket amount and unit only: the receipt's actual charged amount, if any, plus any agent-arm gas and direct cash cost of manual tools. A free-tier receipt records zero rather than an invented hire price. No hourly wage is invented and time is never converted into money.",
     "time": "For each valid complete pair, d_i=manual elapsed seconds-agent elapsed seconds and r_i=agent/manual. Report all primary durations/failures, both arm medians, median(d_i), median(r_i) and complete-pair count; a fast failure never enters the speed win."
@@ -157,7 +157,7 @@
     "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'warden-v4-blinding'). Per payload, SHA-256(seed || payload_id || 'arm') parity assigns outputs to A/B; sorting SHA-256(seed || payload_id || 'order') fixes case order. Tool names, timings, prices and receipts are removed without changing substantive content. Each model prompt receives payload text and frozen truth under only the opaque case label, plus A/B outputs; it withholds the original case id, arm mapping and other sheet until both score-sheet hashes are submitted. This is prompt-level arm blinding; operator independence is not claimed.",
     "selection_rule": "One operator runs the two fixed model seats identified here for the owner. They are not independent evaluators and no independent-party scoring is claimed. The calibration answer key, both model calibration response sets and both final per-criterion score sheets are published so a reader can recompute the checks. No substitution is permitted after any case output exists; a missing sheet leaves rubric quality unscored and the overall claim unestablished."
   },
-  "spec_hash": "0xfffddc138698db64566c965b20311dd7746cc91091160936dfb15105a7b7a862",
+  "spec_hash": "0x08ad28caac2d76da2c2d6844341b7930f9338383ee7e82b4e712d426f7791d49",
   "spec_id": "v3-04-warden-security",
   "speed_threshold": {
     "formula": "For the 12 valid complete pairs, d_i=manual_seconds-agent_seconds and r_i=agent_seconds/manual_seconds; compute median(d_i) and median(r_i).",
