@@ -155,8 +155,8 @@ now states the filter instead of reading `unspecified`.
 The 2026-08-21 capture failed because the process was started *at* its registered moment and spent
 its five-second tolerance importing on a loaded host. The redesigned unit pre-arms. Rehearsed here
 against a scratch specification whose `spec_id` is `v3-02-yield-router-REHEARSAL-NOT-REGISTERED`,
-written to `/var/tmp/docket-rehearsal/` — never to `/var/lib/docket/v3-capture/`, which remains
-empty, and never against the registered protocol hash:
+written to `/var/tmp/docket-rehearsal/` — not to `/var/lib/docket/v3-capture/` and never against
+the registered protocol hash:
 
 - `armed.json` was written at `17:33:24.915366Z` for a registered moment of `17:39:00Z` — five and
   a half minutes early — carrying the three-attempt schedule, the host identity, the spec hash, and
@@ -167,8 +167,11 @@ empty, and never against the registered protocol hash:
   216,263 bytes `703da7f5…`), per-attempt files were written as the attempt finished, and
   `capture-complete.json` was written last.
 
-The registered timer is armed for `Wed 2026-08-26 11:50:00 UTC`, ten minutes ahead of the
-recommitted `2026-08-26T12:00:00Z` moment. The retired 2026-08-21 timer was removed by the release.
+The registered timer was armed for `Wed 2026-08-26 11:50:00 UTC`, ten minutes ahead of the
+recommitted moment. Yield then captured its registered source bytes on the first scheduled attempt
+at `2026-08-26T12:00:00Z`; Range did the same at `2026-08-26T12:10:00Z`. These captures are input
+evidence only: neither input is locked, no arm has run, and no result exists. The retired 2026-08-21
+timer was removed by the release.
 
 ### Persistent journal — configured, then found not to have taken effect
 
@@ -222,7 +225,8 @@ before and after; nginx was never reloaded.
 
 - The v3 families remain `registered_waiting_for_inputs`. Nothing here is a paired result.
 - No settlement has occurred and no service is in paid stock.
-- The rehearsal proves the mechanism on this host at a scratch moment. It does not guarantee the
-  registered 2026-08-26 capture, which depends on two public endpoints answering in one minute.
+- The rehearsal proved only the mechanism at a scratch moment. The later registered Yield and Range
+  captures completed on their first scheduled attempts, but they are inputs only: neither input is
+  locked, no arm has run, and no result exists.
 - Every figure above was collected by the builder. It is consistent with the tree and the running
   process, which is the property a reader can test; it is not independent.

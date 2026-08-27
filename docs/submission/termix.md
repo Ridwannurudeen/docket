@@ -76,11 +76,11 @@ are protocols, not results.
 [Yield protocol](../../docket/advantage/v3/specs/v3-02-yield-router.json),
 [Warden protocol](../../docket/advantage/v3/specs/v3-04-warden-security.json)]
 
-Yield's source capture is scheduled for 2026-08-26T12:00:00Z; the installed mechanism was
-rehearsed end to end against a separate scratch specification and the production timer was armed
-10 minutes early. That preparation is not a Yield result, and the registered capture still
-depends on both public sources answering within its scheduled attempt window.
+Yield and Range captured their registered source bytes on their first scheduled attempts on
+2026-08-26, at 12:00Z and 12:10Z respectively. These captures are inputs, not results: neither
+input is locked, no arm has run, and v3 contains no result.
 [Sources: [registered Yield protocol](../../docket/advantage/v3/specs/v3-02-yield-router.json),
+[registered Range protocol](../../docket/advantage/v3/specs/v3-05-range-doctor.json),
 [host rehearsal record](../operational-evidence.md#the-capture-rehearsal-on-this-host-with-the-installed-code)]
 
 ## 3. High-stakes categories and track record — 20%
