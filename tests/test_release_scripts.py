@@ -77,6 +77,15 @@ case "${url}" in
             printf '%s\n' '{"services":[{"service_id":"range-doctor","paid_stock":false,"stock_status":"candidate","admission":{"fresh_paired_benchmark":false,"cold_canary":false,"decision_grade_presenter":true,"true_settlement":false}}],"total":1,"category":null,"ordering":"service_id","declaration":"test"}'
         fi
         ;;
+    */advantage/v3.json)
+        if [[ "${FAKE_V3_STATUS:-200}" == 503 ]]; then
+            exit 22
+        elif [[ "${FAKE_INVALID_ENDPOINT:-}" == advantage/v3.json ]]; then
+            printf '%s\n' '{}'
+        else
+            printf '%s\n' '{"families":[{"spec_id":"v3-04-warden-security"}],"summary":{"n_families":1}}'
+        fi
+        ;;
     *)
         exit 22
         ;;
@@ -520,6 +529,7 @@ def test_release_retires_the_aug21_timer_and_enables_all_five_new_timers(tmp_pat
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+    assert "http://127.0.0.1:8090/advantage/v3.json" in result.stdout
     assert "systemctl disable --now docket-v3-capture.timer" in result.stdout
     installed = (units / "docket-v3-capture.timer").read_text(encoding="utf-8")
     assert "2026-08-21" not in installed
@@ -731,7 +741,7 @@ def test_release_refuses_a_different_existing_journald_config(tmp_path):
     assert (root / "opt" / "docket" / "old-release.txt").is_file()
 
 
-@pytest.mark.parametrize("endpoint", ["stats", "services"])
+@pytest.mark.parametrize("endpoint", ["stats", "services", "advantage/v3.json"])
 def test_release_rolls_back_when_a_served_contract_is_missing_fields(
     tmp_path, endpoint
 ):
@@ -752,6 +762,31 @@ def test_release_rolls_back_when_a_served_contract_is_missing_fields(
 
     assert result.returncode != 0
     assert f"served /{endpoint} is missing its release contract fields" in result.stderr
+    assert "Rollback completed" in result.stderr
+    assert (root / "opt" / "docket" / "old-release.txt").is_file()
+
+
+def test_release_rolls_back_when_v3_returns_503(tmp_path):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        wheel.as_posix(),
+        COMMIT,
+        digest,
+        environment=_environment(root, fake_bin, FAKE_V3_STATUS="503"),
+    )
+
+    assert result.returncode != 0
+    assert (
+        "served /advantage/v3.json is missing its release contract fields"
+        in result.stderr
+    )
     assert "Rollback completed" in result.stderr
     assert (root / "opt" / "docket" / "old-release.txt").is_file()
 

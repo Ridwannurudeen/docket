@@ -566,6 +566,18 @@ raise SystemExit(not top <= body.keys() or not rows or any(not service <= row.ke
     fatal 'served /services is missing its release contract fields'
 fi
 
+trace_command "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/advantage/v3.json
+if ! "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/advantage/v3.json | "${JSON_PYTHON}" -c '
+import json, sys
+body = json.load(sys.stdin)
+families = body.get("families")
+summary = body.get("summary")
+n_families = summary.get("n_families") if isinstance(summary, dict) else None
+raise SystemExit(not isinstance(families, list) or not isinstance(n_families, int) or isinstance(n_families, bool) or n_families != len(families))
+'; then
+    fatal 'served /advantage/v3.json is missing its release contract fields'
+fi
+
 RELEASE_OK=1
 printf 'Release complete: %s (%s), wheel %s.\n' \
     "${SOURCE_COMMIT}" "${WHEEL_VERSION}" "${EXPECTED_WHEEL_SHA}"
