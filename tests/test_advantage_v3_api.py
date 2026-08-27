@@ -79,14 +79,52 @@ def test_the_report_is_built_once_and_both_routes_use_that_startup_payload(
     assert calls == ["built"]
 
 
-def test_v3_report_failure_still_stops_startup(tmp_path, monkeypatch):
+def test_v3_report_failure_is_pinned_and_served_without_killing_health(
+    tmp_path, monkeypatch
+):
+    calls = []
+
     def fail_report():
+        calls.append("failed")
         raise PermissionError("synthetic startup report failure")
 
     monkeypatch.setattr(report_snapshot.report_module, "report", fail_report)
+    db = tmp_path / "startup-report-failure.sqlite3"
+    store = Store(db)
+    snapshot = store.begin_snapshot(chain_id=56, expected=0)
+    store.finish_snapshot(snapshot, sampled=0, expected=0)
 
-    with pytest.raises(PermissionError, match="synthetic startup report failure"):
-        create_app(tmp_path / "startup-report-failure.sqlite3")
+    app = create_app(db, snapshot_id=snapshot)
+    client = TestClient(app)
+
+    assert client.get("/health").status_code == 200
+    assert client.get("/health").json()["status"] == "ok"
+    expected = {
+        "error": {
+            "code": "advantage_v3_unavailable",
+            "message": (
+                "The v3 report could not be reconstructed at process startup. "
+                "This process is serving no v3 family state."
+            ),
+        }
+    }
+    for _ in range(2):
+        document = client.get("/advantage/v3.json")
+        rendered = client.get("/advantage/v3", headers={"accept": "text/html"})
+
+        assert document.status_code == 503
+        assert document.json() == expected
+        assert rendered.status_code == 503
+        assert "V3 report unavailable" in rendered.text
+        assert "advantage_v3_unavailable" in rendered.text
+        assert expected["error"]["message"] in rendered.text
+        assert "synthetic startup report failure" not in rendered.text
+        assert 'id="v3-01-range-doctor"' not in rendered.text
+
+    measured = catalogue._measured_value("range-doctor", 1.0)
+    assert measured["benchmark_state"] is None
+    assert measured["report_url"] is None
+    assert calls == ["failed"]
 
 
 @pytest.mark.parametrize(
@@ -101,7 +139,10 @@ def test_v3_report_failure_still_stops_startup(tmp_path, monkeypatch):
             report.LOCKED_NOT_RUN,
             "Inputs are locked. No primary attempt has been claimed.",
         ),
-        (report.RUNNING, "The claim-once ledger has work in progress."),
+        (
+            report.RUNNING,
+            "Expired deadlines are shown as stale; this report does not repair the ledger.",
+        ),
         (
             report.COMPLETE_UNSCORED,
             "Every scheduled primary has a terminal ledger event; performance remains unscored.",

@@ -3,6 +3,10 @@
 This is the operator procedure for `v3-02-yield-router`. Run repository commands from the
 repository root in PowerShell.
 
+Experiment arms run on the workstation against the repository tree. The installed package is
+read-only and must not be used as a ledger target. A ledger becomes visible in production only
+after it is committed to the repository and that commit is redeployed.
+
 ## 0. Hard stop and immutable state
 
 Each evaluator seat has one binding attempt. **Do not run either seat until the corrected

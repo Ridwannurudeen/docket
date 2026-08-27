@@ -82,6 +82,25 @@ def test_every_v3_state_artifact_has_a_package_data_path():
     assert "v3/runs/*.json" not in declared
 
 
+def test_v3_operator_runbooks_keep_experiment_ledgers_in_the_repository():
+    for relative in (
+        "docs/runbooks/yield-v3-02-run.md",
+        "docs/runbooks/range-v3-05-run.md",
+        "docs/deployment-runbook.md",
+    ):
+        runbook = (ROOT / relative).read_text(encoding="utf-8")
+        normalized = " ".join(runbook.split())
+        assert (
+            "Experiment arms run on the workstation against the repository tree."
+            in normalized
+        )
+        assert "The installed package is read-only" in normalized
+        assert (
+            "only after it is committed to the repository and that commit is redeployed"
+            in normalized
+        )
+
+
 def test_the_live_audit_claim_evidence_is_resolved_as_package_data():
     package_root = ROOT / "docket/advantage"
     carried = {

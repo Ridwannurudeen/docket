@@ -121,17 +121,24 @@ The live application service remains host-managed and uses `User=docket`,
 The database and LP journal remain under `/var/lib/docket`; neither is copied into `/opt`.
 
 The release polls `/health` for up to 30 seconds because startup normally takes 8-10 seconds.
-It then checks the documented `/stats` coverage/refresh fields and the `/services`
-identity, stock-status, and four-limb admission fields. A failure after service stop triggers
-automatic rollback: the failed new tree is retained as `/opt/docket.failed-<timestamp>-<commit12>`,
-the backup tree and prior `.venv` target are restored, changed units and prior timer states are
-restored, the prior service is started, and `/health` is checked again. A database backup is
-not automatically restored; if an additive migration is incompatible with the prior source,
-keep the service stopped and investigate against the saved SQLite backup.
+It then checks the documented `/stats` coverage/refresh fields, the `/services` identity,
+stock-status, and four-limb admission fields, and the `/advantage/v3.json` family and summary
+shape. A failure after service stop triggers automatic rollback: the failed new tree is retained
+as `/opt/docket.failed-<timestamp>-<commit12>`, the backup tree and prior `.venv` target are
+restored, changed units and prior timer states are restored, the prior service is started, and
+`/health` is checked again. A database backup is not automatically restored; if an additive
+migration is incompatible with the prior source, keep the service stopped and investigate
+against the saved SQLite backup.
 
 For local regression tests, `--dry-run` requires `DOCKET_RELEASE_ROOT` and maps every managed
 path into that fake root. It executes the filesystem state machine there and prints every
 host command without running it. The test suite supplies a fake `curl` to exercise rollback.
+
+### V3 experiment-arm ledgers
+
+Experiment arms run on the workstation against the repository tree. The installed package is
+read-only and must not be used as a ledger target. A ledger becomes visible in production only
+after it is committed to the repository and that commit is redeployed.
 
 ## Persistent journal for the judging window
 

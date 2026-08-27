@@ -7,6 +7,7 @@ Only six states exist, and the two terminal claim states are ``refuted`` and
 """
 
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import runner, scoring
@@ -146,12 +147,27 @@ def _progress(attempts: dict) -> dict:
         for attempt in attempts.values()
         if attempt["terminal"] is not None
     )
-    return {
+    observed_at = datetime.now(timezone.utc)
+    stale = [
+        {
+            "case_id": case_id,
+            "arm": arm,
+            "deadline_at": attempt["started"]["deadline_at"],
+        }
+        for (case_id, arm), attempt in attempts.items()
+        if attempt["started"] is not None
+        and attempt["terminal"] is None
+        and datetime.fromisoformat(attempt["started"]["deadline_at"]) <= observed_at
+    ]
+    progress = {
         "scheduled_primaries": scheduled,
         "claimed_primaries": claimed,
         "terminal_primaries": terminal,
         "outcomes": dict(sorted(outcomes.items())),
     }
+    if stale:
+        progress["stale_primaries"] = stale
+    return progress
 
 
 def _empty_family(spec, state: str) -> dict:
@@ -190,7 +206,6 @@ def family_report(
     inputs = scoring.load_inputs(spec, repo_root=repo_root)
     calibration = scoring.calibration_metrics(spec, inputs)
     ledger_path = runner.ledger_path(spec, runs_dir)
-    runner.recover_interrupted(spec, runs_dir, expired_only=True)
     events = runner.read_events(ledger_path)
     attempts = scoring.primary_attempts(spec, ledger_path, repo_root=repo_root)
     progress = _progress(attempts)

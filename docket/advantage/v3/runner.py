@@ -18,9 +18,9 @@ makes "no scored retry" a property of the data instead of a promise in prose —
 of a case whose first answer disappointed cannot be recorded, so it cannot be reported.
 
 **An interruption is a result.** A resume operation closes a slot that starts and never
-terminates. Report reads also close one after its registered deadline. The detection time is
-recorded because it is known; the finish time and elapsed duration are left null because they
-are not.
+terminates. The detection time is recorded because it is known; the finish time and elapsed
+duration are left null because they are not. Reports only read the ledger and surface an
+expired dangling slot as stale until a run resume records the interruption.
 
 **The lock is checked three times.** At run opening, immediately before each attempt, and
 again at terminal validation. The middle one is the one that matters: inputs verified once at
@@ -174,9 +174,9 @@ def _read_events_unlocked(path: Path) -> list[dict]:
 
 
 def read_events(path: Path) -> list[dict]:
+    """Read ledger evidence without creating a directory or lock file."""
     path = Path(path)
-    with _ledger_lock(path):
-        return _read_events_unlocked(path)
+    return _read_events_unlocked(path)
 
 
 def slot_id(spec_id: str, case_id: str, arm: str, kind: str = PRIMARY) -> str:
@@ -430,7 +430,9 @@ def _fold_state(events: list[dict]) -> dict[str, SlotState]:
 
 def read_state(path: Path) -> dict[str, SlotState]:
     """Fold the ledger into one state per slot. Later events never erase earlier ones."""
-    return _fold_state(read_events(path))
+    path = Path(path)
+    with _ledger_lock(path):
+        return _fold_state(_read_events_unlocked(path))
 
 
 def open_run(

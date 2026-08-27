@@ -453,7 +453,20 @@ def create_app(
     )
     # V3 follows the same one-object boundary. Its state is reconstructed once from the durable
     # artifacts, then both representations stay pinned to that startup view until restart.
-    advantage_v3 = report_snapshot.get_report()
+    try:
+        advantage_v3 = report_snapshot.get_report()
+        advantage_v3_status = 200
+    except Exception:
+        advantage_v3 = {
+            "error": {
+                "code": "advantage_v3_unavailable",
+                "message": (
+                    "The v3 report could not be reconstructed at process startup. "
+                    "This process is serving no v3 family state."
+                ),
+            }
+        }
+        advantage_v3_status = 503
     advantage_v3_page = fill_v3_page(
         (WEB_DIR / "advantage-v3.html").read_text(encoding="utf-8"), advantage_v3
     )
@@ -828,8 +841,8 @@ def create_app(
         beside it. Reads no live data and needs no scripting, as v1's page does not."""
         return HTMLResponse(advantage_v2_page)
 
-    @app.get("/advantage/v3.json")
-    def advantage_v3_json() -> dict:
+    @app.get("/advantage/v3.json", response_model=None)
+    def advantage_v3_json() -> dict | JSONResponse:
         """The paired v3 evaluation reconstructed from its registered specifications and
         whatever durable input, ledger, model-seat and mapping artifacts exist at startup.
 
@@ -837,12 +850,14 @@ def create_app(
         running, complete_unscored, refuted and not_refuted. The two terminal claim states
         remain bounded to the registered falsifier and frozen inputs.
         """
+        if advantage_v3_status != 200:
+            return JSONResponse(status_code=advantage_v3_status, content=advantage_v3)
         return advantage_v3
 
     @app.get("/advantage/v3", include_in_schema=False)
     def advantage_v3_page_route() -> HTMLResponse:
         """The v3 page rendered from the exact object returned by the JSON route."""
-        return HTMLResponse(advantage_v3_page)
+        return HTMLResponse(advantage_v3_page, status_code=advantage_v3_status)
 
     @app.get("/stats", response_model=StatsResponse)
     def stats() -> StatsResponse:
