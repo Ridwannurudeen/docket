@@ -27,24 +27,42 @@ def client(tmp_path):
     return TestClient(create_app(db, snapshot_id=snapshot))
 
 
-def test_the_current_surface_shows_the_locked_family_and_never_says_proved(client):
+def test_the_current_surface_shows_the_complete_unscored_family_and_never_says_proved(
+    client,
+):
     document = client.get("/advantage/v3.json")
     rendered = client.get("/advantage/v3", headers={"accept": "text/html"})
+    payload = document.json()
 
     assert document.status_code == 200
     assert rendered.status_code == 200
     assert rendered.headers["content-type"].startswith("text/html")
-    assert [family["state"] for family in document.json()["families"]] == [
+    assert [family["state"] for family in payload["families"]] == [
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
         report.REGISTERED_WAITING,
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
-        report.LOCKED_NOT_RUN,
+        report.COMPLETE_UNSCORED,
         report.REGISTERED_WAITING,
     ]
+    v4 = next(
+        family
+        for family in payload["families"]
+        if family["spec_id"] == "v3-04-warden-security"
+    )
+    assert v4["unscored_reason"] == "score_sheets_missing"
+    assert v4["run_progress"] == {
+        "scheduled_primaries": 24,
+        "claimed_primaries": 24,
+        "terminal_primaries": 24,
+        "outcomes": {"failed": 1, "succeeded": 23},
+    }
     assert rendered.text.count(report.REGISTERED_WAITING) >= 2
-    assert report.LOCKED_NOT_RUN in rendered.text
+    assert report.COMPLETE_UNSCORED in rendered.text
     assert report.SUPERSEDED_BEFORE_INPUT_LOCK in rendered.text
-    assert "Inputs are locked. No primary attempt has been claimed." in rendered.text
+    assert (
+        "Every scheduled primary has a terminal ledger event; performance remains unscored."
+        in rendered.text
+    )
     for body in (document.text, rendered.text):
         assert "proved" not in body.lower()
 
