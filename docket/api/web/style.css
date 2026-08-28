@@ -437,6 +437,7 @@ section {
 
 .deflist dd {
   margin: 0;
+  overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
 

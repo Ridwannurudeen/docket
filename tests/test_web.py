@@ -184,6 +184,14 @@ def test_registry_text_is_wrapped_rather_than_left_to_break_the_layout():
         assert f'class="wrap-anywhere" data-region="{container}"' in text, name
 
 
+def test_definition_values_shrink_grid_tracks_for_unbroken_evidence():
+    css = (WEB_DIR / "style.css").read_text(encoding="utf-8")
+    rule = re.search(r"\.deflist dd\s*\{(?P<body>[^}]*)\}", css)
+
+    assert rule is not None
+    assert "overflow-wrap: anywhere;" in rule["body"]
+
+
 def test_pages_declare_viewport_and_language():
     for name in (
         "index.html",
