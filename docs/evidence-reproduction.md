@@ -112,36 +112,41 @@ V3 has exactly five stage-one specifications:
 | Spec | Stage-one protocol hash | Current spec hash |
 |---|---|---|
 | Range v3-01, superseded before input lock | `0x5436fe80f16558d06f2f8f09f2eb4bbad6a2f3e26e5bbbbbafd143b7f14d2fce` | `0x4844dfcf708d257c92d8d5c00f502c14af8fb187464d3b1a5314d1592c720d82` |
-| Yield | `0x10d0fb31ea70c4bb31581952b99b6776d5f25d2c51bdf9543d47d07781266d3c` | `0x3037f77abf461e4d9fffebf6156847bab2488b4d5cd683e0f37b464b4e2b173b` |
+| Yield | `0x10d0fb31ea70c4bb31581952b99b6776d5f25d2c51bdf9543d47d07781266d3c` | `0xad391e9aa3b039ee5e43397d488deb25893253d3376b08ff544c5651566395d9` |
 | Warden v3-03, superseded before input lock | `0xcd4c698f55c316fdedaa2eb52d80091c3a08d004175d7d156527f224c4e941eb` | `0x9321343763a7b8ff215b54f356ef8cc781ad4db56924d1bc5f23b3a53b7e618e` |
 | Warden v3-04, active | `0x9e2206f6c9293e8f41528893aa1b526bfd917a099a5ae7dbe826c486d8a6b62e` | `0x08ad28caac2d76da2c2d6844341b7930f9338383ee7e82b4e712d426f7791d49` |
-| Range v3-05, active | `0x2a83c1a331d579e5cef461d52c539711b4fa2bba6dd397aaad1bf38b6b47f9ab` | `0xbc945b91d2b6649f077050da5eb1c8ee7472568dd9d76d9bdeb7f6974cfd449d` |
+| Range v3-05, active | `0x2a83c1a331d579e5cef461d52c539711b4fa2bba6dd397aaad1bf38b6b47f9ab` | `0x2a15b50e88b164ff57a7256aa9e35bdfb539cb02549e9c1374641fef92b4a43a` |
 
-Only v3-04 has locked inputs: its digest is
-`23b09164c6940848ac109f05db3f7342f46a0bad71c17ebc9cac53dd4f8fc4e6`, and
-`assert_runnable()` accepts it. The other four input digests remain empty.
+At the committed-artifact observation on 2026-08-28, three families have locked inputs:
+v3-02 digest `55d419a1b70910f76f334be417188901bfaa3d35adf795f1048c223e38719181`,
+v3-04 digest `23b09164c6940848ac109f05db3f7342f46a0bad71c17ebc9cac53dd4f8fc4e6`,
+and v3-05 digest `73086fba1ddbb82074003b4c04ef8564358f86b896a0a609b5e5f7e3c543e8b6`.
+`assert_runnable()` accepts all three. V3-02 and v3-05 have no claimed primaries and are
+`locked_not_run`; v3-04 is `complete_unscored`. V3-01 and v3-03 remain superseded with
+empty input digests.
 
-Do not create the referenced inputs, call `lock_inputs`, or run an arm as part of
-reproduction. Those are future registered-protocol events, not read-only verification.
+Do not call `lock_inputs`, alter an input, or run an arm as part of reproduction. Those are
+operator actions, not read-only verification.
 
-## Future evaluator-seat operation
+## Evaluator-seat record
 
 This page is read-only evidence reproduction, not an operator procedure. The stopped
 [`runbooks/warden-v3-run.md`](runbooks/warden-v3-run.md) remains the superseded v3-03 record;
 none of its Aug 25 capture, lock or arm commands may be executed.
 
-The active v3-04 procedure is
+The v3-04 procedure is preserved in
 [`runbooks/warden-v4-run.md`](runbooks/warden-v4-run.md). It contains the mandatory
 2026-08-27T12:00:00Z guard, two distinct real-seat captures, three calibration floors,
 assembly and lock, all 24 primaries, blind scoring and the conjunctive ship decision. The
 two-pilot sequence and separate pre-run validation are preserved in
 [`warden-pilot-history.json`](../docket/advantage/v3/provenance/warden-pilot-history.json).
 
-The v3-04 input is locked and the operator run has begun. Manual primary `w4-ho-01` ended
-`failed` with `invoke_error` after a malformed operator answer; 11 manual and all 12 agent
-primaries remain unrun. No score sheet, mapping, falsifier result, or family result exists.
-The in-progress ledger is outside this checkout, so read-only reproduction here reports
-`locked_not_run`; it must not copy, alter, or advance the operator ledger.
+The v3-04 input is locked and its committed ledger contains all 24 terminal primaries: 23
+succeeded, while manual `w4-ho-01` ended `failed` with `invoke_error` /
+`JSONDecodeError`. Seat B returned no first scoring response, and the registered rule
+forbids retry or substitution. No score sheets or mapping are committed, so rubric quality
+is permanently unscored, `falsifier_result` is null, and read-only reproduction reports
+`complete_unscored`.
 
 ## The Git witness
 
@@ -163,7 +168,7 @@ create a backdated local commit that loads cleanly.
 
 Therefore the reachable ref establishes a third-party timestamp for the ref content at that
 push, while the commit graph establishes sequence. It does not independently timestamp each
-registration or prevent the owner from rewriting the private remote ref. To make the ordering
+registration or make the owner-controlled public ref immutable. To make the ordering
 durable outside the owner's control, publish or commit the exact registration object hash to
 an independently readable system before inputs or runs, then record that external
 identifier here.

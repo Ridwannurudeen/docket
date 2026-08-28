@@ -170,8 +170,9 @@ the registered protocol hash:
 The registered timer was armed for `Wed 2026-08-26 11:50:00 UTC`, ten minutes ahead of the
 recommitted moment. Yield then captured its registered source bytes on the first scheduled attempt
 at `2026-08-26T12:00:00Z`; Range did the same at `2026-08-26T12:10:00Z`. These captures are input
-evidence only: neither input is locked, no arm has run, and no result exists. The retired 2026-08-21
-timer was removed by the release.
+evidence only. At this collection point neither input had yet been locked; the later
+2026-08-28 committed-artifact observation below supersedes that historical state. The retired
+2026-08-21 timer was removed by the release.
 
 ### Persistent journal — configured, then found not to have taken effect
 
@@ -230,12 +231,13 @@ before and after; nginx was never reloaded.
   crib sheet absent from this repository led to payload text being pasted instead of the
   required JSON answer object. Read-only frozen-label formulas show Warden recall 0.50
   versus manual 0.75 and three Warden critical failures. Missing rubric medians prevent a
-  complete registered falsifier evaluation. v3-02 and v3-05 still wait for inputs; v3-01
-  and v3-03 remain superseded.
+  complete registered falsifier evaluation. At the 2026-08-28 committed-artifact
+  observation, v3-02 and v3-05 are `locked_not_run`, with locked inputs and no claimed
+  primaries; v3-01 and v3-03 remain `superseded_before_input_lock`.
 - No settlement has occurred and no service is in paid stock.
 - The rehearsal proved only the mechanism at a scratch moment. The later registered Yield and Range
-  captures completed on their first scheduled attempts, but they are inputs only: neither input is
-  locked, no arm has run, and no result exists.
+  captures completed on their first scheduled attempts and their inputs are now locked, but neither
+  family has a claimed primary or result in this committed observation.
 - Every figure above was collected by the builder. It is consistent with the tree and the running
   process, which is the property a reader can test; it is not independent.
 

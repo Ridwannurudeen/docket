@@ -27,8 +27,12 @@ The longer evidence-led route is in [Judge start here](docs/submission/judge-sta
   `complete_unscored`: all 24 primaries are terminal (23 succeeded; one manual primary
   failed), but a named scoring seat returned no first response and substitution is
   forbidden. Frozen-label formulas put Warden recall at 4/8 (0.50) versus manual 6/8
-  (0.75) and record three Warden critical failures. v3-02 Yield and v3-05 Range still
-  wait for inputs; v3-01 Range and v3-03 Warden remain superseded before input lock.
+  (0.75) and record three Warden critical failures. At the committed-artifact observation
+  on 2026-08-28, the committed v3 artifacts contain 5 families:
+  `v3-04-warden-security` is `complete_unscored`; `v3-02-yield-router` and
+  `v3-05-range-doctor` are `locked_not_run`; `v3-01-range-doctor` and
+  `v3-03-warden-security` are `superseded_before_input_lock`. The v3-02 and v3-05 inputs
+  are locked and neither family has a claimed primary.
 - The controlled LP record links an Aug 24 `WAIT` decision to one prior and three later
   observations, but it proves neither causal improvement nor realized return.
 
@@ -58,8 +62,9 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
   (0.50) versus manual 6/8 (0.75), Warden precision 4/4 (1.00) versus manual 6/8 (0.75),
   12/12 versus 11/12 valid scans, three Warden critical failures, 11/12 complete pairs, a
   27.86-second median saving, and a 0.0610434 median agent/manual ratio. With no rubric
-  medians, no registered falsifier verdict exists. v3-02 Yield and v3-05 Range still wait
-  for inputs; v3-01 Range and v3-03 Warden remain superseded before input lock.
+  medians, no registered falsifier verdict exists. At the 2026-08-28 committed-artifact
+  observation, v3-02 Yield and v3-05 Range are `locked_not_run`, with locked inputs and no
+  claimed primaries; v3-01 Range and v3-03 Warden are `superseded_before_input_lock`.
 - **C-05.** SOLVENT is halted and is presented as historical research evidence, not paid
   inventory; its one ERC-8004 identity is agent 136384 on BSC.
 - **C-06.** Range Doctor's recorded v1 run covered a wallet with 14 positions, 13 closed,
@@ -74,8 +79,8 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
   `2026-08-15T06:08:36Z` — a timestamp this repository
   cannot set. That establishes only that the content pushed at that moment existed by
   then. Commits registered afterwards are not covered by it, committer dates are still
-  set locally, and branch protection is unavailable on a private repository, so the ref
-  can still be rewritten by its owner. There is no independently attested wall-clock time
+  set locally, and public visibility alone does not independently timestamp commits or make
+  the owner-controlled ref immutable. There is no independently attested wall-clock time
   for any individual protocol registration.
 - **C-09.** As of 2026-08-16, the builder-collected operational record associates
   `docket.gudman.xyz` with commit `534af826575a3c316eaace03b5e41ab077d4c253` and wheel
@@ -199,8 +204,9 @@ the installed v3 JSON, HTML, and agent-facing documentation.
   11/12 complete pairs, median saving 27.86 seconds, and median agent/manual ratio
   0.0610434. Warden missed its recall, zero-critical, complete-pair, and median-saving
   limbs. Missing rubric medians prevent a complete falsifier evaluation, so the report
-  publishes neither `refuted` nor `not_refuted`. v3-02 and v3-05 remain
-  `registered_waiting_for_inputs`; v3-01 and v3-03 remain `superseded_before_input_lock`.
+  publishes neither `refuted` nor `not_refuted`. At the 2026-08-28 committed-artifact
+  observation, v3-02 and v3-05 are `locked_not_run`, with locked inputs and no claimed
+  primaries; v3-01 and v3-03 remain `superseded_before_input_lock`.
 
 Do not describe the v3 Git sequence as externally preregistered. A checkable witness would
 require the exact registration commit to be anchored outside the owner's control before

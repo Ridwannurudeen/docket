@@ -36,8 +36,9 @@ a published §10 result—show Warden recall 4/8 (0.50) versus manual 6/8 (0.75)
 4/4 (1.00) versus 6/8 (0.75), 12/12 versus 11/12 valid scans, three Warden critical
 failures, 11/12 complete pairs, a 27.86-second median saving, and a 0.0610434 median
 agent/manual ratio. Missing rubric medians prevent a complete falsifier evaluation, so the
-report publishes neither `refuted` nor `not_refuted`. v3-02 Yield and v3-05 Range remain
-`registered_waiting_for_inputs`; v3-01 Range and v3-03 Warden remain
+report publishes neither `refuted` nor `not_refuted`. At the 2026-08-28 committed-artifact
+observation, v3-02 Yield and v3-05 Range are `locked_not_run`, with locked inputs and no
+claimed primaries; v3-01 Range and v3-03 Warden remain
 `superseded_before_input_lock`.
 
 The registry snapshot is refreshed unattended every six hours by the [recorded timer and pipeline](../operational-evidence.md#the-registry-snapshot-is-no-longer-stale-and-it-moved-without-a-restart), while the live [Stats page](https://docket.gudman.xyz/stats) exposes the capture timestamp and current age so a judge does not have to accept a freshness claim on faith. All 4 of 4 category cards carry a recorded run and identify its evidence modality in the [catalogue response](https://docket.gudman.xyz/services).

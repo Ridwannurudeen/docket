@@ -142,8 +142,10 @@ Three adjacent limits are also explicit:
 - `v3-04-warden-security` is `complete_unscored`: 24/24 primaries are terminal (23
   succeeded; one manual input-format failure), but seat B returned no first scoring
   response and retry or substitution is forbidden. Frozen-label formulas show manual
-  recall at 0.75 versus Warden at 0.50 and three Warden critical failures. v3-02 and
-  v3-05 wait for inputs, while v3-01 and v3-03 remain superseded before input lock
+  recall at 0.75 versus Warden at 0.50 and three Warden critical failures. At the
+  2026-08-28 committed-artifact observation, v3-02 and v3-05 are `locked_not_run`, with
+  locked inputs and no claimed primaries; v3-01 and v3-03 remain
+  `superseded_before_input_lock`
   ([live v3 report](https://docket.gudman.xyz/advantage/v3.json)).
 
 ## Adoption
