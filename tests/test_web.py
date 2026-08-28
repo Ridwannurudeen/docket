@@ -108,43 +108,31 @@ def test_ui_uses_no_verdict_language():
 def test_pages_do_not_present_the_name_key_as_minter_provenance():
     """ "Who minted them" over a table grouped by the first word of a self-chosen name is a
     provenance claim Docket cannot make. The pages say what the key is instead."""
-    index = (WEB_DIR / "index.html").read_text(encoding="utf-8").lower()
-    assert "who minted them" not in index
-    assert "name famil" in index
     research = (WEB_DIR / "research.html").read_text(encoding="utf-8").lower()
+    assert "who minted them" not in research
     assert "name famil" in research
     app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8").lower()
     assert "was minted by" not in app_js
 
 
-def test_landing_states_the_sampled_figure_is_a_filtered_slice():
-    """ "sampled 506 of 506, complete" is true and reads as a census of BNB Smart Chain. The
-    landing has to say which query produced the 506 and how large the registry it came from is."""
+def test_registry_surfaces_state_the_population_beside_snapshot_counts():
+    """The case-file home carries no changing registry count; research surfaces still name
+    the exact query beside the sampled and expected values."""
     index = (WEB_DIR / "index.html").read_text(encoding="utf-8")
-    assert 'data-region="slice"' in index, (
-        "the landing has no region for the disclosure"
-    )
+    assert 'data-region="slice"' not in index
+    assert 'data-region="stats"' not in index
     app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
-    assert "paintSlice" in app_js
-    # Both halves of the sentence are read from the API, never authored into the page.
-    for source in ("stats.registry_total", "populationLabel(cov)"):
-        assert source in app_js, source
-    lowered = app_js.lower()
-    for phrase in ("filtered slice", "not a census"):
-        assert phrase in lowered, phrase
+    assert "populationLabel(coverage)" in app_js
+    assert "fmtInt(coverage.sampled)" in app_js
+    assert "fmtInt(coverage.expected)" in app_js
 
 
-def test_a_full_sweep_is_not_told_it_is_a_slice():
-    """The census claim is gated on what was swept, not on arithmetic. Deciding it from
-    `registry_total > expected` alone would tell a genuine whole-registry sweep that it "is not
-    a census" — the same class of mislabel this stage exists to remove, pointed the other way.
-    `registry_total` still gates the scale FIGURE, which is a separate question."""
+def test_the_case_file_does_not_misstate_a_registry_slice_as_a_census():
+    """The landing omits mutable registry coverage rather than freezing a census claim."""
+    index = (WEB_DIR / "index.html").read_text(encoding="utf-8").lower()
     app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
-    assert 'cov.population === "all"' in app_js
-    assert "was the whole registry" in app_js
-    # The heading turns on the same fact, so a census is not filed under "is a slice of".
-    assert "What this snapshot covers" in app_js
-    assert 'census ? "What this snapshot covers"' in app_js
+    assert "registry census" not in index
+    assert "population || \"unspecified\"" in app_js
 
 
 def test_no_registry_figure_is_typed_into_a_page():
@@ -224,16 +212,15 @@ def test_coverage_uses_days_and_treats_a_week_old_snapshot_as_stale():
     assert "This snapshot is stale" in js
 
 
-def test_sampled_metric_names_the_filter_and_registry_population_from_the_api():
+def test_registry_snapshot_status_names_the_filter_from_the_api():
     js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
-    sampled = js.split("const sampledPopulation", 1)[1].split(
-        'fill(\n    "sampled-note"', 1
+    coverage = js.split("function paintCoverage", 1)[1].split(
+        "/* -------------------------------------------------------------- marketplace */", 1
     )[0]
 
-    assert "stats.registry_total" in sampled
-    assert 'cov.population === "min_feedbacks>=1"' in sampled
-    assert "BSC agents" in sampled
-    assert "the ones carrying at least one feedback record" in sampled
+    assert "populationLabel(coverage)" in coverage
+    assert "coverage.sampled" in coverage
+    assert "coverage.expected" in coverage
 
 
 def test_json_footer_links_are_labelled_as_json():

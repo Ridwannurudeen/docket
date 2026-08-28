@@ -628,8 +628,10 @@ for (const text of ["$126.78", "across 22 eligible pools", "8.30 days", "0/231",
     assert completed.returncode == 0, completed.stderr
 
 
-def test_navigation_names_the_registry_destination_and_links_pancake():
+def test_navigation_names_public_case_file_destinations():
     index = Path("docket/api/web/index.html").read_text(encoding="utf-8")
 
-    assert 'href="/research">Browse agents</a>' in index
-    assert 'href="/pancake">PancakeSwap</a>' in index
+    assert 'href="#evidence">Evidence</a>' in index
+    assert 'href="#services">Services</a>' in index
+    assert 'href="#experiments">Experiments</a>' in index
+    assert 'href="/advantage/v3.json">Raw data</a>' in index

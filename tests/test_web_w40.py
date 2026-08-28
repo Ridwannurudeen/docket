@@ -21,7 +21,7 @@ def test_every_surface_uses_the_restrained_light_stylesheet():
     assert 'content: "LP"' not in css
     assert len(PAGES) == 9
     for page in PAGES:
-        assert 'href="/static/style.css?v=10"' in page.read_text(encoding="utf-8")
+        assert 'href="/static/style.css?v=11"' in page.read_text(encoding="utf-8")
 
 
 def test_evidence_landings_link_to_depth_instead_of_collapsing_it():
@@ -63,7 +63,7 @@ def test_stats_has_a_server_rendered_human_surface_without_moving_its_json(tmp_p
 
 
 def test_navigation_and_generated_evidence_use_one_presentation_vocabulary():
-    expected = (
+    working_page_expected = (
         ("/", "Services"),
         ("/pancake", "PancakeSwap"),
         ("/research", "Browse agents"),
@@ -76,6 +76,16 @@ def test_navigation_and_generated_evidence_use_one_presentation_vocabulary():
         links = tuple(
             re.findall(r'<a href="([^"]+)"(?: aria-current="page")?>([^<]+)</a>', nav)
         )
+        expected = (
+            (
+                ("#evidence", "Evidence"),
+                ("#services", "Services"),
+                ("#experiments", "Experiments"),
+                ("/advantage/v3.json", "Raw data"),
+            )
+            if page.name == "index.html"
+            else working_page_expected
+        )
         assert links == expected, page.name
 
     v2_source = (
@@ -84,10 +94,6 @@ def test_navigation_and_generated_evidence_use_one_presentation_vocabulary():
     script = (WEB / "app.js").read_text(encoding="utf-8")
 
     assert "<h4>" not in v2_source
-    assert "Measured against a manual arm" in script
-    assert "manual arm" in script and "by hand" not in script
-    assert "toFixed(1)} s" in script
-    assert "$${fmtInt(dollars.notional_usd)}" in script
     assert "displayTimestamp" in script
     assert "<caption>Recorded scanner detections for this run.</caption>" in script
     assert "<caption>Eligible pools returned for this run.</caption>" in script
