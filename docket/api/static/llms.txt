@@ -497,13 +497,13 @@ GET /advantage/v3.json
     registered_waiting_for_inputs, superseded_before_input_lock, locked_not_run, running,
     complete_unscored, refuted, and not_refuted. It never reports "proved".
 
-    v3-04-warden-security has locked inputs. Its operator run has begun: manual primary w4-ho-01
-    terminated failed with invoke_error after a malformed operator answer; 11 manual and all 12
-    agent primaries remain unrun. No family result exists. v3-02-yield-router and
-    v3-05-range-doctor still wait for inputs; v3-01-range-doctor and v3-03-warden-security remain
-    superseded_before_input_lock. The in-progress ledger is not yet in this checkout, so this
-    artifact-derived response says locked_not_run until that ledger is included and the process
-    restarts. It publishes a falsifier result only when the registered artifacts support one.
+    v3-04-warden-security is complete_unscored with score_sheets_missing. All 24 scheduled
+    primaries were claimed and terminal: 23 succeeded and manual w4-ho-01 failed. Seat B returned
+    no first scoring response, and the registered rule forbids retry or substitution, so rubric
+    quality and the registered falsifier verdict remain unavailable. Read-only frozen-label
+    formulas put Warden recall at 4/8 (0.50) versus manual 6/8 (0.75) and record three Warden
+    critical failures. v3-02-yield-router and v3-05-range-doctor still wait for inputs;
+    v3-01-range-doctor and v3-03-warden-security remain superseded_before_input_lock.
 
     curl -s "$DOCKET/advantage/v3.json"
 
@@ -1094,14 +1094,25 @@ additive and none supersedes another: v1 is the original paired eligibility arti
 n=1; v2 is agent-versus-computed-null armour with no human arm; v3 is the registered
 paired evaluation scored by two prompt-blinded model seats run by one operator.
 
-v3-04-warden-security has locked inputs. Its operator run has begun: manual primary w4-ho-01
-terminated failed with invoke_error after a malformed operator answer; 11 manual and all 12
-agent primaries remain unrun. No family result exists. v3-02-yield-router and
-v3-05-range-doctor still wait for inputs; v3-01-range-doctor and v3-03-warden-security remain
-superseded_before_input_lock. The in-progress ledger is not yet in this checkout, so its
-artifact-derived report says locked_not_run until that ledger is included. Other state names are
-running, complete_unscored, refuted, and not_refuted. That vocabulary is deliberately bounded:
-the report never turns a non-refutation into "proved".
+v3-04-warden-security is complete_unscored with score_sheets_missing. Both calibration seats
+passed first attempt at 8/8 decisions, 8/8 verdicts and class micro-F1 1.0000. All 24 primaries
+were claimed and terminal: 23 succeeded and manual w4-ho-01 failed. The ledger proves
+invoke_error / JSONDecodeError. The operator's contemporaneous account says a crib sheet absent
+from this repository led to payload text being pasted instead of the required JSON answer object;
+the repository does not prove that cause. Seat A returned 4,452 first-response bytes; seat B
+returned no response within the adapter's 300-second limit. The registered rule forbids another
+request or evaluator substitution, so no second sheet or A/B mapping exists, disagreement cannot
+be computed, rubric quality is permanently unscored, and no registered falsifier verdict exists.
+
+Read-only frozen-label formulas—not a published section 10 result—give recall of 4/8 (0.50) for
+Warden and 6/8 (0.75) manually; precision of 4/4 (1.00) and 6/8 (0.75); valid scans of 12/12
+and 11/12; three Warden critical failures; 11/12 complete pairs; median saving 27.86 seconds;
+and median agent/manual ratio 0.0610434. Warden missed its recall, zero-critical, complete-pair,
+and median-saving limbs. Missing rubric medians prevent the complete registered falsifier from
+being evaluated, so the report publishes neither refuted nor not_refuted. v3-02-yield-router and
+v3-05-range-doctor remain registered_waiting_for_inputs; v3-01-range-doctor and
+v3-03-warden-security remain superseded_before_input_lock. The state vocabulary is deliberately
+bounded: the report never turns a non-refutation into "proved".
 
 The JSON and page are one startup snapshot. The application constructs one report payload,
 renders the HTML from that same object, and serves both unchanged until restart. Future

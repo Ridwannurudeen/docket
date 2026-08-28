@@ -22,7 +22,18 @@ Open the [Agent Advantage Report](https://docket.gudman.xyz/advantage).
 
 This proves three completed single-task service-versus-manual comparisons—liquidity, trading, and security—with both timings, cost notes, hashes, and actual outputs. The raw [v1 artifact](https://docket.gudman.xyz/advantage.json) shows Warden's miss as well as the faster runs; the [post-hoc decision-impact section of v2](https://docket.gudman.xyz/advantage/v2.json) reports 0 ordering changes across 231 eligible-pool pairs. Its two security records preserve the detector change: the live detector observed 2026-08-10, exact revision and deploy date unrecorded, flagged 14 of 31 attacks with precision 14 of 15; revision `0583853ed7fca7d03c98a5cc4c2383cc6b149248`, deployed 2026-08-24, flagged 15 of 30 scored attacks with precision 15 of 16. One hostile payload was unscored in the newer run, whose 50.00% recall still misses v3-04's 90% floor; Warden remains beta.
 
-Then open [v3](https://docket.gudman.xyz/advantage/v3): it shows registered specifications and artifact-derived state, not a completed performance result. v3-04 Warden is input-locked and its operator run is `running`: manual `w4-ho-01` failed with `invoke_error`; 11 manual and 12 agent primaries remain unrun. The other four family states are unchanged—v3-02 and v3-05 wait for inputs, while v3-01 and v3-03 remain superseded. No family result exists yet. The public endpoint remains a startup snapshot until the in-progress ledger is included and the process restarts.
+Then open [v3](https://docket.gudman.xyz/advantage/v3): it shows registration and
+artifact-derived state, not a scored performance result. `v3-04-warden-security` is
+`complete_unscored` with `score_sheets_missing`: 24/24 primaries are terminal (23
+succeeded; manual `w4-ho-01` failed), but seat B returned no first scoring response and
+the registered rule forbids retry or substitution. The ledger proves `invoke_error` /
+`JSONDecodeError`; the operator's contemporaneous account attributes it to a crib sheet
+absent from the repository and payload text being pasted instead of the required JSON object.
+Read-only frozen-label formulas—not a published §10 result—show Warden recall 4/8 (0.50)
+versus manual 6/8 (0.75), three Warden critical failures, 11/12 complete pairs, a
+27.86-second median saving, and a 0.0610434 median ratio. Missing rubric medians prevent a
+complete registered falsifier evaluation, so the family is not published as `refuted`.
+v3-02 and v3-05 wait for inputs; v3-01 and v3-03 remain superseded.
 
 ## 4. Check the registry data
 
@@ -44,7 +55,7 @@ These four documents are prepared for ERC-8004 registration, but none of the fou
 | What does each category mean? | [Categories](https://docket.gudman.xyz/categories) |
 | What did the three paired tasks return? | [v1](https://docket.gudman.xyz/advantage.json) |
 | What did the historical correction change? | [v2](https://docket.gudman.xyz/advantage/v2.json) |
-| Has the registered report run? | [v3](https://docket.gudman.xyz/advantage/v3.json) |
+| What state did the registered report reach? | [v3](https://docket.gudman.xyz/advantage/v3.json) |
 | What happened to the controlled LP position? | [LP record](https://docket.gudman.xyz/lp-record) |
 | How fresh and broad is the registry sample? | [Stats](https://docket.gudman.xyz/stats) |
 | What routes and schemas are public? | [llms.txt](https://docket.gudman.xyz/llms.txt) and [SKILL.md](https://docket.gudman.xyz/skill.md) |

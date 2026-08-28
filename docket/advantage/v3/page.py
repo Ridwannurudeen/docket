@@ -23,7 +23,8 @@ STATE_TEXT = {
         "deadlines are shown as stale; this report does not repair the ledger."
     ),
     report_module.COMPLETE_UNSCORED: (
-        "Every scheduled primary has a terminal ledger event; performance remains unscored."
+        "Every scheduled primary has a terminal ledger event; required scoring artifacts "
+        "are absent, so rubric quality and the registered falsifier remain unavailable."
     ),
     report_module.REFUTED: (
         "At least one registered falsifier check fired; the registered claim is refuted."

@@ -365,7 +365,7 @@ def test_v4_policy_is_hash_bound_and_rejects_incomplete_composition():
         replace(spec, case_selection=case_selection)
 
 
-def test_report_marks_the_unlocked_predecessor_superseded_and_v4_locked():
+def test_report_marks_the_unlocked_predecessor_superseded_and_v4_complete_unscored():
     payload = report.report()
     by_id = {family["spec_id"]: family for family in payload["families"]}
 
@@ -374,7 +374,14 @@ def test_report_marks_the_unlocked_predecessor_superseded_and_v4_locked():
         report.SUPERSEDED_BEFORE_INPUT_LOCK
     )
     assert by_id["v3-03-warden-security"]["superseded_by"] == ("v3-04-warden-security")
-    assert by_id["v3-04-warden-security"]["state"] == report.LOCKED_NOT_RUN
+    assert by_id["v3-04-warden-security"]["state"] == report.COMPLETE_UNSCORED
+    assert by_id["v3-04-warden-security"]["unscored_reason"] == "score_sheets_missing"
+    assert by_id["v3-04-warden-security"]["run_progress"] == {
+        "scheduled_primaries": 24,
+        "claimed_primaries": 24,
+        "terminal_primaries": 24,
+        "outcomes": {"failed": 1, "succeeded": 23},
+    }
 
 
 def test_category_dispatch_builds_the_v4_agent_payload():
