@@ -6,10 +6,9 @@ halves of that: the new layer says everything a caller needs to activate a servi
 without asking anyone, and the raw plane underneath it is asserted to be untouched.
 
 The identity cross-link is the awkward part and is tested in all three of its states.
-Docket's own stock has exactly one ERC-8004 identity, and the snapshot Docket serves was
-swept from agents with feedback, so that identity is not in it. A link that 404s is a
-dead end; a silent omission reads as no identity at all. So the response says which of
-the two it is.
+Five services now carry ERC-8004 identities, while this file's small snapshot fixture
+holds only SOLVENT. A link that 404s is a dead end; a silent omission reads as no
+identity at all. So the response says which of the two it is.
 """
 
 import re
@@ -305,7 +304,7 @@ def test_an_unknown_service_is_a_404_naming_the_catalogue(client):
 
 
 def test_a_service_with_no_identity_says_so_instead_of_leaving_it_blank(client):
-    body = client.get("/services/range-doctor").json()
+    body = client.get("/services/warden-scan").json()
     assert body["agent_id"] is None
     assert "no bsc identity bound yet" in body["identity"].lower()
     assert body["agent_path"] is None

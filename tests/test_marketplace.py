@@ -499,7 +499,7 @@ def test_the_health_factor_card_says_venus_publishes_no_health_factor():
     ):
         assert phrase in lowered, phrase
     assert record.activation == "one_shot"
-    assert record.agent_id is None
+    assert record.agent_id is not None
 
 
 def test_the_yield_card_bounds_its_own_superlative_and_promises_no_execution():
@@ -518,7 +518,7 @@ def test_the_yield_card_bounds_its_own_superlative_and_promises_no_execution():
     ):
         assert phrase in lowered, phrase
     assert record.activation == "one_shot"
-    assert record.agent_id is None
+    assert record.agent_id is not None
 
 
 def test_each_new_category_service_publishes_only_its_single_recorded_read():
@@ -532,8 +532,8 @@ def test_each_new_category_service_publishes_only_its_single_recorded_read():
             "single recorded read; no paired run against a person" in metric.window
             for metric in record.metrics
         )
-        assert record.registration_uri is None
-        assert "no bsc identity bound yet" in record.identity_line.lower()
+        assert record.registration_uri is not None
+        assert "bound to the bsc erc-8004 agent" in record.identity_line.lower()
 
 
 def test_the_grid_service_says_a_hire_previews_rather_than_trades():
@@ -577,35 +577,44 @@ def test_the_two_services_outside_the_four_are_listed_rather_than_filed_wrongly(
         assert service_id in {record.service_id for record in all_records()}
 
 
-def test_only_solvent_signal_carries_an_identity_and_the_others_say_they_do_not():
-    assert (
-        SERVICES["solvent-signal"].agent_id
-        == "56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:136384"
-    )
-    for service_id in ("grid-operator", "range-doctor", "warden-scan"):
-        record = SERVICES[service_id]
-        assert record.agent_id is None
-        assert "no bsc identity bound yet" in record.identity_line.lower()
+def test_five_services_carry_identities_and_warden_scan_remains_unbound():
+    bound = {
+        service_id for service_id, record in SERVICES.items() if record.agent_id is not None
+    }
+    assert bound == {
+        "grid-operator",
+        "health-guard",
+        "range-doctor",
+        "solvent-signal",
+        "yield-router",
+    }
+    assert SERVICES["warden-scan"].agent_id is None
+    assert "no bsc identity bound yet" in SERVICES["warden-scan"].identity_line.lower()
 
 
 def test_the_bound_identity_is_written_the_way_a_snapshot_stores_one():
     """Lowercased, three parts, chain first. The registry address is checksummed
     everywhere it is quoted for a human; an agent_id is not, and a mixed-case one would
     never match a row in /agents."""
-    agent_id = SERVICES["solvent-signal"].agent_id
-    assert agent_id == agent_id.lower()
-    chain, address, token = agent_id.split(":")
-    assert chain == "56"
-    assert address.startswith("0x") and len(address) == 42
-    assert token == "136384"
-
-
-def test_no_service_claims_a_registration_document_docket_does_not_serve():
-    """SOLVENT's registration JSON is said to be served, but no URI for it is recorded
-    anywhere in this repository. An invented one would be the same class of fabrication
-    as an invented category."""
     for record in SERVICES.values():
-        assert record.registration_uri is None
+        if record.agent_id is None:
+            continue
+        assert record.agent_id == record.agent_id.lower()
+        chain, address, token = record.agent_id.split(":")
+        assert chain == "56"
+        assert address.startswith("0x") and len(address) == 42
+        assert token.isdecimal()
+
+
+def test_only_category_services_claim_registration_documents_docket_serves():
+    """The four committed documents are exact service URIs. SOLVENT and Warden have no
+    repository-backed document URI, so neither receives an invented one."""
+    for service_id in ("range-doctor", "grid-operator", "yield-router", "health-guard"):
+        assert SERVICES[service_id].registration_uri == (
+            f"https://docket.gudman.xyz/registrations/{service_id}.json"
+        )
+    assert SERVICES["solvent-signal"].registration_uri is None
+    assert SERVICES["warden-scan"].registration_uri is None
 
 
 def test_each_service_points_at_its_own_recorded_run():

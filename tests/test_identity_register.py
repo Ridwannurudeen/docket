@@ -1,5 +1,6 @@
 import ast
 import json
+import re
 import tomllib
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -12,13 +13,18 @@ from web3 import Web3
 
 from docket.hire.catalogue import SERVICES
 from docket.identity import register
-from docket.marketplace.registry import get_record
+from docket.marketplace.registry import SERVICES as MARKETPLACE_SERVICES, get_record
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "docket" / "api" / "static" / "agents"
+IDENTITY_EVIDENCE = ROOT / "docs" / "erc8004-category-identities.json"
 SERVICE_IDS = ("range-doctor", "grid-operator", "yield-router", "health-guard")
 SENDER = "0xE4fe23FB57dbb9AC2f685ea29B6b9A1409A0d359"
-DOCUMENT_TIME = datetime(2026, 8, 22, 14, 57, 44, tzinfo=timezone.utc)
+DOCUMENT_TIME = datetime(2026, 8, 28, 10, 44, 53, tzinfo=timezone.utc)
+IDENTITY_FACTS = {
+    fact["service_id"]: fact
+    for fact in json.loads(IDENTITY_EVIDENCE.read_text(encoding="utf-8"))["services"]
+}
 
 
 def _document_clock() -> datetime:
@@ -106,7 +112,10 @@ def test_registration_documents_are_generated_from_the_catalogue():
     for service_id in SERVICE_IDS:
         service = SERVICES[service_id]
         record = get_record(service_id)
-        generated = register.build_registration_json(service, clock=_document_clock)
+        agent_id = IDENTITY_FACTS[service_id]["agent_id"]
+        generated = register.build_registration_json(
+            service, clock=_document_clock, agent_id=agent_id
+        )
         assert record is not None
         assert set(generated) == {
             "type",
@@ -156,14 +165,23 @@ def test_registration_documents_are_generated_from_the_catalogue():
         assert generated["hireUrl"] == f"https://docket.gudman.xyz/hire/{service.id}"
         assert generated["x402Support"] is True
         assert generated["supportedTrust"] == ["reputation"]
-        assert generated["registrations"] == []
+        assert generated["registrations"] == [
+            {
+                "agentId": agent_id,
+                "agentRegistry": (
+                    "eip155:56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432"
+                ),
+            }
+        ]
         assert generated["documentation"] == "https://docket.gudman.xyz/llms.txt"
         assert generated["limitations"] == record.limitations
-        assert generated["updatedAt"] == "2026-08-22T14:57:44Z"
+        assert generated["updatedAt"] == "2026-08-28T10:44:53Z"
 
-        document = register.render_registration_document(service, clock=_document_clock)
+        document = register.render_registration_document(
+            service, clock=_document_clock, agent_id=agent_id
+        )
         assert document == register.render_registration_document(
-            service, clock=_document_clock
+            service, clock=_document_clock, agent_id=agent_id
         )
         assert (
             STATIC.joinpath(f"{service_id}.registration.json").read_bytes() == document
@@ -173,15 +191,67 @@ def test_registration_documents_are_generated_from_the_catalogue():
 def test_registration_document_adds_the_minted_identity_without_changing_its_url():
     service = SERVICES["range-doctor"]
     generated = register.build_registration_json(
-        service, clock=_document_clock, agent_id=136_384
+        service, clock=_document_clock, agent_id=311_253
     )
     assert generated["url"] == "https://docket.gudman.xyz/services/range-doctor"
     assert generated["registrations"] == [
         {
-            "agentId": 136_384,
+            "agentId": 311_253,
             "agentRegistry": ("eip155:56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432"),
         }
     ]
+
+
+def test_bound_service_identities_match_committed_chain_evidence():
+    evidence = json.loads(IDENTITY_EVIDENCE.read_text(encoding="utf-8"))
+    facts = {fact["service_id"]: fact for fact in evidence["services"]}
+    solvent = json.loads(
+        (ROOT / "docket" / "advantage" / "experiments" / "02-trading.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert evidence["chain_id"] == 56
+    assert evidence["registry"] == register.IDENTITY_REGISTRY_ID
+    assert set(facts) == set(SERVICE_IDS)
+
+    for service_id, record in MARKETPLACE_SERVICES.items():
+        if record.agent_id is None:
+            continue
+        assert record.agent_id == record.agent_id.lower()
+        assert re.fullmatch(r"56:0x[0-9a-f]{40}:[0-9]+", record.agent_id)
+        chain_id, registry, token_id = record.agent_id.split(":")
+        assert chain_id == str(evidence["chain_id"])
+        assert registry == evidence["registry"]
+
+        if service_id == "solvent-signal":
+            recorded_agent = solvent["agent_arm"]["output"]["result"]["agent"]
+            assert token_id == recorded_agent["erc8004_agent_id"]
+            assert record.registration_uri is None
+            continue
+
+        fact = facts[service_id]
+        assert int(token_id) == fact["agent_id"]
+        assert fact["owner"] == evidence["owner"]
+        assert re.fullmatch(r"0x[0-9a-f]{40}", fact["owner"])
+        assert fact["mint_block"] > 0
+        assert re.fullmatch(r"0x[0-9a-f]{64}", fact["transaction_hash"])
+        assert record.registration_uri == fact["token_uri"]
+        assert fact["token_uri"].endswith(f"/registrations/{service_id}.json")
+
+        document = json.loads(
+            STATIC.joinpath(f"{service_id}.registration.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert document["registrations"] == [
+            {
+                "agentId": fact["agent_id"],
+                "agentRegistry": (
+                    f"eip155:{evidence['chain_id']}:{evidence['registry']}"
+                ),
+            }
+        ]
 
 
 def test_identity_abi_matches_the_observed_contract_surface():
@@ -275,7 +345,7 @@ def test_plan_cli_prints_an_unsigned_costed_plan_and_refuses_other_actions(capsy
     assert result == 0
     output = json.loads(capsys.readouterr().out)
     assert output["registration"] == register.build_registration_json(
-        SERVICES["range-doctor"], clock=_document_clock
+        SERVICES["range-doctor"], clock=_document_clock, agent_id=311_253
     )
     assert output["token_uri"] == (
         "https://docket.gudman.xyz/registrations/range-doctor.json"

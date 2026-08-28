@@ -10,7 +10,12 @@
   "image": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjAgMTIwIj48cmVjdCB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgcng9IjE4IiBmaWxsPSIjMGIxMjIwIi8+PHJlY3QgeD0iMjQiIHk9IjI0IiB3aWR0aD0iNzIiIGhlaWdodD0iNzIiIHJ4PSIxMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZjRmMWU4IiBzdHJva2Utd2lkdGg9IjgiLz48cGF0aCBkPSJNNDAgNDhoNDBNNDAgNjRoMjQiIHN0cm9rZT0iI2Y0ZjFlOCIgc3Ryb2tlLXdpZHRoPSI4IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48Y2lyY2xlIGN4PSI3NiIgY3k9Ijc0IiByPSI3IiBmaWxsPSIjZjRiODYwIi8+PC9zdmc+",
   "limitations": "PancakeSwap v3 pools on BSC, read from PancakeSwap's own explorer snapshot, and nothing else: no other venue, no v2 pools, no farms, no lending. Every rate is a 24h observation annualised by 365 — one day, not a forecast — and it is a rate over the pool's TVL rather than over any position, so a concentrated position earns at it only while it is in range and earns nothing while it is not. Clearing the plausibility gate is not an endorsement: the gate rejects figures that cannot be true and says nothing about figures that merely should not be leaned on. Every claim is bounded by the stated eligible set, so highest here always means highest within that set at that moment and never highest anywhere. The switching cost is supplied by the caller and is not derived — Docket reads no BNB price here and does not invent one — and a break-even is only as good as the number it was handed. A move is drafted as one swap leg through the same PancakeSwap V2 router the grid uses; adding the resulting assets as liquidity to the destination pool is not built in this stage, so a drafted move gets the caller into the right asset and no further. Nothing is signed, approved, submitted or held and there is no execution guarantee of any kind: a drafted swap is a record of what acting would commit to, and acting needs a session the wallet's owner grants on chain. A single recorded read; no paired run against a person stands behind the metrics on this card.",
   "name": "Yield Router Preview",
-  "registrations": [],
+  "registrations": [
+    {
+      "agentId": 311257,
+      "agentRegistry": "eip155:56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432"
+    }
+  ],
   "services": [
     {
       "description": "A comparison of PancakeSwap v3 pools on BSC at the rates they were observed at, bounded by a set you can reproduce. The eligible universe is built from PancakeSwap's own explorer snapshot and stated in full: its size, its source, the moment it was read, the thresholds it was gated on, and every pool that did not make it together with the reason it was left out. Each pool in the set carries its fee rate net of the protocol's own reported cut — the gross figure overstates what a liquidity provider keeps by about half again — beside the gross one, with the window the rate was observed over and the TVL it is a rate against, plus liquidity, 24h volume and turnover. For every candidate you get a break-even: how many days the extra yield takes to repay what moving costs, against a stated horizon, with the arithmetic written out and the cost named as the input you supplied rather than a figure Docket derived. A pool with a higher rate whose break-even runs past that horizon is shown with that fact attached rather than dropped. Ordering is by one named observed metric and the payload says which, so no order here is an opinion Docket formed. The comparison needs no wallet; drafting a swap leg requires the wallet, token pair, amount and cap declared together. Nothing is signed, approved, submitted or moved.",
@@ -35,7 +40,7 @@
     "erc-8004"
   ],
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
-  "updatedAt": "2026-08-22T14:57:44Z",
+  "updatedAt": "2026-08-28T10:44:53Z",
   "url": "https://docket.gudman.xyz/services/yield-router",
   "version": "0.1.0",
   "x402Support": true
