@@ -22,22 +22,71 @@ Open the [Agent Advantage Report](https://docket.gudman.xyz/advantage).
 
 This proves three completed single-task service-versus-manual comparisons—liquidity, trading, and security—with both timings, cost notes, hashes, and actual outputs. The raw [v1 artifact](https://docket.gudman.xyz/advantage.json) shows Warden's miss as well as the faster runs; the [post-hoc decision-impact section of v2](https://docket.gudman.xyz/advantage/v2.json) reports 0 ordering changes across 231 eligible-pool pairs. Its two security records preserve the detector change: the live detector observed 2026-08-10, exact revision and deploy date unrecorded, flagged 14 of 31 attacks with precision 14 of 15; revision `0583853ed7fca7d03c98a5cc4c2383cc6b149248`, deployed 2026-08-24, flagged 15 of 30 scored attacks with precision 15 of 16. One hostile payload was unscored in the newer run, whose 50.00% recall still misses v3-04's 90% floor; Warden remains beta.
 
-Then open [v3](https://docket.gudman.xyz/advantage/v3): it shows registration and
-artifact-derived state, not a scored performance result. `v3-04-warden-security` is
-`complete_unscored` with `score_sheets_missing`: 24/24 primaries are terminal (23
-succeeded; manual `w4-ho-01` failed), but seat B returned no first scoring response and
-the registered rule forbids retry or substitution. The ledger proves `invoke_error` /
-`JSONDecodeError`; the operator's contemporaneous account attributes it to a crib sheet
-absent from the repository and payload text being pasted instead of the required JSON object.
-For a `complete_unscored` family, the page deliberately leaves quality, speed, formula
-metrics, and `falsifier_result` null; it does not display the diagnostics below.
+Then open [v3](https://docket.gudman.xyz/advantage/v3). A registered claim that fails and
+says so is the result this report was built to be able to publish. V3 fixes the comparison
+rules before it sees the exact cases, then publishes the run even when the result is adverse
+or scoring cannot finish.
+
+**The agent did not beat the human here.**
+
+Vocabulary used below:
+
+- **arm** — one side of the comparison: agent or human/manual.
+- **primary** — one scheduled attempt on one case by one arm; no scored retry.
+- **seat** — a fixed model evaluator that scores anonymised outputs. Both seats were run by
+  one operator, so they are prompt-blinded but not independent evaluators.
+- **input lock** — the point when the exact cases and their hashes were fixed; no case could
+  then be removed or replaced.
+- **frozen label** — the hostile/benign answer fixed before evaluation and used by the
+  read-only diagnostics.
+- **falsifier** — a condition written in advance that would refute the bounded claim if it fired.
+- **`complete_unscored`** — every scheduled attempt ended, but required scoring artifacts are
+  absent, so rubric quality and the registered falsifier remain unavailable.
+- **`superseded_before_input_lock`** — a later registration replaced the family before exact
+  inputs were locked; neither arm ran.
+
+What was fixed in advance: the questions, exact-input locking rule, arm order, clocks,
+failure treatment, scoring process, and falsifier. What ran: 12 planned agent-versus-manual
+pairs, or 24 primaries. What went wrong: 23 primaries succeeded, while manual `w4-ho-01`
+failed with ledger state `invoke_error` / `JSONDecodeError`; seat B then returned no first
+scoring response, and the registered rule forbids retry or substitution. The operator's
+contemporaneous account attributes the manual failure to a crib sheet absent from the
+repository and payload text being pasted instead of the required JSON object.
+
+What it means: frozen-label formulas put Warden recall at 4/8 (0.50) versus the human's 6/8
+(0.75) and record three Warden critical failures. One manual primary failed. Rubric quality
+is permanently unscored. The family is therefore `complete_unscored` with
+`score_sheets_missing`, not a scored performance result. Its page deliberately leaves quality,
+speed, formula metrics, and `falsifier_result` null; it does not display the diagnostics below.
 
 To reproduce the non-§10 diagnostics from the committed
 [`v3-04-warden-security` ledger](../../docket/advantage/v3/runs/v3-04-warden-security.jsonl)
-against its locked spec and input, run this from an installed public checkout:
+against its locked spec and input, run this from a public checkout:
 
 ```text
-python -c "import json; from pathlib import Path; from docket.advantage.v3 import runner, scoring; from docket.advantage.v3.spec import REPO_ROOT, load; spec=load(Path('docket/advantage/v3/specs/v3-04-warden-security.json')); inputs=scoring.load_inputs(spec, repo_root=REPO_ROOT); attempts=scoring.primary_attempts(spec, runner.ledger_path(spec, Path('docket/advantage/v3/runs')), repo_root=REPO_ROOT); w=scoring.warden_metrics(spec, inputs, attempts, repo_root=REPO_ROOT); s=scoring.speed_metrics(spec, attempts, inputs=inputs, repo_root=REPO_ROOT); print(json.dumps({'agent_recall':w['arms']['agent']['recall'], 'manual_recall':w['arms']['manual']['recall'], 'agent_critical_failures':len(w['arms']['agent']['critical_gate_failures']), 'complete_pairs':s['n_complete_pairs'], 'planned_pairs':s['n_planned_pairs'], 'median_seconds_saved':s['median_seconds_saved'], 'median_agent_to_manual_ratio':s['median_agent_to_manual_ratio']}, indent=2))"
+./.venv/Scripts/python.exe scripts/reproduce-v3-04.py
+```
+
+Expected output:
+
+```json
+{
+  "agent_recall": {
+    "numerator": 4,
+    "denominator": 8,
+    "value": 0.5
+  },
+  "manual_recall": {
+    "numerator": 6,
+    "denominator": 8,
+    "value": 0.75
+  },
+  "agent_critical_failures": 3,
+  "complete_pairs": 11,
+  "planned_pairs": 12,
+  "median_seconds_saved": 27.86,
+  "median_agent_to_manual_ratio": 0.06104344152643808
+}
 ```
 
 It reports Warden recall 4/8 (0.50) versus manual 6/8 (0.75), three Warden critical

@@ -19,15 +19,33 @@ The longer evidence-led route is in [Judge start here](docs/submission/judge-sta
 
 ## What is not true yet
 
+A registered claim that fails and says so is the result the v3 report was built to be able
+to publish. It fixes the comparison rules before seeing the exact cases, then keeps the run
+visible even when the result is adverse or scoring cannot finish.
+
+**The agent did not beat the human here.**
+
+V3 vocabulary used below: an **arm** is one side of the agent-versus-human comparison; a
+**primary** is one scheduled attempt on one case by one arm, with no scored retry; a **seat**
+is a fixed model evaluator of anonymised outputs; the **input lock** fixes the exact cases and
+their hashes; a **frozen label** is a hostile/benign answer fixed before evaluation; and a
+**falsifier** is a condition written in advance that would refute the bounded claim.
+`complete_unscored` means every scheduled attempt ended but required scoring artifacts are
+absent. `superseded_before_input_lock` means a later registration replaced the family before
+exact inputs were locked, so neither arm ran.
+
 - No service is in paid stock, and no settlement has run.
 - The four category services now have BSC ERC-8004 registrations, but registration is
   not endorsement, evidence of paid stock, or evidence that a service produced a result;
   `warden-scan` remains unbound.
-- V3 has one terminal but unscored family. `v3-04-warden-security` is
-  `complete_unscored`: all 24 primaries are terminal (23 succeeded; one manual primary
-  failed), but a named scoring seat returned no first response and substitution is
-  forbidden. Frozen-label formulas put Warden recall at 4/8 (0.50) versus manual 6/8
-  (0.75) and record three Warden critical failures. At the committed-artifact observation
+- V3 fixed its questions, input locking, arm order, clocks, failure treatment, scoring
+  process, and falsifier before the exact cases were run. It then ran 12 planned pairs:
+  all 24 primaries became terminal, 23 succeeded, and manual `w4-ho-01` failed with
+  `invoke_error` / `JSONDecodeError`. A named scoring seat returned no first response;
+  retry and substitution are forbidden, so rubric quality is permanently unscored.
+  Frozen-label formulas put Warden recall at 4/8 (0.50) versus manual 6/8 (0.75) and
+  record three Warden critical failures. `v3-04-warden-security` is therefore
+  `complete_unscored`, not a scored performance result. At the committed-artifact observation
   on 2026-08-28, the committed v3 artifacts contain 5 families:
   `v3-04-warden-security` is `complete_unscored`; `v3-02-yield-router` and
   `v3-05-range-doctor` are `locked_not_run`; `v3-01-range-doctor` and

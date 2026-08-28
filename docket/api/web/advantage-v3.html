@@ -46,25 +46,99 @@
     <main id="main">
       <div class="wrap">
         <section class="hero">
-          <h1>Registered first. Results only when their artifacts exist.</h1>
+          <h1>A failed claim that says so is still a result.</h1>
           <p class="lede">
-            V3 is a paired agent-versus-manual evaluation. Its questions, arm order, clocks,
-            stopping rules, failure treatment, material-speed thresholds, model seats, prompt-level
-            blinding recipe, and falsifiers were registered before any input lock or arm output.
-            At process startup, the page derives each family state from the available artifacts or
-            shows an explicit reconstruction failure without inventing an empty report.
+            A registered claim that fails and says so is the result this report was built to be able
+            to publish. V3 fixes the comparison rules before it sees the exact cases, then publishes
+            the run even when the result is adverse or scoring cannot finish.
           </p>
-          <p>
-            The two evaluation seats are run by one operator. Prompt-level blinding keeps the A/B
-            mapping out of each seat's prompt until both sheets are durable; it does not make the
-            seats independent evaluators.
-          </p>
+          <p><strong>The agent did not beat the human here.</strong></p>
           <p class="status-line">
             <span class="status-key">The same startup report as data:</span>
             <a href="/advantage/v3.json">/advantage/v3.json</a>
             <span>the same startup resolution, including an explicit reconstruction error.</span>
           </p>
         </section>
+
+        <section aria-labelledby="v3-vocabulary">
+          <h2 id="v3-vocabulary">Vocabulary for this report</h2>
+          <dl class="vocab panel">
+            <div class="vocab-row">
+              <dt>Arm</dt>
+              <dd>One side of the comparison: agent or human/manual.</dd>
+            </div>
+            <div class="vocab-row">
+              <dt>Primary</dt>
+              <dd>One scheduled attempt on one case by one arm; no scored retry.</dd>
+            </div>
+            <div class="vocab-row">
+              <dt>Seat</dt>
+              <dd>
+                A fixed model evaluator of anonymised outputs. Both seats are run by one operator,
+                so they are prompt-blinded but not independent evaluators.
+              </dd>
+            </div>
+            <div class="vocab-row">
+              <dt>Input lock</dt>
+              <dd>
+                The point when the exact cases and their hashes are fixed; no case can then be
+                removed or replaced.
+              </dd>
+            </div>
+            <div class="vocab-row">
+              <dt>Frozen label</dt>
+              <dd>
+                The hostile/benign answer fixed before evaluation and used by read-only diagnostics.
+              </dd>
+            </div>
+            <div class="vocab-row">
+              <dt>Falsifier</dt>
+              <dd>A condition written in advance that would refute the bounded claim if it fired.</dd>
+            </div>
+            <div class="vocab-row">
+              <dt><span class="mono">complete_unscored</span></dt>
+              <dd>
+                Every scheduled attempt ended, but required scoring artifacts are absent, so rubric
+                quality and the registered falsifier remain unavailable.
+              </dd>
+            </div>
+            <div class="vocab-row">
+              <dt><span class="mono">superseded_before_input_lock</span></dt>
+              <dd>
+                A later registration replaced the family before exact inputs were locked; neither
+                arm ran.
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <section aria-labelledby="v3-outcome">
+          <h2 id="v3-outcome">What happened in the completed Warden family</h2>
+          <div class="panel">
+            <p>
+              <strong>Fixed in advance:</strong> the questions, exact-input locking rule, arm order,
+              clocks, failure treatment, scoring process, and falsifier.
+            </p>
+            <p>
+              <strong>Run:</strong> 12 planned agent-versus-manual pairs, or 24 primaries. Warden
+              recall was 4/8 (0.50) versus the human's 6/8 (0.75), with three Warden critical
+              failures.
+            </p>
+            <p>
+              <strong>Went wrong:</strong> 23 primaries succeeded. Manual
+              <span class="mono">w4-ho-01</span> failed with ledger state
+              <span class="mono">invoke_error</span> / <span class="mono">JSONDecodeError</span>.
+              Seat B returned no first scoring response, and retry or substitution is forbidden.
+            </p>
+            <p>
+              <strong>Meaning:</strong> one manual primary failed and rubric quality is permanently
+              unscored. The family is <span class="mono">complete_unscored</span>, not a scored
+              performance result.
+            </p>
+          </div>
+        </section>
+
+        <!-- v3-records -->
 
         <section aria-labelledby="report-family">
           <h2 id="report-family">Three additive reports</h2>
@@ -116,7 +190,6 @@
           </div>
         </section>
 
-        <!-- v3-records -->
       </div>
     </main>
 
