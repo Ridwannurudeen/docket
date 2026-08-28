@@ -29,11 +29,24 @@ succeeded; manual `w4-ho-01` failed), but seat B returned no first scoring respo
 the registered rule forbids retry or substitution. The ledger proves `invoke_error` /
 `JSONDecodeError`; the operator's contemporaneous account attributes it to a crib sheet
 absent from the repository and payload text being pasted instead of the required JSON object.
-Read-only frozen-label formulas—not a published §10 result—show Warden recall 4/8 (0.50)
-versus manual 6/8 (0.75), three Warden critical failures, 11/12 complete pairs, a
-27.86-second median saving, and a 0.0610434 median ratio. Missing rubric medians prevent a
-complete registered falsifier evaluation, so the family is not published as `refuted`.
-v3-02 and v3-05 wait for inputs; v3-01 and v3-03 remain superseded.
+For a `complete_unscored` family, the page deliberately leaves quality, speed, formula
+metrics, and `falsifier_result` null; it does not display the diagnostics below.
+
+To reproduce the non-§10 diagnostics from the committed
+[`v3-04-warden-security` ledger](../../docket/advantage/v3/runs/v3-04-warden-security.jsonl)
+against its locked spec and input, run this from an installed public checkout:
+
+```text
+python -c "import json; from pathlib import Path; from docket.advantage.v3 import runner, scoring; from docket.advantage.v3.spec import REPO_ROOT, load; spec=load(Path('docket/advantage/v3/specs/v3-04-warden-security.json')); inputs=scoring.load_inputs(spec, repo_root=REPO_ROOT); attempts=scoring.primary_attempts(spec, runner.ledger_path(spec, Path('docket/advantage/v3/runs')), repo_root=REPO_ROOT); w=scoring.warden_metrics(spec, inputs, attempts, repo_root=REPO_ROOT); s=scoring.speed_metrics(spec, attempts, inputs=inputs, repo_root=REPO_ROOT); print(json.dumps({'agent_recall':w['arms']['agent']['recall'], 'manual_recall':w['arms']['manual']['recall'], 'agent_critical_failures':len(w['arms']['agent']['critical_gate_failures']), 'complete_pairs':s['n_complete_pairs'], 'planned_pairs':s['n_planned_pairs'], 'median_seconds_saved':s['median_seconds_saved'], 'median_agent_to_manual_ratio':s['median_agent_to_manual_ratio']}, indent=2))"
+```
+
+It reports Warden recall 4/8 (0.50) versus manual 6/8 (0.75), three Warden critical
+failures, 11/12 complete pairs, a 27.86-second median saving, and a
+0.06104344152643808 median ratio. These are read-only frozen-label diagnostics, not a
+published §10 result. Missing rubric medians prevent a complete registered falsifier
+evaluation, so neither `refuted` nor `not_refuted` is published. At the 2026-08-28 source
+observation (`9648a51`), v3-02 and v3-05 are `locked_not_run`; v3-01 and v3-03 remain
+`superseded_before_input_lock`.
 
 ## 4. Check the registry data
 
