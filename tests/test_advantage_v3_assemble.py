@@ -515,9 +515,12 @@ def test_lock_range_cli_binds_capture_and_saves_the_real_lock(tmp_path, monkeypa
     repo_root = tmp_path / "range-repo"
     spec_path = repo_root / "docket/advantage/v3/specs/v3-05-range-doctor.json"
     spec_path.parent.mkdir(parents=True)
-    registered = load(
-        Path(__file__).resolve().parents[1]
-        / "docket/advantage/v3/specs/v3-05-range-doctor.json"
+    registered = replace(
+        load(
+            Path(__file__).resolve().parents[1]
+            / "docket/advantage/v3/specs/v3-05-range-doctor.json"
+        ),
+        inputs_sha256="",
     )
     save(registered, spec_path, repo_root=repo_root)
     spec = load(spec_path, repo_root=repo_root)
