@@ -60,14 +60,14 @@ with tempfile.TemporaryDirectory(prefix="docket-installed-smoke-") as scratch:
         "v3-05-range-doctor",
     ]
     assert {family["state"] for family in families} == {
+        "complete_unscored",
         "locked_not_run",
-        "registered_waiting_for_inputs",
         "superseded_before_input_lock",
     }
 
     page = client.get("/advantage/v3")
     assert page.status_code == 200, page.text
-    assert page.text.count("registered_waiting_for_inputs") >= 2
+    assert "complete_unscored" in page.text
     assert "locked_not_run" in page.text
     for path in ("/llms.txt", "/skill.md"):
         document = client.get(path)
