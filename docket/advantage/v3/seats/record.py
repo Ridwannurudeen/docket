@@ -185,4 +185,4 @@ def response_bytes(value: object) -> bytes | None:
 
 
 def command_line(argv: list[str]) -> str:
-    return subprocess.list2cmdline(argv)
+    return subprocess.list2cmdline([Path(argv[0]).name, *argv[1:]])
