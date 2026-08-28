@@ -85,8 +85,10 @@ SERVICES: dict[str, ServiceRecord] = {
         # the first breath of the limitations rather than worked around, because printing
         # an invented ratio under the label the shelf is named after is the exact
         # fabrication this inventory exists to refuse.
-        agent_id=None,
-        registration_uri=None,
+        agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311259",
+        registration_uri=(
+            "https://docket.gudman.xyz/registrations/health-guard.json"
+        ),
         activation="one_shot",
         evidence_modality="live_read",
         metrics=(
@@ -143,8 +145,10 @@ SERVICES: dict[str, ServiceRecord] = {
         # The other shelf that was bare. What fills it is a bounded claim rather than a
         # superlative: the comparison names the set it is a comparison within, and the set
         # names its source, its moment and everything it turned away.
-        agent_id=None,
-        registration_uri=None,
+        agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311257",
+        registration_uri=(
+            "https://docket.gudman.xyz/registrations/yield-router.json"
+        ),
         activation="one_shot",
         evidence_modality="live_read",
         metrics=(
@@ -198,8 +202,10 @@ SERVICES: dict[str, ServiceRecord] = {
         # show — the whole mechanism, previewed against the chain — and the record below
         # says in its first breath that a hire previews rather than trades, because a
         # category filled with an overstatement is worse than one left honestly empty.
-        agent_id=None,
-        registration_uri=None,
+        agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311255",
+        registration_uri=(
+            "https://docket.gudman.xyz/registrations/grid-operator.json"
+        ),
         # `one_shot` and not `policy_action`, which is the tempting one. A hire runs once
         # and hands back a preview; it does not act on chain within a policy, and saying
         # it did would be claiming the half of this service that needs a session nobody
@@ -258,10 +264,12 @@ SERVICES: dict[str, ServiceRecord] = {
     "range-doctor": ServiceRecord(
         service_id="range-doctor",
         category=Category.REBALANCING,
-        # No ERC-8004 identity has been registered for this one. Said rather than left
-        # blank: an omitted field reads as an identity nobody printed.
-        agent_id=None,
-        registration_uri=None,
+        # Lowercased exactly as a snapshot stores an agent_id, following the SOLVENT
+        # binding below so /agents/{agent_id} can resolve it when the snapshot holds it.
+        agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311253",
+        registration_uri=(
+            "https://docket.gudman.xyz/registrations/range-doctor.json"
+        ),
         activation="one_shot",
         evidence_modality="live_read",
         metrics=(
