@@ -23,7 +23,8 @@ from . import runner
 from .runner import (
     _agent_payload,
     _locked_inputs,
-    _manual_case,
+    _manual_reveal,
+    _record_manual_reveal_sources,
     _terminate_slot,
     claim_slot,
     ledger_path,
@@ -207,7 +208,7 @@ def _reveal(spec, slot, repo_root):
     inputs = _locked_inputs(spec, repo_root)
     case = next(row for row in inputs["cases"] if row["case_id"] == slot.case_id)
     if slot.arm == "manual":
-        return _manual_case(case)
+        return _manual_reveal(spec, inputs, case, _root(repo_root))
     return _agent_payload(spec, inputs, case, _root(repo_root))
 
 
@@ -300,6 +301,14 @@ def run_next(
         claim_slot(spec, runs_dir, slot=nxt, repo_root=repo_root, clock=tick)
     except ValueError as exc:
         raise OrchestratorRefused(str(exc)) from exc
+    if nxt.arm == "manual":
+        _record_manual_reveal_sources(
+            spec,
+            runs_dir,
+            nxt,
+            revealed,
+            _root(repo_root),
+        )
     try:
         result = run_arm(nxt, revealed)
     except Exception as exc:

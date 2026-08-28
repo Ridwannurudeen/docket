@@ -37,7 +37,7 @@ import hashlib
 import json
 import os
 import time
-from base64 import b64encode
+from base64 import b64decode, b64encode
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -780,8 +780,21 @@ class ExperimentHarness:
 
     def reveal_manual_case(self) -> dict:
         slot = self._next_slot("manual")
+        revealed = _manual_reveal(
+            self.spec,
+            self.inputs,
+            self.cases[slot.case_id],
+            self.repo_root,
+        )
         claim_slot(self.spec, self.runs_dir, slot=slot, repo_root=self.repo_root)
-        return _manual_case(self.cases[slot.case_id])
+        _record_manual_reveal_sources(
+            self.spec,
+            self.runs_dir,
+            slot,
+            revealed,
+            self.repo_root,
+        )
+        return revealed
 
     def submit_manual(self, raw_output: object, *, cost: dict | None = None) -> dict:
         return terminate_slot(
@@ -967,6 +980,65 @@ def _manual_case(case: dict) -> dict:
         "survival_predicates",
     }
     return {key: value for key, value in case.items() if key not in hidden}
+
+
+def _manual_reveal(
+    spec: PairedSpec,
+    inputs: dict,
+    case: dict,
+    repo_root: Path,
+) -> dict:
+    revealed = _manual_case(case)
+    if is_range_family(spec):
+        pool_truth_ref = next(
+            source for source in case["source_refs"] if source["kind"] == "pool_truth"
+        )
+        source_ref = pool_truth_ref["ref"]
+        snapshots = _read_locked_json(pool_truth_ref, repo_root)["source_snapshots"]
+    elif spec.spec_id == "v3-02-yield-router":
+        source_ref = spec.inputs_ref
+        snapshots = inputs["source_snapshots"]
+    else:
+        return revealed
+
+    exposed = {}
+    for name, snapshot in snapshots.items():
+        raw = b64decode(snapshot["body_base64"], validate=True)
+        if hashlib.sha256(raw).hexdigest() != snapshot["sha256"]:
+            raise ValueError("runner: a locked manual source changed after input validation")
+        exposed[name] = {
+            **snapshot,
+            "name": name,
+            "source_ref": f"{source_ref}#source_snapshots/{name}",
+            "body": json.loads(raw.decode("utf-8")),
+        }
+    return {**revealed, "source_snapshots": exposed}
+
+
+def _record_manual_reveal_sources(
+    spec: PairedSpec,
+    runs_dir: Path,
+    slot: ScheduledSlot,
+    revealed: dict,
+    repo_root: Path,
+) -> None:
+    for snapshot in revealed.get("source_snapshots", {}).values():
+        record_source_query(
+            spec,
+            runs_dir,
+            slot=slot,
+            repo_root=repo_root,
+            request={
+                "name": snapshot["name"],
+                "url": snapshot["url"],
+                "source_ref": snapshot["source_ref"],
+            },
+            response_summary={
+                "attempt_ordinal": snapshot["attempt_ordinal"],
+                "observed_at": snapshot["observed_at"],
+                "body_sha256": snapshot["sha256"],
+            },
+        )
 
 
 def _read_locked_json(source: dict, repo_root: Path) -> dict:

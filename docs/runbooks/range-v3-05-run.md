@@ -329,13 +329,14 @@ No command in this runbook authorizes a push, deployment, transaction or submiss
 
 ## 4. Owner-only manual-arm handover after release
 
-The next action belongs to the owner. **Do not run a slot yet:** the current interactive
-reveal carries source references but not the frozen source bodies needed for the registered
-answer, and the CLI has no path that records manual source queries. Because the claim occurs
-before the reveal, starting now could permanently consume a primary without exposing enough
-question data. First release a reviewed manual source reveal/recording path that still
-withholds truth and agent output. Then close Docket and all agent output and, from the
-repository root, run exactly three manual slots:
+The next action belongs to the owner after the reviewed reveal/recording change is released.
+The interactive reveal contains the truth-stripped case and `source_snapshots.pools` plus
+`source_snapshots.token_list` from the committed pool-truth artifact. Each snapshot carries
+its committed source reference, URL, observation, digest, exact base64 bytes and decoded JSON
+body. It contains neither locked truth nor agent output. After the timed claim and before
+stdin is read, the harness records one `source_query` event for each revealed snapshot,
+bound to its source reference and body digest. Close Docket and all agent output and, from
+the repository root, run exactly three manual slots:
 
 ```powershell
 1..3 | ForEach-Object {

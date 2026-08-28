@@ -6,6 +6,8 @@ is retried into a success, a clock the operator can edit, and an unlocked spec t
 still reaches an arm. Each test names the mutation it kills.
 """
 
+import base64
+import hashlib
 import inspect
 import json
 from pathlib import Path
@@ -870,6 +872,86 @@ def test_main_interactive_claims_before_reveal_and_reads_one_submission(locked, 
     assert bound[0]["outcome"] == runner.SUCCEEDED
     assert bound[0]["raw_output"] == {"answer": "operator-one"}
     assert "t::case-1::manual::primary" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "spec_name",
+    ("v3-02-yield-router.json", "v3-05-range-doctor.json"),
+)
+def test_manual_reveal_includes_hash_checked_sources_without_truth(spec_name):
+    root = spec_module.REPO_ROOT
+    spec = spec_module.load(SPECS_DIR / spec_name, repo_root=root)
+    slot = runner.scheduled_slots(spec, repo_root=root)[0]
+
+    revealed = orchestrator._reveal(spec, slot, root)
+
+    assert "truth" not in revealed
+    assert set(revealed["source_snapshots"]) == {"pools", "token_list"}
+    for snapshot in revealed["source_snapshots"].values():
+        raw = base64.b64decode(snapshot["body_base64"], validate=True)
+        assert hashlib.sha256(raw).hexdigest() == snapshot["sha256"]
+        assert snapshot["body"] == json.loads(raw)
+        assert snapshot["source_ref"].endswith(
+            f"#source_snapshots/{snapshot['name']}"
+        )
+
+
+def test_interactive_yield_records_revealed_sources_before_reading_answer(
+    tmp_path, capsys
+):
+    root = spec_module.REPO_ROOT
+    spec = spec_module.load(
+        SPECS_DIR / "v3-02-yield-router.json", repo_root=root
+    )
+    runs = tmp_path / "runs"
+
+    class OneSubmission:
+        calls = 0
+
+        def readline(self):
+            self.calls += 1
+            assert self.calls == 1
+            events = runner.read_events(runner.ledger_path(spec, runs))
+            assert [event["kind"] for event in events[-3:]] == [
+                runner.STARTED,
+                runner.SOURCE_QUERY,
+                runner.SOURCE_QUERY,
+            ]
+            assert {event["request"]["name"] for event in events[-2:]} == {
+                "pools",
+                "token_list",
+            }
+            assert all("body_sha256" in event["response"] for event in events[-2:])
+            assert not any(event["kind"] == runner.TERMINATED for event in events)
+            revealed = json.loads(capsys.readouterr().out)
+            assert "truth" not in revealed["case"]
+            assert set(revealed["case"]["source_snapshots"]) == {
+                "pools",
+                "token_list",
+            }
+            return (
+                '{"sources":{},"universe":{},"rates":{},"scenario":{},'
+                '"decision":{},"limitations":[]}\n'
+            )
+
+    stdin = OneSubmission()
+    code = orchestrator.main(
+        [
+            "v3-02-yield-router",
+            str(runs),
+            "--interactive",
+            "--repo-root",
+            str(root),
+            "--once",
+        ],
+        stdin=stdin,
+    )
+
+    assert code == 0
+    assert stdin.calls == 1
+    state = runner.read_state(runner.ledger_path(spec, runs))
+    first = runner.scheduled_slots(spec, repo_root=root)[0]
+    assert state[first.slot].terminal["outcome"] == runner.SUCCEEDED
 
 
 def test_main_once_recovers_a_dangling_slot_before_running_the_next(locked, capsys):
