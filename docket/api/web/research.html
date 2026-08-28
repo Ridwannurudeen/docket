@@ -8,8 +8,8 @@
       name="description"
       content="Filter the ERC-8004 agents in Docket's current snapshot by feedback, declared endpoint, observed response and name family."
     />
-    <link rel="stylesheet" href="/static/style.css?v=8" />
-    <script type="module" src="/static/app.js?v=8"></script>
+    <link rel="stylesheet" href="/static/style.css?v=9" />
+    <script type="module" src="/static/app.js?v=9"></script>
   </head>
   <body data-page="research">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -123,6 +123,28 @@
             <span class="skeleton skeleton-row skeleton-wide"></span>
             <span class="skeleton skeleton-row skeleton-wide"></span>
           </div>
+        </section>
+
+        <section aria-labelledby="external-context-heading">
+          <h2 id="external-context-heading">External research context</h2>
+          <details class="evidence-details">
+            <summary>Read two outside studies of ERC-8004 adoption and Sybil behaviour</summary>
+            <div class="details-body panel">
+              <p>
+                Outside context, not Docket measurements: a 2026 preprint
+                (<a href="https://arxiv.org/abs/2606.26028">arXiv:2606.26028</a>) reports that on BSC
+                4% of registrations exposed a live service endpoint, 59.2% of reviewers showed
+                coordinated Sybil behaviour, and 77.9% of agents with feedback kept no valid feedback
+                after its Sybil filter.
+              </p>
+              <p>
+                A second preprint
+                (<a href="https://arxiv.org/abs/2606.12128">arXiv:2606.12128</a>) describes Ethereum
+                adoption as registration-heavy but operationally shallow; its chain and dataset differ
+                from Docket's.
+              </p>
+            </div>
+          </details>
         </section>
       </div>
     </main>

@@ -555,6 +555,10 @@ function activationForm(record) {
 }
 
 function paintServiceRecord(record) {
+  const primaryMetric = record.metrics[0];
+  const finding = primaryMetric
+    ? `<strong class="num">${escapeHTML(primaryMetric.display)}</strong> — ${escapeHTML(primaryMetric.name.toLowerCase())}, bounded to ${escapeHTML(primaryMetric.window)}.`
+    : "<strong>0 recorded measurements.</strong> No run is represented on this page.";
   const category = record.category_job
     ? `<p><span class="badge">${escapeHTML(record.category_job)}</span>
          <span class="dim">— Docket's own declaration about a service Docket runs, not a
@@ -577,8 +581,12 @@ function paintServiceRecord(record) {
     : `<p class="dim">No recorded run is published for this service yet.</p>`;
 
   region("service").innerHTML = `<h1>${escapeHTML(record.name)}</h1>
+    <p class="lede">${finding}</p>
     ${category}
-    <p class="lede">${escapeHTML(record.what_you_get)}</p>
+    <section aria-labelledby="service-offer-heading">
+      <h2 id="service-offer-heading">What arrives</h2>
+      <p>${escapeHTML(record.what_you_get)}</p>
+    </section>
     <div class="panel">
       <dl class="deflist">
         ${record.paid_stock ? `<dt>Price</dt><dd class="num">${escapeHTML(record.price_display)} (${escapeHTML(record.price_atomic)} atomic units of <span class="mono">${escapeHTML(record.asset)}</span>)</dd>` : ""}

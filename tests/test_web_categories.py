@@ -159,11 +159,16 @@ def test_no_page_promises_stock_it_does_not_have(client):
             assert promise not in text, f"{path.name} promises: {promise}"
 
 
-def test_the_home_says_what_a_reader_can_do_before_it_says_what_is_wrong(client):
+def test_the_home_leads_with_the_decision_impact_before_the_shop_pitch(client):
     index = _read("index.html")
     heading = re.search(r"<h1>(.*?)</h1>", index, re.S)
     assert heading, "the home has no h1"
-    assert "hire" in heading.group(1).lower()
+    assert "$126.78" in heading.group(1)
+    assert "$10,000" in heading.group(1)
+    hero = re.search(r'<section class="hero">(.*?)</section>', index, re.S).group(1)
+    assert "8.30 days" in hero
+    assert "22 eligible PancakeSwap v3 pools" in hero
+    assert "post-hoc" in hero
 
 
 def test_the_home_names_the_json_behind_it_when_scripting_is_off(client):
@@ -825,25 +830,30 @@ def test_comparison_distinguishes_declarations_from_measurements_and_cites_each_
         assert heading in js
 
 
-def test_homepage_leads_with_generated_pancake_impact_and_caveated_research_context():
+def test_homepage_leads_with_pancake_impact_and_moves_external_context_to_research():
     index = _read("index.html")
+    research = _read("research.html")
     js = _read("app.js")
     styles = _read("style.css")
-    copy = " ".join(index.split())
 
-    assert "Hire by evidence, not promises." in index
+    assert "$126.78" in index
+    assert "$10,000" in index
+    assert "8.30 days" in index
+    assert "n=22" in index
     assert "No account, no key, no wallet connection" in index
     assert "No account, no key, no wallet —" not in index
     assert 'data-region="pancake-impact"' in index
-    assert "arXiv:2606.26028" in index
-    assert "arXiv:2606.12128" in index
+    assert "arXiv:2606.26028" not in index
+    assert "arXiv:2606.12128" not in index
+    assert "arXiv:2606.26028" in research
+    assert "arXiv:2606.12128" in research
     for phrase in (
         "4% of registrations exposed a live service endpoint",
         "59.2% of reviewers showed coordinated Sybil behaviour",
         "77.9% of agents with feedback kept no valid feedback",
         "preprint",
     ):
-        assert phrase in copy
+        assert phrase in " ".join(research.split())
     assert "first-party planner skills shown in its execution model" in index
     assert "terminate at generated deep links" in index
     assert "live Explorer API" in index
@@ -857,11 +867,20 @@ def test_homepage_leads_with_generated_pancake_impact_and_caveated_research_cont
     ):
         assert field in js
     assert 'fetchJSON("/advantage/v2.json")' in js
-    assert "126.78" not in index
-    assert "8.30" not in index
-    assert "0/231" not in index
     for class_name in ("impact-value", "impact-context"):
         assert f".{class_name}" in styles
+
+
+def test_service_opening_leads_with_its_recorded_metric(client):
+    response = client.get(
+        "/service?id=range-doctor", headers={"accept": "text/html"}
+    )
+
+    assert response.status_code == 200
+    opening = response.text.split('data-region="service"', 1)[1].split("</div>", 1)[0]
+    assert "<h1>Range Doctor</h1>" in opening
+    assert "14 of 14 position NFTs the wallet held" in opening
+    assert "one recorded run against one wallet" in opening
 
 
 def test_home_metadata_does_not_promise_a_run_behind_every_service():
@@ -872,4 +891,4 @@ def test_home_metadata_does_not_promise_a_run_behind_every_service():
 
     assert description
     assert "recorded run behind each one" not in description.group(1)
-    assert "Hire by evidence, not promises." in description.group(1)
+    assert "$126.78" in description.group(1)

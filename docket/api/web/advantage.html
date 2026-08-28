@@ -8,7 +8,7 @@
       name="description"
       content="Three tasks, each run once by hiring an agent and once by hand: both arms' timings, costs and full outputs, including the task the agent lost and the task where the headline ratio is not a saving on the question asked."
     />
-    <link rel="stylesheet" href="/static/style.css?v=8" />
+    <link rel="stylesheet" href="/static/style.css?v=9" />
   </head>
   <body data-page="advantage">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -46,18 +46,14 @@
     <main id="main">
       <div class="wrap">
         <section class="hero">
-          <h1>Three tasks, each run twice.</h1>
+          <h1>Warden found 1 of 4 hostile vectors.</h1>
           <p class="lede">
-            Every task below was run once by hiring an agent and once by hand. This page carries
-            both arms in full: the timings, what each arm cost, everything each one returned, and
-            the steps a reader needs to run the manual arm again and get their own number.
+            The manual arm found all four and called BLOCK; the agent arm returned SANITIZE in
+            2.625 seconds, in one recorded payload — not a general benchmark.
           </p>
           <p>
-            Two of the three results are qualified. On one task the hire answered in under two
-            seconds and did not answer the question that was asked. On another it was 28 times
-            faster than the manual arm and came back with one of the four things the manual arm
-            found. Both qualifications are in the summary below rather than in a footnote, because
-            a reader cannot discount a number they were never shown.
+            Three tasks were each run once by an agent arm and once by a manual arm. The report
+            carries both outputs, timings, costs, hashes, and the manual reproduction steps.
           </p>
           <p class="status-line">
             <span class="status-key">The same three experiments as data:</span>

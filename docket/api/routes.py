@@ -18,6 +18,7 @@ preview access.
 """
 
 import hashlib
+import html
 import hmac
 import json
 import os
@@ -247,6 +248,17 @@ def _card(record: ServiceRecord, admission: PaidStockAdmission) -> ServiceCard:
         hire_method="POST",
         hire_path=f"/hire/{record.service_id}",
     )
+
+
+def _service_opening(record: ServiceRecord) -> str:
+    metric = _metric_figure(record.metrics[0]) if record.metrics else None
+    finding = (
+        f'<strong>{html.escape(metric.display)}</strong> — '
+        f"{html.escape(metric.name.lower())}, bounded to {html.escape(metric.window)}."
+        if metric is not None
+        else "<strong>0 recorded measurements.</strong> No run is represented on this page."
+    )
+    return f"<h1>{html.escape(record.name)}</h1><p class=\"lede\">{finding}</p>"
 
 
 def _published_seconds(value: float | None) -> float | None:
@@ -722,10 +734,21 @@ def create_app(
         return FileResponse(WEB_DIR / "agent.html")
 
     @app.get("/service", include_in_schema=False)
-    def service_page() -> FileResponse:
+    def service_page(id: str | None = None) -> HTMLResponse:
         """One service: what it does, what it cannot do, the evidence behind it, and the
         control that runs it. The activation step the site did not have."""
-        return FileResponse(WEB_DIR / "service.html")
+        shell = (WEB_DIR / "service.html").read_text(encoding="utf-8")
+        record = get_record(id) if id is not None else None
+        opening = (
+            _service_opening(record)
+            if record is not None
+            else (
+                "<h1>Choose a service</h1><p class=\"lede\">"
+                "<strong>6 services are listed.</strong> Pick one from the services page "
+                "to read its recorded finding and run it.</p>"
+            )
+        )
+        return HTMLResponse(shell.replace("<!-- service-opening -->", opening))
 
     @app.get("/advantage", include_in_schema=False)
     def advantage_page() -> FileResponse:
