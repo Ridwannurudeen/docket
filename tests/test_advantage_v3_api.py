@@ -90,7 +90,10 @@ def test_the_report_is_built_once_and_both_routes_use_that_startup_payload(
             client.get("/advantage/v3.json").json()["families"][0]["spec"]["question"]
             == "startup-only sentinel"
         )
-        assert "startup-only sentinel" in client.get("/advantage/v3").text
+        assert (
+            "startup-only sentinel"
+            in client.get("/advantage/v3/v3-01-range-doctor").text
+        )
         assert (
             catalogue._measured_value("range-doctor", 1.0)["benchmark_state"]
             == report.LOCKED_NOT_RUN

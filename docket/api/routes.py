@@ -49,7 +49,6 @@ from ..advantage.harness import compare, load
 from ..advantage.v2.page import fill as fill_v2_page
 from ..advantage.v2.report import report as advantage_v2_report
 from ..advantage.v3 import report_snapshot
-from ..advantage.v3.page import fill as fill_v3_page
 from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
 from ..escrow import constants as escrow_constants
 from ..escrow.chain import JobNotFound, JobReader
@@ -86,6 +85,7 @@ from ..marketplace.registry import (
 from ..refresh import LAST_REFRESH_FILENAME
 from ..signals import signals_for
 from ..store import Store
+from .advantage_pages import v1_page, v3_family_page, v3_landing, v3_topic_page
 from .models import (
     AgentDetail,
     AgentSummary,
@@ -253,12 +253,12 @@ def _card(record: ServiceRecord, admission: PaidStockAdmission) -> ServiceCard:
 def _service_opening(record: ServiceRecord) -> str:
     metric = _metric_figure(record.metrics[0]) if record.metrics else None
     finding = (
-        f'<strong>{html.escape(metric.display)}</strong> — '
+        f"<strong>{html.escape(metric.display)}</strong> — "
         f"{html.escape(metric.name.lower())}, bounded to {html.escape(metric.window)}."
         if metric is not None
         else "<strong>0 recorded measurements.</strong> No run is represented on this page."
     )
-    return f"<h1>{html.escape(record.name)}</h1><p class=\"lede\">{finding}</p>"
+    return f'<h1>{html.escape(record.name)}</h1><p class="lede">{finding}</p>'
 
 
 def _published_seconds(value: float | None) -> float | None:
@@ -460,9 +460,16 @@ def create_app(
     # at startup rather than per request for the reason the docs above are: what a reader is
     # served must not change under them between two requests to the same process.
     advantage_v2 = advantage_v2_report()
-    advantage_v2_page = fill_v2_page(
-        (WEB_DIR / "advantage-v2.html").read_text(encoding="utf-8"), advantage_v2
-    )
+    advantage_v1_shell = (WEB_DIR / "advantage.html").read_text(encoding="utf-8")
+    advantage_v1_page = v1_page(advantage_v1_shell)
+    advantage_v2_shell = (WEB_DIR / "advantage-v2.html").read_text(encoding="utf-8")
+    advantage_v2_page = fill_v2_page(advantage_v2_shell, advantage_v2)
+    advantage_v2_pages = {
+        experiment["experiment_id"]: fill_v2_page(
+            advantage_v2_shell, advantage_v2, experiment["experiment_id"]
+        )
+        for experiment in advantage_v2["experiments"]
+    }
     # V3 follows the same one-object boundary. Its state is reconstructed once from the durable
     # artifacts, then both representations stay pinned to that startup view until restart.
     try:
@@ -479,9 +486,11 @@ def create_app(
             }
         }
         advantage_v3_status = 503
-    advantage_v3_page = fill_v3_page(
-        (WEB_DIR / "advantage-v3.html").read_text(encoding="utf-8"), advantage_v3
-    )
+    advantage_v3_shell = (WEB_DIR / "advantage-v3.html").read_text(encoding="utf-8")
+    advantage_v3_page = v3_landing(advantage_v3_shell, advantage_v3)
+    advantage_v3_families = {
+        family["spec_id"]: family for family in advantage_v3.get("families", [])
+    }
     # Unset means no recipient exists to name in a challenge, so the priced tier is
     # off and only the bounded free tier remains. Read once here rather than per
     # request: the terms a caller is quoted must not change under it mid-session.
@@ -743,7 +752,7 @@ def create_app(
             _service_opening(record)
             if record is not None
             else (
-                "<h1>Choose a service</h1><p class=\"lede\">"
+                '<h1>Choose a service</h1><p class="lede">'
                 "<strong>6 services are listed.</strong> Pick one from the services page "
                 "to read its recorded finding and run it.</p>"
             )
@@ -751,11 +760,20 @@ def create_app(
         return HTMLResponse(shell.replace("<!-- service-opening -->", opening))
 
     @app.get("/advantage", include_in_schema=False)
-    def advantage_page() -> FileResponse:
+    def advantage_page() -> HTMLResponse:
         """The report as a page. Unlike the rest of the web UI this one reads no live data:
         the experiments are a fixed record, so the page is the record rather than a shell
         that fetches it, and it says the same thing with scripting off."""
-        return FileResponse(WEB_DIR / "advantage.html")
+        return HTMLResponse(advantage_v1_page)
+
+    @app.get("/advantage/v1/{task_id}", include_in_schema=False, response_model=None)
+    def advantage_v1_detail(task_id: str) -> HTMLResponse | JSONResponse:
+        try:
+            return HTMLResponse(v1_page(advantage_v1_shell, task_id))
+        except KeyError:
+            return _error(
+                404, "advantage_record_not_found", "No v1 record has that id."
+            )
 
     @app.get("/health")
     def health() -> dict:
@@ -864,6 +882,17 @@ def create_app(
         beside it. Reads no live data and needs no scripting, as v1's page does not."""
         return HTMLResponse(advantage_v2_page)
 
+    @app.get(
+        "/advantage/v2/{experiment_id}", include_in_schema=False, response_model=None
+    )
+    def advantage_v2_detail(experiment_id: str) -> HTMLResponse | JSONResponse:
+        page = advantage_v2_pages.get(experiment_id)
+        if page is None:
+            return _error(
+                404, "advantage_record_not_found", "No v2 record has that id."
+            )
+        return HTMLResponse(page)
+
     @app.get("/advantage/v3.json", response_model=None)
     def advantage_v3_json() -> dict | JSONResponse:
         """The paired v3 evaluation reconstructed from its registered specifications and
@@ -881,6 +910,35 @@ def create_app(
     def advantage_v3_page_route() -> HTMLResponse:
         """The v3 page rendered from the exact object returned by the JSON route."""
         return HTMLResponse(advantage_v3_page, status_code=advantage_v3_status)
+
+    @app.get(
+        "/advantage/v3/{spec_id}/{topic}", include_in_schema=False, response_model=None
+    )
+    def advantage_v3_topic(spec_id: str, topic: str) -> HTMLResponse | JSONResponse:
+        if advantage_v3_status != 200:
+            return HTMLResponse(advantage_v3_page, status_code=advantage_v3_status)
+        family = advantage_v3_families.get(spec_id)
+        if family is None:
+            return _error(
+                404, "advantage_record_not_found", "No v3 family has that id."
+            )
+        try:
+            return HTMLResponse(v3_topic_page(advantage_v3_shell, family, topic))
+        except KeyError:
+            return _error(
+                404, "advantage_topic_not_found", "No such artifact for this family."
+            )
+
+    @app.get("/advantage/v3/{spec_id}", include_in_schema=False, response_model=None)
+    def advantage_v3_family(spec_id: str) -> HTMLResponse | JSONResponse:
+        if advantage_v3_status != 200:
+            return HTMLResponse(advantage_v3_page, status_code=advantage_v3_status)
+        family = advantage_v3_families.get(spec_id)
+        if family is None:
+            return _error(
+                404, "advantage_record_not_found", "No v3 family has that id."
+            )
+        return HTMLResponse(v3_family_page(advantage_v3_shell, family))
 
     @app.get("/stats", response_model=StatsResponse)
     def stats() -> StatsResponse:

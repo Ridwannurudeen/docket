@@ -412,7 +412,10 @@ def test_both_security_runs_are_reported_side_by_side_with_detector_scope():
     assert postfix["v3_04_ship_gate"]["precision_passes"] is True
     assert "does not qualify v3-04" in postfix["v3_04_ship_gate"]["statement"]
 
-    rendered = page.render(payload)
+    rendered = "".join(
+        page.render(payload, experiment["experiment_id"])
+        for experiment in payload["experiments"]
+    )
     assert "03-security-corpus" in rendered
     assert "05-security-corpus-postfix" in rendered
     assert old["detector"]["statement"] in rendered

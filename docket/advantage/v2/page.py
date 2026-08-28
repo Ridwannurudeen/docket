@@ -382,9 +382,7 @@ def _experiment(experiment: dict) -> str:
         + _headline(experiment["headline"])
         + "<h3>The falsifier, evaluated</h3>"
         + _falsifier(experiment["falsifier_result"])
-        + '<details class="evidence-details"><summary>'
-        "Inspect the registration, every run, and measurement method"
-        "</summary><div class=\"details-body\">"
+        + '<div class="evidence-record">'
         + _provenance(experiment["registration_provenance"])
         + _registration(spec)
         + "<h3>Every run behind those figures</h3>"
@@ -394,12 +392,12 @@ def _experiment(experiment: dict) -> str:
         + (f"<h4>What it found</h4><p>{_esc(finding)}</p>" if finding else "")
         + f'<p class="status-line"><span class="status-key">Run record cites</span>'
         f'<span class="mono">{_esc(run["spec_hash"])}</span></p></div>'
-        "</div></details>"
+        "</div>"
         "</section>"
     )
 
 
-def render(report: dict) -> str:
+def render(report: dict, experiment_id: str | None = None) -> str:
     """The whole data half of the page, summary first and refutations named in it."""
     summary = report["summary"]
     return (
@@ -417,18 +415,22 @@ def render(report: dict) -> str:
                         if experiment["falsifier_result"]["refuted"]
                         else "survived",
                     ),
-                    header=f'<a href="#{_esc(experiment["experiment_id"])}">'
+                    header=f'<a href="/advantage/v2/{_esc(experiment["experiment_id"])}">'
                     f"{_esc(experiment['experiment_id'])}</a>",
                 )
                 for experiment in report["experiments"]
             ],
         )
         + f'<p class="dim">{_esc(report["method"])}</p></section>'
-        + "".join(_experiment(experiment) for experiment in report["experiments"])
+        + "".join(
+            _experiment(experiment)
+            for experiment in report["experiments"]
+            if experiment_id == experiment["experiment_id"]
+        )
     )
 
 
-def fill(shell: str, report: dict) -> str:
+def fill(shell: str, report: dict, experiment_id: str | None = None) -> str:
     """Put the records into the authored page, or refuse to serve a page without them.
 
     A shell that had lost its marker would render as a report with no experiments in it and
@@ -439,4 +441,8 @@ def fill(shell: str, report: dict) -> str:
             f"advantage v2: the page shell carries no {MARKER} — the records have nowhere to go, "
             "and a report served without its runs is the defect this page exists to answer"
         )
-    return shell.replace(MARKER, render(report))
+    if experiment_id is not None and experiment_id not in {
+        experiment["experiment_id"] for experiment in report["experiments"]
+    }:
+        raise KeyError(experiment_id)
+    return shell.replace(MARKER, render(report, experiment_id))

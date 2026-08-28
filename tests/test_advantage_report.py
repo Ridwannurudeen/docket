@@ -26,7 +26,9 @@ from docket.api import create_app
 from docket.store import Store
 
 TASK_IDS = ("01-liquidity", "02-trading", "03-security")
-EXPERIMENTS = Path(__file__).resolve().parents[1] / "docket" / "advantage" / "experiments"
+EXPERIMENTS = (
+    Path(__file__).resolve().parents[1] / "docket" / "advantage" / "experiments"
+)
 STATIC_DIR = Path(__file__).resolve().parents[1] / "docket" / "api" / "static"
 # Words that would turn a recorded comparison into a claim about agents in general.
 VERDICT_WORDS = ("best", "superior", "proves", "guaranteed")
@@ -42,11 +44,21 @@ def client(tmp_path):
 
 
 @pytest.fixture
-def page(client):
+def landing(client):
     resp = client.get("/advantage", headers={"accept": "text/html"})
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/html")
     return resp.text
+
+
+@pytest.fixture
+def page(client, landing):
+    details = []
+    for task_id in TASK_IDS:
+        resp = client.get(f"/advantage/v1/{task_id}", headers={"accept": "text/html"})
+        assert resp.status_code == 200
+        details.append(resp.text)
+    return landing + "".join(details)
 
 
 def experiments():
@@ -55,14 +67,15 @@ def experiments():
 
 def section(page_text, task_id):
     """One task's markup, from its own section to the start of the next one."""
-    start = page_text.index(f'id="{task_id}" aria-labelledby=')
+    start = page_text.index(f'id="{task_id}-record" aria-labelledby=')
     return page_text[start : page_text.index("<section", start + 10)]
 
 
-def test_the_page_is_served_and_names_all_three_tasks(page):
-    assert "<title>" in page
+def test_the_page_is_served_and_names_all_three_tasks(client, landing):
+    assert "<title>" in landing
     for task_id in TASK_IDS:
-        assert task_id in page, task_id
+        assert f'href="/advantage/v1/{task_id}"' in landing, task_id
+        assert client.get(f"/advantage/v1/{task_id}").status_code == 200
 
 
 def test_the_json_carries_all_three_experiments_with_both_arms_populated(client):
@@ -94,7 +107,10 @@ def test_published_timings_are_rounded_to_the_millisecond_the_record_stays_raw(c
     clocked at 43.063s. Serving that asserts thirteen decimals nobody measured. Rounding
     happens at the serving boundary only: the experiment files on disk keep the raw value,
     because the record is evidence and evidence is not tidied."""
-    served = {exp["task_id"]: exp for exp in client.get("/advantage.json").json()["experiments"]}
+    served = {
+        exp["task_id"]: exp
+        for exp in client.get("/advantage.json").json()["experiments"]
+    }
 
     for task_id in TASK_IDS:
         recorded = load(EXPERIMENTS / f"{task_id}.json")
@@ -104,11 +120,17 @@ def test_published_timings_are_rounded_to_the_millisecond_the_record_stays_raw(c
             ("manual_arm", recorded.manual_arm["seconds"]),
         ):
             assert exp[arm]["seconds"] == round(raw, 3), f"{task_id} {arm}"
-            assert len(str(exp[arm]["seconds"]).partition(".")[2]) <= 3, f"{task_id} {arm}"
+            assert len(str(exp[arm]["seconds"]).partition(".")[2]) <= 3, (
+                f"{task_id} {arm}"
+            )
         assert exp["deltas"]["seconds_agent"] == round(recorded.agent_arm["seconds"], 3)
-        assert exp["deltas"]["seconds_manual"] == round(recorded.manual_arm["seconds"], 3)
+        assert exp["deltas"]["seconds_manual"] == round(
+            recorded.manual_arm["seconds"], 3
+        )
 
-    raw_on_disk = json.loads((EXPERIMENTS / "01-liquidity.json").read_text(encoding="utf-8"))
+    raw_on_disk = json.loads(
+        (EXPERIMENTS / "01-liquidity.json").read_text(encoding="utf-8")
+    )
     assert raw_on_disk["agent_arm"]["seconds"] == 43.062999999994645
 
 
@@ -132,9 +154,9 @@ def test_the_page_states_the_security_task_as_a_loss(page):
     assert "lost this task on substance" in security
 
 
-def test_a_reader_meets_the_loss_in_the_summary_before_any_task_section(page):
+def test_a_reader_meets_the_loss_in_the_summary_before_any_task_section(landing):
     """Burying it under the per-task detail would be the same deletion, slower."""
-    summary = page[: page.index('id="01-liquidity" aria-labelledby=')]
+    summary = landing
 
     assert "The agent arm lost this task on substance." in summary
     assert "did not flag the other three" in summary
@@ -152,8 +174,12 @@ def test_the_page_carries_every_recorded_figure_the_json_carries(page):
             (exp.agent_arm, deltas["seconds_agent"]),
             (exp.manual_arm, deltas["seconds_manual"]),
         ):
-            rendered = json.dumps(arm["output"], indent=2, sort_keys=True, ensure_ascii=False)
-            assert html.escape(rendered, quote=False) in page, f"{exp.task_id} {arm['name']}"
+            rendered = json.dumps(
+                arm["output"], indent=2, sort_keys=True, ensure_ascii=False
+            )
+            assert html.escape(rendered, quote=False) in page, (
+                f"{exp.task_id} {arm['name']}"
+            )
             assert f"{round(seconds, 3)} s" in page, f"{exp.task_id} {arm['name']}"
             assert arm["output_hash"] in page, f"{exp.task_id} {arm['name']}"
             cost = arm["cost"]
@@ -170,7 +196,9 @@ def test_the_page_lets_a_reader_repeat_the_manual_arm(page):
         assert block.count("<li>") == len(exp.manual_steps), exp.task_id
         for step in exp.manual_steps:
             text = re.sub(r"^\d+\.\s+", "", step)
-            assert html.escape(text, quote=False) in block, f"{exp.task_id}: {step[:40]}"
+            assert html.escape(text, quote=False) in block, (
+                f"{exp.task_id}: {step[:40]}"
+            )
 
 
 def test_the_page_carries_the_minimal_pair_a_reader_would_re_run(page):
@@ -201,9 +229,9 @@ def test_full_outputs_are_wrapped_rather_than_left_to_scroll_the_page(page):
     """Recorded outputs carry 66-character hashes and unbroken URLs, and `pre` does
     not wrap on its own."""
     assert page.count('<pre class="wrap-anywhere">') >= 2 * len(TASK_IDS)
-    css = (Path(__file__).resolve().parents[1] / "docket" / "api" / "web" / "style.css").read_text(
-        encoding="utf-8"
-    )
+    css = (
+        Path(__file__).resolve().parents[1] / "docket" / "api" / "web" / "style.css"
+    ).read_text(encoding="utf-8")
     assert "white-space: pre-wrap" in css
     assert "list-style: decimal" in css
 

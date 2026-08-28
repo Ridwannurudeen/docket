@@ -78,11 +78,23 @@ def body(client):
 
 
 @pytest.fixture
-def page(client):
+def landing(client):
     resp = client.get("/advantage/v2", headers={"accept": "text/html"})
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/html")
     return resp.text
+
+
+@pytest.fixture
+def page(client, landing):
+    details = []
+    for experiment_id in EXPERIMENT_IDS:
+        resp = client.get(
+            f"/advantage/v2/{experiment_id}", headers={"accept": "text/html"}
+        )
+        assert resp.status_code == 200
+        details.append(resp.text)
+    return landing + "".join(details)
 
 
 def rates(node, path="") -> list[tuple[str, dict]]:
