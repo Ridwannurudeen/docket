@@ -183,8 +183,19 @@ def test_the_page_carries_every_recorded_figure_the_json_carries(page):
             assert f"{round(seconds, 3)} s" in page, f"{exp.task_id} {arm['name']}"
             assert arm["output_hash"] in page, f"{exp.task_id} {arm['name']}"
             cost = arm["cost"]
-            assert html.escape(f"{cost['amount']} {cost['unit']}", quote=False) in page
-            assert html.escape(cost["note"], quote=False) in page
+            if cost["unit"] == "$U":
+                assert f"{cost['amount']} USDT" in page
+                display_note = cost["note"].replace(
+                    "one hire at the catalogue price",
+                    "one hire at the then-catalogue price recorded 8 Aug 2026 "
+                    "(now 0.50 USDT)",
+                )
+                assert html.escape(display_note, quote=False) in page
+            else:
+                assert html.escape(
+                    f"{cost['amount']} {cost['unit']}", quote=False
+                ) in page
+                assert html.escape(cost["note"], quote=False) in page
 
 
 def test_the_page_lets_a_reader_repeat_the_manual_arm(page):

@@ -173,8 +173,8 @@ def test_the_home_keeps_the_full_decision_impact_bound_on_one_finding(client):
         "n=22",
         "one frozen daily snapshot",
         "post-hoc, not realized return or forecast",
-        "+8.30 days",
-        "0 / 231",
+        "8.30 days",
+        "0/231",
         "0.00%",
     ):
         assert phrase in finding
@@ -832,7 +832,7 @@ def test_homepage_is_the_public_case_file_and_keeps_external_context_in_research
     assert "$10k notional" in index
     assert "8.30 days" in index
     assert "n=22" in index
-    assert "0 / 231" in index
+    assert "0/231" in index
     assert "6 services" in plain
     assert "0 paid stock" in plain
     assert "0 settlements ever run" in plain

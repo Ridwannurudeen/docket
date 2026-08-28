@@ -35,7 +35,7 @@
           Docket <span class="brand-sub">BSC / ERC-8004</span>
         </a>
         <nav class="site-nav" aria-label="Primary">
-          <a href="/">Services</a>
+          <a href="/">Case file</a>
           <a href="/pancake">PancakeSwap</a>
           <a href="/research">Browse agents</a>
           <a href="/advantage">Advantage report</a>
@@ -62,8 +62,11 @@
               <h3>This page reads live data with JavaScript</h3>
               <p>
                 With JavaScript off, this agent's record cannot be filled in — and Docket will not
-                show you a stale one instead. The same record is served as JSON at
-                <a href="/agents">/agents</a>, documented in <a href="/llms.txt">/llms.txt</a>.
+                show you a stale one instead. With a completed snapshot,
+                <a href="/agents">/agents</a> lists the available ids and each detail record is at
+                <span class="mono">/agents/{agent_id}</span>; without one, the listing reports
+                <span class="mono">no_snapshot</span>. Both are documented in
+                <a href="/llms.txt">/llms.txt</a>.
               </p>
             </div>
           </noscript>
@@ -74,8 +77,8 @@
     <footer class="site-footer">
       <div class="wrap">
         <p class="footer-links">
-          <a href="/stats">Registry coverage</a>
-          <a href="/agents">/agents (JSON)</a>
+          <a href="/stats">Registry coverage (snapshot required)</a>
+          <a href="/agents">/agents (JSON) · snapshot required</a>
           <a href="/llms.txt">/llms.txt</a>
           <a href="/skill.md">/skill.md</a>
           <a href="/openapi.json">/openapi.json (JSON)</a>

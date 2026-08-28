@@ -67,8 +67,8 @@ def test_decision_impact_copy_matches_the_report_rounding_and_denominators():
     assert notional["n_pools"] == 22
     assert f'${notional["median_annual_overstatement_usd"]:.2f}' in home
     assert f'n={notional["n_pools"]}' in home
-    assert f'+{delay["median_days_later_than_gross_implies"]:.2f} days' in home
-    assert f'{reversals["numerator"]} / {reversals["denominator"]}' in home
+    assert f'{delay["median_days_later_than_gross_implies"]:.2f} days' in home
+    assert f'{reversals["numerator"]}/{reversals["denominator"]}' in home
     assert f'({reversals["value"]:.2%})' in home
 
 

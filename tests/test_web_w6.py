@@ -631,7 +631,7 @@ for (const text of ["$126.78", "across 22 eligible pools", "8.30 days", "0/231",
 def test_navigation_names_public_case_file_destinations():
     index = Path("docket/api/web/index.html").read_text(encoding="utf-8")
 
-    assert 'href="#evidence">Evidence</a>' in index
+    assert 'href="#evidence">Case file</a>' in index
     assert 'href="#services">Services</a>' in index
     assert 'href="#experiments">Experiments</a>' in index
     assert 'href="/advantage/v3.json">Raw data</a>' in index

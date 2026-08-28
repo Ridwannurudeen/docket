@@ -250,3 +250,16 @@ def test_json_footer_links_are_labelled_as_json():
                     rf'<a href="{re.escape(href)}">(.*?)</a>', footer.group(1)
                 )
                 assert link and "(JSON)" in link.group(1), (page.name, href)
+
+
+def test_snapshot_dependent_footer_links_name_the_requirement():
+    for page in WEB_DIR.glob("*.html"):
+        text = page.read_text(encoding="utf-8")
+        footer = re.search(r'<footer class="site-footer">(.*?)</footer>', text, re.S)
+        assert footer, page.name
+        for href in ("/stats", "/agents"):
+            if f'href="{href}"' in footer.group(1):
+                link = re.search(
+                    rf'<a href="{re.escape(href)}">(.*?)</a>', footer.group(1)
+                )
+                assert link and "snapshot required" in link.group(1), (page.name, href)

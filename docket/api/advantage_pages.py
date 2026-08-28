@@ -107,7 +107,7 @@ def v3_landing(shell: str, payload: dict) -> str:
 
 def _depth_shell(shell: str, title: str, body: str) -> str:
     rendered = re.sub(
-        r"<title>.*?</title>", f"<title>{_esc(title)} - Docket</title>", shell, count=1
+        r"<title>.*?</title>", f"<title>{_esc(title)} — Docket</title>", shell, count=1
     )
     replacement = f'<main id="main"><div class="wrap">{body}</div></main>'
     return re.sub(
@@ -121,13 +121,19 @@ def v3_family_page(shell: str, family: dict) -> str:
     progress = family.get("run_progress")
     progress_html = ""
     if progress is not None:
-        outcomes = json.dumps(progress["outcomes"], sort_keys=True)
+        outcomes = (
+            "; ".join(
+                f"{count} {outcome.replace('_', ' ')}"
+                for outcome, count in sorted(progress["outcomes"].items())
+            )
+            or "No terminal outcomes."
+        )
         progress_html = (
             '<div class="panel"><h2>Run progress</h2><dl class="deflist">'
             f'<dt>Scheduled primaries</dt><dd class="num">{_esc(progress["scheduled_primaries"])}</dd>'
             f'<dt>Claimed primaries</dt><dd class="num">{_esc(progress["claimed_primaries"])}</dd>'
             f'<dt>Terminal primaries</dt><dd class="num">{_esc(progress["terminal_primaries"])}</dd>'
-            f'<dt>Outcomes</dt><dd class="mono">{_esc(outcomes)}</dd></dl></div>'
+            f'<dt>Outcomes</dt><dd>{_esc(outcomes)}</dd></dl></div>'
         )
     links = []
     for slug, (field, label) in V3_TOPICS.items():

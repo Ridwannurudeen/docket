@@ -64,7 +64,7 @@ def test_stats_has_a_server_rendered_human_surface_without_moving_its_json(tmp_p
 
 def test_navigation_and_generated_evidence_use_one_presentation_vocabulary():
     working_page_expected = (
-        ("/", "Services"),
+        ("/", "Case file"),
         ("/pancake", "PancakeSwap"),
         ("/research", "Browse agents"),
         ("/advantage", "Advantage report"),
@@ -78,7 +78,7 @@ def test_navigation_and_generated_evidence_use_one_presentation_vocabulary():
         )
         expected = (
             (
-                ("#evidence", "Evidence"),
+                ("#evidence", "Case file"),
                 ("#services", "Services"),
                 ("#experiments", "Experiments"),
                 ("/advantage/v3.json", "Raw data"),
@@ -87,6 +87,11 @@ def test_navigation_and_generated_evidence_use_one_presentation_vocabulary():
             else working_page_expected
         )
         assert links == expected, page.name
+
+    index = (WEB / "index.html").read_text(encoding="utf-8")
+    footer = re.search(r'<footer class="site-footer">.*?</footer>', index, re.S).group(0)
+    assert '<a href="/pancake">PancakeSwap</a>' in footer
+    assert '<a href="/research">Browse agents</a>' in footer
 
     v2_source = (
         Path(__file__).resolve().parents[1] / "docket" / "advantage" / "v2" / "page.py"
@@ -100,5 +105,8 @@ def test_navigation_and_generated_evidence_use_one_presentation_vocabulary():
     assert "<caption>Grid levels returned for this preview.</caption>" in script
 
     v1 = (WEB / "advantage.html").read_text(encoding="utf-8")
+    assert "0.01 $U" not in v1
+    assert v1.count("0.01 USDT") == 8
+    assert v1.count("0.50 USDT") == 8
     for task_id in ("01-liquidity", "02-trading", "03-security"):
         assert f'id="{task_id}"' in v1
