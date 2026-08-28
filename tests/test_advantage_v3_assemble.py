@@ -9,6 +9,7 @@ the drift would surface on the one morning the capture cannot be repeated.
 import base64
 import hashlib
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -34,7 +35,7 @@ SPEC_PATH = (
     Path(__file__).resolve().parents[1]
     / "docket/advantage/v3/specs/v3-02-yield-router.json"
 )
-SPEC = load(SPEC_PATH)
+SPEC = replace(load(SPEC_PATH), inputs_sha256="")
 SCHEDULED = datetime.fromisoformat(
     capture.registered_schedule(SPEC)["first_attempt_at"].replace("Z", "+00:00")
 )
