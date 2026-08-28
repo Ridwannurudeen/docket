@@ -48,7 +48,6 @@ from ..advantage.harness import compare, load
 from ..advantage.v2.page import fill as fill_v2_page
 from ..advantage.v2.report import report as advantage_v2_report
 from ..advantage.v3 import report_snapshot
-from ..advantage.v3.page import fill as fill_v3_page
 from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
 from ..escrow import constants as escrow_constants
 from ..escrow.chain import JobNotFound, JobReader
@@ -85,6 +84,7 @@ from ..marketplace.registry import (
 from ..refresh import LAST_REFRESH_FILENAME
 from ..signals import signals_for
 from ..store import Store
+from .advantage_pages import v1_page, v3_family_page, v3_landing, v3_topic_page
 from .models import (
     AgentDetail,
     AgentSummary,
@@ -102,6 +102,7 @@ from .models import (
     ServicesResponse,
     StatsResponse,
 )
+from .web_pages import pancake_initial, service_initial, stats_page
 
 DEFAULT_DB_PATH = "data/agents.sqlite3"
 DEFAULT_LP_RECORD_PATH = "lp-record/controlled.jsonl"
@@ -168,6 +169,21 @@ PROBE_METHOD = (
     "`responded` means a host answered at any status — not that the agent behind the URL "
     "does anything useful."
 )
+PANCAKE_CONTEXT = {
+    "first_party_skills": (
+        "PancakeSwap's first-party planner skills stop at generated deep links; "
+        "Range Doctor keeps the same plan-only boundary."
+    ),
+    "subgraph_meta": {
+        "query_observed_at": "2026-08-22",
+        "indexed_at": "2026-04-28T15:23:43Z",
+        "has_indexing_errors": True,
+        "method": (
+            "Read-only _meta { block { number timestamp } hasIndexingErrors } query. "
+            "Docket instead reads PancakeSwap's Explorer API and SHA-pins the response bytes."
+        ),
+    },
+}
 _STATUS_CODES = {404: "not_found", 405: "method_not_allowed"}
 # Stated on every /services response. Docket publishes no ranking, so the only orders
 # available to it are the ones a reader can predict — and an order that reorders itself
@@ -448,9 +464,16 @@ def create_app(
     # at startup rather than per request for the reason the docs above are: what a reader is
     # served must not change under them between two requests to the same process.
     advantage_v2 = advantage_v2_report()
-    advantage_v2_page = fill_v2_page(
-        (WEB_DIR / "advantage-v2.html").read_text(encoding="utf-8"), advantage_v2
-    )
+    advantage_v1_shell = (WEB_DIR / "advantage.html").read_text(encoding="utf-8")
+    advantage_v1_page = v1_page(advantage_v1_shell)
+    advantage_v2_shell = (WEB_DIR / "advantage-v2.html").read_text(encoding="utf-8")
+    advantage_v2_page = fill_v2_page(advantage_v2_shell, advantage_v2)
+    advantage_v2_pages = {
+        experiment["experiment_id"]: fill_v2_page(
+            advantage_v2_shell, advantage_v2, experiment["experiment_id"]
+        )
+        for experiment in advantage_v2["experiments"]
+    }
     # V3 follows the same one-object boundary. Its state is reconstructed once from the durable
     # artifacts, then both representations stay pinned to that startup view until restart.
     try:
@@ -467,9 +490,12 @@ def create_app(
             }
         }
         advantage_v3_status = 503
-    advantage_v3_page = fill_v3_page(
-        (WEB_DIR / "advantage-v3.html").read_text(encoding="utf-8"), advantage_v3
-    )
+    advantage_v3_shell = (WEB_DIR / "advantage-v3.html").read_text(encoding="utf-8")
+    advantage_v3_page = v3_landing(advantage_v3_shell, advantage_v3)
+    advantage_v3_families = {
+        family["spec_id"]: family for family in advantage_v3.get("families", [])
+    }
+    stats_shell = (WEB_DIR / "stats.html").read_text(encoding="utf-8")
     # Unset means no recipient exists to name in a challenge, so the priced tier is
     # off and only the bounded free tier remains. Read once here rather than per
     # request: the terms a caller is quoted must not change under it mid-session.
@@ -652,7 +678,14 @@ def create_app(
     def pancake(request: Request) -> FileResponse | JSONResponse:
         """The controlled PancakeSwap position for humans and its source routes for agents."""
         if "text/html" in request.headers.get("accept", ""):
-            return FileResponse(WEB_DIR / "pancake.html", headers={"Vary": "Accept"})
+            page = pancake_initial(
+                (WEB_DIR / "pancake.html").read_text(encoding="utf-8"),
+                get_record("range-doctor"),
+                _read_lp_record_lines(lp_record_path),
+                advantage_v2,
+                PANCAKE_CONTEXT,
+            )
+            return HTMLResponse(page, headers={"Vary": "Accept"})
         return JSONResponse(
             headers={"Vary": "Accept"},
             content={
@@ -661,22 +694,7 @@ def create_app(
                 "live_hire": "/hire/range-doctor",
                 "fixed_window_record": "/lp-record",
                 "decision_impact": "/advantage/v2.json",
-                "pancake_context": {
-                    "first_party_skills": (
-                        "PancakeSwap's first-party planner skills stop at generated deep "
-                        "links; Range Doctor keeps the same plan-only boundary."
-                    ),
-                    "subgraph_meta": {
-                        "query_observed_at": "2026-08-22",
-                        "indexed_at": "2026-04-28T15:23:43Z",
-                        "has_indexing_errors": True,
-                        "method": (
-                            "Read-only _meta { block { number timestamp } "
-                            "hasIndexingErrors } query. Docket instead reads "
-                            "PancakeSwap's Explorer API and SHA-pins the response bytes."
-                        ),
-                    },
-                },
+                "pancake_context": PANCAKE_CONTEXT,
             },
         )
 
@@ -722,17 +740,37 @@ def create_app(
         return FileResponse(WEB_DIR / "agent.html")
 
     @app.get("/service", include_in_schema=False)
-    def service_page() -> FileResponse:
+    def service_page(id: str | None = None) -> HTMLResponse:
         """One service: what it does, what it cannot do, the evidence behind it, and the
         control that runs it. The activation step the site did not have."""
-        return FileResponse(WEB_DIR / "service.html")
+        shell = (WEB_DIR / "service.html").read_text(encoding="utf-8")
+        record = get_record(id) if id is not None else None
+        opening = (
+            service_initial(record)
+            if record is not None
+            else (
+                '<h1>Choose a service</h1><p class="lede">'
+                "<strong>6 services are listed.</strong> Pick one from the services page "
+                "to read its recorded finding and run it.</p>"
+            )
+        )
+        return HTMLResponse(shell.replace("<!-- service-opening -->", opening))
 
     @app.get("/advantage", include_in_schema=False)
-    def advantage_page() -> FileResponse:
+    def advantage_page() -> HTMLResponse:
         """The report as a page. Unlike the rest of the web UI this one reads no live data:
         the experiments are a fixed record, so the page is the record rather than a shell
         that fetches it, and it says the same thing with scripting off."""
-        return FileResponse(WEB_DIR / "advantage.html")
+        return HTMLResponse(advantage_v1_page)
+
+    @app.get("/advantage/v1/{task_id}", include_in_schema=False, response_model=None)
+    def advantage_v1_detail(task_id: str) -> HTMLResponse | JSONResponse:
+        try:
+            return HTMLResponse(v1_page(advantage_v1_shell, task_id))
+        except KeyError:
+            return _error(
+                404, "advantage_record_not_found", "No v1 record has that id."
+            )
 
     @app.get("/health")
     def health() -> dict:
@@ -841,14 +879,26 @@ def create_app(
         beside it. Reads no live data and needs no scripting, as v1's page does not."""
         return HTMLResponse(advantage_v2_page)
 
+    @app.get(
+        "/advantage/v2/{experiment_id}", include_in_schema=False, response_model=None
+    )
+    def advantage_v2_detail(experiment_id: str) -> HTMLResponse | JSONResponse:
+        page = advantage_v2_pages.get(experiment_id)
+        if page is None:
+            return _error(
+                404, "advantage_record_not_found", "No v2 record has that id."
+            )
+        return HTMLResponse(page)
+
     @app.get("/advantage/v3.json", response_model=None)
     def advantage_v3_json() -> dict | JSONResponse:
         """The paired v3 evaluation reconstructed from its registered specifications and
         whatever durable input, ledger, model-seat and mapping artifacts exist at startup.
 
         Its state vocabulary is closed: registered_waiting_for_inputs, locked_not_run,
-        running, complete_unscored, refuted and not_refuted. The two terminal claim states
-        remain bounded to the registered falsifier and frozen inputs.
+        running, superseded_before_input_lock, complete_unscored, refuted and not_refuted.
+        The two terminal claim states remain bounded to the registered falsifier and frozen
+        inputs.
         """
         if advantage_v3_status != 200:
             return JSONResponse(status_code=advantage_v3_status, content=advantage_v3)
@@ -859,15 +909,44 @@ def create_app(
         """The v3 page rendered from the exact object returned by the JSON route."""
         return HTMLResponse(advantage_v3_page, status_code=advantage_v3_status)
 
+    @app.get(
+        "/advantage/v3/{spec_id}/{topic}", include_in_schema=False, response_model=None
+    )
+    def advantage_v3_topic(spec_id: str, topic: str) -> HTMLResponse | JSONResponse:
+        if advantage_v3_status != 200:
+            return HTMLResponse(advantage_v3_page, status_code=advantage_v3_status)
+        family = advantage_v3_families.get(spec_id)
+        if family is None:
+            return _error(
+                404, "advantage_record_not_found", "No v3 family has that id."
+            )
+        try:
+            return HTMLResponse(v3_topic_page(advantage_v3_shell, family, topic))
+        except KeyError:
+            return _error(
+                404, "advantage_topic_not_found", "No such artifact for this family."
+            )
+
+    @app.get("/advantage/v3/{spec_id}", include_in_schema=False, response_model=None)
+    def advantage_v3_family(spec_id: str) -> HTMLResponse | JSONResponse:
+        if advantage_v3_status != 200:
+            return HTMLResponse(advantage_v3_page, status_code=advantage_v3_status)
+        family = advantage_v3_families.get(spec_id)
+        if family is None:
+            return _error(
+                404, "advantage_record_not_found", "No v3 family has that id."
+            )
+        return HTMLResponse(v3_family_page(advantage_v3_shell, family))
+
     @app.get("/stats", response_model=StatsResponse)
-    def stats() -> StatsResponse:
+    def stats(request: Request) -> StatsResponse | HTMLResponse:
         report = coverage_report(Store(db_path), _serving())
         refresh_status = (
             json.loads(refresh_status_path.read_text(encoding="utf-8"))
             if refresh_status_path.exists()
             else None
         )
-        return StatsResponse(
+        response = StatsResponse(
             coverage=_coverage(report),
             refresh_status=refresh_status,
             registry_total=report["registry_total"],
@@ -885,6 +964,11 @@ def create_app(
             top_name_families=report["top_name_families"],
             probe_method=PROBE_METHOD,
         )
+        if "text/html" in request.headers.get("accept", ""):
+            return HTMLResponse(
+                stats_page(stats_shell, response), headers={"Vary": "Accept"}
+            )
+        return response
 
     @app.get("/agents", response_model=ListResponse)
     def list_agents(

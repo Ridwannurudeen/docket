@@ -59,6 +59,8 @@ def test_the_current_surface_shows_the_complete_unscored_family_and_never_says_p
     assert rendered.text.count(report.LOCKED_NOT_RUN) >= 2
     assert report.COMPLETE_UNSCORED in rendered.text
     assert report.SUPERSEDED_BEFORE_INPUT_LOCK in rendered.text
+    assert "if reconstruction fails, both surfaces report the error explicitly" in rendered.text
+    assert "<title>Agent advantage report v3 — Docket</title>" in rendered.text
     assert (
         "Every scheduled primary has a terminal ledger event; required scoring artifacts "
         "are absent, so rubric quality and the registered falsifier remain unavailable."
@@ -66,6 +68,23 @@ def test_the_current_surface_shows_the_complete_unscored_family_and_never_says_p
     )
     for body in (document.text, rendered.text):
         assert "proved" not in body.lower()
+
+    family_page = client.get("/advantage/v3/v3-04-warden-security").text
+    assert "<title>v3-04-warden-security — Docket</title>" in family_page
+    assert "1 failed; 23 succeeded" in family_page
+    assert '{&quot;failed&quot;: 1, &quot;succeeded&quot;: 23}' not in family_page
+    assert (
+        "No terminal outcomes."
+        in client.get("/advantage/v3/v3-02-yield-router").text
+    )
+
+
+def test_openapi_names_every_v3_state(client):
+    description = client.get("/openapi.json").json()["paths"]["/advantage/v3.json"][
+        "get"
+    ]["description"]
+
+    assert report.SUPERSEDED_BEFORE_INPUT_LOCK in description
 
 
 def test_the_report_is_built_once_and_both_routes_use_that_startup_payload(
@@ -90,7 +109,10 @@ def test_the_report_is_built_once_and_both_routes_use_that_startup_payload(
             client.get("/advantage/v3.json").json()["families"][0]["spec"]["question"]
             == "startup-only sentinel"
         )
-        assert "startup-only sentinel" in client.get("/advantage/v3").text
+        assert (
+            "startup-only sentinel"
+            in client.get("/advantage/v3/v3-01-range-doctor").text
+        )
         assert (
             catalogue._measured_value("range-doctor", 1.0)["benchmark_state"]
             == report.LOCKED_NOT_RUN

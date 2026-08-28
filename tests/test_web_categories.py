@@ -6,10 +6,9 @@ and reach a control that actually runs it. Before this stage the site ended at
 category. These tests hold each step of that walk open, and hold the honesty of the
 existing pages in place while the copy moves from indictment to warranty.
 
-Every figure on this site is still read from the API at runtime. So most of what is
-asserted here is that the page has somewhere to put an answer and that app.js paints it
-from the response — never that a number is present in the markup, which would be the
-staleness bug these pages exist to avoid.
+The homepage is a server-delivered public case file. Its small, frozen fact inventory is
+present without scripting and guarded against the committed evidence; live registry and
+service-detail surfaces still read their changing values from the API.
 """
 
 import re
@@ -62,6 +61,10 @@ def _read(name: str) -> str:
     return (WEB_DIR / name).read_text(encoding="utf-8")
 
 
+def _plain(markup: str) -> str:
+    return " ".join(re.sub(r"<[^>]+>", " ", markup).split())
+
+
 # ----------------------------------------------------------------------- routes
 
 
@@ -101,49 +104,51 @@ def test_the_moved_url_carries_the_filters_it_was_asked_for(client):
     assert resp.headers["location"] == f"/research?{query}"
 
 
-# ------------------------------------------------------- the home leads with jobs
+# --------------------------------------------------- the home is a public case file
 
 
-def test_the_home_leads_with_the_jobs_and_keeps_the_evidence_beneath_them(client):
-    """The evidence is the warranty, not the pitch — so it moves below the jobs. Moves,
-    not goes: every region the coverage discipline lives in is still on the page."""
+def test_the_home_leads_with_a_marketplace_and_publishes_the_loss_immediately(client):
     index = _read("index.html")
-    jobs = index.index('data-region="jobs"')
-    for region in (
-        'data-region="stats"',
-        'data-region="slice"',
-        'data-region="families"',
-    ):
-        assert region in index, region
-        assert jobs < index.index(region), f"{region} sits above the jobs"
+    h1 = re.search(r"<h1[^>]*>(.*?)</h1>", index, re.S)
+    assert h1 and "Hire by evidence, not promises." in h1.group(1)
+    hero = re.search(r'<section class="case-hero".*?</section>', index, re.S).group(0)
+    assert "We measured our own security agent against a human. The human won." in hero
+    assert "It is on the front page." in hero
+    assert 'href="/advantage/v3"' in hero
+    assert 'href="/service?id=range-doctor"' in hero
 
 
-def test_the_home_paints_the_four_jobs_from_the_api_rather_than_typing_them_in(client):
-    """A job label typed into the markup is a label that drifts from /categories."""
-    app_js = _read("app.js")
-    assert "paintJobs" in app_js
-    assert '"/categories"' in app_js
-    for label in ("Keep LP earning", "Run a capped grid", "Protect a loan"):
-        assert label not in _read("index.html"), label
+def test_the_home_server_renders_the_four_bound_services_from_the_registry(client):
+    """The case-file register must stay aligned with the committed service bindings."""
+    from docket.marketplace.registry import all_records
+
+    index = client.get("/", headers={"accept": "text/html"}).text
+    bound = [
+        record
+        for record in all_records()
+        if record.agent_id and record.service_id != "solvent-signal"
+    ]
+    assert len(bound) == 4
+    display_names = {
+        "range-doctor": "Range Doctor",
+        "grid-operator": "Grid Operator",
+        "yield-router": "Yield Router",
+        "health-guard": "Health Guard",
+    }
+    for record in bound:
+        token_id = record.agent_id.rsplit(":", 1)[1]
+        assert f'data-service-id="{record.service_id}"' in index
+        assert display_names[record.service_id] in index
+        assert token_id in index
+        assert f'href="/service?id={record.service_id}"' in index
 
 
-def test_a_category_with_nothing_in_it_renders_the_api_s_own_empty_sentence(client):
-    """The empty state is served, not authored twice: the page prints what /categories
-    says and cannot soften it.
-
-    Every shelf is stocked now, so the page's empty branch has nothing to paint from a
-    live response — which is exactly when a test like this rots into a no-op. The registry
-    is emptied here instead, so the sentence the page would print is still asserted to be
-    the API's own rather than one the markup carries.
-    """
-    app_js = _read("app.js")
-    assert "category.empty" in app_js or "entry.empty" in app_js
-    assert EMPTY_CATEGORY not in _read("index.html"), (
-        "the page authors its own empty state"
-    )
-    assert all(
-        c["empty"] is None for c in client.get("/categories").json()["categories"]
-    )
+def test_the_case_file_does_not_invent_an_empty_category_claim(client):
+    index = _read("index.html")
+    plain = _plain(index)
+    assert EMPTY_CATEGORY not in index
+    assert "4 ERC-8004 identities" in plain
+    assert "6 services" in plain
 
 
 def test_no_page_promises_stock_it_does_not_have(client):
@@ -159,17 +164,26 @@ def test_no_page_promises_stock_it_does_not_have(client):
             assert promise not in text, f"{path.name} promises: {promise}"
 
 
-def test_the_home_says_what_a_reader_can_do_before_it_says_what_is_wrong(client):
+def test_the_home_keeps_the_full_decision_impact_bound_on_one_finding(client):
     index = _read("index.html")
-    heading = re.search(r"<h1>(.*?)</h1>", index, re.S)
-    assert heading, "the home has no h1"
-    assert "hire" in heading.group(1).lower()
+    finding = re.search(r'<aside class="hero-finding".*?</aside>', index, re.S).group(0)
+    for phrase in (
+        "$126.78",
+        "$10k notional",
+        "n=22",
+        "one frozen daily snapshot",
+        "post-hoc, not realized return or forecast",
+        "8.30 days",
+        "0/231",
+        "0.00%",
+    ):
+        assert phrase in finding
 
 
 def test_the_home_names_the_json_behind_it_when_scripting_is_off(client):
     index = _read("index.html")
     noscript = re.search(r"<noscript>(.*?)</noscript>", index, re.S).group(1)
-    for path in ("/categories", "/services"):
+    for path in ("/services", "/advantage/v3.json"):
         assert path in noscript, path
 
 
@@ -413,18 +427,19 @@ def test_the_research_page_says_docket_assigns_these_agents_no_category(client):
 
 
 def test_every_page_carries_exactly_one_primary_destination_per_section(client):
-    """Report versions live inside one Advantage section, never as competing sections."""
+    """The case-file home gets section anchors; the working pages retain task navigation."""
     for name in PAGES:
         text = _read(name)
         nav = re.search(r'<nav class="site-nav"[^>]*>(.*?)</nav>', text, re.S)
         assert nav, f"{name} has no primary navigation"
-        assert re.findall(r'href="([^"]+)"', nav.group(1)) == [
-            "/",
-            "/pancake",
-            "/research",
-            "/advantage",
-            "/llms.txt",
-        ], f"{name} has competing or out-of-order primary destinations"
+        expected = (
+            ["#evidence", "#services", "#experiments", "/advantage/v3.json"]
+            if name == "index.html"
+            else ["/", "/pancake", "/research", "/advantage", "/llms.txt"]
+        )
+        assert re.findall(r'href="([^"]+)"', nav.group(1)) == expected, (
+            f"{name} has competing or out-of-order primary destinations"
+        )
 
 
 def test_every_page_declares_its_language_and_viewport(client):
@@ -483,17 +498,18 @@ def test_the_homepage_does_not_claim_a_recorded_run_for_services_that_have_none(
     from docket.marketplace.registry import all_records
 
     without_a_run = sorted(r.service_id for r in all_records() if not r.metrics)
-    hero = _read("index.html")
+    index = _read("index.html")
     if without_a_run:
         assert (
             "Every service here is one Docket runs itself and can show a recorded run"
-            not in hero
+            not in index
         ), (
             f"the homepage claims a recorded run for every service, but {without_a_run} have none"
         )
-        assert "and some do not yet" in hero, (
-            "services without a recorded run exist, so the homepage has to say so"
-        )
+    rows = re.findall(r'<article class="service-ledger-row".*?</article>', index, re.S)
+    assert len(rows) == 4
+    assert all("Evidence state" in row for row in rows)
+    assert all("paid_stock: false" in row for row in rows)
 
 
 def test_the_v1_report_points_at_v2_and_says_which_one_answers_the_sponsor(client):
@@ -504,8 +520,8 @@ def test_the_v1_report_points_at_v2_and_says_which_one_answers_the_sponsor(clien
     """
     v1 = _read("advantage.html")
     assert 'href="/advantage/v2"' in v1, "the v1 report does not link the v2 report"
-    assert "agent-versus-computed-null armour with no human arm" in v1, (
-        "v1 links v2 without saying that v1 is the one with the human arm"
+    assert "agent-versus-computed-null armour with no manual arm" in v1, (
+        "v1 links v2 without saying that v1 is the one with the manual arm"
     )
     # And it has to survive being served, not merely sit in the file.
     served = client.get("/advantage").text
@@ -515,7 +531,7 @@ def test_the_v1_report_points_at_v2_and_says_which_one_answers_the_sponsor(clien
 def test_each_report_body_links_the_other_two_and_keeps_all_three_additive(client):
     roles = (
         "original paired eligibility artifact at n=1",
-        "agent-versus-computed-null armour with no human arm",
+        "agent-versus-computed-null armour with no manual arm",
         "pre-registered paired evaluation scored by two prompt-blinded model seats run by one operator",
     )
     pages = {
@@ -736,36 +752,21 @@ def test_the_yield_decision_leads_and_carries_the_pool_it_was_measured_against()
     assert "annualise one 24-hour observation" in flat
 
 
-def test_the_comparison_table_reaches_the_page_and_keeps_its_empty_cells():
-    """The criterion is a cold judge comparing without instructions, and a judge does not
-    curl. An endpoint nobody renders closes the data half and not the half being scored.
-
-    The empty cells are the part worth guarding. A row for a service with no paired run
-    has to show the sentence saying so — a painter that skipped falsy values, or printed a
-    zero, would produce a table where every service looks measured.
-    """
+def test_the_experiment_register_keeps_every_missing_result_visible():
     markup = _read("index.html")
-    assert 'data-region="compare"' in markup
-    assert "Compare them side by side" in markup
+    register = re.search(
+        r'<section[^>]+id="experiments".*?</section>', markup, re.S
+    ).group(0)
+    assert "Five registered families. No scored result." in register
+    assert register.count('class="experiment-row"') == 5
+    assert register.count("Observed 28 Aug 2026") == 5
+    assert register.count("superseded_before_input_lock") == 2
+    assert register.count("locked_not_run") == 2
+    assert register.count("complete_unscored") == 1
+    assert "Absent" in register
 
-    js = _read("app.js")
-    assert "paintCompare" in js
-    assert "await paintCompare();" in js
-    assert 'fetchJSON("/compare")' in js
-
-    painter = js.split("function comparisonRow", 1)[1].split("\nasync function", 1)[0]
-    # The unmeasured branch prints the reason rather than falling through to a blank.
-    assert "measured.reason" in painter
-    assert "measured.available" in painter
-    # The denominator travels with the saving wherever it is shown.
-    assert "sample_size" in painter
-    # Failing limbs are named on the page too, not reduced to a count.
-    assert "admission_failing.join" in painter
-
-    # Only classes the stylesheet actually defines: an undefined wrapper would let a
-    # five-column table run off the side of a phone with nothing to scroll it.
     styles = _read("style.css")
-    for class_name in ("table-wrap", "metric-note", "section-note"):
+    for class_name in ("experiment-row", "experiment-facts", "experiment-state"):
         assert f".{class_name}" in styles, class_name
 
 
@@ -809,59 +810,60 @@ def test_cards_show_the_closed_evidence_modality_field():
     assert "Evidence modality" in js
 
 
-def test_comparison_distinguishes_declarations_from_measurements_and_cites_each_row():
-    js = _read("app.js")
-    painter = js.split("function comparisonRow", 1)[1].split("\nasync function", 1)[0]
+def test_service_register_distinguishes_registration_stock_and_evidence():
+    home = _read("index.html")
+    rows = re.findall(r'<article class="service-ledger-row".*?</article>', home, re.S)
 
-    assert "row.job" in painter
-    assert "row.typical_seconds_basis" in painter
-    assert "measured.basis" in painter
-    assert "row.freshness" in painter
-    assert "row.evidence.available" in painter
-    assert "row.evidence.url" in painter
-    assert "row.evidence.label" in painter
-    assert "row.evidence.reason" in painter
-    for heading in ("Freshness", "Evidence"):
-        assert heading in js
+    assert len(rows) == 4
+    for row in rows:
+        assert "ERC-8004" in row
+        assert "Evidence state" in row
+        assert "paid_stock: false" in row
+        assert "View on chain" in row
 
 
-def test_homepage_leads_with_generated_pancake_impact_and_caveated_research_context():
+def test_homepage_is_the_public_case_file_and_keeps_external_context_in_research():
     index = _read("index.html")
-    js = _read("app.js")
+    research = _read("research.html")
     styles = _read("style.css")
-    copy = " ".join(index.split())
+    plain = _plain(index)
 
-    assert "Hire by evidence, not promises." in index
-    assert "No account, no key, no wallet connection" in index
-    assert "No account, no key, no wallet —" not in index
-    assert 'data-region="pancake-impact"' in index
-    assert "arXiv:2606.26028" in index
-    assert "arXiv:2606.12128" in index
+    assert "$126.78" in index
+    assert "$10k notional" in index
+    assert "8.30 days" in index
+    assert "n=22" in index
+    assert "0/231" in index
+    assert "6 services" in plain
+    assert "0 paid stock" in plain
+    assert "0 settlements ever run" in plain
+    assert "arXiv:2606.26028" not in index
+    assert "arXiv:2606.12128" not in index
+    assert "arXiv:2606.26028" in research
+    assert "arXiv:2606.12128" in research
     for phrase in (
         "4% of registrations exposed a live service endpoint",
         "59.2% of reviewers showed coordinated Sybil behaviour",
         "77.9% of agents with feedback kept no valid feedback",
         "preprint",
     ):
-        assert phrase in copy
-    assert "first-party planner skills shown in its execution model" in index
-    assert "terminate at generated deep links" in index
-    assert "live Explorer API" in index
-    assert "BSC V3 subgraph" in index
-
-    for field in (
-        "median_annual_overstatement_usd",
-        "median_days_later_than_gross_implies",
-        "ranking_reversals",
-        "registration_note",
-    ):
-        assert field in js
-    assert 'fetchJSON("/advantage/v2.json")' in js
-    assert "126.78" not in index
-    assert "8.30" not in index
-    assert "0/231" not in index
-    for class_name in ("impact-value", "impact-context"):
+        assert phrase in " ".join(research.split())
+    for class_name in ("case-hero", "hero-finding", "truth-rail"):
         assert f".{class_name}" in styles
+
+
+def test_service_opening_leads_with_its_recorded_metric(client):
+    response = client.get("/service?id=range-doctor", headers={"accept": "text/html"})
+
+    assert response.status_code == 200
+    opening = response.text.split('data-region="service"', 1)[1].split("</div>", 1)[0]
+    assert "<h1>Range Doctor</h1>" in opening
+    assert "14 of 14 position NFTs the wallet held" in opening
+    assert "one recorded run against one wallet" in opening
+    assert "What arrives" in response.text
+    assert "What has been observed of it" in response.text
+    assert "What it cannot do" in response.text
+    assert "wallet" in response.text
+    assert "/advantage" in response.text
 
 
 def test_home_metadata_does_not_promise_a_run_behind_every_service():
@@ -872,4 +874,4 @@ def test_home_metadata_does_not_promise_a_run_behind_every_service():
 
     assert description
     assert "recorded run behind each one" not in description.group(1)
-    assert "Hire by evidence, not promises." in description.group(1)
+    assert "$126.78" in description.group(1)

@@ -8,8 +8,8 @@
       name="description"
       content="One Docket service: what arrives, what to send, what it costs, what has been observed of it, what it cannot do — and the control that runs it."
     />
-    <link rel="stylesheet" href="/static/style.css?v=7" />
-    <script type="module" src="/static/app.js?v=7"></script>
+    <link rel="stylesheet" href="/static/style.css?v=11" />
+    <script type="module" src="/static/app.js?v=11"></script>
   </head>
   <body data-page="service">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -35,7 +35,7 @@
           Docket <span class="brand-sub">BSC / ERC-8004</span>
         </a>
         <nav class="site-nav" aria-label="Primary">
-          <a href="/">Services</a>
+          <a href="/">Case file</a>
           <a href="/pancake">PancakeSwap</a>
           <a href="/research">Browse agents</a>
           <a href="/advantage">Advantage report</a>
@@ -47,19 +47,17 @@
     <main id="main">
       <div class="wrap">
         <section class="hero">
-          <p class="section-note"><a href="/">Back to the services</a></p>
+          <p class="section-note"><a href="/#services">Back to the services</a></p>
           <div class="wrap-anywhere" data-region="service">
-            <span class="skeleton skeleton-row skeleton-wide"></span>
-            <span class="skeleton skeleton-row skeleton-wide"></span>
-            <span class="skeleton skeleton-row skeleton-wide"></span>
+            <!-- service-opening -->
           </div>
           <noscript>
             <div class="notice notice-warn">
-              <h3>This page reads live data with JavaScript</h3>
+              <h2>The service record remains readable</h2>
               <p>
-                With JavaScript off, this service cannot be filled in or run from the page — and
-                Docket will not show you a stale copy instead. Everything here is served as JSON,
-                and the work runs from a terminal with no account, key or wallet:
+                With JavaScript off, the server-rendered offer, observations, inputs, evidence, and
+                limits above remain. Only the browser form is unavailable. The work still runs
+                from a terminal with no account, key or wallet:
               </p>
               <pre>curl -s /services
 curl -s /services/range-doctor
@@ -89,8 +87,8 @@ curl -s -X POST /hire/range-doctor \
         <p class="footer-links">
           <a href="/categories">/categories (JSON)</a>
           <a href="/services">/services (JSON)</a>
-          <a href="/stats">/stats (JSON)</a>
-          <a href="/agents">/agents (JSON)</a>
+          <a href="/stats">Registry coverage (snapshot required)</a>
+          <a href="/agents">/agents (JSON) · snapshot required</a>
           <a href="/llms.txt">/llms.txt</a>
           <a href="/skill.md">/skill.md</a>
           <a href="/openapi.json">/openapi.json (JSON)</a>

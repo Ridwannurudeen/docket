@@ -1,6 +1,6 @@
 /* Docket web UI. One authored ES module, no build step, no third-party code.
-   Every figure on every page is read from the live API at runtime; nothing here
-   ships a number of its own. */
+   Every figure rendered by this module is read from the live API at runtime;
+   nothing here ships a number of its own. */
 
 const ENTITIES = {
   "&": "&amp;",
@@ -205,6 +205,17 @@ export function relativeTime(iso) {
   return `${seconds} seconds ${ahead ? "from now" : "ago"}`;
 }
 
+export function displayTimestamp(value) {
+  if (!value) return DASH;
+  if (!String(value).includes("T")) return String(value);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed
+    .toISOString()
+    .replace("T", " ")
+    .replace(/\.\d{3}Z$/, " UTC");
+}
+
 /** Map the closed outcome vocabulary to what happened, never to what it implies. */
 export function outcomeLabel(outcome) {
   if (outcome && Object.prototype.hasOwnProperty.call(OUTCOMES, outcome)) {
@@ -334,8 +345,7 @@ function summarise(text, limit = 260) {
 }
 
 function metricLines(metrics) {
-  if (!metrics.length)
-    return `<p class="metric-note">No run recorded yet.</p>`;
+  if (!metrics.length) return `<p class="metric-note">No run recorded yet.</p>`;
   /* `display` is the figure with its denominator already inside the string. The page
      never touches the numerator on its own, so no template here can print a share
      stripped of the population it was measured against. */
@@ -387,69 +397,6 @@ function serviceCard(card) {
       <p class="btn-row"><a class="btn btn-primary" href="${href}">${action}</a></p>
       ${admission}
     </div>`;
-}
-
-function jobPanel(category, cards) {
-  const body = cards.length
-    ? cards.map(serviceCard).join("")
-    : `<p class="dim">${escapeHTML(category.empty)}</p>`;
-  return `<section class="panel job" aria-labelledby="job-${escapeHTML(category.category)}">
-      <h3 id="job-${escapeHTML(category.category)}">${escapeHTML(category.job)}</h3>
-      <p class="dim">${escapeHTML(category.does)}</p>
-      <p class="section-note">
-        <span class="num">${escapeHTML(fmtInt(category.service_count))}</span>
-        ${category.service_count === 1 ? "service" : "services"} here
-      </p>
-      ${body}
-    </section>`;
-}
-
-/* The home is category-first, and the categories come from the API rather than from the
-   markup: a job label typed into a page is a label that drifts from /categories the
-   first time one is reworded. */
-async function paintJobs() {
-  const jobs = region("jobs");
-  const other = region("uncategorised");
-  if (!jobs) return;
-  let categories;
-  let listing;
-  try {
-    [categories, listing] = await Promise.all([
-      fetchJSON("/categories"),
-      fetchJSON("/services"),
-    ]);
-  } catch (err) {
-    renderError(jobs, err);
-    if (other) other.innerHTML = "";
-    return;
-  }
-  fill("declaration", categories.declaration);
-  const byCategory = new Map();
-  for (const card of listing.services) {
-    if (card.category === null) continue;
-    if (!byCategory.has(card.category)) byCategory.set(card.category, []);
-    byCategory.get(card.category).push(card);
-  }
-  jobs.innerHTML = `<div class="jobs">${categories.categories
-    .map((category) =>
-      jobPanel(category, byCategory.get(category.category) || []),
-    )
-    .join("")}</div>`;
-
-  if (!other) return;
-  const loose = listing.services.filter((card) => card.category === null);
-  if (!loose.length) {
-    other.innerHTML = "";
-    return;
-  }
-  other.innerHTML = `<p class="section-note">
-      These do work that is not one of the four jobs above. They are listed as themselves
-      rather than filed under a category they do not belong to, and Docket declares no
-      category for them.
-    </p>
-    <div class="jobs">${loose
-      .map((card) => `<div class="panel">${serviceCard(card)}</div>`)
-      .join("")}</div>`;
 }
 
 /* ---------------------------------------------------------- service detail */
@@ -519,12 +466,10 @@ function activationForm(record) {
         <div class="advanced-fields">${advanced.map(fieldMarkup).join("")}</div>
       </details>`
     : "";
-  const hasWorkedExample = fields.some(
-    ([, field]) => Boolean(field.example_note),
+  const hasWorkedExample = fields.some(([, field]) =>
+    Boolean(field.example_note),
   );
-  const runLabel = record.paid_stock
-    ? "Run a free preview"
-    : "Run it free";
+  const runLabel = record.paid_stock ? "Run a free preview" : "Run it free";
   const availability = record.paid_stock
     ? `<p class="section-note">This service has passed all four paid-stock gates. Agents can submit its exact x402
        authorization to <span class="mono">${escapeHTML(record.hire_path)}</span>; this page
@@ -555,6 +500,10 @@ function activationForm(record) {
 }
 
 function paintServiceRecord(record) {
+  const primaryMetric = record.metrics[0];
+  const finding = primaryMetric
+    ? `<strong class="num">${escapeHTML(primaryMetric.display)}</strong> — ${escapeHTML(primaryMetric.name.toLowerCase())}, bounded to ${escapeHTML(primaryMetric.window)}.`
+    : "<strong>0 recorded measurements.</strong> No run is represented on this page.";
   const category = record.category_job
     ? `<p><span class="badge">${escapeHTML(record.category_job)}</span>
          <span class="dim">— Docket's own declaration about a service Docket runs, not a
@@ -577,8 +526,12 @@ function paintServiceRecord(record) {
     : `<p class="dim">No recorded run is published for this service yet.</p>`;
 
   region("service").innerHTML = `<h1>${escapeHTML(record.name)}</h1>
+    <p class="lede">${finding}</p>
     ${category}
-    <p class="lede">${escapeHTML(record.what_you_get)}</p>
+    <section aria-labelledby="service-offer-heading">
+      <h2 id="service-offer-heading">What arrives</h2>
+      <p>${escapeHTML(record.what_you_get)}</p>
+    </section>
     <div class="panel">
       <dl class="deflist">
         ${record.paid_stock ? `<dt>Price</dt><dd class="num">${escapeHTML(record.price_display)} (${escapeHTML(record.price_atomic)} atomic units of <span class="mono">${escapeHTML(record.asset)}</span>)</dd>` : ""}
@@ -825,8 +778,8 @@ function presentWardenScan(result, _receipt, _record) {
       ${
         rows
           ? `<p class="status-key">What it matched, and where</p>
-             <table><thead><tr><th>Class</th><th>Match</th><th>Source</th><th>Confidence</th></tr></thead>
-             <tbody>${rows}</tbody></table>`
+             <div class="table-wrap"><table><caption>Recorded scanner detections for this run.</caption><thead><tr><th scope="col">Class</th><th scope="col">Match</th><th scope="col">Source</th><th scope="col">Confidence</th></tr></thead>
+             <tbody>${rows}</tbody></table></div>`
           : `<p class="dim">No individual detection was returned. An empty detection list with
                an ALLOW verdict means nothing matched — it does not mean the payload is safe.</p>`
       }
@@ -877,8 +830,8 @@ function presentYieldRouter(result, _receipt, _record) {
       ${
         rows
           ? `<p class="status-key">The eligible set, by the source's own order</p>
-             <table><thead><tr><th>Pair</th><th>Fee tier</th><th>Net APR</th><th>Gross APR</th></tr></thead>
-             <tbody>${rows}</tbody></table>`
+             <div class="table-wrap"><table><caption>Eligible pools returned for this run.</caption><thead><tr><th scope="col">Pair</th><th scope="col">Fee tier</th><th scope="col">Net APR</th><th scope="col">Gross APR</th></tr></thead>
+             <tbody>${rows}</tbody></table></div>`
           : ""
       }
       <p class="dim">Net is the fee less the protocol's own reported cut — the part a liquidity
@@ -919,7 +872,7 @@ function presentGridOperator(result, _receipt, _record) {
       ${
         rows
           ? `<p class="status-key">The levels this plan would place, if something could place them</p>
-             <table><thead><tr><th>#</th><th>Price</th><th>Side</th></tr></thead><tbody>${rows}</tbody></table>`
+             <div class="table-wrap"><table><caption>Grid levels returned for this preview.</caption><thead><tr><th scope="col">#</th><th scope="col">Price</th><th scope="col">Side</th></tr></thead><tbody>${rows}</tbody></table></div>`
           : ""
       }
       <p class="dim">Prices are integers in the pair's own base units, not decimals — they are
@@ -1317,10 +1270,7 @@ function wireActivation(record) {
         ${escapeHTML(fmtInt(record.typical_seconds))} seconds, and this is one attempt.</p>
       </div>`;
     try {
-      paintOutcome(
-        record,
-        await postJSON(record.hire_path, body),
-      );
+      paintOutcome(record, await postJSON(record.hire_path, body));
     } catch (err) {
       paintRunFailure(outcome, err);
     } finally {
@@ -1353,285 +1303,6 @@ async function initService() {
   } catch (err) {
     activate.innerHTML = "";
     renderError(target, err);
-  }
-}
-
-/* -------------------------------------------------------------------- index */
-
-function paintVocabulary() {
-  const target = region("vocabulary");
-  if (!target) return;
-  target.innerHTML = Object.keys(OUTCOMES)
-    .map((key) => {
-      const entry = OUTCOMES[key];
-      return `<div class="vocab-row">
-          <dt><span class="outcome ${entry.className}">${escapeHTML(entry.label)}</span><br><code class="dim">${escapeHTML(key)}</code></dt>
-          <dd><p>${escapeHTML(entry.means)}</p></dd>
-        </div>`;
-    })
-    .join("");
-}
-
-function paintNameFamilies(stats) {
-  const target = region("families");
-  if (!target) return;
-  const rows = stats.top_name_families
-    .map(
-      (row) => `<tr>
-        <td class="mono">${escapeHTML(row.name_family)}</td>
-        <td class="num">${escapeHTML(fmtInt(row.count))}</td>
-        <td class="num">${escapeHTML(fmtPct(row.share_pct))}</td>
-      </tr>`,
-    )
-    .join("");
-  target.innerHTML = `<div class="table-wrap">
-      <table>
-        <caption>The five largest name families in this snapshot, of ${escapeHTML(fmtInt(stats.distinct_name_families))} distinct keys. Share is of the ${escapeHTML(fmtInt(stats.coverage.sampled))} agents sampled. Grouped by the first word of a name each agent chose for itself, so it is not a record of who deployed them.</caption>
-        <thead><tr><th scope="col">Name family</th><th scope="col" class="num">Agents</th><th scope="col" class="num">Share of snapshot</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
-}
-
-/* "sampled 506 of 506, complete" is true and reads as a census of the chain. It is
-   completeness against the query the sweep ran, and that query left most of BNB Smart
-   Chain out. Both halves of this sentence come from the API — the filter the snapshot
-   recorded and the largest total any sweep measured — so neither can go stale in the
-   markup. Where no wider sweep exists there is nothing to compare against, and the
-   comparison is left unsaid rather than invented. */
-function paintSlice(stats) {
-  const target = region("slice");
-  if (!target) return;
-  const cov = stats.coverage;
-  /* What was swept decides whether this is a slice at all. A sweep that recorded
-     population "all" IS the registry as it found it, and telling it otherwise from an
-     arithmetic accident would be this stage's own bug pointed the other way. */
-  const census = cov.population === "all";
-  const swept = census
-    ? "the whole registry"
-    : cov.population === null
-      ? "a query it did not record"
-      : `the query <code>${escapeHTML(populationLabel(cov))}</code>`;
-  const unrecorded =
-    cov.population === null
-      ? ` Which query is not stored on that snapshot, and Docket does not backfill one a sweep
-         never recorded — it shows as unspecified rather than as "all".`
-      : "";
-  /* Whether a scale FIGURE exists is a separate question from whether this is a slice, so
-     registry_total gates the number and never the claim. */
-  const wider =
-    stats.registry_total !== null && stats.registry_total > cov.expected;
-  let scale;
-  if (census) {
-    scale = ` That query was the whole registry, so "complete" above is completeness against
-       this chain as that sweep found it, rather than against a slice of it.`;
-  } else if (wider) {
-    scale = ` That query is a filtered slice: at least
-       <strong class="num">${escapeHTML(fmtInt(stats.registry_total))}</strong> agents were
-       registered when a sweep here last measured this chain — a lower bound, not a count of
-       it — so "complete" above means complete for the slice and is not a census.`;
-  } else {
-    scale = ` No wider sweep of this chain has been recorded here, so there is no measured
-       figure to read this against — "complete" above is completeness against that query
-       alone, and how much of the chain the query covered is not something Docket has
-       measured.`;
-  }
-  target.innerHTML = `<div class="notice">
-      <h3>${census ? "What this snapshot covers" : "What this snapshot is a slice of"}</h3>
-      <p>
-        Snapshot ${escapeHTML(cov.snapshot_id)} swept ${swept}, and stored
-        <strong class="num">${escapeHTML(fmtInt(cov.sampled))}</strong> of the
-        <strong class="num">${escapeHTML(fmtInt(cov.expected))}</strong> agents that query
-        returned.${scale}${unrecorded}
-      </p>
-    </div>`;
-}
-
-function paintStats(stats) {
-  const cov = stats.coverage;
-  paintCoverage(cov);
-  paintSlice(stats);
-
-  fill("sampled", fmtInt(cov.sampled));
-  const sampledPopulation =
-    stats.registry_total !== null && cov.population === "min_feedbacks>=1"
-      ? `${fmtInt(cov.sampled)} of ${fmtInt(stats.registry_total)} BSC agents — the ones carrying at least one feedback record`
-      : `of ${fmtInt(cov.expected)} the registry said to expect, ${fmtInt(cov.dropped)} dropped`;
-  fill(
-    "sampled-note",
-    sampledPopulation,
-  );
-
-  fill("with-feedback", fmtInt(stats.with_feedback));
-  fill(
-    "with-feedback-note",
-    `of ${fmtInt(cov.sampled)} agents in this snapshot`,
-  );
-
-  fill("callable", fmtInt(stats.callable_declared));
-  fill(
-    "callable-note",
-    `of ${fmtInt(cov.sampled)} agents. A claim they made, not a probe result`,
-  );
-
-  fill("evaluated", fmtInt(stats.endpoints_evaluated));
-  fill(
-    "evaluated-note",
-    `of ${fmtInt(stats.endpoints_resolved)} endpoint rows resolved. Only A2A and MCP are probed, ` +
-      `and only ${fmtInt(stats.endpoints_attempted)} had a request issued`,
-  );
-
-  fill("responded", fmtInt(stats.endpoints_responded));
-  fill(
-    "responded-note",
-    `${fmtPct(stats.responded_pct_of_attempted, 3)} of the ${fmtInt(stats.endpoints_attempted)} a ` +
-      `request was issued to; ${fmtPct(stats.responded_pct_of_evaluated, 3)} of all ` +
-      `${fmtInt(stats.endpoints_evaluated)} evaluated`,
-  );
-
-  fill("families", fmtInt(stats.distinct_name_families));
-  fill(
-    "families-note",
-    `distinct first-word name keys across ${fmtInt(cov.sampled)} agents`,
-  );
-
-  // Every attempt that was not an answer. Taken from `attempted` rather than from
-  // `evaluated`, so the targets no request was issued to are not folded in as failures.
-  const other = stats.endpoints_attempted - stats.endpoints_responded;
-  fill("breakdown-evaluated", fmtInt(stats.endpoints_evaluated));
-  fill("breakdown-attempted", fmtInt(stats.endpoints_attempted));
-  fill("breakdown-responded", fmtInt(stats.endpoints_responded));
-  fill("breakdown-blocked", fmtInt(stats.blocked_by_policy));
-  fill("breakdown-unresolved", fmtInt(stats.unresolved));
-  fill("breakdown-other", fmtInt(other));
-
-  fill("probe-method", stats.probe_method);
-  paintNameFamilies(stats);
-}
-
-/* The comparison surface. A judge is asked to find, compare and hire without
-   instructions, and comparison was the part this page did worst: every service was
-   described on its own terms, so which of them had ever been measured against a person
-   was left for the reader to work out. The empty cells are the point of the table — a
-   row that says no paired run exists is doing more work than a row showing a zero. */
-function comparisonRow(row) {
-  const measured = row.measured || {};
-  const saving = measured.available
-    ? `<strong>${escapeHTML(seconds(measured.seconds_saved))}</strong> faster
-       <span class="metric-note">(agent ${escapeHTML(seconds(measured.agent_seconds))},
-       by hand ${escapeHTML(seconds(measured.manual_seconds))}, n=${escapeHTML(
-         String(measured.sample_size),
-       )})</span><br><span class="metric-note">${escapeHTML(measured.basis)}</span>`
-    : `<span class="metric-note">${escapeHTML(measured.reason || "not measured")}</span>`;
-  const evidence = row.evidence.available
-    ? `<a href="${escapeHTML(row.evidence.url)}">${escapeHTML(row.evidence.label)}</a>`
-    : `<span class="metric-note">${escapeHTML(row.evidence.reason)}</span>`;
-  return `<tr>
-      <th scope="row">${escapeHTML(row.name)}<br><span class="metric-note">${escapeHTML(
-        row.job,
-      )}</span></th>
-      <td>${row.paid_stock ? `<span class="num">${escapeHTML(row.price_display)}</span>` : "Free"}</td>
-      <td class="num">${escapeHTML(String(row.typical_seconds))}s<br><span class="metric-note">${escapeHTML(row.typical_seconds_basis)}</span></td>
-      <td>${saving}</td>
-      <td>${escapeHTML(row.freshness)}</td>
-      <td>${evidence}</td>
-    </tr>`;
-}
-
-function comparisonAdmission(rows) {
-  const pending = rows.filter((row) => !row.paid_stock);
-  if (!pending.length) return "";
-  return `<section class="admission-info" aria-labelledby="comparison-admission-heading">
-      <h3 id="comparison-admission-heading">Why this isn't for sale yet</h3>
-      <ul class="facts">${pending
-        .map(
-          (row) => `<li><strong>${escapeHTML(row.name)}</strong>
-            <span>${escapeHTML(row.stock_status)}</span>
-            <span class="metric-note">${escapeHTML(
-              (row.admission_failing || []).length
-                ? row.admission_failing.join(", ")
-                : "No failing admission reason was returned.",
-            )}</span></li>`,
-        )
-        .join("")}</ul>
-    </section>`;
-}
-
-function seconds(value) {
-  return `${Number(value).toFixed(1)}s`;
-}
-
-async function paintCompare() {
-  const target = region("compare");
-  if (!target) return;
-  let table;
-  try {
-    table = await fetchJSON("/compare");
-  } catch (err) {
-    renderError(target, err);
-    return;
-  }
-  target.innerHTML = `<div class="table-wrap"><table>
-      <thead><tr>
-        <th scope="col">Service</th>
-        <th scope="col">Run</th>
-        <th scope="col">Declared time</th>
-        <th scope="col">Measured against a person</th>
-        <th scope="col">Freshness</th>
-        <th scope="col">Evidence</th>
-      </tr></thead>
-      <tbody>${table.rows.map(comparisonRow).join("")}</tbody>
-    </table></div>
-    <p class="section-note">${escapeHTML(table.summary.reading)}
-    ${escapeHTML(
-      String(table.summary.services_with_a_paired_measurement),
-    )} of ${escapeHTML(String(table.summary.services))} services have one.</p>
-    ${comparisonAdmission(table.rows)}`;
-}
-
-async function paintPancakeImpact() {
-  const target = region("pancake-impact");
-  if (!target) return;
-  let report;
-  try {
-    report = await fetchJSON("/advantage/v2.json");
-  } catch (err) {
-    renderError(target, err);
-    return;
-  }
-  const impact = report.decision_impact;
-  const shift = impact.break_even_shift;
-  const dollars = impact.dollars_at_notionals.notionals.find(
-    (item) => item.notional_usd === shift.notional_usd,
-  );
-  const reversals = impact.ranking_reversals;
-  const notional =
-    dollars.notional_usd % 1000 === 0
-      ? `$${fmtInt(dollars.notional_usd / 1000)}k`
-      : usd(dollars.notional_usd);
-  target.innerHTML = `<div class="panel impact-panel">
-      <p class="impact-value"><strong>${escapeHTML(usd(dollars.median_annual_overstatement_usd))} median annual overstatement at ${escapeHTML(notional)} notional (n=${escapeHTML(fmtInt(dollars.n_pools))}) and payback arriving a median ${escapeHTML(Number(shift.median_days_later_than_gross_implies).toFixed(2))} days later than gross implies.</strong></p>
-      <p>Ranking reversals were <strong class="num">${escapeHTML(fmtInt(reversals.numerator))}/${escapeHTML(fmtInt(reversals.denominator))}</strong>; the corresponding share was ${escapeHTML(pct(reversals.value))}.</p>
-      <p class="metric-note">${escapeHTML(impact.registration_note)}</p>
-      <p><a href="/advantage/v2">Read the measurements and their limits</a></p>
-    </div>`;
-}
-
-async function initIndex() {
-  paintVocabulary();
-  /* The jobs first, and awaited separately: a /stats that cannot be read must not leave
-     the shop front empty, and an empty shelf must not be hidden by a failing statistic. */
-  const impact = paintPancakeImpact();
-  await paintJobs();
-  await impact;
-  await paintCompare();
-  try {
-    paintStats(await fetchJSON("/stats"));
-  } catch (err) {
-    const line = region("snapshot");
-    if (line) line.textContent = "Snapshot status unavailable.";
-    fill("probe-method", "unavailable while /stats cannot be read.");
-    renderError(region("stats"), err);
   }
 }
 
@@ -1914,13 +1585,15 @@ async function initBrowse() {
 /* ---------------------------------------------------------- Pancake record */
 
 function rangeLabel(status) {
-  return {
-    in_range: "in range",
-    out_of_range_below: "below range",
-    out_of_range_above: "above range",
-    closed: "closed",
-    unknown_pool: "range unavailable",
-  }[status] || "range unavailable";
+  return (
+    {
+      in_range: "in range",
+      out_of_range_below: "below range",
+      out_of_range_above: "above range",
+      closed: "closed",
+      unknown_pool: "range unavailable",
+    }[status] || "range unavailable"
+  );
 }
 
 function recordReference(line) {
@@ -1966,7 +1639,7 @@ function recordRow(line) {
     line.error ||
     "No position decision was recorded on this observation.";
   return `<tr>
-      <td>${escapeHTML(line.observed_at || DASH)}</td>
+      <td>${escapeHTML(displayTimestamp(line.observed_at))}</td>
       <td class="num mono">${escapeHTML(facts.bsc_block ?? (report.observation || {}).bsc_block ?? DASH)}</td>
       <td>${escapeHTML(decision)}</td>
       <td>${escapeHTML(rangeLabel(diagnosis.status))}</td>
@@ -2034,9 +1707,12 @@ export function paintPancakeLive(record, answer) {
   const conditional = diagnosis.conditional_actions || {};
   const headline = result.pancake_headline || {};
   const decision =
-    diagnosis.decision || result.decision || "No position decision was returned.";
+    diagnosis.decision ||
+    result.decision ||
+    "No position decision was returned.";
 
-  region("pancake-decision").innerHTML = `<p class="decision-sentence">${escapeHTML(decision)}</p>
+  region("pancake-decision").innerHTML =
+    `<p class="decision-sentence">${escapeHTML(decision)}</p>
     <dl class="decision-facts">
       <div><dt>Position</dt><dd class="mono">${escapeHTML(facts.position_id ?? DASH)}</dd></div>
       <div><dt>Range state</dt><dd>${escapeHTML(rangeLabel(diagnosis.status))}</dd></div>
@@ -2044,7 +1720,8 @@ export function paintPancakeLive(record, answer) {
       <div><dt>Observed</dt><dd>${escapeHTML(facts.observation_time || (result.observation || {}).observation_time || DASH)}</dd></div>
     </dl>`;
 
-  const ratesAvailable = economics.gross_apr !== null && economics.gross_apr !== undefined;
+  const ratesAvailable =
+    economics.gross_apr !== null && economics.gross_apr !== undefined;
   const rates = ratesAvailable
     ? `<dl class="deflist">
         <dt>Gross pool APR</dt><dd class="num">${escapeHTML(pct(economics.gross_apr))}</dd>
@@ -2081,10 +1758,11 @@ export function paintPancakeDecisionImpact(report) {
   const impact = report.decision_impact || {};
   const payback = impact.break_even_shift || {};
   const reversal = impact.ranking_reversals || {};
-  const notionals = ((impact.dollars_at_notionals || {}).notionals || []);
-  const fixed = notionals.find(
-    (item) => item.notional_usd === payback.notional_usd,
-  ) || notionals[0] || {};
+  const notionals = (impact.dollars_at_notionals || {}).notionals || [];
+  const fixed =
+    notionals.find((item) => item.notional_usd === payback.notional_usd) ||
+    notionals[0] ||
+    {};
   region("pancake-impact").innerHTML = `<div class="impact-grid">
       <article class="impact-stat">
         <p class="metric-label">Annual overstatement</p>
@@ -2103,7 +1781,7 @@ export function paintPancakeDecisionImpact(report) {
       </article>
     </div>
     <div class="notice">
-      <p><strong>${escapeHTML(impact.registration_state || "registration state unavailable")}</strong> — ${escapeHTML(impact.registration_note || "No registration note was returned.")}</p>
+      <p><strong>${escapeHTML((impact.registration_state || "registration state unavailable").replaceAll("_", "-"))}</strong> — ${escapeHTML(impact.registration_note || "No registration note was returned.")}</p>
       <p class="dim">${escapeHTML(reversal.what_this_measures || "The response supplied no further reversal method.")}</p>
       <p class="dim">${escapeHTML(payback.what_it_does_not_measure || "The response supplied no further payback limitation.")}</p>
     </div>`;
@@ -2112,9 +1790,10 @@ export function paintPancakeDecisionImpact(report) {
 function paintPancakeContext(orientation) {
   const context = orientation.pancake_context || {};
   const meta = context.subgraph_meta || {};
-  region("pancake-context").innerHTML = `<p>${escapeHTML(context.first_party_skills || "First-party skill context is unavailable.")}</p>
+  region("pancake-context").innerHTML =
+    `<p>${escapeHTML(context.first_party_skills || "First-party skill context is unavailable.")}</p>
     <p>
-      On ${escapeHTML(meta.query_observed_at || DASH)}, the read-only PancakeSwap BSC V3
+      On ${escapeHTML(displayTimestamp(meta.query_observed_at))}, the read-only PancakeSwap BSC V3
       subgraph query returned an indexed time of ${escapeHTML(meta.indexed_at || DASH)} and
       <code>hasIndexingErrors: ${escapeHTML(String(meta.has_indexing_errors))}</code>.
     </p>
@@ -2147,7 +1826,11 @@ async function initPancake() {
   }
 
   if (recordResult.status !== "fulfilled") {
-    for (const name of ["pancake-decision", "pancake-economics", "pancake-actions"]) {
+    for (const name of [
+      "pancake-decision",
+      "pancake-economics",
+      "pancake-actions",
+    ]) {
       renderError(region(name), recordResult.reason);
     }
     return;
@@ -2157,7 +1840,11 @@ async function initPancake() {
     const answer = await postJSON(record.hire_path, exampleBody(record));
     paintPancakeLive(record, answer);
   } catch (err) {
-    for (const name of ["pancake-decision", "pancake-economics", "pancake-actions"]) {
+    for (const name of [
+      "pancake-decision",
+      "pancake-economics",
+      "pancake-actions",
+    ]) {
       renderError(region(name), err);
     }
   }
@@ -2201,10 +1888,12 @@ async function workedExample(currentId) {
 }
 
 function observationRows(detail) {
-  return detail.latest_on_demand_observation || detail.observations
-    .map((obs) => {
-      const outcome = outcomeLabel(obs.outcome);
-      return `<tr>
+  return (
+    detail.latest_on_demand_observation ||
+    detail.observations
+      .map((obs) => {
+        const outcome = outcomeLabel(obs.outcome);
+        return `<tr>
           <td class="url mono">${escapeHTML(obs.url)}</td>
           <td>${escapeHTML(obs.kind)}</td>
           <td><span class="outcome ${outcome.className}">${escapeHTML(outcome.label)}</span></td>
@@ -2213,8 +1902,9 @@ function observationRows(detail) {
           <td title="${escapeHTML(obs.observed_at || "")}">${escapeHTML(relativeTime(obs.observed_at))}</td>
           <td>${obs.detail ? escapeHTML(obs.detail) : `<span class="dim">${DASH}</span>`}</td>
         </tr>`;
-    })
-    .join("");
+      })
+      .join("")
+  );
 }
 
 function observationSection(detail) {
@@ -2260,10 +1950,13 @@ function lastAgentProbe(detail) {
     return detail.latest_on_demand_observation;
   }
   return detail.observations
-    .filter((observation) => observation.kind === "a2a" || observation.kind === "mcp")
+    .filter(
+      (observation) => observation.kind === "a2a" || observation.kind === "mcp",
+    )
     .reduce((latest, observation) => {
       if (!latest) return observation;
-      return String(observation.observed_at || "") >= String(latest.observed_at || "")
+      return String(observation.observed_at || "") >=
+        String(latest.observed_at || "")
         ? observation
         : latest;
     }, null);
@@ -2284,13 +1977,15 @@ export function agentActionBlock(detail, associatedServices) {
   const endpoints = actionEndpoints.length
     ? actionEndpoints
         .map((url) => {
-          const observation = detail.observations.find((row) => row.url === url);
+          const observation = detail.observations.find(
+            (row) => row.url === url,
+          );
           const outcome = outcomeLabel(observation && observation.outcome);
           const recorded = observation
             ? `<p>
                 <span class="outcome ${outcome.className}">${escapeHTML(outcome.label)}</span>
                 ${observation.status_code === null ? "No HTTP status was returned." : `HTTP status ${escapeHTML(observation.status_code)}.`}
-                Observed <time datetime="${escapeHTML(observation.observed_at || "")}">${escapeHTML(observation.observed_at || DASH)}</time>.
+                Observed <time datetime="${escapeHTML(observation.observed_at || "")}">${escapeHTML(displayTimestamp(observation.observed_at))}</time>.
               </p>
               <p class="dim">${escapeHTML(outcome.means)}</p>`
             : `<p class="dim">Docket has no probe outcome for this declared URL in the served snapshot.</p>`;
@@ -2315,7 +2010,7 @@ export function agentActionBlock(detail, associatedServices) {
           ${onDemand.elapsed_ms === null ? "" : `Elapsed ${escapeHTML(fmtInt(onDemand.elapsed_ms))} ms.`}
         </p>
         <p>
-          Re-probed on request at <time datetime="${escapeHTML(onDemand.observed_at || "")}">${escapeHTML(onDemand.observed_at || DASH)}</time>;
+          Re-probed on request at <time datetime="${escapeHTML(onDemand.observed_at || "")}">${escapeHTML(displayTimestamp(onDemand.observed_at))}</time>;
           not part of the snapshot's coverage figures.
         </p>
         <p class="dim">${escapeHTML(onDemandResult.means)}${onDemand.detail ? ` Detail: ${escapeHTML(onDemand.detail)}.` : ""}</p>
@@ -2379,7 +2074,7 @@ function bindAgentActions(detail) {
           <p><strong>Latest on-demand re-probe:</strong>
             <span class="outcome ${outcome.className}">${escapeHTML(outcome.label)}</span>
             ${observation.status_code === null || observation.status_code === undefined ? "No HTTP status was returned." : `HTTP status ${escapeHTML(observation.status_code)}.`}
-            Recorded <time datetime="${escapeHTML(observation.observed_at || "")}">${escapeHTML(observation.observed_at || DASH)}</time>.
+            Recorded <time datetime="${escapeHTML(observation.observed_at || "")}">${escapeHTML(displayTimestamp(observation.observed_at))}</time>.
           </p>
           <p>${escapeHTML(response.coverage_note || "This requested probe is not part of the snapshot's coverage figures.")}</p>
           <p class="dim">${escapeHTML(outcome.means)}</p>
@@ -2498,7 +2193,6 @@ async function initAgent() {
 /* The page key follows the route; the functions follow what they do. /research serves
    the registry browser that used to be at /browse, and browsing is still what it does. */
 const PAGES = {
-  index: initIndex,
   research: initBrowse,
   agent: initAgent,
   service: initService,

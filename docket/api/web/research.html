@@ -8,8 +8,8 @@
       name="description"
       content="Filter the ERC-8004 agents in Docket's current snapshot by feedback, declared endpoint, observed response and name family."
     />
-    <link rel="stylesheet" href="/static/style.css?v=7" />
-    <script type="module" src="/static/app.js?v=7"></script>
+    <link rel="stylesheet" href="/static/style.css?v=11" />
+    <script type="module" src="/static/app.js?v=11"></script>
   </head>
   <body data-page="research">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -35,7 +35,7 @@
           Docket <span class="brand-sub">BSC / ERC-8004</span>
         </a>
         <nav class="site-nav" aria-label="Primary">
-          <a href="/">Services</a>
+          <a href="/">Case file</a>
           <a href="/pancake">PancakeSwap</a>
           <a href="/research" aria-current="page">Browse agents</a>
           <a href="/advantage">Advantage report</a>
@@ -49,15 +49,15 @@
         <section class="hero">
           <h1>Research the registry</h1>
           <p class="lede">
-            The raw plane: the ERC-8004 agents other people registered on BNB Smart Chain, as
-            Docket's last sweep found them. Narrow the population, then open an agent to read the
-            observations behind it.
+            The raw plane: when a completed snapshot is loaded, these are the ERC-8004 agents other
+            people registered on BNB Smart Chain as Docket's latest completed sweep found them.
+            Without a snapshot, this page reports that condition instead of inventing a listing.
           </p>
           <p>
             Nothing here is a Docket service and nothing here carries a category. An ERC-8004
             registration records nothing about what job an agent does, so Docket does not assign
             one — the four job categories on the
-            <a href="/">services page</a> are Docket's own declaration about the work Docket runs
+            <a href="/#services">case file</a> are Docket's own declaration about the work Docket runs
             itself. These rows are descriptions their publishers wrote, beside what answered when
             Docket asked.
           </p>
@@ -67,11 +67,12 @@
           <div data-region="partial" hidden></div>
           <noscript>
             <div class="notice notice-warn">
-              <h3>This page reads live data with JavaScript</h3>
+              <h2>This page reads live data with JavaScript</h2>
               <p>
                 With JavaScript off, no listing can be filled in — and Docket will not show you a
-                stale one instead. The same listing is served as JSON at
-                <a href="/agents">/agents</a>, with the filters documented in
+                stale one instead. With a completed snapshot, the same listing is served as JSON at
+                <a href="/agents">/agents</a>; without one, that endpoint reports
+                <span class="mono">no_snapshot</span>. Filters are documented in
                 <a href="/llms.txt">/llms.txt</a>.
               </p>
             </div>
@@ -124,14 +125,36 @@
             <span class="skeleton skeleton-row skeleton-wide"></span>
           </div>
         </section>
+
+        <section aria-labelledby="external-context-heading">
+          <h2 id="external-context-heading">External research context</h2>
+          <details class="evidence-details">
+            <summary>Read two outside studies of ERC-8004 adoption and Sybil behaviour</summary>
+            <div class="details-body panel">
+              <p>
+                Outside context, not Docket measurements: a 2026 preprint
+                (<a href="https://arxiv.org/abs/2606.26028">arXiv:2606.26028</a>) reports that on BSC
+                4% of registrations exposed a live service endpoint, 59.2% of reviewers showed
+                coordinated Sybil behaviour, and 77.9% of agents with feedback kept no valid feedback
+                after its Sybil filter.
+              </p>
+              <p>
+                A second preprint
+                (<a href="https://arxiv.org/abs/2606.12128">arXiv:2606.12128</a>) describes Ethereum
+                adoption as registration-heavy but operationally shallow; its chain and dataset differ
+                from Docket's.
+              </p>
+            </div>
+          </details>
+        </section>
       </div>
     </main>
 
     <footer class="site-footer">
       <div class="wrap">
         <p class="footer-links">
-          <a href="/stats">/stats (JSON)</a>
-          <a href="/agents">/agents (JSON)</a>
+          <a href="/stats">Registry coverage (snapshot required)</a>
+          <a href="/agents">/agents (JSON) · snapshot required</a>
           <a href="/llms.txt">/llms.txt</a>
           <a href="/skill.md">/skill.md</a>
           <a href="/openapi.json">/openapi.json (JSON)</a>

@@ -7,7 +7,14 @@ from fastapi.testclient import TestClient
 from docket.api import create_app
 from docket.store import Store
 
-BANNED = ("trusted", "verified agent", "recommended", "trust score", "safety rating", "endorsed")
+BANNED = (
+    "trusted",
+    "verified agent",
+    "recommended",
+    "trust score",
+    "safety rating",
+    "endorsed",
+)
 WEB_DIR = Path(__file__).resolve().parents[1] / "docket" / "api" / "web"
 
 
@@ -52,7 +59,10 @@ def test_default_accept_keeps_json_so_the_api_contract_holds(client):
 
 
 def test_static_assets_are_served(client):
-    for path, ctype in (("/static/style.css", "text/css"), ("/static/app.js", "javascript")):
+    for path, ctype in (
+        ("/static/style.css", "text/css"),
+        ("/static/app.js", "javascript"),
+    ):
         resp = client.get(path)
         assert resp.status_code == 200, path
         assert ctype in resp.headers["content-type"]
@@ -90,47 +100,39 @@ def test_ui_uses_no_verdict_language():
         text = f.read_text(encoding="utf-8").lower()
         for word in BANNED:
             pattern = rf"\b{re.escape(word)}\b"
-            assert not re.search(pattern, text), f"{f.name} contains verdict language: {word!r}"
+            assert not re.search(pattern, text), (
+                f"{f.name} contains verdict language: {word!r}"
+            )
 
 
 def test_pages_do_not_present_the_name_key_as_minter_provenance():
     """ "Who minted them" over a table grouped by the first word of a self-chosen name is a
     provenance claim Docket cannot make. The pages say what the key is instead."""
-    index = (WEB_DIR / "index.html").read_text(encoding="utf-8").lower()
-    assert "who minted them" not in index
-    assert "name famil" in index
     research = (WEB_DIR / "research.html").read_text(encoding="utf-8").lower()
+    assert "who minted them" not in research
     assert "name famil" in research
     app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8").lower()
     assert "was minted by" not in app_js
 
 
-def test_landing_states_the_sampled_figure_is_a_filtered_slice():
-    """ "sampled 506 of 506, complete" is true and reads as a census of BNB Smart Chain. The
-    landing has to say which query produced the 506 and how large the registry it came from is."""
+def test_registry_surfaces_state_the_population_beside_snapshot_counts():
+    """The case-file home carries no changing registry count; research surfaces still name
+    the exact query beside the sampled and expected values."""
     index = (WEB_DIR / "index.html").read_text(encoding="utf-8")
-    assert 'data-region="slice"' in index, "the landing has no region for the disclosure"
+    assert 'data-region="slice"' not in index
+    assert 'data-region="stats"' not in index
     app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
-    assert "paintSlice" in app_js
-    # Both halves of the sentence are read from the API, never authored into the page.
-    for source in ("stats.registry_total", "populationLabel(cov)"):
-        assert source in app_js, source
-    lowered = app_js.lower()
-    for phrase in ("filtered slice", "not a census"):
-        assert phrase in lowered, phrase
+    assert "populationLabel(coverage)" in app_js
+    assert "fmtInt(coverage.sampled)" in app_js
+    assert "fmtInt(coverage.expected)" in app_js
 
 
-def test_a_full_sweep_is_not_told_it_is_a_slice():
-    """The census claim is gated on what was swept, not on arithmetic. Deciding it from
-    `registry_total > expected` alone would tell a genuine whole-registry sweep that it "is not
-    a census" — the same class of mislabel this stage exists to remove, pointed the other way.
-    `registry_total` still gates the scale FIGURE, which is a separate question."""
+def test_the_case_file_does_not_misstate_a_registry_slice_as_a_census():
+    """The landing omits mutable registry coverage rather than freezing a census claim."""
+    index = (WEB_DIR / "index.html").read_text(encoding="utf-8").lower()
     app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
-    assert 'cov.population === "all"' in app_js
-    assert "was the whole registry" in app_js
-    # The heading turns on the same fact, so a census is not filed under "is a slice of".
-    assert "What this snapshot covers" in app_js
-    assert 'census ? "What this snapshot covers"' in app_js
+    assert "registry census" not in index
+    assert "population || \"unspecified\"" in app_js
 
 
 def test_no_registry_figure_is_typed_into_a_page():
@@ -182,6 +184,37 @@ def test_registry_text_is_wrapped_rather_than_left_to_break_the_layout():
         assert f'class="wrap-anywhere" data-region="{container}"' in text, name
 
 
+def test_definition_values_shrink_grid_tracks_for_unbroken_evidence():
+    css = (WEB_DIR / "style.css").read_text(encoding="utf-8")
+    rule = re.search(r"\.deflist dd\s*\{(?P<body>[^}]*)\}", css)
+
+    assert rule is not None
+    assert "overflow-wrap: anywhere;" in rule["body"]
+
+
+def test_case_file_responsive_boundaries_keep_ledger_rules_in_place():
+    css = (WEB_DIR / "style.css").read_text(encoding="utf-8")
+    case_marker = "@media (max-width: 1250px)"
+    row_marker = "@media (max-width: 810px)"
+
+    assert case_marker in css
+    assert row_marker in css
+
+    case_band = css.split(case_marker, 1)[1].split("@media", 1)[0]
+    row_band = css.split(row_marker, 1)[1].split("@media", 1)[0]
+
+    case_grid = re.search(r"\.case-grid\s*\{(?P<body>[^}]*)\}", case_band)
+    ledger_rows = re.search(
+        r"\.experiment-row,\s*\.service-ledger-row\s*\{(?P<body>[^}]*)\}",
+        row_band,
+    )
+
+    assert case_grid is not None
+    assert "grid-template-columns: minmax(0, 1fr);" in case_grid["body"]
+    assert ledger_rows is not None
+    assert "grid-template-columns: 1fr;" in ledger_rows["body"]
+
+
 def test_pages_declare_viewport_and_language():
     for name in (
         "index.html",
@@ -203,20 +236,22 @@ def test_coverage_uses_days_and_treats_a_week_old_snapshot_as_stale():
     assert "ageSeconds / 86400" in js
     assert "ageDays >= 7" in js
     assert '"Stale snapshot"' in js
-    assert 'data-state="${incomplete || stale || ageUnavailable ? "partial" : "complete"}"' in js
+    assert (
+        'data-state="${incomplete || stale || ageUnavailable ? "partial" : "complete"}"'
+        in js
+    )
     assert "This snapshot is stale" in js
 
 
-def test_sampled_metric_names_the_filter_and_registry_population_from_the_api():
+def test_registry_snapshot_status_names_the_filter_from_the_api():
     js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
-    sampled = js.split("const sampledPopulation", 1)[1].split(
-        'fill(\n    "sampled-note"', 1
+    coverage = js.split("function paintCoverage", 1)[1].split(
+        "/* -------------------------------------------------------------- marketplace */", 1
     )[0]
 
-    assert "stats.registry_total" in sampled
-    assert 'cov.population === "min_feedbacks>=1"' in sampled
-    assert "BSC agents" in sampled
-    assert "the ones carrying at least one feedback record" in sampled
+    assert "populationLabel(coverage)" in coverage
+    assert "coverage.sampled" in coverage
+    assert "coverage.expected" in coverage
 
 
 def test_json_footer_links_are_labelled_as_json():
@@ -225,7 +260,7 @@ def test_json_footer_links_are_labelled_as_json():
         footer = re.search(r'<footer class="site-footer">(.*?)</footer>', text, re.S)
         assert footer, page.name
         for href in re.findall(r'href="(/[^"]+)"', footer.group(1)):
-            if href in {"/llms.txt", "/skill.md"}:
+            if href in {"/llms.txt", "/skill.md", "/stats"}:
                 continue
             if href.endswith(".json") or href in {
                 "/agents",
@@ -233,9 +268,21 @@ def test_json_footer_links_are_labelled_as_json():
                 "/health",
                 "/hire",
                 "/services",
-                "/stats",
             }:
                 link = re.search(
                     rf'<a href="{re.escape(href)}">(.*?)</a>', footer.group(1)
                 )
                 assert link and "(JSON)" in link.group(1), (page.name, href)
+
+
+def test_snapshot_dependent_footer_links_name_the_requirement():
+    for page in WEB_DIR.glob("*.html"):
+        text = page.read_text(encoding="utf-8")
+        footer = re.search(r'<footer class="site-footer">(.*?)</footer>', text, re.S)
+        assert footer, page.name
+        for href in ("/stats", "/agents"):
+            if f'href="{href}"' in footer.group(1):
+                link = re.search(
+                    rf'<a href="{re.escape(href)}">(.*?)</a>', footer.group(1)
+                )
+                assert link and "snapshot required" in link.group(1), (page.name, href)

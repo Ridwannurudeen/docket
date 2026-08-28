@@ -294,6 +294,11 @@ def test_pancake_page_is_content_negotiated_and_machine_discoverable(tmp_path):
     assert html.headers["content-type"].startswith("text/html")
     assert html.headers["vary"] == "Accept"
     assert '<body data-page="pancake">' in html.text
+    assert "$126.78" in html.text
+    assert "8.30 days" in html.text
+    assert "0/231" in html.text
+    assert "post-hoc" in html.text
+    assert "No live position decision is embedded" in html.text
     assert machine.status_code == 200
     assert machine.headers["vary"] == "Accept"
     assert machine.json()["page"] == "/pancake"
@@ -605,7 +610,7 @@ paintPancakeDecisionImpact({ decision_impact: {
   },
 } });
 const impact = regions.get("pancake-impact").innerHTML;
-for (const text of ["$126.78", "across 22 eligible pools", "8.30 days", "0/231", "post_hoc"]) {
+for (const text of ["$126.78", "across 22 eligible pools", "8.30 days", "0/231", "post-hoc"]) {
   if (!impact.includes(text)) throw new Error(`impact omitted ${text}`);
 }
 """,
@@ -623,8 +628,10 @@ for (const text of ["$126.78", "across 22 eligible pools", "8.30 days", "0/231",
     assert completed.returncode == 0, completed.stderr
 
 
-def test_navigation_names_the_registry_destination_and_links_pancake():
+def test_navigation_names_public_case_file_destinations():
     index = Path("docket/api/web/index.html").read_text(encoding="utf-8")
 
-    assert 'href="/research">Browse agents</a>' in index
-    assert 'href="/pancake">PancakeSwap</a>' in index
+    assert 'href="#evidence">Case file</a>' in index
+    assert 'href="#services">Services</a>' in index
+    assert 'href="#experiments">Experiments</a>' in index
+    assert 'href="/advantage/v3.json">Raw data</a>' in index

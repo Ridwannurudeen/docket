@@ -8,7 +8,7 @@
       name="description"
       content="Registered experiments with their null baselines, per-experiment registration provenance, every run behind every figure including the ones that failed, and each falsifier evaluated against what was measured."
     />
-    <link rel="stylesheet" href="/static/style.css?v=7" />
+    <link rel="stylesheet" href="/static/style.css?v=11" />
   </head>
   <body data-page="advantage-v2">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -34,10 +34,10 @@
           Docket <span class="brand-sub">BSC / ERC-8004</span>
         </a>
         <nav class="site-nav" aria-label="Primary">
-          <a href="/">Services</a>
+          <a href="/">Case file</a>
           <a href="/pancake">PancakeSwap</a>
           <a href="/research">Browse agents</a>
-          <a href="/advantage">Advantage report</a>
+          <a href="/advantage" aria-current="page">Advantage report</a>
           <a href="/llms.txt">API</a>
         </nav>
       </div>
@@ -46,19 +46,15 @@
     <main id="main">
       <div class="wrap">
         <section class="hero">
-          <h1>Specifications, runs, and what history establishes.</h1>
+          <h1>1 of 4 registered claims was refuted.</h1>
           <p class="lede">
-            Each experiment carries a hashed specification — its metric as a formula, its null
-            baselines and the argument for each, how many runs were planned, when they would stop,
-            and the result that would refute the claim. Every run record cites that hash. The
-            registration provenance beside each experiment says separately whether git establishes
-            that the specification predates the run or whether that ordering is self-attested.
+            The grid replay fired 0 of 5 buy levels across 744 candles, so its claim failed its own
+            falsifier; this report tests four frozen experiments, not agent performance in general.
           </p>
           <p>
-            The claim refuted by its own falsifier is named in the first
-            paragraph of the summary rather than left for a reader to find, and the experiment
-            behind it is served here in full beside the claims that survived. A registered claim
-            that fails and says so is the result this report was built to be able to publish.
+            Each experiment carries its hashed specification, computed null baselines, every run,
+            and registration provenance. A failed claim stays published beside the three that
+            survived.
           </p>
           <p class="status-line">
             <span class="status-key">The same report as data:</span>
@@ -67,9 +63,13 @@
           </p>
         </section>
 
+        <!-- v2-records -->
+
         <section aria-labelledby="prior">
           <h2 id="prior">Three additive reports; none supersedes another</h2>
-          <div class="cards">
+          <details class="evidence-details">
+            <summary>Compare the three report roles</summary>
+            <div class="details-body cards">
             <div class="panel">
               <h3>v1: the paired eligibility record</h3>
               <p class="dim">
@@ -82,7 +82,7 @@
             <div class="panel">
               <h3>v2: repeated computed-null comparisons</h3>
               <p class="dim">
-                This page is agent-versus-computed-null armour with no human arm. Its repeated
+                This page is agent-versus-computed-null armour with no manual arm. Its repeated
                 trials are measured against computed null baselines, and no manual arm was
                 simulated to stand in for one.
               </p>
@@ -94,12 +94,15 @@
                 execution state are separate from both reports above.
               </p>
             </div>
-          </div>
+            </div>
+          </details>
         </section>
 
         <section aria-labelledby="method">
           <h2 id="method">What was measured, and what was not</h2>
-          <div class="panel">
+          <details class="evidence-details">
+            <summary>Inspect the measurement rules and limits</summary>
+            <div class="details-body panel">
             <dl class="deflist">
               <dt>Every run is published, including the failures</dt>
               <dd>
@@ -143,10 +146,9 @@
                 sent, so they are named as missing rather than approximated.
               </dd>
             </dl>
-          </div>
+            </div>
+          </details>
         </section>
-
-        <!-- v2-records -->
       </div>
     </main>
 
@@ -156,8 +158,8 @@
           <a href="/advantage/v2.json">/advantage/v2.json (JSON)</a>
           <a href="/advantage.json">/advantage.json (JSON)</a>
           <a href="/hire">/hire (JSON)</a>
-          <a href="/stats">/stats (JSON)</a>
-          <a href="/agents">/agents (JSON)</a>
+          <a href="/stats">Registry coverage (snapshot required)</a>
+          <a href="/agents">/agents (JSON) · snapshot required</a>
           <a href="/llms.txt">/llms.txt</a>
           <a href="/skill.md">/skill.md</a>
           <a href="/openapi.json">/openapi.json (JSON)</a>

@@ -106,16 +106,16 @@ def _headline(headline: dict) -> str:
     )
     interpretation = headline.get("null_interpretation")
     interpretation_html = (
-        '<div class="panel"><h4>Null interpretation</h4>'
+        '<div class="panel"><h3>Null interpretation</h3>'
         f"<p>{_esc(interpretation['statement'])}</p></div>"
         if interpretation
         else ""
     )
     return (
         f'<p class="lede">{_esc(headline["statement"])}</p>'
-        '<div class="panel"><h4>Margin over the null</h4>'
+        '<div class="panel"><h3>Margin over the null</h3>'
         f"<p>{_esc(headline['margin']['statement'])}</p>{sensitivity_text}</div>"
-        '<div class="panel"><h4>The nulls, computed over the same data</h4>'
+        '<div class="panel"><h3>The nulls, computed over the same data</h3>'
         f'<dl class="deflist">{nulls}</dl></div>{interpretation_html}'
     )
 
@@ -131,7 +131,7 @@ def _null_figure(figure: dict) -> str:
 def _registration(spec: dict) -> str:
     """The hashed specification, including the sentence that would refute it."""
     return (
-        '<div class="panel"><h4>The registered specification</h4>'
+        '<div class="panel"><h3>The registered specification</h3>'
         f'<dl class="deflist">'
         f"<dt>Claim</dt><dd>{_esc(spec['claim'])}</dd>"
         f"<dt>Falsifier</dt><dd>{_esc(spec['falsifier'])}</dd>"
@@ -159,7 +159,7 @@ def _provenance(provenance: dict) -> str:
         for change in provenance["post_run_re_registrations"]
     )
     return (
-        '<div class="panel"><h4>Registration provenance</h4><dl class="deflist">'
+        '<div class="panel"><h3>Registration provenance</h3><dl class="deflist">'
         f'<dt>State</dt><dd><span class="mono">{_esc(provenance["state"])}</span></dd>'
         f"<dt>What git establishes</dt><dd>{_esc(provenance['statement'])}</dd>"
         f"<dt>Run producer</dt><dd>{_esc(producer_text)}</dd>"
@@ -256,7 +256,7 @@ def _minimal_pair(experiment: dict) -> str:
             f'<p class="dim">{_esc(payload["why_this_label"])}</p></dd>'
         )
     return (
-        '<div class="panel"><h4>The minimal pair</h4>'
+        '<div class="panel"><h3>The minimal pair</h3>'
         "<p>Two payloads with the same labels, the same length and the same bytes but one: "
         "where the first holds a space, the second holds a newline, shown here as "
         '<span class="mono">↵</span>. The trigger is isolated. The mechanism behind it '
@@ -351,14 +351,14 @@ def _experiment(experiment: dict) -> str:
     finding = run.get("finding", "")
     run_status = experiment.get("run_status")
     run_status_html = (
-        '<div class="panel"><h4>Run status</h4>'
+        '<div class="panel"><h3>Run status</h3>'
         f"<p>{_esc(run_status['statement'])}</p></div>"
         if run_status
         else ""
     )
     detector = experiment.get("detector")
     detector_html = (
-        '<div class="panel"><h4>Detector measured</h4>'
+        '<div class="panel"><h3>Detector measured</h3>'
         f"<p>{_esc(detector['statement'])}</p>"
         f'<p class="status-line"><span class="status-key">Run SHA-256</span>'
         f'<span class="mono">{_esc(detector["run_sha256"])}</span></p></div>'
@@ -367,7 +367,7 @@ def _experiment(experiment: dict) -> str:
     )
     ship_gate = experiment.get("v3_04_ship_gate")
     ship_gate_html = (
-        '<div class="panel"><h4>v3-04 ship gate</h4>'
+        '<div class="panel"><h3>v3-04 ship gate</h3>'
         f"<p>{_esc(ship_gate['statement'])}</p></div>"
         if ship_gate
         else ""
@@ -380,27 +380,34 @@ def _experiment(experiment: dict) -> str:
         + detector_html
         + ship_gate_html
         + _headline(experiment["headline"])
-        + _provenance(experiment["registration_provenance"])
-        + _registration(spec)
         + "<h3>The falsifier, evaluated</h3>"
         + _falsifier(experiment["falsifier_result"])
+        + '<div class="evidence-record">'
+        + _provenance(experiment["registration_provenance"])
+        + _registration(spec)
         + "<h3>Every run behind those figures</h3>"
         + _runs(experiment)
-        + '<div class="panel"><h4>How it was measured</h4>'
+        + '<div class="panel"><h3>How it was measured</h3>'
         + f'<p class="dim">{_esc(run["method"])}</p>'
-        + (f"<h4>What it found</h4><p>{_esc(finding)}</p>" if finding else "")
+        + (
+            f'<p class="status-key">What it found</p><p>{_esc(finding)}</p>'
+            if finding
+            else ""
+        )
         + f'<p class="status-line"><span class="status-key">Run record cites</span>'
         f'<span class="mono">{_esc(run["spec_hash"])}</span></p></div>'
+        "</div>"
         "</section>"
     )
 
 
-def render(report: dict) -> str:
+def render(report: dict, experiment_id: str | None = None) -> str:
     """The whole data half of the page, summary first and refutations named in it."""
     summary = report["summary"]
+    summary_sentence = summary["statement"].split(". The refutation", 1)[0] + "."
     return (
         '<section aria-labelledby="summary"><h2 id="summary">What the falsifiers did</h2>'
-        f'<p class="lede">{_esc(summary["statement"])}</p>'
+        f'<p class="lede">{_esc(summary_sentence)}</p>'
         + _table(
             "Every registered claim, and what its own falsifier came to when it was "
             "evaluated against the measured figures.",
@@ -413,18 +420,22 @@ def render(report: dict) -> str:
                         if experiment["falsifier_result"]["refuted"]
                         else "survived",
                     ),
-                    header=f'<a href="#{_esc(experiment["experiment_id"])}">'
+                    header=f'<a id="{_esc(experiment["experiment_id"])}" href="/advantage/v2/{_esc(experiment["experiment_id"])}">'
                     f"{_esc(experiment['experiment_id'])}</a>",
                 )
                 for experiment in report["experiments"]
             ],
         )
         + f'<p class="dim">{_esc(report["method"])}</p></section>'
-        + "".join(_experiment(experiment) for experiment in report["experiments"])
+        + "".join(
+            _experiment(experiment)
+            for experiment in report["experiments"]
+            if experiment_id == experiment["experiment_id"]
+        )
     )
 
 
-def fill(shell: str, report: dict) -> str:
+def fill(shell: str, report: dict, experiment_id: str | None = None) -> str:
     """Put the records into the authored page, or refuse to serve a page without them.
 
     A shell that had lost its marker would render as a report with no experiments in it and
@@ -435,4 +446,8 @@ def fill(shell: str, report: dict) -> str:
             f"advantage v2: the page shell carries no {MARKER} — the records have nowhere to go, "
             "and a report served without its runs is the defect this page exists to answer"
         )
-    return shell.replace(MARKER, render(report))
+    if experiment_id is not None and experiment_id not in {
+        experiment["experiment_id"] for experiment in report["experiments"]
+    }:
+        raise KeyError(experiment_id)
+    return shell.replace(MARKER, render(report, experiment_id))

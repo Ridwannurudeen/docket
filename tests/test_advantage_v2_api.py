@@ -78,11 +78,23 @@ def body(client):
 
 
 @pytest.fixture
-def page(client):
+def landing(client):
     resp = client.get("/advantage/v2", headers={"accept": "text/html"})
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/html")
     return resp.text
+
+
+@pytest.fixture
+def page(client, landing):
+    details = []
+    for experiment_id in EXPERIMENT_IDS:
+        resp = client.get(
+            f"/advantage/v2/{experiment_id}", headers={"accept": "text/html"}
+        )
+        assert resp.status_code == 200
+        details.append(resp.text)
+    return landing + "".join(details)
 
 
 def rates(node, path="") -> list[tuple[str, dict]]:
@@ -478,6 +490,11 @@ def test_every_falsifier_result_is_computed_and_one_of_them_fired(body):
     assert "refuted" in body["summary"]["statement"]
 
 
+def test_landing_does_not_repeat_the_inconsistent_survivor_count(landing):
+    assert "1 of 4 registered claims was refuted" in landing
+    assert "beside the two that survived" not in landing
+
+
 def test_the_replay_is_stated_as_a_replay_everywhere_a_reader_can_land(body, page):
     """It is not a trading record, and a reader who lands on one arm rather than on the
     document has to meet that sentence there too."""
@@ -668,7 +685,7 @@ def test_the_page_keeps_v1_as_the_prior_version_and_links_the_additive_v3(page, 
     assert 'href="/advantage/v3"' in v1_page, "v1 has to be able to send a reader to v3"
     # The link states which report holds the human arm, so neither reads as superseding
     # the other — v1 is the paired agent-versus-person report, v2 is agent-versus-null.
-    assert "agent-versus-computed-null armour with no human arm" in v1_page
+    assert "agent-versus-computed-null armour with no manual arm" in v1_page
 
 
 def test_v1_json_keeps_its_exact_shape(client):
