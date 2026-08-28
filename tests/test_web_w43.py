@@ -52,6 +52,7 @@ def test_hero_uses_the_approved_copy_and_keeps_both_actions_above_the_truth_rail
     assert "6 services" in rail_text
     assert "0 paid stock" in rail_text
     assert "0 settlements ever run" in rail_text
+    assert hero.index("hero-copy") < hero.index("truth-rail") < hero.index("hero-finding")
     assert home.index("case-hero") < home.index("truth-rail")
 
 

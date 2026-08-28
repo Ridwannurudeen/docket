@@ -1201,11 +1201,12 @@ textarea {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
-  padding: 72px 0 56px;
+  padding: 72px 0 0;
 }
 
 .hero-copy {
   grid-column: 1 / span 5;
+  grid-row: 1;
   align-self: center;
   padding-right: var(--s-4);
 }
@@ -1244,6 +1245,7 @@ textarea {
 
 .hero-finding {
   grid-column: 6 / -1;
+  grid-row: 1;
   padding: var(--s-5) 0 var(--s-4) var(--s-5);
   border-left: var(--border-w) solid var(--border);
 }
@@ -1307,6 +1309,7 @@ textarea {
 .truth-rail {
   display: flex;
   grid-column: 1 / -1;
+  grid-row: 2;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s-2) var(--s-4);
@@ -1335,7 +1338,7 @@ textarea {
   border-top: var(--border-w) solid var(--border);
 }
 
-.truth-rail + .case-section {
+.case-hero + .case-section {
   border-top: 0;
 }
 
@@ -1672,6 +1675,18 @@ textarea {
   .service-ledger,
   .stock-note {
     grid-column: 1;
+  }
+
+  .hero-copy {
+    grid-row: 1;
+  }
+
+  .truth-rail {
+    grid-row: 2;
+  }
+
+  .hero-finding {
+    grid-row: 3;
   }
 
   .hero-copy,
