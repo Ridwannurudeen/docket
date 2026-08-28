@@ -1200,6 +1200,10 @@ textarea {
     align-items: flex-start;
     flex-direction: column;
   }
+
+  .stats-table {
+    min-width: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

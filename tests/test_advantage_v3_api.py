@@ -68,6 +68,14 @@ def test_the_current_surface_shows_the_complete_unscored_family_and_never_says_p
         assert "proved" not in body.lower()
 
 
+def test_openapi_names_every_v3_state(client):
+    description = client.get("/openapi.json").json()["paths"]["/advantage/v3.json"][
+        "get"
+    ]["description"]
+
+    assert report.SUPERSEDED_BEFORE_INPUT_LOCK in description
+
+
 def test_the_report_is_built_once_and_both_routes_use_that_startup_payload(
     tmp_path, monkeypatch
 ):

@@ -490,6 +490,11 @@ def test_every_falsifier_result_is_computed_and_one_of_them_fired(body):
     assert "refuted" in body["summary"]["statement"]
 
 
+def test_landing_does_not_repeat_the_inconsistent_survivor_count(landing):
+    assert "1 of 4 registered claims was refuted" in landing
+    assert "beside the two that survived" not in landing
+
+
 def test_the_replay_is_stated_as_a_replay_everywhere_a_reader_can_land(body, page):
     """It is not a trading record, and a reader who lands on one arm rather than on the
     document has to meet that sentence there too."""

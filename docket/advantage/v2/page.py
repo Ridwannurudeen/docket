@@ -404,9 +404,10 @@ def _experiment(experiment: dict) -> str:
 def render(report: dict, experiment_id: str | None = None) -> str:
     """The whole data half of the page, summary first and refutations named in it."""
     summary = report["summary"]
+    summary_sentence = summary["statement"].split(". The refutation", 1)[0] + "."
     return (
         '<section aria-labelledby="summary"><h2 id="summary">What the falsifiers did</h2>'
-        f'<p class="lede">{_esc(summary["statement"])}</p>'
+        f'<p class="lede">{_esc(summary_sentence)}</p>'
         + _table(
             "Every registered claim, and what its own falsifier came to when it was "
             "evaluated against the measured figures.",

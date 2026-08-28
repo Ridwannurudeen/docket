@@ -896,8 +896,9 @@ def create_app(
         whatever durable input, ledger, model-seat and mapping artifacts exist at startup.
 
         Its state vocabulary is closed: registered_waiting_for_inputs, locked_not_run,
-        running, complete_unscored, refuted and not_refuted. The two terminal claim states
-        remain bounded to the registered falsifier and frozen inputs.
+        running, superseded_before_input_lock, complete_unscored, refuted and not_refuted.
+        The two terminal claim states remain bounded to the registered falsifier and frozen
+        inputs.
         """
         if advantage_v3_status != 200:
             return JSONResponse(status_code=advantage_v3_status, content=advantage_v3)

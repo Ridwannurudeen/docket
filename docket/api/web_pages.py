@@ -203,11 +203,11 @@ def stats_page(shell: str, stats) -> str:
         f"{coverage.snapshot_id}; complete means complete for the recorded population "
         f'<span class="mono">{_esc(coverage.population or "unspecified")}</span>, not necessarily the chain.</p></section>'
         '<section aria-labelledby="coverage-heading"><h2 id="coverage-heading">What this snapshot contains</h2>'
-        '<div class="table-wrap"><table><caption>Counts from one served snapshot; registry scale is a lower bound.</caption>'
+        '<div class="table-wrap"><table class="stats-table"><caption>Counts from one served snapshot; registry scale is a lower bound.</caption>'
         f"<tbody>{table_rows}</tbody></table></div></section>"
         '<section aria-labelledby="families-heading"><h2 id="families-heading">Largest self-declared name families</h2>'
         '<p class="section-note">The first word of each agent-chosen name; not verified deployer provenance.</p>'
-        '<div class="table-wrap"><table><thead><tr><th scope="col">Name family</th>'
+        '<div class="table-wrap"><table class="stats-table"><thead><tr><th scope="col">Name family</th>'
         f'<th scope="col">Agents</th><th scope="col">Share</th></tr></thead><tbody>{families}</tbody></table></div></section>'
         '<section aria-labelledby="probe-heading"><h2 id="probe-heading">Probe method</h2>'
         f'<div class="panel"><p>{_esc(stats.probe_method)}</p></div></section>'

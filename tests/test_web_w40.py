@@ -21,7 +21,7 @@ def test_every_surface_uses_the_restrained_light_stylesheet():
     assert 'content: "LP"' not in css
     assert len(PAGES) == 9
     for page in PAGES:
-        assert 'href="/static/style.css?v=9"' in page.read_text(encoding="utf-8")
+        assert 'href="/static/style.css?v=10"' in page.read_text(encoding="utf-8")
 
 
 def test_evidence_landings_link_to_depth_instead_of_collapsing_it():
