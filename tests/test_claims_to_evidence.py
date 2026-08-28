@@ -46,6 +46,7 @@ def _missing_file_citations(ledger: str, tracked: dict[str, str]) -> list[str]:
 
 
 def _publication_blocks(document: str) -> list[str]:
+    document = re.sub(r"(?ms)^```.*?^```\s*$", "", document)
     without_links = re.sub(r"\]\([^)]+\)", "]", document)
     without_links = re.sub(r"https?://\S+", "", without_links)
     blocks = []
@@ -66,6 +67,12 @@ def test_file_citation_is_bound_to_its_path():
     ledger = f"artifact file `expected.json` SHA-256 `{digest}`"
 
     assert _missing_file_citations(ledger, {"other.json": digest}) == ["expected.json"]
+
+
+def test_publication_blocks_ignore_fenced_reproduction_commands():
+    document = """Prose naming v3-04-warden-security.\n\n```text\ndocket.advantage.v3\n```"""
+
+    assert _publication_blocks(document) == ["Prose naming v3-04-warden-security."]
 
 
 def test_every_claimed_file_sha256_resolves_to_a_tracked_file():
