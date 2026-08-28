@@ -664,7 +664,14 @@ Five commits (`02dcec1`, `c1ec554`, `202db86`, `6752ab2`, `0bc5b1b`) contain the
 Gmail in author and committer metadata. Blobs before `cf4e68b7` contain 104 absolute Windows paths
 across 14 files, exposing the owner's Windows username; one pre-`d2bba729` blob contains a
 temporary scratch path. These objects are reachable from the published branch, not dangling. The
-current tree redacts the paths. No credential, secret, key, token, or credential-bearing RPC URL
+current tree no longer redacts every path: the two v3-04 calibration request records
+committed on 2026-08-28 (`docket/advantage/v3/calibration-captures/2026-08-27/f5251dae8d31bed892b4d1b3/`, both
+`attempt-01.request.json`) carry the owner's Windows username inside their `model_build`
+field, which records the exact CLI command that produced each seat's answer. Those files are
+frozen registered evidence whose SHA-256 digests are recorded, and the field exists so a
+reader can verify which CLI and model produced the response; redacting it would break the
+evidence chain to conceal a username. The same exposure is therefore accepted here for the
+same reason. No credential, secret, key, token, or credential-bearing RPC URL
 was found in the full reachable-history sweep. The accepted risk is spam, phishing, and identity
 correlation—not repository, workstation, or VPS access. Rewriting would change every descendant
 SHA and invalidate the `88cc2bc`, `b7b59d7`, and `534af826` evidence chain. GitHub settings cannot
