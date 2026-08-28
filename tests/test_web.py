@@ -192,6 +192,29 @@ def test_definition_values_shrink_grid_tracks_for_unbroken_evidence():
     assert "overflow-wrap: anywhere;" in rule["body"]
 
 
+def test_case_file_responsive_boundaries_keep_ledger_rules_in_place():
+    css = (WEB_DIR / "style.css").read_text(encoding="utf-8")
+    case_marker = "@media (max-width: 1250px)"
+    row_marker = "@media (max-width: 810px)"
+
+    assert case_marker in css
+    assert row_marker in css
+
+    case_band = css.split(case_marker, 1)[1].split("@media", 1)[0]
+    row_band = css.split(row_marker, 1)[1].split("@media", 1)[0]
+
+    case_grid = re.search(r"\.case-grid\s*\{(?P<body>[^}]*)\}", case_band)
+    ledger_rows = re.search(
+        r"\.experiment-row,\s*\.service-ledger-row\s*\{(?P<body>[^}]*)\}",
+        row_band,
+    )
+
+    assert case_grid is not None
+    assert "grid-template-columns: minmax(0, 1fr);" in case_grid["body"]
+    assert ledger_rows is not None
+    assert "grid-template-columns: 1fr;" in ledger_rows["body"]
+
+
 def test_pages_declare_viewport_and_language():
     for name in (
         "index.html",

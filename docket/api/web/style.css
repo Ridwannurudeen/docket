@@ -1629,6 +1629,84 @@ textarea {
 
 /* ------------------------------------------------------------ responsive */
 
+@media (max-width: 1250px) {
+  .case-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .case-hero,
+  .case-section {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hero-copy,
+  .hero-finding,
+  .section-heading,
+  .ruled-ledger,
+  .adverse-grid,
+  .receipt-digest,
+  .receipt-ledger,
+  .service-ledger,
+  .stock-note {
+    grid-column: 1 / -1;
+  }
+
+  .hero-copy {
+    grid-row: 1;
+  }
+
+  .truth-rail {
+    grid-row: 2;
+  }
+
+  .hero-finding {
+    grid-row: 3;
+  }
+
+  .hero-copy,
+  .section-heading {
+    padding-right: 0;
+  }
+
+  .hero-finding {
+    margin-top: var(--s-6);
+    padding: var(--s-5) 0 0;
+    border-top: var(--border-w) solid var(--border);
+    border-left: 0;
+  }
+
+  .section-heading {
+    margin-bottom: var(--s-5);
+  }
+}
+
+@media (max-width: 810px) {
+  .experiment-row,
+  .service-ledger-row {
+    grid-template-columns: 1fr;
+    gap: var(--s-2);
+  }
+
+  .experiment-row {
+    padding: var(--s-4) 0;
+  }
+
+  .experiment-id {
+    grid-template-columns: auto 1fr;
+    gap: var(--s-3);
+  }
+
+  .service-ledger-row dl {
+    margin: var(--s-2) 0;
+  }
+
+  .service-actions a {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+  }
+}
+
 @media (max-width: 699px) {
   .case-header .wrap {
     grid-template-columns: auto 1fr;
@@ -1656,43 +1734,9 @@ textarea {
     justify-self: end;
   }
 
-  .case-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .case-hero,
   .case-section {
-    grid-template-columns: minmax(0, 1fr);
     padding: var(--s-6) 0;
-  }
-
-  .hero-copy,
-  .hero-finding,
-  .section-heading,
-  .ruled-ledger,
-  .adverse-grid,
-  .receipt-digest,
-  .receipt-ledger,
-  .service-ledger,
-  .stock-note {
-    grid-column: 1;
-  }
-
-  .hero-copy {
-    grid-row: 1;
-  }
-
-  .truth-rail {
-    grid-row: 2;
-  }
-
-  .hero-finding {
-    grid-row: 3;
-  }
-
-  .hero-copy,
-  .section-heading {
-    padding-right: 0;
   }
 
   .case-hero h1 {
@@ -1712,13 +1756,6 @@ textarea {
     justify-content: center;
   }
 
-  .hero-finding {
-    margin-top: var(--s-6);
-    padding: var(--s-5) 0 0;
-    border-top: var(--border-w) solid var(--border);
-    border-left: 0;
-  }
-
   .finding-ledger,
   .adverse-grid {
     grid-template-columns: 1fr;
@@ -1733,25 +1770,6 @@ textarea {
     margin-left: 0;
   }
 
-  .section-heading {
-    margin-bottom: var(--s-5);
-  }
-
-  .experiment-row,
-  .service-ledger-row {
-    grid-template-columns: 1fr;
-    gap: var(--s-2);
-  }
-
-  .experiment-row {
-    padding: var(--s-4) 0;
-  }
-
-  .experiment-id {
-    grid-template-columns: auto 1fr;
-    gap: var(--s-3);
-  }
-
   .recall-ledger {
     padding-right: 0;
     border-right: 0;
@@ -1764,16 +1782,6 @@ textarea {
   .receipt-ledger div {
     grid-template-columns: 1fr;
     gap: var(--s-2);
-  }
-
-  .service-ledger-row dl {
-    margin: var(--s-2) 0;
-  }
-
-  .service-actions a {
-    display: inline-flex;
-    min-height: 44px;
-    align-items: center;
   }
 }
 
