@@ -1,0 +1,29 @@
+{
+  "attempts": [
+    {
+      "attempt_ordinal": 1,
+      "attempt_outcome": "succeeded",
+      "pools_observed_at": "2026-08-26T12:10:02.579219Z",
+      "pools_status": 200,
+      "scheduled_at": "2026-08-26T12:10:00Z",
+      "succeeded": true,
+      "token_list_observed_at": "2026-08-26T12:10:03.054373Z",
+      "token_list_status": 200,
+      "transport_errors": [
+        null,
+        null
+      ]
+    }
+  ],
+  "captured": true,
+  "pools": {
+    "bytes": 32162,
+    "sha256": "44285f3c83fe91472746aa76352135035a16d8ebdafd4adccbfe9cc6543c942e",
+    "url": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top"
+  },
+  "token_list": {
+    "bytes": 216700,
+    "sha256": "bb855f4d76c323aee9ff91b26a9640e1fa88f01f9736fcd79d21418183ba68de",
+    "url": "https://tokens.pancakeswap.finance/pancakeswap-extended.json"
+  }
+}

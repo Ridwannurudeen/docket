@@ -227,3 +227,34 @@ a separate owner action; neither experiment arm runs before that release.
   this registration. Preserve the evidence and recommit a new protocol rather than retrying.
 
 No command in this runbook authorizes a push, deployment, transaction or submission.
+
+## 5. Owner-only manual-arm handover after release
+
+The next action belongs to the owner. **Do not run a slot yet:** the current interactive
+reveal returns only the case row, not the frozen source snapshots needed to construct the
+registered `sources` and complete `universe`, and the CLI has no path that records manual
+source queries. Because the claim occurs before the reveal, starting now could permanently
+consume a primary without exposing enough question data. First release a reviewed manual
+source reveal/recording path that still withholds truth and agent output. Then close Docket
+and all agent output and, from the repository root, run exactly five manual slots:
+
+```powershell
+1..5 | ForEach-Object {
+  .\.venv\Scripts\python.exe -m docket.advantage.v3.orchestrator `
+    v3-02-yield-router docket/advantage/v3/runs `
+    --repo-root . --interactive --once
+  if ($LASTEXITCODE -ne 0) {
+    throw "Yield manual primary $_ refused; preserve the ledger and do not retry"
+  }
+}
+```
+
+For each reveal, submit one JSON object on one physical line. It must contain exactly the
+top-level answer fields `sources`, `universe`, `rates`, `scenario`, `decision` and
+`limitations`. Fill them from the revealed frozen case: exact source identities; the complete
+included/excluded partition and first-failed-gate reasons; current and all eligible candidate
+rates; the cost and break-even work; move/stay plus destination; and the registered limits.
+
+Do not prepare answers in advance and do not paste the revealed payload as the answer. A blank,
+malformed, multiline, interrupted or schema-invalid submission consumes that primary. There is
+one final submission per slot and no retry or replacement.

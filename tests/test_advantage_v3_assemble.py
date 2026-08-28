@@ -9,6 +9,7 @@ the drift would surface on the one morning the capture cannot be repeated.
 import base64
 import hashlib
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -34,7 +35,7 @@ SPEC_PATH = (
     Path(__file__).resolve().parents[1]
     / "docket/advantage/v3/specs/v3-02-yield-router.json"
 )
-SPEC = load(SPEC_PATH)
+SPEC = replace(load(SPEC_PATH), inputs_sha256="")
 SCHEDULED = datetime.fromisoformat(
     capture.registered_schedule(SPEC)["first_attempt_at"].replace("Z", "+00:00")
 )
@@ -514,9 +515,12 @@ def test_lock_range_cli_binds_capture_and_saves_the_real_lock(tmp_path, monkeypa
     repo_root = tmp_path / "range-repo"
     spec_path = repo_root / "docket/advantage/v3/specs/v3-05-range-doctor.json"
     spec_path.parent.mkdir(parents=True)
-    registered = load(
-        Path(__file__).resolve().parents[1]
-        / "docket/advantage/v3/specs/v3-05-range-doctor.json"
+    registered = replace(
+        load(
+            Path(__file__).resolve().parents[1]
+            / "docket/advantage/v3/specs/v3-05-range-doctor.json"
+        ),
+        inputs_sha256="",
     )
     save(registered, spec_path, repo_root=repo_root)
     spec = load(spec_path, repo_root=repo_root)

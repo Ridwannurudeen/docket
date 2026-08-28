@@ -285,7 +285,7 @@ def test_model_build_refuses_when_the_version_command_fails(
         (claude_cli, "claude", "88.2 (Claude Code)", "fake-claude-model"),
     ],
 )
-def test_model_build_pins_cli_owned_model_and_records_the_exact_isolated_command(
+def test_model_build_pins_cli_owned_model_and_records_a_public_isolated_command(
     tmp_path, monkeypatch, module, cli, version, model
 ):
     log_path = _install_fake_clis(tmp_path, monkeypatch)
@@ -296,10 +296,13 @@ def test_model_build_pins_cli_owned_model_and_records_the_exact_isolated_command
     calls = _calls(log_path)
     seat_call = calls[-1]
     executable = record.resolve_cli(cli)
-    exact_command = subprocess.list2cmdline([executable, *seat_call["argv"]])
+    public_command = subprocess.list2cmdline(
+        [Path(executable).name, *seat_call["argv"]]
+    )
     assert version in build
     assert model in build
-    assert exact_command in build
+    assert public_command in build
+    assert str(tmp_path) not in build
     assert seat_call["repo_hint_present"] is False
     assert seat_call["key_hint_present"] is False
     assert str(ROOT).lower() not in seat_call["cwd"].lower()

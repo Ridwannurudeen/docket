@@ -152,7 +152,9 @@ def test_range_rehearsal_locks_and_scores_all_slots_without_consuming_registrati
         Path(__file__).resolve().parents[1]
         / "docket/advantage/v3/runs/v3-05-range-doctor.jsonl",
     )
-    assert not any(path.exists() for path in production_artifacts)
+    assert production_artifacts[0].is_file()
+    production_input_before = production_artifacts[0].read_bytes()
+    assert not production_artifacts[1].exists()
 
     class ForbiddenClient:
         def __init__(self, *args, **kwargs):
@@ -172,7 +174,8 @@ def test_range_rehearsal_locks_and_scores_all_slots_without_consuming_registrati
     assert rehearsal.RANGE_SPEC_ID not in scoring.FAMILY_PROTOCOLS
     assert spec_module.INPUT_VALIDATORS["v3-05-range-doctor"] is validator_before
     assert scoring.FAMILY_PROTOCOLS["v3-05-range-doctor"] is protocol_before
-    assert not any(path.exists() for path in production_artifacts)
+    assert production_artifacts[0].read_bytes() == production_input_before
+    assert not production_artifacts[1].exists()
     assert (
         json.loads((output / "advantage-v3.json").read_text(encoding="utf-8"))
         == payload

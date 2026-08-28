@@ -809,13 +809,13 @@ def test_main_refuses_an_unlocked_family_id_resolved_from_the_installed_package(
     """Mutation: resolve the family id as a cwd path, or replace main's
     `assert_runnable` with `pass` so the refusal comes from runner instead.
 
-    v3-02-yield-router is a real registration with empty inputs_sha256. If main can
+    v3-01-range-doctor is a real registration with empty inputs_sha256. If main can
     load it by family id, the packaged spec is what ran; if it then starts an arm,
     the lock did not hold. `before any slot` is produced only by main's own
     `assert_runnable` — later refusals from `_prepare`/`run_next` do not say that.
     """
     runs = tmp_path / "runs"
-    code = orchestrator.main(["v3-02-yield-router", str(runs)])
+    code = orchestrator.main(["v3-01-range-doctor", str(runs)])
 
     assert code == 2
     out = capsys.readouterr().out

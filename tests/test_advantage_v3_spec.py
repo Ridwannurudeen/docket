@@ -939,7 +939,9 @@ def test_each_family_schema_accepts_only_a_complete_synthetic_input_artifact(tmp
     with pytest.raises(ValueError, match="transfer-log source is missing"):
         lock_inputs(range_spec, repo_root=tmp_path)
 
-    yield_spec = load(SPECS_DIR / "v3-02-yield-router.json")
+    yield_spec = replace(
+        load(SPECS_DIR / "v3-02-yield-router.json"), inputs_sha256=""
+    )
     pool_ids = [f"0x{number:040x}" for number in range(1, 7)]
     token_addresses = [f"0x{number:040x}" for number in range(101, 103)]
     pool_rows = [
@@ -1243,9 +1245,8 @@ def test_save_and_load_round_trip_to_the_same_two_digests(tmp_path):
 # ------------------------------------------------- the five registered families
 
 
-def test_all_five_families_are_registered_and_only_v4_inputs_are_locked():
-    """Every family carries its stable protocol identity; only the registered v4 lock
-    makes one runnable, while the other four still refuse without locked inputs."""
+def test_all_five_families_have_their_registered_lock_state():
+    """Every family carries its stable protocol identity and exact registered lock state."""
     assert [p.stem for p in REGISTERED] == [
         "v3-01-range-doctor",
         "v3-02-yield-router",
@@ -1263,10 +1264,16 @@ def test_all_five_families_are_registered_and_only_v4_inputs_are_locked():
         "v3-05-range-doctor": 3,
     }
     assert {spec.spec_id for spec in specs if spec.runnable} == {
-        "v3-04-warden-security"
+        "v3-02-yield-router",
+        "v3-04-warden-security",
+        "v3-05-range-doctor",
     }
     for spec in specs:
-        if spec.spec_id == "v3-04-warden-security":
+        if spec.spec_id in {
+            "v3-02-yield-router",
+            "v3-04-warden-security",
+            "v3-05-range-doctor",
+        }:
             input_path = ROOT / spec.inputs_ref
             assert input_path.is_file()
             assert spec.inputs_sha256 == hashlib.sha256(input_path.read_bytes()).hexdigest()

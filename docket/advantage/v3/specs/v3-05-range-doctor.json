@@ -98,7 +98,7 @@
     "blinding_parity": "even_a_is_agent",
     "blinding_parity_note": "An arm_digest whose final byte is even maps A=agent and B=manual; odd maps A=manual and B=agent. Stated because the polarity is a free choice and an unregistered one is settled by whichever code runs first.",
     "blinding_seed_recipe": "seed = SHA256( UTF8(stage_one_protocol_hash, with the 0x prefix) || UTF8(inputs_sha256, bare lowercase hex, no prefix) || UTF8(family_salt) ). arm_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"arm\")). order_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"order\")); cases are presented in ascending raw order_digest. Raw bytes, never the hex text, because the two hash differently and only one of them can be the registered one.",
-    "normalisation_rule": "A deterministic projection into the registered fields, never a language model. It removes envelope metadata only \u2014 tool and service names, HTTP metadata, receipts, prices, timings, transport hashes and presentation formatting \u2014 and substitutes registered service-name literals deterministically. Substantive prose is never paraphrased, and the untouched raw outputs are preserved beside the projection.",
+    "normalisation_rule": "A deterministic projection into the registered fields, never a language model. It removes envelope metadata only — tool and service names, HTTP metadata, receipts, prices, timings, transport hashes and presentation formatting — and substitutes registered service-name literals deterministically. Substantive prose is never paraphrased, and the untouched raw outputs are preserved beside the projection.",
     "normalisation_version": "range.v2: position, observation, range, pool_evidence, rates, dollars, action, coverage, limitations, sources",
     "score_sheet_hash_recipe": "score_sheet_hash = canonical_hash(the parsed sheet) and raw_sheet_sha256 = SHA256 over the seat's untouched response bytes. Both are recorded; the parsed hash identifies what was scored and the raw hash checks that the preserved bytes decode to that parse. The A/B mapping is withheld until both seat artifacts exist and validate, then published in full. These ordinary files are not independently tamper-resistant.",
     "sheets_per_seat": 1
@@ -106,7 +106,7 @@
   "failure_policy": "Exactly one primary attempt is scheduled per case per arm. A timeout, technical error, empty or malformed response, wrong token id/block, or incomplete answer is published, scores zero on every criterion, stays in the three-case quality and reliability denominators, and prevents the complete-pair speed limb.",
   "falsifier": "The quality limb is refuted if the hired arm's median rubric total is lower than the manual arm's. The speed limb is refuted if any of the three pairs lacks two valid completed outputs, median(manual_seconds-agent_seconds) is below 30.0 seconds, or median(agent_seconds/manual_seconds) exceeds 0.50. A fast error cannot support speed.",
   "inputs_ref": "docket/advantage/v3/inputs/range-v5-positions.json",
-  "inputs_sha256": "",
+  "inputs_sha256": "73086fba1ddbb82074003b4c04ef8564358f86b896a0a609b5e5f7e3c543e8b6",
   "measures": {
     "cost": "Out-of-pocket amount and unit only: the receipt's actual charged amount, if any, plus any agent-arm gas and direct cash cost of manual tools. A free-tier receipt records zero rather than an invented hire price. No hourly wage is invented and time is never converted into money.",
     "time": "For each complete pair, d_i=manual elapsed seconds-agent elapsed seconds and r_i=agent/manual. Report every raw duration, both medians, median(d_i), median(r_i), timeout count and complete-pair count."
@@ -194,7 +194,7 @@
     "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'range-v5-blinding'). Per case, SHA-256(seed || case_id || 'arm') parity assigns agent/manual to A/B; sorting SHA-256(seed || case_id || 'order') fixes case order. The harness removes tool names, timings, prices, receipts and formatting tells. Each model prompt receives the frozen task and truth under only the opaque case label, plus A/B outputs; it withholds the original case id, arm mapping and other sheet until both sheet hashes are submitted. This is prompt-level arm blinding; operator independence is not claimed.",
     "selection_rule": "One operator runs the two fixed model seats identified here for the owner. They are not independent evaluators and no independent-party scoring is claimed. The calibration answer key, both model calibration response sets and both final per-criterion score sheets are published so a reader can recompute the checks. No substitution is permitted after any case output exists; a missing sheet leaves the report unscored."
   },
-  "spec_hash": "0xbc945b91d2b6649f077050da5eb1c8ee7472568dd9d76d9bdeb7f6974cfd449d",
+  "spec_hash": "0x2a15b50e88b164ff57a7256aa9e35bdfb539cb02549e9c1374641fef92b4a43a",
   "spec_id": "v3-05-range-doctor",
   "speed_threshold": {
     "formula": "For the three valid complete pairs, d_i=manual_seconds-agent_seconds and r_i=agent_seconds/manual_seconds; compute median(d_i) and median(r_i).",

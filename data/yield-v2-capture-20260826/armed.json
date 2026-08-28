@@ -1,0 +1,17 @@
+{
+  "attempt_schedule": [
+    "2026-08-26T12:00:00Z",
+    "2026-08-26T12:01:00Z",
+    "2026-08-26T12:02:00Z"
+  ],
+  "host_identity": "vmi2311089.contaboserver.net",
+  "preflight": {
+    "clock_checked_at": "2026-08-26T11:50:01.415313Z",
+    "clock_timezone_aware": true,
+    "directory_writable": true,
+    "disk_free_bytes": 931053694976
+  },
+  "process_started_at": "2026-08-26T11:50:01.400095Z",
+  "registered_moment": "2026-08-26T12:00:00Z",
+  "spec_hash": "0x3037f77abf461e4d9fffebf6156847bab2488b4d5cd683e0f37b464b4e2b173b"
+}

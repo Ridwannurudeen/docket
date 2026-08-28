@@ -24,7 +24,7 @@ DRY_RUN = ROOT / "docs/deliberation/RANGE-REPLACEMENT-DRYRUN-2026-08-15.md"
 FEASIBILITY = ROOT / "docket/advantage/v3/provenance/range-v3-05-feasibility.json"
 
 
-def test_range_successor_is_distinct_disclosed_and_still_unlocked():
+def test_range_successor_is_distinct_disclosed_and_input_locked():
     predecessor_raw = PREDECESSOR.read_bytes()
     predecessor = load(PREDECESSOR)
     successor = load(SUCCESSOR)
@@ -38,7 +38,10 @@ def test_range_successor_is_distinct_disclosed_and_still_unlocked():
     )
     assert predecessor.inputs_sha256 == ""
     assert successor.spec_id == "v3-05-range-doctor"
-    assert successor.inputs_sha256 == ""
+    assert successor.inputs_sha256 == hashlib.sha256(
+        (ROOT / successor.inputs_ref).read_bytes()
+    ).hexdigest()
+    assert successor.runnable
     assert is_range_family(successor)
     assert successor.n_planned == 3
     assert successor.protocol_correction["supersedes_stage_one_protocol_hash"] == (
