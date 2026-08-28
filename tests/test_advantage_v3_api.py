@@ -39,10 +39,10 @@ def test_the_current_surface_shows_the_complete_unscored_family_and_never_says_p
     assert rendered.headers["content-type"].startswith("text/html")
     assert [family["state"] for family in payload["families"]] == [
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
-        report.REGISTERED_WAITING,
+        report.LOCKED_NOT_RUN,
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
         report.COMPLETE_UNSCORED,
-        report.REGISTERED_WAITING,
+        report.LOCKED_NOT_RUN,
     ]
     v4 = next(
         family
@@ -56,7 +56,7 @@ def test_the_current_surface_shows_the_complete_unscored_family_and_never_says_p
         "terminal_primaries": 24,
         "outcomes": {"failed": 1, "succeeded": 23},
     }
-    assert rendered.text.count(report.REGISTERED_WAITING) >= 2
+    assert rendered.text.count(report.LOCKED_NOT_RUN) >= 2
     assert report.COMPLETE_UNSCORED in rendered.text
     assert report.SUPERSEDED_BEFORE_INPUT_LOCK in rendered.text
     assert (
@@ -93,7 +93,7 @@ def test_the_report_is_built_once_and_both_routes_use_that_startup_payload(
         assert "startup-only sentinel" in client.get("/advantage/v3").text
         assert (
             catalogue._measured_value("range-doctor", 1.0)["benchmark_state"]
-            == report.REGISTERED_WAITING
+            == report.LOCKED_NOT_RUN
         )
         assert report_snapshot.get_report() is payload
     assert calls == ["built"]

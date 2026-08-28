@@ -326,3 +326,34 @@ if ($LASTEXITCODE -ne 0) { throw 'locked Range input did not validate' }
 ```
 
 No command in this runbook authorizes a push, deployment, transaction or submission.
+
+## 4. Owner-only manual-arm handover after release
+
+The next action belongs to the owner. **Do not run a slot yet:** the current interactive
+reveal carries source references but not the frozen source bodies needed for the registered
+answer, and the CLI has no path that records manual source queries. Because the claim occurs
+before the reveal, starting now could permanently consume a primary without exposing enough
+question data. First release a reviewed manual source reveal/recording path that still
+withholds truth and agent output. Then close Docket and all agent output and, from the
+repository root, run exactly three manual slots:
+
+```powershell
+1..3 | ForEach-Object {
+  .\.venv\Scripts\python.exe -m docket.advantage.v3.orchestrator `
+    v3-05-range-doctor docket/advantage/v3/runs `
+    --repo-root . --interactive --once
+  if ($LASTEXITCODE -ne 0) {
+    throw "Range manual primary $_ refused; preserve the ledger and do not retry"
+  }
+}
+```
+
+For each reveal, submit one JSON object on one physical line. It must contain exactly the
+top-level answer fields `position`, `observation`, `range`, `pool_evidence`, `rates`, `dollars`,
+`action`, `coverage`, `limitations` and `sources`. Fill every field from the revealed frozen
+case, including the exact token/block/range facts, bound pool evidence, rate and dollar work,
+action, complete-frame coverage, registered limits and source identities.
+
+Do not prepare answers in advance and do not paste the revealed payload as the answer. A blank,
+malformed, multiline, interrupted or schema-invalid submission consumes that primary. There is
+one final submission per slot and no retry or replacement.

@@ -81,14 +81,14 @@ def test_the_committed_families_include_superseded_pilots_and_unscored_successor
 
     assert [family["state"] for family in payload["families"]] == [
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
-        report.REGISTERED_WAITING,
+        report.LOCKED_NOT_RUN,
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
         report.COMPLETE_UNSCORED,
-        report.REGISTERED_WAITING,
+        report.LOCKED_NOT_RUN,
     ]
     assert payload["summary"]["states"] == {
         report.COMPLETE_UNSCORED: 1,
-        report.REGISTERED_WAITING: 2,
+        report.LOCKED_NOT_RUN: 2,
         report.SUPERSEDED_BEFORE_INPUT_LOCK: 2,
     }
     assert "proved" not in json.dumps(payload).lower()
