@@ -1,0 +1,47 @@
+{
+  "schema": "docket.erc8004-category-identities.v1",
+  "chain_id": 56,
+  "registry": "0x8004a169fb4a3325136eb29fa0ceb6d2e539a432",
+  "owner": "0xe55816904796341bf8535e25f6c8b647927fc946",
+  "observed_at": "2026-08-28T10:44:53Z",
+  "method": "Read ownerOf and tokenURI at latest state and the Registered event at each exact mint block through two public BSC RPC endpoints.",
+  "services": [
+    {
+      "service_id": "range-doctor",
+      "agent_id": 311253,
+      "owner": "0xe55816904796341bf8535e25f6c8b647927fc946",
+      "token_uri": "https://docket.gudman.xyz/registrations/range-doctor.json",
+      "mint_block": 118559596,
+      "minted_at": "2026-08-28T10:28:20Z",
+      "transaction_hash": "0x032a4b1921e2b2dc44f46e24461623be3802f508ba429f5acd0380de5ce688c1"
+    },
+    {
+      "service_id": "grid-operator",
+      "agent_id": 311255,
+      "owner": "0xe55816904796341bf8535e25f6c8b647927fc946",
+      "token_uri": "https://docket.gudman.xyz/registrations/grid-operator.json",
+      "mint_block": 118559736,
+      "minted_at": "2026-08-28T10:29:23Z",
+      "transaction_hash": "0x991d905b0e55093f4c55ceff0d8deed68d45af2036b08e0ba13e87cbdbde850b"
+    },
+    {
+      "service_id": "yield-router",
+      "agent_id": 311257,
+      "owner": "0xe55816904796341bf8535e25f6c8b647927fc946",
+      "token_uri": "https://docket.gudman.xyz/registrations/yield-router.json",
+      "mint_block": 118559820,
+      "minted_at": "2026-08-28T10:30:01Z",
+      "transaction_hash": "0x3d490b9326079cabce9ee36ab64981d23da1d46a8e370b48e73382126671e9b0"
+    },
+    {
+      "service_id": "health-guard",
+      "agent_id": 311259,
+      "owner": "0xe55816904796341bf8535e25f6c8b647927fc946",
+      "token_uri": "https://docket.gudman.xyz/registrations/health-guard.json",
+      "mint_block": 118559871,
+      "minted_at": "2026-08-28T10:30:24Z",
+      "transaction_hash": "0x7f7ffd402d54d4284de6a1ecbffc8f43d07c5a8f522f6b5507d90dd9302ec531"
+    }
+  ],
+  "limitations": "An ERC-8004 identity is a registration. It is not an endorsement, evidence of paid stock, or evidence that a service produced a result. ownerOf is mutable after this observation."
+}

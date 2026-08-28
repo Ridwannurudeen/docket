@@ -466,11 +466,16 @@ Three things to carry into any answer built on this layer:
   highest APR", so `yield-router` states the set that superlative is bounded by. Its
   comparison needs no wallet; its optional swap draft requires `wallet`, `token_in`,
   `token_out`, `amount`, and `cap` together.
-- **`identity` and `agent_path` are different facts.** `agent_id: null` means no
-  ERC-8004 identity was ever registered for that service. `agent_id` set with
-  `agent_path: null` means the identity is registered on chain and is not in the
-  snapshot Docket serves - the default sweep only covers agents with feedback - so there
-  are no observations here, and that is a statement about Docket's index, not the agent.
+- **`identity` and `agent_path` are different facts.** Range Doctor, Grid Operator,
+  Yield Router, and Health Guard are BSC ERC-8004 agents 311253, 311255, 311257, and
+  311259 in registry `0x8004a169fb4a3325136eb29fa0ceb6d2e539a432`. They were minted
+  on 2026-08-28 UTC, all four had owner
+  `0xe55816904796341bf8535e25f6c8b647927fc946` when recorded, and each token URI names
+  its matching published registration document. `warden-scan` remains unbound.
+  `agent_id` set with `agent_path: null` means an identity is registered on chain but is
+  not in the snapshot Docket serves - the default sweep only covers agents with feedback.
+  Registration is not endorsement, evidence of paid stock, or evidence that the service
+  produced a result.
 
 Every service card carries `evidence_modality` from the closed vocabulary `live_read`,
 `preview`, `historical`, `paired_benchmark`, or `replay`. Current cards use `live_read`

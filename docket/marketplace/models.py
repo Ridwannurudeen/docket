@@ -326,4 +326,8 @@ class ServiceRecord:
                 "has registered no ERC-8004 agent for it, so there is no on-chain record of "
                 "it to read."
             )
-        return f"Bound to the BSC ERC-8004 agent {self.agent_id}."
+        return (
+            f"Bound to the BSC ERC-8004 agent {self.agent_id}. This registration is not "
+            "an endorsement, evidence of paid stock, or evidence that the service "
+            "produced a result."
+        )

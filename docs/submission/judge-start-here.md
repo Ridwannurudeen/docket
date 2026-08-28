@@ -8,7 +8,7 @@ Open the [Docket marketplace](https://docket.gudman.xyz/).
 
 This proves the marketplace journey: four job cards, service descriptions, comparison fields, recorded-run figures, and a free activation path. Pick **Keep LP earning** → **Run it free** → **Try the worked example** to receive a fresh Range Doctor result on the [service page](https://docket.gudman.xyz/service?id=range-doctor).
 
-Read the limit on that same page: Range Doctor is not in paid stock, has no bound ERC-8004 identity, and the sample records no settlement. The [raw catalogue](https://docket.gudman.xyz/services) exposes the corresponding stock and identity fields for every service.
+Read the limit on that same page: Range Doctor is not in paid stock and the sample records no settlement. Its BSC ERC-8004 identity is agent 311253, but that registration is not an endorsement, paid-stock evidence, or evidence that the sample produced a result. The [raw catalogue](https://docket.gudman.xyz/services) exposes the corresponding stock and identity fields for every service.
 
 ## 2. Inspect the PancakeSwap case
 
@@ -45,7 +45,7 @@ The first page gives the current snapshot timestamp, age, population rule, sampl
 
 Open the served registration documents for [Range Doctor](https://docket.gudman.xyz/registrations/range-doctor.json), [Grid Operator](https://docket.gudman.xyz/registrations/grid-operator.json), [Yield Router](https://docket.gudman.xyz/registrations/yield-router.json), and [Health Guard](https://docket.gudman.xyz/registrations/health-guard.json).
 
-These four documents are prepared for ERC-8004 registration, but none of the four category services is bound yet. The [registration procedure](../deployment-runbook.md#register-the-four-identities) checks the served bytes and produces an unsigned transaction plan; owner approval and broadcast remain future steps.
+The four category services were registered on BSC chain 56 on 2026-08-28 UTC: Range Doctor 311253 at block 118559596, Grid Operator 311255 at 118559736, Yield Router 311257 at 118559820, and Health Guard 311259 at 118559871. At the recorded observation, `ownerOf` returned `0xe55816904796341bf8535e25f6c8b647927fc946` for each and every `tokenURI` named the corresponding document above; the [committed chain evidence](../erc8004-category-identities.json) carries the transaction hashes. This establishes registration only—not endorsement, paid stock, or production of any service result. `warden-scan` remains unbound.
 
 ## Raw-evidence index
 

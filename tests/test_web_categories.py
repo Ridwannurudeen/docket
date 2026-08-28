@@ -659,8 +659,7 @@ def test_pay_and_hire_is_rendered_only_for_admitted_paid_stock():
 
 
 def test_a_service_with_no_presenter_still_shows_its_payload():
-    """Five of six services have no presenter yet. They must degrade to the old behaviour,
-    not to an empty region."""
+    """A service without a presenter must degrade to the old behaviour, not an empty region."""
     js = re.sub(r"\s+", " ", (WEB_DIR / "app.js").read_text(encoding="utf-8"))
     assert (
         "if (!presenter) return `<pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>`;"

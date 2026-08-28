@@ -44,13 +44,13 @@ Record at 1280×720 or higher from a cold browser with no wallet extension conne
 
 **Say:** “The registry browser exposes the larger BSC population separately from the four Docket-run job cards; the category assignments are Docket declarations, not registry fields.”
 
-## 2:45–3:00 — finish on identity and the owner step
+## 2:45–3:00 — finish on identity and its boundary
 
 **URL:** <https://docket.gudman.xyz/registrations/range-doctor.json>
 
 **Action:** Paste the URL and press Enter.
 
-**Say:** “This is one of four served ERC-8004 registration documents. The [registration procedure](../deployment-runbook.md#register-the-four-identities) checks that the public URI serves the committed bytes before it emits an unsigned transaction plan. The four category services are not bound on chain yet; broadcasting those owner transactions remains outside this demo.”
+**Say:** “This is the published token URI for Range Doctor, BSC ERC-8004 agent 311253. Grid, Yield, and Health are agents 311255, 311257, and 311259; all four were minted on August 28 and the recorded owner is the registration wallet. This proves registration, not endorsement, paid stock, or that any service produced a result. Warden remains unbound.” [The exact blocks and transactions are committed here.](../erc8004-category-identities.json)
 
 Finish on: “Docket makes what exists—and what does not—clickable.”
 
