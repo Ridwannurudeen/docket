@@ -15,17 +15,18 @@ remains unanchored.
 | Release source commit | `534af826575a3c316eaace03b5e41ab077d4c253` — remote-reachable from `origin/docs/deliberation-round2`, see below |
 | Release wheel digest | `b8c9a257c9ab3acab111b87d2507153b7d0a7bd54a41ef9110a2a57c88758beb` |
 | Repository visibility | Public (verified 2026-08-28) |
-| Deployment action | **Recorded as performed 2026-08-16T12:20Z** to `docket.gudman.xyz` |
-| Deployed source/wheel identity | Builder-collected commit and wheel record — see "Deployed identity" |
+| Historical deployment record | Builder-collected as performed 2026-08-16T12:20Z to `docket.gudman.xyz`; covers no later commit |
+| Identity in that historical record | Builder-collected commit and wheel values — see "Historical deployed identity" |
 | Live settlement transaction | Missing. Settlement is built, disabled, and has never run. |
 
 The base commit identifies the tree before the public-package change. It does not identify
 the release and must not be used as a deployment hash.
 
-## Deployed identity (recorded 2026-08-16)
+## Historical deployed identity — builder-collected 2026-08-16 record
 
-The builder collected the following values from the host after the 12:20Z deploy and
-committed them to `docs/operational-evidence.md`:
+Every value in this section is a historical as-of record that covers no later commit. The
+builder collected the values from the host after the 12:20Z deploy and committed them to
+`docs/operational-evidence.md`:
 
 | Field | Value |
 |---|---|
@@ -53,7 +54,8 @@ What that does and does not establish, stated precisely because the v3 specs res
 - **It does establish** that the content present in the ref at the recorded push existed by
   `2026-08-15T06:08:36Z`, and the current remote ref contains the registration commit.
 - **It does not establish** when individual commits were authored. Committer dates are set
-  locally, and the repository owner can rewrite the private remote ref.
+  locally, and public visibility alone does not independently timestamp commits or make the
+  owner-controlled ref immutable.
 - **What would close the gap:** an external timestamp or chain commitment over the stage-one
   protocol hash, recorded before inputs or runs. Not yet done.
 

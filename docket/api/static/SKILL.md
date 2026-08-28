@@ -387,9 +387,12 @@ Warden and 6/8 (0.75) manually; precision of 4/4 (1.00) and 6/8 (0.75); valid sc
 27.86 seconds; and median agent/manual ratio 0.0610434. Warden missed its recall,
 zero-critical, complete-pair, and median-saving limbs. Missing rubric medians prevent the
 complete registered falsifier from being evaluated, so the report publishes neither
-`refuted` nor `not_refuted`. `v3-02-yield-router` and `v3-05-range-doctor` remain
-`registered_waiting_for_inputs`; `v3-01-range-doctor` and `v3-03-warden-security` remain
-`superseded_before_input_lock`. Never turn `not_refuted` into "proved".
+`refuted` nor `not_refuted`. At the committed-artifact observation on 2026-08-28, the
+committed v3 artifacts contain 5 families: `v3-04-warden-security` is
+`complete_unscored`; `v3-02-yield-router` and `v3-05-range-doctor` are `locked_not_run`;
+`v3-01-range-doctor` and `v3-03-warden-security` are `superseded_before_input_lock`.
+V3-02 and v3-05 have locked inputs and no claimed primaries. Never turn `not_refuted`
+into "proved".
 
 The process builds one v3 payload at startup and renders `/advantage/v3` from that exact
 object. Use the JSON for machine work and the page for a reader; neither changes until the
