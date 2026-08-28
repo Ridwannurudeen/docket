@@ -872,15 +872,18 @@ def test_homepage_leads_with_pancake_impact_and_moves_external_context_to_resear
 
 
 def test_service_opening_leads_with_its_recorded_metric(client):
-    response = client.get(
-        "/service?id=range-doctor", headers={"accept": "text/html"}
-    )
+    response = client.get("/service?id=range-doctor", headers={"accept": "text/html"})
 
     assert response.status_code == 200
     opening = response.text.split('data-region="service"', 1)[1].split("</div>", 1)[0]
     assert "<h1>Range Doctor</h1>" in opening
     assert "14 of 14 position NFTs the wallet held" in opening
     assert "one recorded run against one wallet" in opening
+    assert "What arrives" in response.text
+    assert "What has been observed of it" in response.text
+    assert "What it cannot do" in response.text
+    assert "wallet" in response.text
+    assert "/advantage" in response.text
 
 
 def test_home_metadata_does_not_promise_a_run_behind_every_service():

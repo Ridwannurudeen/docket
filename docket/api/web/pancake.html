@@ -54,7 +54,7 @@
           <p class="eyebrow">Controlled PancakeSwap V3 position · read-only BSC observation</p>
           <h1 id="live-decision-heading">Live decision</h1>
           <div class="decision-display" data-region="pancake-decision" aria-live="polite">
-            <span class="skeleton skeleton-row skeleton-wide"></span>
+            <!-- pancake-decision-initial -->
           </div>
           <p class="section-note">
             This page runs the worked Range Doctor request when it opens. The result is a fresh
@@ -71,7 +71,7 @@
           <details class="evidence-details">
             <summary>Inspect all linked observations</summary>
             <div class="details-body" data-region="pancake-record">
-            <span class="skeleton skeleton-row skeleton-wide"></span>
+            <!-- pancake-record-initial -->
             </div>
           </details>
         </section>
@@ -83,7 +83,7 @@
             are shown with the window and method returned by the live hire.
           </p>
           <div data-region="pancake-economics">
-            <span class="skeleton skeleton-row skeleton-wide"></span>
+            <!-- pancake-economics-initial -->
           </div>
         </section>
 
@@ -94,7 +94,7 @@
             submit an action.
           </p>
           <div data-region="pancake-actions">
-            <span class="skeleton skeleton-row skeleton-wide"></span>
+            <!-- pancake-actions-initial -->
           </div>
         </section>
 
@@ -118,7 +118,7 @@
             it is not realized return or a forecast.
           </p>
           <div data-region="pancake-impact">
-            <span class="skeleton skeleton-row skeleton-wide"></span>
+            <!-- pancake-impact-initial -->
           </div>
         </section>
 
@@ -127,16 +127,17 @@
           <details class="evidence-details">
             <summary>Inspect sources and indexing limits</summary>
             <div class="details-body panel" data-region="pancake-context">
-            <span class="skeleton skeleton-row skeleton-wide"></span>
+            <!-- pancake-context-initial -->
             </div>
           </details>
         </section>
 
         <noscript>
           <div class="notice notice-warn">
-            <h2>This record reads live data with JavaScript</h2>
+            <h2>The initial evidence remains readable</h2>
             <p>
-              With JavaScript off, Docket will not substitute stored figures. The source routes are
+              With JavaScript off, the server-rendered record, impact, and source limits above
+              remain. Only the fresh position decision is unavailable. The source routes are
               <a href="/lp-record">/lp-record</a>,
               <a href="/advantage/v2.json">/advantage/v2.json</a>, and
               <a href="/services/range-doctor">/services/range-doctor</a>.

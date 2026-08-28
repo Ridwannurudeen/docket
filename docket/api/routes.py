@@ -18,7 +18,6 @@ preview access.
 """
 
 import hashlib
-import html
 import hmac
 import json
 import os
@@ -103,6 +102,7 @@ from .models import (
     ServicesResponse,
     StatsResponse,
 )
+from .web_pages import pancake_initial, service_initial, stats_page
 
 DEFAULT_DB_PATH = "data/agents.sqlite3"
 DEFAULT_LP_RECORD_PATH = "lp-record/controlled.jsonl"
@@ -169,6 +169,21 @@ PROBE_METHOD = (
     "`responded` means a host answered at any status — not that the agent behind the URL "
     "does anything useful."
 )
+PANCAKE_CONTEXT = {
+    "first_party_skills": (
+        "PancakeSwap's first-party planner skills stop at generated deep links; "
+        "Range Doctor keeps the same plan-only boundary."
+    ),
+    "subgraph_meta": {
+        "query_observed_at": "2026-08-22",
+        "indexed_at": "2026-04-28T15:23:43Z",
+        "has_indexing_errors": True,
+        "method": (
+            "Read-only _meta { block { number timestamp } hasIndexingErrors } query. "
+            "Docket instead reads PancakeSwap's Explorer API and SHA-pins the response bytes."
+        ),
+    },
+}
 _STATUS_CODES = {404: "not_found", 405: "method_not_allowed"}
 # Stated on every /services response. Docket publishes no ranking, so the only orders
 # available to it are the ones a reader can predict — and an order that reorders itself
@@ -248,17 +263,6 @@ def _card(record: ServiceRecord, admission: PaidStockAdmission) -> ServiceCard:
         hire_method="POST",
         hire_path=f"/hire/{record.service_id}",
     )
-
-
-def _service_opening(record: ServiceRecord) -> str:
-    metric = _metric_figure(record.metrics[0]) if record.metrics else None
-    finding = (
-        f"<strong>{html.escape(metric.display)}</strong> — "
-        f"{html.escape(metric.name.lower())}, bounded to {html.escape(metric.window)}."
-        if metric is not None
-        else "<strong>0 recorded measurements.</strong> No run is represented on this page."
-    )
-    return f'<h1>{html.escape(record.name)}</h1><p class="lede">{finding}</p>'
 
 
 def _published_seconds(value: float | None) -> float | None:
@@ -491,6 +495,7 @@ def create_app(
     advantage_v3_families = {
         family["spec_id"]: family for family in advantage_v3.get("families", [])
     }
+    stats_shell = (WEB_DIR / "stats.html").read_text(encoding="utf-8")
     # Unset means no recipient exists to name in a challenge, so the priced tier is
     # off and only the bounded free tier remains. Read once here rather than per
     # request: the terms a caller is quoted must not change under it mid-session.
@@ -673,7 +678,14 @@ def create_app(
     def pancake(request: Request) -> FileResponse | JSONResponse:
         """The controlled PancakeSwap position for humans and its source routes for agents."""
         if "text/html" in request.headers.get("accept", ""):
-            return FileResponse(WEB_DIR / "pancake.html", headers={"Vary": "Accept"})
+            page = pancake_initial(
+                (WEB_DIR / "pancake.html").read_text(encoding="utf-8"),
+                get_record("range-doctor"),
+                _read_lp_record_lines(lp_record_path),
+                advantage_v2,
+                PANCAKE_CONTEXT,
+            )
+            return HTMLResponse(page, headers={"Vary": "Accept"})
         return JSONResponse(
             headers={"Vary": "Accept"},
             content={
@@ -682,22 +694,7 @@ def create_app(
                 "live_hire": "/hire/range-doctor",
                 "fixed_window_record": "/lp-record",
                 "decision_impact": "/advantage/v2.json",
-                "pancake_context": {
-                    "first_party_skills": (
-                        "PancakeSwap's first-party planner skills stop at generated deep "
-                        "links; Range Doctor keeps the same plan-only boundary."
-                    ),
-                    "subgraph_meta": {
-                        "query_observed_at": "2026-08-22",
-                        "indexed_at": "2026-04-28T15:23:43Z",
-                        "has_indexing_errors": True,
-                        "method": (
-                            "Read-only _meta { block { number timestamp } "
-                            "hasIndexingErrors } query. Docket instead reads "
-                            "PancakeSwap's Explorer API and SHA-pins the response bytes."
-                        ),
-                    },
-                },
+                "pancake_context": PANCAKE_CONTEXT,
             },
         )
 
@@ -749,7 +746,7 @@ def create_app(
         shell = (WEB_DIR / "service.html").read_text(encoding="utf-8")
         record = get_record(id) if id is not None else None
         opening = (
-            _service_opening(record)
+            service_initial(record)
             if record is not None
             else (
                 '<h1>Choose a service</h1><p class="lede">'
@@ -941,14 +938,14 @@ def create_app(
         return HTMLResponse(v3_family_page(advantage_v3_shell, family))
 
     @app.get("/stats", response_model=StatsResponse)
-    def stats() -> StatsResponse:
+    def stats(request: Request) -> StatsResponse | HTMLResponse:
         report = coverage_report(Store(db_path), _serving())
         refresh_status = (
             json.loads(refresh_status_path.read_text(encoding="utf-8"))
             if refresh_status_path.exists()
             else None
         )
-        return StatsResponse(
+        response = StatsResponse(
             coverage=_coverage(report),
             refresh_status=refresh_status,
             registry_total=report["registry_total"],
@@ -966,6 +963,11 @@ def create_app(
             top_name_families=report["top_name_families"],
             probe_method=PROBE_METHOD,
         )
+        if "text/html" in request.headers.get("accept", ""):
+            return HTMLResponse(
+                stats_page(stats_shell, response), headers={"Vary": "Accept"}
+            )
+        return response
 
     @app.get("/agents", response_model=ListResponse)
     def list_agents(

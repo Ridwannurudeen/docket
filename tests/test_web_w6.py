@@ -294,6 +294,11 @@ def test_pancake_page_is_content_negotiated_and_machine_discoverable(tmp_path):
     assert html.headers["content-type"].startswith("text/html")
     assert html.headers["vary"] == "Accept"
     assert '<body data-page="pancake">' in html.text
+    assert "$126.78" in html.text
+    assert "8.30 days" in html.text
+    assert "0/231" in html.text
+    assert "post-hoc" in html.text
+    assert "No live position decision is embedded" in html.text
     assert machine.status_code == 200
     assert machine.headers["vary"] == "Accept"
     assert machine.json()["page"] == "/pancake"

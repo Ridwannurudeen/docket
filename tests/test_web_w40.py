@@ -1,7 +1,11 @@
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from docket.advantage.v2 import page as v2_page
 from docket.advantage.v2 import report as v2_report
+from docket.api import create_app
+from docket.store import Store
 
 
 WEB = Path(__file__).resolve().parents[1] / "docket" / "api" / "web"
@@ -14,7 +18,7 @@ def test_every_surface_uses_the_restrained_light_stylesheet():
     assert "color-scheme: light" in css
     assert "color-scheme: dark" not in css
     assert 'content: "LP"' not in css
-    assert len(PAGES) == 8
+    assert len(PAGES) == 9
     for page in PAGES:
         assert 'href="/static/style.css?v=9"' in page.read_text(encoding="utf-8")
 
@@ -37,3 +41,21 @@ def test_evidence_landings_link_to_depth_instead_of_collapsing_it():
     assert "Every run behind those figures" not in v2
     assert '<details class="evidence-details">' not in v2
     assert pancake.index("<summary") < pancake.index("</details>")
+
+
+def test_stats_has_a_server_rendered_human_surface_without_moving_its_json(tmp_path):
+    db = tmp_path / "stats-html.sqlite3"
+    store = Store(db)
+    snapshot = store.begin_snapshot(chain_id=56, expected=0)
+    store.finish_snapshot(snapshot, sampled=0, expected=0)
+    client = TestClient(create_app(db, snapshot_id=snapshot))
+
+    machine = client.get("/stats")
+    human = client.get("/stats", headers={"accept": "text/html"})
+
+    assert machine.headers["content-type"].startswith("application/json")
+    assert machine.json()["coverage"]["snapshot_id"] == snapshot
+    assert human.headers["content-type"].startswith("text/html")
+    assert "Registry coverage" in human.text
+    assert "0 of 0 agents sampled" in human.text
+    assert "One GET per declared A2A or MCP endpoint" in human.text
