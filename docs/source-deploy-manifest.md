@@ -14,7 +14,7 @@ remains unanchored.
 | Builder base commit | `731dcb3d3fe1267546c96fd73118a3b34d58b7b3` |
 | Release source commit | `534af826575a3c316eaace03b5e41ab077d4c253` — remote-reachable from `origin/docs/deliberation-round2`, see below |
 | Release wheel digest | `b8c9a257c9ab3acab111b87d2507153b7d0a7bd54a41ef9110a2a57c88758beb` |
-| Public repository visibility action | Not performed; owner-only |
+| Repository visibility | Public (verified 2026-08-28) |
 | Deployment action | **Recorded as performed 2026-08-16T12:20Z** to `docket.gudman.xyz` |
 | Deployed source/wheel identity | Builder-collected commit and wheel record — see "Deployed identity" |
 | Live settlement transaction | Missing. Settlement is built, disabled, and has never run. |
@@ -57,8 +57,7 @@ What that does and does not establish, stated precisely because the v3 specs res
 - **What would close the gap:** an external timestamp or chain commitment over the stage-one
   protocol hash, recorded before inputs or runs. Not yet done.
 
-The repository remains **private**. Public accessibility during Sep 9-23 judging is an owner
-action and a stated eligibility condition.
+The repository is **public** (verified 2026-08-28).
 
 ## Source roots
 
@@ -69,7 +68,7 @@ action and a stated eligibility condition.
 | `abis/` | Contract ABIs used by experiments/tests | No package-data rule |
 | `tests/` | Source tests and installed-wheel smoke | No |
 | `docs/` | Plans, audits, architecture, runbook, threat model, API/evidence docs | No |
-| `data/` | Ignored runtime SQLite state | No |
+| `data/` | Ignored runtime SQLite state plus committed registered v3 pool captures | No |
 
 ## Explicit Python packages
 
@@ -104,8 +103,8 @@ The wheel includes:
 - API machine docs and browser assets under `docket/api/static/` and `docket/api/web/`.
 - V1 experiment JSON.
 - V2 corpora, specs, and runs.
-- V3 stage-one specs, served report shell, and any JSONL ledgers, nested score sheets, or
-  mappings present in the source tree.
+- V3 specifications and locked inputs, served report shell, and any JSONL ledgers, nested
+  score sheets, or mappings present in the source tree.
 - The MIT license in distribution metadata.
 - The README as Markdown package metadata.
 
