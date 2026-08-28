@@ -1,0 +1,14 @@
+{
+  "attempt_ordinal": 1,
+  "attempt_outcome": "succeeded",
+  "pools_observed_at": "2026-08-26T12:00:02.576469Z",
+  "pools_status": 200,
+  "scheduled_at": "2026-08-26T12:00:00Z",
+  "succeeded": true,
+  "token_list_observed_at": "2026-08-26T12:00:03.228813Z",
+  "token_list_status": 200,
+  "transport_errors": [
+    null,
+    null
+  ]
+}
