@@ -337,8 +337,8 @@ SERVICES: dict[str, ServiceRecord] = {
         # grid, a yield move or a loan — and inventing a fifth category for it would be
         # describing a market rather than the one Docket was asked about.
         category=None,
-        # The one identity Docket's own stock has on chain. Lowercased exactly as a
-        # snapshot stores an agent_id, so /agents/{agent_id} can resolve it — though the
+        # Lowercased exactly as a snapshot stores an agent_id, so /agents/{agent_id} can
+        # resolve it — though the
         # served snapshot was swept from agents with feedback and does not hold it.
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:136384",
         registration_uri=None,

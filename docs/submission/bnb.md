@@ -109,27 +109,29 @@ recorded capture window, refresh method, and endpoint-probe denominators remain 
 [operational evidence](../operational-evidence.md#the-registry-snapshot-is-no-longer-stale-and-it-moved-without-a-restart), while the live
 responses above supply the current count.
 
-The four Docket-run category services do **not** yet clear that identity gate. Their live service
-records currently expose `agent_id: null` and no registration URI
-([services](https://docket.gudman.xyz/services)). Each has a prepared registration document that
-is already served at its final URI, but each document still has an empty `registrations` array:
+The four Docket-run category services now clear the BSC identity-binding gate. Range Doctor is
+agent 311253, Grid Operator 311255, Yield Router 311257, and Health Guard 311259 in the chain-56
+ERC-8004 registry `0x8004a169fb4a3325136eb29fa0ceb6d2e539a432`. They were minted on
+2026-08-28 UTC at blocks 118559596, 118559736, 118559820, and 118559871 respectively. At the
+recorded observation, `ownerOf` returned `0xe55816904796341bf8535e25f6c8b647927fc946` for all four
+([chain evidence](../erc8004-category-identities.json),
+[service bindings](../../docket/marketplace/registry.py)).
+
+Each on-chain `tokenURI` names that service's published document:
 [Range Doctor](https://docket.gudman.xyz/registrations/range-doctor.json),
 [Grid Operator](https://docket.gudman.xyz/registrations/grid-operator.json),
 [Yield Router](https://docket.gudman.xyz/registrations/yield-router.json), and
-[Health Guard](https://docket.gudman.xyz/registrations/health-guard.json). Read-only checks for
-this submission found every served body byte-for-byte identical to its
-[committed document](../../docket/api/static/agents/).
+[Health Guard](https://docket.gudman.xyz/registrations/health-guard.json). The committed copies now
+carry their standard chain-56 registration entries, and the offline test binds those documents to
+the service map and recorded chain facts
+([committed documents](../../docket/api/static/agents/),
+[test](../../tests/test_identity_register.py)).
 
-The repository includes a plan-only CLI that compares the served registration body with the
-committed bytes before it reads BSC state or prints an unsigned transaction. It accepts no key
-and has no submission command
-([CLI source](../../docket/identity/register.py),
-[committed documents](../../docket/api/static/agents/),
-[tests](../../tests/test_identity_register.py)). Binding remains an owner step: sign and broadcast
-outside Docket, decode each receipt, regenerate the same URI with the minted ID, set the service
-mapping, and include the ID in the next targeted refresh
-([owner procedure](../deployment-runbook.md#register-the-four-identities)). Until those
-transactions and bindings exist, the category cards must not be presented as BSC-bound agents.
+The preparation CLI remains plan-only: it checks served bytes, reads BSC state, and prints an
+unsigned transaction, but accepts no key and has no broadcast command
+([CLI source](../../docket/identity/register.py)). The completed owner broadcasts happened outside
+that CLI. Their existence establishes registration only—not endorsement, paid stock, execution,
+or a service result. `warden-scan` remains unbound.
 
 Three adjacent limits are also explicit:
 
@@ -157,8 +159,9 @@ stock today
 
 What can be adopted now is the evidence-first marketplace contract: category discovery, explicit
 activation inputs, identity context, current observations, bounded metrics, and visible limits.
-The identity broadcasts and a governed provider-listing path remain work after this submission;
-this page does not describe either as complete
+The four identity broadcasts are complete; deploying this newer binding commit and building a
+governed provider-listing path remain separate work, and this page does not describe either as
+already deployed or complete
 ([joint audit BNB alignment](../deliberation/JOINT-AUDIT-2026-08-22.md#bnb-main-track--the-marketplace-itself-not-a-portfolio-of-agents)).
 
 ## Claims checklist
@@ -178,9 +181,9 @@ this page does not describe either as complete
 | BNB-10 | Range has a paired v1 task; Grid, Yield, and Health currently disclose single recorded reads without paired human arms. | [v1](https://docket.gudman.xyz/advantage), [service records](https://docket.gudman.xyz/services) |
 | BNB-11 | Surfaced registry identities come from the BSC-targeted ingest and are served with BSC-form agent IDs. | [Ingest source](../../docket/ingest.py), [agents](https://docket.gudman.xyz/agents?limit=100), [stats](https://docket.gudman.xyz/stats) |
 | BNB-11a | The first recorded refresh service run promoted 510 sampled of 510 expected feedback-bearing BSC records under `min_feedbacks>=1`; the current generated responses supersede that historical count. | [Operational evidence](../operational-evidence.md#the-registry-snapshot-is-no-longer-stale-and-it-moved-without-a-restart), [agents](https://docket.gudman.xyz/agents?limit=100), [stats](https://docket.gudman.xyz/stats) |
-| BNB-12 | The four Docket-run category services currently have no bound agent ID or registration URI. | [Live services](https://docket.gudman.xyz/services) |
-| BNB-13 | Each category registration document is served at its planned URI, is byte-identical to the committed file, and still contains no minted registration entry. | [Range](https://docket.gudman.xyz/registrations/range-doctor.json), [Grid](https://docket.gudman.xyz/registrations/grid-operator.json), [Yield](https://docket.gudman.xyz/registrations/yield-router.json), [Health](https://docket.gudman.xyz/registrations/health-guard.json), [committed files](../../docket/api/static/agents/) |
-| BNB-14 | The registration CLI preflights exact served bytes and emits only an unsigned plan; signing, broadcasting, receipt decoding, binding, and refresh remain owner/integrator steps. | [CLI source](../../docket/identity/register.py), [tests](../../tests/test_identity_register.py), [procedure](../deployment-runbook.md#register-the-four-identities) |
+| BNB-12 | The four Docket-run category services are BSC ERC-8004 agents 311253, 311255, 311257, and 311259 at mint blocks 118559596, 118559736, 118559820, and 118559871; all four had the recorded owner `0xe55816904796341bf8535e25f6c8b647927fc946`. | [Chain evidence](../erc8004-category-identities.json), [bindings](../../docket/marketplace/registry.py) |
+| BNB-13 | Each category identity's token URI names its published service document, and each committed document carries the corresponding chain-56 registration entry. | [Range](https://docket.gudman.xyz/registrations/range-doctor.json), [Grid](https://docket.gudman.xyz/registrations/grid-operator.json), [Yield](https://docket.gudman.xyz/registrations/yield-router.json), [Health](https://docket.gudman.xyz/registrations/health-guard.json), [committed files](../../docket/api/static/agents/) |
+| BNB-14 | The preparation CLI remains keyless and plan-only; the completed owner broadcasts occurred outside it. Registration is not endorsement, paid-stock evidence, or evidence of a service result, and `warden-scan` remains unbound. | [CLI source](../../docket/identity/register.py), [tests](../../tests/test_identity_register.py), [chain evidence](../erc8004-category-identities.json) |
 | BNB-15 | No service is paid stock and no settlement has occurred. `v3-04-warden-security` is `complete_unscored`: 24/24 primaries are terminal, but a missing first seat-B response leaves rubric quality permanently unscored; formula limbs include Warden recall 0.50 versus manual 0.75 and three Warden critical failures. | [Services](https://docket.gudman.xyz/services), [operational evidence](../operational-evidence.md#what-this-evidence-does-not-establish-1), [v3](https://docket.gudman.xyz/advantage/v3.json) |
 | BNB-16 | The site is reachable now, while judging-window availability is still an operational obligation. | [Health](https://docket.gudman.xyz/health), [BNB gate](../deliberation/2026-08-14-BRIEFING-V2.md#11-bnb-chain--main-track-30000--adoption) |
 | BNB-17 | Category stock is committed in code and no third-party self-listing workflow exists today. | [Inventory](../../docket/marketplace/registry.py), [routes](../../docket/api/routes.py) |

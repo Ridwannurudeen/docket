@@ -356,8 +356,8 @@ function serviceCard(card) {
     ? ` <a href="${href}">Read the whole description</a>.`
     : "";
   /* A binding on chain is not an entry in Docket's index, and on a card the first reads
-     as the second. The service page answers it in full — for the one identity Docket's
-     own stock has, the answer is that the served snapshot does not hold it. */
+     as the second. The service page answers it in full, including whether the served
+     snapshot holds the identity. */
   const identity = card.agent_id
     ? `${card.identity} Whether Docket's snapshot holds that agent is stated on the service page.`
     : card.identity;

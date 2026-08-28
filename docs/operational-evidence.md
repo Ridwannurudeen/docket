@@ -238,3 +238,31 @@ before and after; nginx was never reloaded.
   locked, no arm has run, and no result exists.
 - Every figure above was collected by the builder. It is consistent with the tree and the running
   process, which is the property a reader can test; it is not independent.
+
+---
+
+## Collected 2026-08-28 — four category-service ERC-8004 identities
+
+All four identities are in the BSC mainnet ERC-8004 registry
+`0x8004a169fb4a3325136eb29fa0ceb6d2e539a432` (chain ID 56). At the recorded observation,
+`ownerOf` returned `0xe55816904796341bf8535e25f6c8b647927fc946` for every identity.
+
+| Service | Agent | Mint block | Block time (UTC) | Registration transaction | Token URI |
+|---|---:|---:|---|---|---|
+| Range Doctor | 311253 | 118559596 | `2026-08-28T10:28:20Z` | `0x032a4b1921e2b2dc44f46e24461623be3802f508ba429f5acd0380de5ce688c1` | `https://docket.gudman.xyz/registrations/range-doctor.json` |
+| Grid Operator | 311255 | 118559736 | `2026-08-28T10:29:23Z` | `0x991d905b0e55093f4c55ceff0d8deed68d45af2036b08e0ba13e87cbdbde850b` | `https://docket.gudman.xyz/registrations/grid-operator.json` |
+| Yield Router | 311257 | 118559820 | `2026-08-28T10:30:01Z` | `0x3d490b9326079cabce9ee36ab64981d23da1d46a8e370b48e73382126671e9b0` | `https://docket.gudman.xyz/registrations/yield-router.json` |
+| Health Guard | 311259 | 118559871 | `2026-08-28T10:30:24Z` | `0x7f7ffd402d54d4284de6a1ecbffc8f43d07c5a8f522f6b5507d90dd9302ec531` | `https://docket.gudman.xyz/registrations/health-guard.json` |
+
+The checks read `ownerOf` and `tokenURI`, decoded the registry's `Registered` event, and read
+each mint block timestamp. Two public BSC RPC providers independently returned the same chain ID,
+owners, token URIs, and block timestamps. The normalized facts are committed in
+[`erc8004-category-identities.json`](erc8004-category-identities.json), and an offline test binds
+that evidence to the service registry and committed registration documents.
+
+### What this identity evidence does not establish
+
+An ERC-8004 identity is a registration, not an endorsement, evidence of paid stock, or evidence
+that a service produced a result. Ownership can change after the recorded observation. This
+collection is chain evidence, not proof that the newer service bindings have been deployed.
+`warden-scan` remains unbound.

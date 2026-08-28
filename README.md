@@ -20,7 +20,9 @@ The longer evidence-led route is in [Judge start here](docs/submission/judge-sta
 ## What is not true yet
 
 - No service is in paid stock, and no settlement has run.
-- None of the four category services is bound to a BSC ERC-8004 identity.
+- The four category services now have BSC ERC-8004 registrations, but registration is
+  not endorsement, evidence of paid stock, or evidence that a service produced a result;
+  `warden-scan` remains unbound.
 - V3 has one terminal but unscored family. `v3-04-warden-security` is
   `complete_unscored`: all 24 primaries are terminal (23 succeeded; one manual primary
   failed), but a named scoring seat returned no first response and substitution is
@@ -82,6 +84,14 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
   observation of the host, and it covers no later commit.
 - **C-10.** The BNB Chain main track has one $30,000 winner plus official adoption; it is
   not a shared prize pool.
+- **C-11.** Range Doctor (311253), Grid Operator (311255), Yield Router (311257), and
+  Health Guard (311259) are registered on BSC chain 56 in ERC-8004 registry
+  `0x8004a169fb4a3325136eb29fa0ceb6d2e539a432`, at mint blocks 118559596,
+  118559736, 118559820, and 118559871 respectively. At the 2026-08-28 observation,
+  `ownerOf` returned `0xe55816904796341bf8535e25f6c8b647927fc946` for all four and each
+  `tokenURI` named that service's published registration document. These registrations
+  are not endorsements, evidence of paid stock, or evidence that a service produced a
+  result; `warden-scan` remains unbound.
 
 The table records where evidence is missing instead of substituting a number or a
 transaction that does not exist.
@@ -90,10 +100,10 @@ transaction that does not exist.
 
 | Service | Category | Stock state | On-chain identity | What runs now |
 |---|---|---|---|---|
-| Range Doctor | Rebalancing | Candidate | None | Read-only PancakeSwap v3 diagnosis |
-| Grid Operator | Grid trading | Preview | None | Deterministic plan and transaction preview |
-| Yield Router | Yield optimisation | Preview | None | Bounded PancakeSwap pool comparison and optional action draft |
-| Health Guard | Health factor | Preview | None | Venus position read and conservative action draft |
+| Range Doctor | Rebalancing | Candidate | BSC ERC-8004 agent 311253 | Read-only PancakeSwap v3 diagnosis |
+| Grid Operator | Grid trading | Preview | BSC ERC-8004 agent 311255 | Deterministic plan and transaction preview |
+| Yield Router | Yield optimisation | Preview | BSC ERC-8004 agent 311257 | Bounded PancakeSwap pool comparison and optional action draft |
+| Health Guard | Health factor | Preview | BSC ERC-8004 agent 311259 | Venus position read and conservative action draft |
 | SOLVENT | None | Research | BSC ERC-8004 agent 136384 | Last published historical signal |
 | Warden | None | Beta | None | Upstream payload scan |
 

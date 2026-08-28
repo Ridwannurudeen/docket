@@ -311,11 +311,14 @@ def test_a_service_with_no_identity_says_so_instead_of_leaving_it_blank(client):
 
 
 def test_a_bound_identity_outside_the_served_snapshot_says_where_it_is_not(client):
-    """The one identity Docket's stock has is not in the snapshot Docket serves. Offering
+    """This fixture's bound identity is not in the snapshot Docket serves. Offering
     a /agents link to it would be a dead end; saying nothing would read as unbound."""
     body = client.get("/services/solvent-signal").json()
     assert body["agent_id"] == SOLVENT_AGENT_ID
     assert SOLVENT_AGENT_ID in body["identity"]
+    assert "not an endorsement" in body["identity"].lower()
+    assert "evidence of paid stock" in body["identity"].lower()
+    assert "produced a result" in body["identity"].lower()
     assert body["agent_path"] is None
     note = body["identity_note"].lower()
     assert "not in" in note and "snapshot" in note
@@ -482,14 +485,15 @@ def test_llms_txt_does_not_describe_an_inventory_docket_no_longer_has(client):
 
 def test_llms_txt_does_not_describe_an_identity_inventory_docket_no_longer_has(client):
     """The same rot as the stocked-shelf count, four paragraphs further down, and this one
-    had no guard: it still said three of four after two services were added, when five of
-    six carry no on-chain identity. A count that is derivable from the registry should be
+    had no guard: it once said five of six were unbound after four identities were minted.
+    A count that is derivable from the registry should be
     checked against it rather than reviewed."""
     body = " ".join(client.get("/llms.txt").text.lower().split())
     words = {0: "none", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
     unbound = sum(1 for record in SERVICES.values() if record.agent_id is None)
+    verb = "is" if unbound == 1 else "are"
     assert (
-        f"{words[unbound]} of the {words[len(SERVICES)]} services are in this state"
+        f"{words[unbound]} of the {words[len(SERVICES)]} services {verb} in this state"
         in body
     )
 

@@ -293,6 +293,14 @@ GET /registrations/{service_id}.json
     application/json so the public URI hashes to the same bytes registration preflight
     checked. Any other id returns 404 `registration_not_found` in the standard error shape.
 
+    On BSC mainnet, these services are bound respectively to agents 311253, 311255,
+    311257 and 311259 in registry 0x8004a169fb4a3325136eb29fa0ceb6d2e539a432.
+    They were minted on 2026-08-28 UTC at blocks 118559596, 118559736, 118559820 and
+    118559871, and all four had owner 0xe55816904796341bf8535e25f6c8b647927fc946
+    when recorded. Each token URI names its matching published registration document.
+    Registration is not endorsement, evidence of paid stock, or evidence that a service
+    produced a result. warden-scan remains unbound.
+
     curl -s "$DOCKET/registrations/range-doctor.json"
 
 GET /hire
@@ -795,7 +803,8 @@ The identity cross-link has three states and says which one it is, because "no l
 
   agent_id null
       No ERC-8004 identity has been registered for this service at all. agent_path is
-      null and identity_note says so. Five of the six services are in this state.
+      null and identity_note says so. One of the six services is in this state:
+      warden-scan.
 
   agent_id set, agent_path set
       The bound identity is in the snapshot Docket is serving; open agent_path for its
@@ -803,8 +812,9 @@ The identity cross-link has three states and says which one it is, because "no l
 
   agent_id set, agent_path null
       The identity is registered on chain and is NOT in the snapshot Docket serves —
-      which is the live case, because the default sweep covers only the agents carrying
-      at least one feedback record. The binding is real; Docket's index does not hold it.
+      the case for the four category identities above because the default sweep covers
+      only agents carrying at least one feedback record. The binding is real; Docket's
+      index does not hold it.
       Do not report this as an unregistered service, and do not report it as one Docket
       has observations for.
 
