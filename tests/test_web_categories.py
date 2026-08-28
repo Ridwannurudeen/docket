@@ -509,8 +509,8 @@ def test_the_v1_report_points_at_v2_and_says_which_one_answers_the_sponsor(clien
     """
     v1 = _read("advantage.html")
     assert 'href="/advantage/v2"' in v1, "the v1 report does not link the v2 report"
-    assert "agent-versus-computed-null armour with no human arm" in v1, (
-        "v1 links v2 without saying that v1 is the one with the human arm"
+    assert "agent-versus-computed-null armour with no manual arm" in v1, (
+        "v1 links v2 without saying that v1 is the one with the manual arm"
     )
     # And it has to survive being served, not merely sit in the file.
     served = client.get("/advantage").text
@@ -520,7 +520,7 @@ def test_the_v1_report_points_at_v2_and_says_which_one_answers_the_sponsor(clien
 def test_each_report_body_links_the_other_two_and_keeps_all_three_additive(client):
     roles = (
         "original paired eligibility artifact at n=1",
-        "agent-versus-computed-null armour with no human arm",
+        "agent-versus-computed-null armour with no manual arm",
         "pre-registered paired evaluation scored by two prompt-blinded model seats run by one operator",
     )
     pages = {

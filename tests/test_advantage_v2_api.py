@@ -680,7 +680,7 @@ def test_the_page_keeps_v1_as_the_prior_version_and_links_the_additive_v3(page, 
     assert 'href="/advantage/v3"' in v1_page, "v1 has to be able to send a reader to v3"
     # The link states which report holds the human arm, so neither reads as superseding
     # the other — v1 is the paired agent-versus-person report, v2 is agent-versus-null.
-    assert "agent-versus-computed-null armour with no human arm" in v1_page
+    assert "agent-versus-computed-null armour with no manual arm" in v1_page
 
 
 def test_v1_json_keeps_its_exact_shape(client):

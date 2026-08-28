@@ -1,12 +1,20 @@
 """Server-rendered initial states for the judge-facing data pages."""
 
 import html
+from datetime import datetime, timezone
 
 from ..marketplace.models import ServiceRecord
 
 
 def _esc(value) -> str:
     return html.escape(str(value))
+
+
+def _display_date(value) -> str:
+    if not value or "T" not in str(value):
+        return str(value or "—")
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
 def service_initial(record: ServiceRecord) -> str:
@@ -81,7 +89,7 @@ def _pancake_record(history: dict) -> str:
         diagnosis = position.get("diagnosis") or {}
         rows.append(
             "<tr>"
-            f"<td>{_esc(line.get('decided_at') or line.get('observed_at') or '—')}</td>"
+            f"<td>{_esc(_display_date(line.get('decided_at') or line.get('observed_at')))}</td>"
             f"<td>{_esc(line.get('kind') or 'observation')}</td>"
             f"<td>{_esc(line.get('decision') or diagnosis.get('decision') or line.get('error') or 'No decision sentence recorded.')}</td>"
             "</tr>"
@@ -163,7 +171,12 @@ def stats_page(shell: str, stats) -> str:
     )
     rows = (
         ("Snapshot", coverage.snapshot_id),
-        ("Captured", coverage.captured_at or "not recorded"),
+        (
+            "Captured",
+            _display_date(coverage.captured_at)
+            if coverage.captured_at
+            else "not recorded",
+        ),
         ("Agents sampled", f"{coverage.sampled:,} of {coverage.expected:,}"),
         ("Snapshot complete", "yes" if coverage.complete else "no"),
         ("Registry scale measured", registry_total),

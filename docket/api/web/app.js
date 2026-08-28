@@ -205,6 +205,17 @@ export function relativeTime(iso) {
   return `${seconds} seconds ${ahead ? "from now" : "ago"}`;
 }
 
+export function displayTimestamp(value) {
+  if (!value) return DASH;
+  if (!String(value).includes("T")) return String(value);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed
+    .toISOString()
+    .replace("T", " ")
+    .replace(/\.\d{3}Z$/, " UTC");
+}
+
 /** Map the closed outcome vocabulary to what happened, never to what it implies. */
 export function outcomeLabel(outcome) {
   if (outcome && Object.prototype.hasOwnProperty.call(OUTCOMES, outcome)) {
@@ -334,8 +345,7 @@ function summarise(text, limit = 260) {
 }
 
 function metricLines(metrics) {
-  if (!metrics.length)
-    return `<p class="metric-note">No run recorded yet.</p>`;
+  if (!metrics.length) return `<p class="metric-note">No run recorded yet.</p>`;
   /* `display` is the figure with its denominator already inside the string. The page
      never touches the numerator on its own, so no template here can print a share
      stripped of the population it was measured against. */
@@ -519,12 +529,10 @@ function activationForm(record) {
         <div class="advanced-fields">${advanced.map(fieldMarkup).join("")}</div>
       </details>`
     : "";
-  const hasWorkedExample = fields.some(
-    ([, field]) => Boolean(field.example_note),
+  const hasWorkedExample = fields.some(([, field]) =>
+    Boolean(field.example_note),
   );
-  const runLabel = record.paid_stock
-    ? "Run a free preview"
-    : "Run it free";
+  const runLabel = record.paid_stock ? "Run a free preview" : "Run it free";
   const availability = record.paid_stock
     ? `<p class="section-note">This service has passed all four paid-stock gates. Agents can submit its exact x402
        authorization to <span class="mono">${escapeHTML(record.hire_path)}</span>; this page
@@ -833,8 +841,8 @@ function presentWardenScan(result, _receipt, _record) {
       ${
         rows
           ? `<p class="status-key">What it matched, and where</p>
-             <table><thead><tr><th>Class</th><th>Match</th><th>Source</th><th>Confidence</th></tr></thead>
-             <tbody>${rows}</tbody></table>`
+             <div class="table-wrap"><table><caption>Recorded scanner detections for this run.</caption><thead><tr><th scope="col">Class</th><th scope="col">Match</th><th scope="col">Source</th><th scope="col">Confidence</th></tr></thead>
+             <tbody>${rows}</tbody></table></div>`
           : `<p class="dim">No individual detection was returned. An empty detection list with
                an ALLOW verdict means nothing matched — it does not mean the payload is safe.</p>`
       }
@@ -885,8 +893,8 @@ function presentYieldRouter(result, _receipt, _record) {
       ${
         rows
           ? `<p class="status-key">The eligible set, by the source's own order</p>
-             <table><thead><tr><th>Pair</th><th>Fee tier</th><th>Net APR</th><th>Gross APR</th></tr></thead>
-             <tbody>${rows}</tbody></table>`
+             <div class="table-wrap"><table><caption>Eligible pools returned for this run.</caption><thead><tr><th scope="col">Pair</th><th scope="col">Fee tier</th><th scope="col">Net APR</th><th scope="col">Gross APR</th></tr></thead>
+             <tbody>${rows}</tbody></table></div>`
           : ""
       }
       <p class="dim">Net is the fee less the protocol's own reported cut — the part a liquidity
@@ -927,7 +935,7 @@ function presentGridOperator(result, _receipt, _record) {
       ${
         rows
           ? `<p class="status-key">The levels this plan would place, if something could place them</p>
-             <table><thead><tr><th>#</th><th>Price</th><th>Side</th></tr></thead><tbody>${rows}</tbody></table>`
+             <div class="table-wrap"><table><caption>Grid levels returned for this preview.</caption><thead><tr><th scope="col">#</th><th scope="col">Price</th><th scope="col">Side</th></tr></thead><tbody>${rows}</tbody></table></div>`
           : ""
       }
       <p class="dim">Prices are integers in the pair's own base units, not decimals — they are
@@ -1325,10 +1333,7 @@ function wireActivation(record) {
         ${escapeHTML(fmtInt(record.typical_seconds))} seconds, and this is one attempt.</p>
       </div>`;
     try {
-      paintOutcome(
-        record,
-        await postJSON(record.hire_path, body),
-      );
+      paintOutcome(record, await postJSON(record.hire_path, body));
     } catch (err) {
       paintRunFailure(outcome, err);
     } finally {
@@ -1465,10 +1470,7 @@ function paintStats(stats) {
     stats.registry_total !== null && cov.population === "min_feedbacks>=1"
       ? `${fmtInt(cov.sampled)} of ${fmtInt(stats.registry_total)} BSC agents — the ones carrying at least one feedback record`
       : `of ${fmtInt(cov.expected)} the registry said to expect, ${fmtInt(cov.dropped)} dropped`;
-  fill(
-    "sampled-note",
-    sampledPopulation,
-  );
+  fill("sampled-note", sampledPopulation);
 
   fill("with-feedback", fmtInt(stats.with_feedback));
   fill(
@@ -1527,7 +1529,7 @@ function comparisonRow(row) {
   const saving = measured.available
     ? `<strong>${escapeHTML(seconds(measured.seconds_saved))}</strong> faster
        <span class="metric-note">(agent ${escapeHTML(seconds(measured.agent_seconds))},
-       by hand ${escapeHTML(seconds(measured.manual_seconds))}, n=${escapeHTML(
+       manual arm ${escapeHTML(seconds(measured.manual_seconds))}, n=${escapeHTML(
          String(measured.sample_size),
        )})</span><br><span class="metric-note">${escapeHTML(measured.basis)}</span>`
     : `<span class="metric-note">${escapeHTML(measured.reason || "not measured")}</span>`;
@@ -1539,7 +1541,7 @@ function comparisonRow(row) {
         row.job,
       )}</span></th>
       <td>${row.paid_stock ? `<span class="num">${escapeHTML(row.price_display)}</span>` : "Free"}</td>
-      <td class="num">${escapeHTML(String(row.typical_seconds))}s<br><span class="metric-note">${escapeHTML(row.typical_seconds_basis)}</span></td>
+      <td class="num">${escapeHTML(String(row.typical_seconds))} s<br><span class="metric-note">${escapeHTML(row.typical_seconds_basis)}</span></td>
       <td>${saving}</td>
       <td>${escapeHTML(row.freshness)}</td>
       <td>${evidence}</td>
@@ -1566,7 +1568,7 @@ function comparisonAdmission(rows) {
 }
 
 function seconds(value) {
-  return `${Number(value).toFixed(1)}s`;
+  return `${Number(value).toFixed(1)} s`;
 }
 
 async function paintCompare() {
@@ -1580,11 +1582,12 @@ async function paintCompare() {
     return;
   }
   target.innerHTML = `<div class="table-wrap"><table>
+      <caption>Every Docket service, with the same offer, timing, paired measurement, freshness, and evidence columns.</caption>
       <thead><tr>
         <th scope="col">Service</th>
         <th scope="col">Run</th>
         <th scope="col">Declared time</th>
-        <th scope="col">Measured against a person</th>
+        <th scope="col">Measured against a manual arm</th>
         <th scope="col">Freshness</th>
         <th scope="col">Evidence</th>
       </tr></thead>
@@ -1613,10 +1616,7 @@ async function paintPancakeImpact() {
     (item) => item.notional_usd === shift.notional_usd,
   );
   const reversals = impact.ranking_reversals;
-  const notional =
-    dollars.notional_usd % 1000 === 0
-      ? `$${fmtInt(dollars.notional_usd / 1000)}k`
-      : usd(dollars.notional_usd);
+  const notional = `$${fmtInt(dollars.notional_usd)}`;
   target.innerHTML = `<div class="panel impact-panel">
       <p class="impact-value"><strong>${escapeHTML(usd(dollars.median_annual_overstatement_usd))} median annual overstatement at ${escapeHTML(notional)} notional (n=${escapeHTML(fmtInt(dollars.n_pools))}) and payback arriving a median ${escapeHTML(Number(shift.median_days_later_than_gross_implies).toFixed(2))} days later than gross implies.</strong></p>
       <p>Ranking reversals were <strong class="num">${escapeHTML(fmtInt(reversals.numerator))}/${escapeHTML(fmtInt(reversals.denominator))}</strong>; the corresponding share was ${escapeHTML(pct(reversals.value))}.</p>
@@ -1922,13 +1922,15 @@ async function initBrowse() {
 /* ---------------------------------------------------------- Pancake record */
 
 function rangeLabel(status) {
-  return {
-    in_range: "in range",
-    out_of_range_below: "below range",
-    out_of_range_above: "above range",
-    closed: "closed",
-    unknown_pool: "range unavailable",
-  }[status] || "range unavailable";
+  return (
+    {
+      in_range: "in range",
+      out_of_range_below: "below range",
+      out_of_range_above: "above range",
+      closed: "closed",
+      unknown_pool: "range unavailable",
+    }[status] || "range unavailable"
+  );
 }
 
 function recordReference(line) {
@@ -1974,7 +1976,7 @@ function recordRow(line) {
     line.error ||
     "No position decision was recorded on this observation.";
   return `<tr>
-      <td>${escapeHTML(line.observed_at || DASH)}</td>
+      <td>${escapeHTML(displayTimestamp(line.observed_at))}</td>
       <td class="num mono">${escapeHTML(facts.bsc_block ?? (report.observation || {}).bsc_block ?? DASH)}</td>
       <td>${escapeHTML(decision)}</td>
       <td>${escapeHTML(rangeLabel(diagnosis.status))}</td>
@@ -2042,9 +2044,12 @@ export function paintPancakeLive(record, answer) {
   const conditional = diagnosis.conditional_actions || {};
   const headline = result.pancake_headline || {};
   const decision =
-    diagnosis.decision || result.decision || "No position decision was returned.";
+    diagnosis.decision ||
+    result.decision ||
+    "No position decision was returned.";
 
-  region("pancake-decision").innerHTML = `<p class="decision-sentence">${escapeHTML(decision)}</p>
+  region("pancake-decision").innerHTML =
+    `<p class="decision-sentence">${escapeHTML(decision)}</p>
     <dl class="decision-facts">
       <div><dt>Position</dt><dd class="mono">${escapeHTML(facts.position_id ?? DASH)}</dd></div>
       <div><dt>Range state</dt><dd>${escapeHTML(rangeLabel(diagnosis.status))}</dd></div>
@@ -2052,7 +2057,8 @@ export function paintPancakeLive(record, answer) {
       <div><dt>Observed</dt><dd>${escapeHTML(facts.observation_time || (result.observation || {}).observation_time || DASH)}</dd></div>
     </dl>`;
 
-  const ratesAvailable = economics.gross_apr !== null && economics.gross_apr !== undefined;
+  const ratesAvailable =
+    economics.gross_apr !== null && economics.gross_apr !== undefined;
   const rates = ratesAvailable
     ? `<dl class="deflist">
         <dt>Gross pool APR</dt><dd class="num">${escapeHTML(pct(economics.gross_apr))}</dd>
@@ -2089,10 +2095,11 @@ export function paintPancakeDecisionImpact(report) {
   const impact = report.decision_impact || {};
   const payback = impact.break_even_shift || {};
   const reversal = impact.ranking_reversals || {};
-  const notionals = ((impact.dollars_at_notionals || {}).notionals || []);
-  const fixed = notionals.find(
-    (item) => item.notional_usd === payback.notional_usd,
-  ) || notionals[0] || {};
+  const notionals = (impact.dollars_at_notionals || {}).notionals || [];
+  const fixed =
+    notionals.find((item) => item.notional_usd === payback.notional_usd) ||
+    notionals[0] ||
+    {};
   region("pancake-impact").innerHTML = `<div class="impact-grid">
       <article class="impact-stat">
         <p class="metric-label">Annual overstatement</p>
@@ -2111,7 +2118,7 @@ export function paintPancakeDecisionImpact(report) {
       </article>
     </div>
     <div class="notice">
-      <p><strong>${escapeHTML(impact.registration_state || "registration state unavailable")}</strong> — ${escapeHTML(impact.registration_note || "No registration note was returned.")}</p>
+      <p><strong>${escapeHTML((impact.registration_state || "registration state unavailable").replaceAll("_", "-"))}</strong> — ${escapeHTML(impact.registration_note || "No registration note was returned.")}</p>
       <p class="dim">${escapeHTML(reversal.what_this_measures || "The response supplied no further reversal method.")}</p>
       <p class="dim">${escapeHTML(payback.what_it_does_not_measure || "The response supplied no further payback limitation.")}</p>
     </div>`;
@@ -2120,9 +2127,10 @@ export function paintPancakeDecisionImpact(report) {
 function paintPancakeContext(orientation) {
   const context = orientation.pancake_context || {};
   const meta = context.subgraph_meta || {};
-  region("pancake-context").innerHTML = `<p>${escapeHTML(context.first_party_skills || "First-party skill context is unavailable.")}</p>
+  region("pancake-context").innerHTML =
+    `<p>${escapeHTML(context.first_party_skills || "First-party skill context is unavailable.")}</p>
     <p>
-      On ${escapeHTML(meta.query_observed_at || DASH)}, the read-only PancakeSwap BSC V3
+      On ${escapeHTML(displayTimestamp(meta.query_observed_at))}, the read-only PancakeSwap BSC V3
       subgraph query returned an indexed time of ${escapeHTML(meta.indexed_at || DASH)} and
       <code>hasIndexingErrors: ${escapeHTML(String(meta.has_indexing_errors))}</code>.
     </p>
@@ -2155,7 +2163,11 @@ async function initPancake() {
   }
 
   if (recordResult.status !== "fulfilled") {
-    for (const name of ["pancake-decision", "pancake-economics", "pancake-actions"]) {
+    for (const name of [
+      "pancake-decision",
+      "pancake-economics",
+      "pancake-actions",
+    ]) {
       renderError(region(name), recordResult.reason);
     }
     return;
@@ -2165,7 +2177,11 @@ async function initPancake() {
     const answer = await postJSON(record.hire_path, exampleBody(record));
     paintPancakeLive(record, answer);
   } catch (err) {
-    for (const name of ["pancake-decision", "pancake-economics", "pancake-actions"]) {
+    for (const name of [
+      "pancake-decision",
+      "pancake-economics",
+      "pancake-actions",
+    ]) {
       renderError(region(name), err);
     }
   }
@@ -2209,10 +2225,12 @@ async function workedExample(currentId) {
 }
 
 function observationRows(detail) {
-  return detail.latest_on_demand_observation || detail.observations
-    .map((obs) => {
-      const outcome = outcomeLabel(obs.outcome);
-      return `<tr>
+  return (
+    detail.latest_on_demand_observation ||
+    detail.observations
+      .map((obs) => {
+        const outcome = outcomeLabel(obs.outcome);
+        return `<tr>
           <td class="url mono">${escapeHTML(obs.url)}</td>
           <td>${escapeHTML(obs.kind)}</td>
           <td><span class="outcome ${outcome.className}">${escapeHTML(outcome.label)}</span></td>
@@ -2221,8 +2239,9 @@ function observationRows(detail) {
           <td title="${escapeHTML(obs.observed_at || "")}">${escapeHTML(relativeTime(obs.observed_at))}</td>
           <td>${obs.detail ? escapeHTML(obs.detail) : `<span class="dim">${DASH}</span>`}</td>
         </tr>`;
-    })
-    .join("");
+      })
+      .join("")
+  );
 }
 
 function observationSection(detail) {
@@ -2268,10 +2287,13 @@ function lastAgentProbe(detail) {
     return detail.latest_on_demand_observation;
   }
   return detail.observations
-    .filter((observation) => observation.kind === "a2a" || observation.kind === "mcp")
+    .filter(
+      (observation) => observation.kind === "a2a" || observation.kind === "mcp",
+    )
     .reduce((latest, observation) => {
       if (!latest) return observation;
-      return String(observation.observed_at || "") >= String(latest.observed_at || "")
+      return String(observation.observed_at || "") >=
+        String(latest.observed_at || "")
         ? observation
         : latest;
     }, null);
@@ -2292,13 +2314,15 @@ export function agentActionBlock(detail, associatedServices) {
   const endpoints = actionEndpoints.length
     ? actionEndpoints
         .map((url) => {
-          const observation = detail.observations.find((row) => row.url === url);
+          const observation = detail.observations.find(
+            (row) => row.url === url,
+          );
           const outcome = outcomeLabel(observation && observation.outcome);
           const recorded = observation
             ? `<p>
                 <span class="outcome ${outcome.className}">${escapeHTML(outcome.label)}</span>
                 ${observation.status_code === null ? "No HTTP status was returned." : `HTTP status ${escapeHTML(observation.status_code)}.`}
-                Observed <time datetime="${escapeHTML(observation.observed_at || "")}">${escapeHTML(observation.observed_at || DASH)}</time>.
+                Observed <time datetime="${escapeHTML(observation.observed_at || "")}">${escapeHTML(displayTimestamp(observation.observed_at))}</time>.
               </p>
               <p class="dim">${escapeHTML(outcome.means)}</p>`
             : `<p class="dim">Docket has no probe outcome for this declared URL in the served snapshot.</p>`;
@@ -2323,7 +2347,7 @@ export function agentActionBlock(detail, associatedServices) {
           ${onDemand.elapsed_ms === null ? "" : `Elapsed ${escapeHTML(fmtInt(onDemand.elapsed_ms))} ms.`}
         </p>
         <p>
-          Re-probed on request at <time datetime="${escapeHTML(onDemand.observed_at || "")}">${escapeHTML(onDemand.observed_at || DASH)}</time>;
+          Re-probed on request at <time datetime="${escapeHTML(onDemand.observed_at || "")}">${escapeHTML(displayTimestamp(onDemand.observed_at))}</time>;
           not part of the snapshot's coverage figures.
         </p>
         <p class="dim">${escapeHTML(onDemandResult.means)}${onDemand.detail ? ` Detail: ${escapeHTML(onDemand.detail)}.` : ""}</p>
@@ -2387,7 +2411,7 @@ function bindAgentActions(detail) {
           <p><strong>Latest on-demand re-probe:</strong>
             <span class="outcome ${outcome.className}">${escapeHTML(outcome.label)}</span>
             ${observation.status_code === null || observation.status_code === undefined ? "No HTTP status was returned." : `HTTP status ${escapeHTML(observation.status_code)}.`}
-            Recorded <time datetime="${escapeHTML(observation.observed_at || "")}">${escapeHTML(observation.observed_at || DASH)}</time>.
+            Recorded <time datetime="${escapeHTML(observation.observed_at || "")}">${escapeHTML(displayTimestamp(observation.observed_at))}</time>.
           </p>
           <p>${escapeHTML(response.coverage_note || "This requested probe is not part of the snapshot's coverage figures.")}</p>
           <p class="dim">${escapeHTML(outcome.means)}</p>

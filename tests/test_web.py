@@ -7,7 +7,14 @@ from fastapi.testclient import TestClient
 from docket.api import create_app
 from docket.store import Store
 
-BANNED = ("trusted", "verified agent", "recommended", "trust score", "safety rating", "endorsed")
+BANNED = (
+    "trusted",
+    "verified agent",
+    "recommended",
+    "trust score",
+    "safety rating",
+    "endorsed",
+)
 WEB_DIR = Path(__file__).resolve().parents[1] / "docket" / "api" / "web"
 
 
@@ -52,7 +59,10 @@ def test_default_accept_keeps_json_so_the_api_contract_holds(client):
 
 
 def test_static_assets_are_served(client):
-    for path, ctype in (("/static/style.css", "text/css"), ("/static/app.js", "javascript")):
+    for path, ctype in (
+        ("/static/style.css", "text/css"),
+        ("/static/app.js", "javascript"),
+    ):
         resp = client.get(path)
         assert resp.status_code == 200, path
         assert ctype in resp.headers["content-type"]
@@ -90,7 +100,9 @@ def test_ui_uses_no_verdict_language():
         text = f.read_text(encoding="utf-8").lower()
         for word in BANNED:
             pattern = rf"\b{re.escape(word)}\b"
-            assert not re.search(pattern, text), f"{f.name} contains verdict language: {word!r}"
+            assert not re.search(pattern, text), (
+                f"{f.name} contains verdict language: {word!r}"
+            )
 
 
 def test_pages_do_not_present_the_name_key_as_minter_provenance():
@@ -109,7 +121,9 @@ def test_landing_states_the_sampled_figure_is_a_filtered_slice():
     """ "sampled 506 of 506, complete" is true and reads as a census of BNB Smart Chain. The
     landing has to say which query produced the 506 and how large the registry it came from is."""
     index = (WEB_DIR / "index.html").read_text(encoding="utf-8")
-    assert 'data-region="slice"' in index, "the landing has no region for the disclosure"
+    assert 'data-region="slice"' in index, (
+        "the landing has no region for the disclosure"
+    )
     app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
     assert "paintSlice" in app_js
     # Both halves of the sentence are read from the API, never authored into the page.
@@ -203,7 +217,10 @@ def test_coverage_uses_days_and_treats_a_week_old_snapshot_as_stale():
     assert "ageSeconds / 86400" in js
     assert "ageDays >= 7" in js
     assert '"Stale snapshot"' in js
-    assert 'data-state="${incomplete || stale || ageUnavailable ? "partial" : "complete"}"' in js
+    assert (
+        'data-state="${incomplete || stale || ageUnavailable ? "partial" : "complete"}"'
+        in js
+    )
     assert "This snapshot is stale" in js
 
 
@@ -225,7 +242,7 @@ def test_json_footer_links_are_labelled_as_json():
         footer = re.search(r'<footer class="site-footer">(.*?)</footer>', text, re.S)
         assert footer, page.name
         for href in re.findall(r'href="(/[^"]+)"', footer.group(1)):
-            if href in {"/llms.txt", "/skill.md"}:
+            if href in {"/llms.txt", "/skill.md", "/stats"}:
                 continue
             if href.endswith(".json") or href in {
                 "/agents",
@@ -233,7 +250,6 @@ def test_json_footer_links_are_labelled_as_json():
                 "/health",
                 "/hire",
                 "/services",
-                "/stats",
             }:
                 link = re.search(
                     rf'<a href="{re.escape(href)}">(.*?)</a>', footer.group(1)

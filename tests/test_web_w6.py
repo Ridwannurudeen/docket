@@ -610,7 +610,7 @@ paintPancakeDecisionImpact({ decision_impact: {
   },
 } });
 const impact = regions.get("pancake-impact").innerHTML;
-for (const text of ["$126.78", "across 22 eligible pools", "8.30 days", "0/231", "post_hoc"]) {
+for (const text of ["$126.78", "across 22 eligible pools", "8.30 days", "0/231", "post-hoc"]) {
   if (!impact.includes(text)) throw new Error(`impact omitted ${text}`);
 }
 """,

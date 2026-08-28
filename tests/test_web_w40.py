@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 from fastapi.testclient import TestClient
 
@@ -59,3 +60,39 @@ def test_stats_has_a_server_rendered_human_surface_without_moving_its_json(tmp_p
     assert "Registry coverage" in human.text
     assert "0 of 0 agents sampled" in human.text
     assert "One GET per declared A2A or MCP endpoint" in human.text
+
+
+def test_navigation_and_generated_evidence_use_one_presentation_vocabulary():
+    expected = (
+        ("/", "Services"),
+        ("/pancake", "PancakeSwap"),
+        ("/research", "Browse agents"),
+        ("/advantage", "Advantage report"),
+        ("/llms.txt", "API"),
+    )
+    for page in PAGES:
+        document = page.read_text(encoding="utf-8")
+        nav = re.search(r'<nav class="site-nav".*?</nav>', document, re.S).group(0)
+        links = tuple(
+            re.findall(r'<a href="([^"]+)"(?: aria-current="page")?>([^<]+)</a>', nav)
+        )
+        assert links == expected, page.name
+
+    v2_source = (
+        Path(__file__).resolve().parents[1] / "docket" / "advantage" / "v2" / "page.py"
+    ).read_text(encoding="utf-8")
+    script = (WEB / "app.js").read_text(encoding="utf-8")
+
+    assert "<h4>" not in v2_source
+    assert "Measured against a manual arm" in script
+    assert "manual arm" in script and "by hand" not in script
+    assert "toFixed(1)} s" in script
+    assert "$${fmtInt(dollars.notional_usd)}" in script
+    assert "displayTimestamp" in script
+    assert "<caption>Recorded scanner detections for this run.</caption>" in script
+    assert "<caption>Eligible pools returned for this run.</caption>" in script
+    assert "<caption>Grid levels returned for this preview.</caption>" in script
+
+    v1 = (WEB / "advantage.html").read_text(encoding="utf-8")
+    for task_id in ("01-liquidity", "02-trading", "03-security"):
+        assert f'id="{task_id}"' in v1
