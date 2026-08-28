@@ -380,10 +380,13 @@ def _experiment(experiment: dict) -> str:
         + detector_html
         + ship_gate_html
         + _headline(experiment["headline"])
-        + _provenance(experiment["registration_provenance"])
-        + _registration(spec)
         + "<h3>The falsifier, evaluated</h3>"
         + _falsifier(experiment["falsifier_result"])
+        + '<details class="evidence-details"><summary>'
+        "Inspect the registration, every run, and measurement method"
+        "</summary><div class=\"details-body\">"
+        + _provenance(experiment["registration_provenance"])
+        + _registration(spec)
         + "<h3>Every run behind those figures</h3>"
         + _runs(experiment)
         + '<div class="panel"><h4>How it was measured</h4>'
@@ -391,6 +394,7 @@ def _experiment(experiment: dict) -> str:
         + (f"<h4>What it found</h4><p>{_esc(finding)}</p>" if finding else "")
         + f'<p class="status-line"><span class="status-key">Run record cites</span>'
         f'<span class="mono">{_esc(run["spec_hash"])}</span></p></div>'
+        "</div></details>"
         "</section>"
     )
 

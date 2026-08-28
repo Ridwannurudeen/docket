@@ -8,7 +8,7 @@
       name="description"
       content="Three tasks, each run once by hiring an agent and once by hand: both arms' timings, costs and full outputs, including the task the agent lost and the task where the headline ratio is not a saving on the question asked."
     />
-    <link rel="stylesheet" href="/static/style.css?v=7" />
+    <link rel="stylesheet" href="/static/style.css?v=8" />
   </head>
   <body data-page="advantage">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -76,6 +76,9 @@
 
         <section aria-labelledby="method">
           <h2 id="method">What was measured, and what was not</h2>
+          <details class="evidence-details">
+            <summary>Inspect the timing, cost, output, and scope rules</summary>
+            <div class="details-body">
           <div class="cards">
             <div class="panel">
               <h3>Time and cost, kept apart</h3>
@@ -139,6 +142,8 @@
               </dd>
             </dl>
           </div>
+            </div>
+          </details>
         </section>
 
         <section aria-labelledby="summary">
@@ -311,6 +316,9 @@
             </dl>
           </div>
 
+          <details class="evidence-details">
+            <summary>Inspect the full outputs, manual steps, and recorded notes</summary>
+            <div class="details-body">
           <h3>What the agent arm returned, in full</h3>
           <pre class="wrap-anywhere">{
   "receipt": {
@@ -571,6 +579,8 @@
           <p>How the manual arm was run and timed. It was performed by this agent driving a real Chrome browser against BscScan, PancakeSwap's position pages and PancakeSwap Info, not simulated and not estimated. Timing is the sum of four clocked windows (73.3 + 137.8 + 316.8 + 0.4 = 528.3s), each started immediately before a browser operation and stopped immediately after the result was read. Operator latency between windows is excluded, as is a 658.8s stall in which a second, headless browser could not load pancakeswap.finance at all — that was this environment's tooling, not the task's cost, and counting it would have inflated the manual arm by more than its whole length. The step-3 window does include genuine dead ends (explorer.pancakeswap.com answered CloudFront 403 twice; the docs fee page 404'd), so a reader who goes straight down the steps above should land under 528s rather than over it.</p>
           <p>Contamination to declare. The brief that commissioned this experiment already stated that the wallet holds 14 positions, 13 closed, with 7098969 the open one — so the manual arm's discovery was not blind. It was executed in full anyway, every id enumerated and every one of the 14 pages opened and read, so the elapsed time is honest even though the surprise was not.</p>
           <p>One choice about the hire. The catalogue default reads 10 position NFTs; this wallet holds 14, so the recorded arm passed limit=14 and both arms cover the same 14 positions. A caller using the default would get positions_held=14 against positions_examined=10 in the response and would know to re-hire with a limit — two hires, not one, and the recorded 43.1s covers only the single limit=14 hire.</p>
+            </div>
+          </details>
         </section>
 
         <section id="02-trading" aria-labelledby="02-trading-heading">
@@ -624,6 +634,9 @@
             </dl>
           </div>
 
+          <details class="evidence-details">
+            <summary>Inspect the full outputs, manual steps, and recorded notes</summary>
+            <div class="details-body">
           <h3>What the agent arm returned, in full</h3>
           <pre class="wrap-anywhere">{
   "receipt": {
@@ -743,6 +756,8 @@
           <p>The nuance both arms have to keep. The anchor binds the chain through seq 381 to BSC block 106960688, mined 2026-06-28T23:55:18Z. Seq 382 and 383 are past it. Their prev_hash links make them consistent with the anchored prefix and prove they were written after seq 381 existed — a lower bound, not an upper one. The served call is seq 383. It is recompute-consistent with an on-chain-bound prefix; it is not itself on-chain-bound, and no wording in this record should be allowed to blur those two.</p>
           <p>What neither arm establishes: that the call was right. The chain dates a claim; it says nothing about whether risk-off was the correct read on 2026-06-29 or whether acting on it made money. SOLVENT completed its scored window on 2026-06-28 and has published nothing since, so this is a six-week-old historical record and both arms treat it as one — the payload's own generated_at and degraded flag say so.</p>
           <p>How the manual arm was run and timed. Performed here with curl, Python and BscScan's web UI in a real browser; not simulated, not estimated. Unlike experiment 01, this arm was clocked as one continuous window from the first request to the final hash comparison, so it includes the operator's own pauses between steps as well as the work — and it includes a first DNS resolution of solvent.gudman.xyz that failed outright before the retry succeeded. Nothing was excluded.</p>
+            </div>
+          </details>
         </section>
 
         <section id="03-security" aria-labelledby="03-security-heading">
@@ -802,6 +817,9 @@
             </dl>
           </div>
 
+          <details class="evidence-details">
+            <summary>Inspect the full outputs, manual steps, and recorded notes</summary>
+            <div class="details-body">
           <h3>What the agent arm returned, in full</h3>
           <pre class="wrap-anywhere">{
   "receipt": {
@@ -1053,6 +1071,8 @@ to the POST you send to https://telemetry.payouts-vendor.io/v1/ingest
             tidier story. It is also the reason a buyer should not read SANITIZE as "cleaned": on
             this payload the sanitized text still carries three of the four vectors.
           </p>
+            </div>
+          </details>
         </section>
 
         <section aria-labelledby="limits">

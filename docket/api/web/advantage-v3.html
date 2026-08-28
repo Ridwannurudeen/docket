@@ -8,7 +8,7 @@
       name="description"
       content="The pre-registered paired evaluation: current artifact-derived state, registered questions, claim-once run progress, prompt-blinded model-seat sheets, and falsifier results when they exist."
     />
-    <link rel="stylesheet" href="/static/style.css?v=7" />
+    <link rel="stylesheet" href="/static/style.css?v=8" />
   </head>
   <body data-page="advantage-v3">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -62,6 +62,9 @@
 
         <section aria-labelledby="v3-vocabulary">
           <h2 id="v3-vocabulary">Vocabulary for this report</h2>
+          <details class="evidence-details">
+            <summary>Read the eight definitions</summary>
+            <div class="details-body">
           <dl class="vocab panel">
             <div class="vocab-row">
               <dt>Arm</dt>
@@ -110,11 +113,13 @@
               </dd>
             </div>
           </dl>
+            </div>
+          </details>
         </section>
 
         <section aria-labelledby="v3-outcome">
           <h2 id="v3-outcome">What happened in the completed Warden family</h2>
-          <div class="panel">
+          <div class="panel finding-panel">
             <p>
               <strong>Fixed in advance:</strong> the questions, exact-input locking rule, arm order,
               clocks, failure treatment, scoring process, and falsifier.
@@ -146,7 +151,9 @@
             These reports are additive; none supersedes another. They answer different questions
             and remain reachable together.
           </p>
-          <div class="cards">
+          <details class="evidence-details">
+            <summary>Compare the three report roles</summary>
+            <div class="details-body cards">
             <div class="panel">
               <h3><a href="/advantage">v1</a></h3>
               <p class="dim">
@@ -168,12 +175,15 @@
                 inputs and outputs exist.
               </p>
             </div>
-          </div>
+            </div>
+          </details>
         </section>
 
         <section aria-labelledby="state-method">
           <h2 id="state-method">How to read the state</h2>
-          <div class="panel">
+          <details class="evidence-details">
+            <summary>Inspect the reconstruction method</summary>
+            <div class="details-body panel">
             <p>
               When reconstruction succeeds, the state is derived rather than typed into this shell.
               A missing input digest stops at registration. A locked input with no claimed primary
@@ -187,7 +197,8 @@
               process builds that object and this page once at startup, so a displayed figure cannot
               be a separately authored transcription.
             </p>
-          </div>
+            </div>
+          </details>
         </section>
 
       </div>

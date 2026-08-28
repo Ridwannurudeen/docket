@@ -1,18 +1,18 @@
-/* Docket web UI. Dark only, no build step, zero third-party requests:
+/* Docket web UI. Light neutral, no build step, zero third-party requests:
    this file is served byte-for-byte as authored. */
 
 /* ---------------------------------------------------------------- tokens */
 
 :root {
-  --bg: #0F172A;
-  --fg: #F8FAFC;
-  --muted: #272F42;
-  --border: #475569;
-  --accent: #22C55E;
-  --danger: #EF4444;
-  /* Secondary text. --muted is a surface (1.5:1 on --bg) and must never carry
-     copy; this clears 7.1:1 on --bg and 5.2:1 on --muted. */
-  --fg-dim: #94A3B8;
+  --bg: #f7f7f4;
+  --fg: #171a19;
+  --muted: #ffffff;
+  --border: #d7dad5;
+  --control-border: #858b86;
+  --accent: #176b52;
+  --danger: #b42318;
+  /* Secondary text clears WCAG AA on both the page and white surfaces. */
+  --fg-dim: #5c635f;
 
   --s-1: 4px;
   --s-2: 8px;
@@ -47,7 +47,7 @@
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
@@ -73,7 +73,9 @@ h3 {
 }
 
 h1 {
-  font-size: var(--fs-2xl);
+  max-width: 20ch;
+  font-size: clamp(2.25rem, 5vw, 3.75rem);
+  letter-spacing: -0.035em;
 }
 
 h2 {
@@ -149,8 +151,8 @@ code,
   white-space: nowrap;
 }
 
-/* Every interactive element keeps a visible ring. The accent clears 8:1 on the
-   page and 5.9:1 on a card; on an accent-filled button it would not, so those
+/* Every interactive element keeps a visible ring. The accent clears 6:1 on the
+   page and 6.4:1 on a card; on an accent-filled button it would not, so those
    switch to the foreground colour. */
 :focus-visible {
   outline: 2px solid var(--accent);
@@ -183,7 +185,7 @@ code,
 
 .wrap {
   width: 100%;
-  max-width: 1120px;
+  max-width: 1160px;
   margin: 0 auto;
   padding: 0 var(--s-4);
 }
@@ -193,7 +195,7 @@ main {
 }
 
 section {
-  padding-top: var(--s-6);
+  padding-top: var(--s-7);
 }
 
 .lede {
@@ -210,6 +212,7 @@ section {
 
 .site-header {
   border-bottom: var(--border-w) solid var(--border);
+  background: var(--muted);
 }
 
 .site-header .wrap {
@@ -260,19 +263,20 @@ section {
 }
 
 .site-nav a:hover {
-  background: var(--muted);
+  background: #f0f2ee;
   color: var(--fg);
 }
 
 .site-nav a[aria-current="page"] {
-  background: var(--muted);
+  background: #f0f2ee;
   color: var(--fg);
 }
 
 /* ----------------------------------------------------------- status line */
 
 .hero {
-  padding-top: var(--s-6);
+  padding-top: calc(var(--s-7) + var(--s-3));
+  padding-bottom: var(--s-3);
 }
 
 .status-line {
@@ -284,7 +288,7 @@ section {
   padding: var(--s-2) var(--s-3);
   border: var(--border-w) solid var(--border);
   border-radius: var(--radius);
-  background: var(--muted);
+  background: #f0f2ee;
   color: var(--fg-dim);
   font-size: var(--fs-sm);
 }
@@ -319,6 +323,10 @@ section {
   background: var(--muted);
 }
 
+.finding-panel {
+  border-top: 3px solid var(--accent);
+}
+
 .panel > :last-child {
   margin-bottom: 0;
 }
@@ -341,7 +349,7 @@ section {
 
 .panel-error {
   border-color: var(--danger);
-  background: var(--bg);
+  background: var(--muted);
 }
 
 .panel-error .error-code {
@@ -482,7 +490,7 @@ section {
   padding: var(--s-3);
   border: var(--border-w) solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg);
+  background: #f4f5f1;
 }
 
 .service + .service {
@@ -580,7 +588,7 @@ td {
 thead th {
   position: sticky;
   top: 0;
-  background: var(--muted);
+  background: #f0f2ee;
   color: var(--fg-dim);
   font-size: var(--fs-xs);
   font-weight: 600;
@@ -619,7 +627,7 @@ pre {
   padding: var(--s-3);
   border: var(--border-w) solid var(--border);
   border-radius: var(--radius);
-  background: var(--muted);
+  background: #f0f2ee;
   font-family: var(--mono);
   font-size: var(--fs-sm);
   white-space: pre-wrap;
@@ -748,9 +756,9 @@ input[type="number"],
 textarea {
   max-width: 100%;
   padding: var(--s-2) var(--s-3);
-  border: var(--border-w) solid var(--border);
+  border: var(--border-w) solid var(--control-border);
   border-radius: var(--radius);
-  background: var(--bg);
+  background: var(--muted);
   color: var(--fg);
   font: inherit;
   font-size: var(--fs-sm);
@@ -790,7 +798,7 @@ textarea {
   padding: var(--s-3);
   border: var(--border-w) solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg);
+  background: #f4f5f1;
 }
 
 .advanced-fields {
@@ -818,7 +826,7 @@ textarea {
   padding: var(--s-2) var(--s-3);
   border: var(--border-w) solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg);
+  background: var(--muted);
   color: var(--fg);
   font: inherit;
   font-size: var(--fs-sm);
@@ -848,15 +856,15 @@ textarea {
   padding: var(--s-3) var(--s-5);
   border-color: var(--accent);
   background: var(--accent);
-  color: #052E16;
+  color: #ffffff;
   font-size: var(--fs-md);
   font-weight: 600;
 }
 
 .btn-primary:hover {
-  background: #16A34A;
-  border-color: #16A34A;
-  color: #052E16;
+  background: #10523f;
+  border-color: #10523f;
+  color: #ffffff;
 }
 
 .btn-row {
@@ -869,7 +877,7 @@ textarea {
 /* ------------------------------------------------------- Pancake evidence */
 
 .pancake-page {
-  background-color: #0b1220;
+  background-color: var(--bg);
 }
 
 .pancake-hero {
@@ -891,22 +899,13 @@ textarea {
   padding: var(--s-5);
   overflow: hidden;
   border: var(--border-w) solid var(--border);
-  border-left: 5px solid var(--accent);
+  border-left: 3px solid var(--accent);
   border-radius: var(--radius-lg);
-  background: #111c2e;
+  background: var(--muted);
 }
 
 .decision-display::after {
-  position: absolute;
-  right: var(--s-4);
-  bottom: calc(-1 * var(--s-6));
-  color: rgba(34, 197, 94, 0.08);
-  content: "LP";
-  font-family: var(--mono);
-  font-size: 144px;
-  font-weight: 700;
-  line-height: 1;
-  pointer-events: none;
+  content: none;
 }
 
 .decision-display > * {
@@ -957,7 +956,7 @@ textarea {
 }
 
 .record-table .owner-decision-row td {
-  background: rgba(34, 197, 94, 0.06);
+  background: rgba(23, 107, 82, 0.06);
 }
 
 .record-link {
@@ -1004,7 +1003,50 @@ textarea {
   padding: var(--s-5);
   border: var(--border-w) solid var(--accent);
   border-radius: var(--radius-lg);
-  background: #0c2118;
+  background: #eef6f2;
+}
+
+/* ------------------------------------------------ progressive disclosure */
+
+.evidence-details {
+  margin-top: var(--s-3);
+  border-top: var(--border-w) solid var(--border);
+}
+
+.evidence-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-3) 0;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.evidence-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.evidence-details > summary::after {
+  content: "+";
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: var(--fs-lg);
+  font-weight: 400;
+}
+
+.evidence-details[open] > summary::after {
+  content: "−";
+}
+
+.evidence-details > .details-body {
+  padding: var(--s-2) 0 var(--s-4);
+}
+
+.evidence-details > .details-body > :last-child {
+  margin-bottom: 0;
 }
 
 .safety-statement > :first-child {
@@ -1136,6 +1178,12 @@ textarea {
 
   .site-header .wrap {
     align-items: flex-start;
+  }
+
+  .site-nav {
+    width: 100%;
+    max-width: 100%;
+    flex-wrap: wrap;
   }
 
   .decision-facts,

@@ -8,7 +8,7 @@
       name="description"
       content="Registered experiments with their null baselines, per-experiment registration provenance, every run behind every figure including the ones that failed, and each falsifier evaluated against what was measured."
     />
-    <link rel="stylesheet" href="/static/style.css?v=7" />
+    <link rel="stylesheet" href="/static/style.css?v=8" />
   </head>
   <body data-page="advantage-v2">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -67,9 +67,13 @@
           </p>
         </section>
 
+        <!-- v2-records -->
+
         <section aria-labelledby="prior">
           <h2 id="prior">Three additive reports; none supersedes another</h2>
-          <div class="cards">
+          <details class="evidence-details">
+            <summary>Compare the three report roles</summary>
+            <div class="details-body cards">
             <div class="panel">
               <h3>v1: the paired eligibility record</h3>
               <p class="dim">
@@ -94,12 +98,15 @@
                 execution state are separate from both reports above.
               </p>
             </div>
-          </div>
+            </div>
+          </details>
         </section>
 
         <section aria-labelledby="method">
           <h2 id="method">What was measured, and what was not</h2>
-          <div class="panel">
+          <details class="evidence-details">
+            <summary>Inspect the measurement rules and limits</summary>
+            <div class="details-body panel">
             <dl class="deflist">
               <dt>Every run is published, including the failures</dt>
               <dd>
@@ -143,10 +150,9 @@
                 sent, so they are named as missing rather than approximated.
               </dd>
             </dl>
-          </div>
+            </div>
+          </details>
         </section>
-
-        <!-- v2-records -->
       </div>
     </main>
 
