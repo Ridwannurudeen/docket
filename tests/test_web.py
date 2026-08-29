@@ -68,6 +68,14 @@ def test_static_assets_are_served(client):
         assert ctype in resp.headers["content-type"]
 
 
+def test_favicon_is_packaged_and_served(client):
+    response = client.get("/favicon.ico")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert b"<svg" in response.content
+
+
 def test_snapshot_age_is_rendered_as_an_exact_server_value():
     """Relative prose may remain, but operational freshness must also be inspectable
     without trusting the browser clock or deriving seconds from a timestamp."""
@@ -82,6 +90,7 @@ def test_no_external_requests_anywhere_in_the_ui():
     """Zero third-party surface: no CDN, no web fonts, no remote anything."""
     for f in WEB_DIR.glob("*"):
         text = f.read_text(encoding="utf-8")
+        text = text.replace('xmlns="http://www.w3.org/2000/svg"', "")
         assert "http://" not in text, f"{f.name} references http://"
         for marker in ("https://fonts.", "cdn.", "unpkg", "jsdelivr", "googleapis"):
             assert marker not in text, f"{f.name} references {marker}"
@@ -132,7 +141,7 @@ def test_the_case_file_does_not_misstate_a_registry_slice_as_a_census():
     index = (WEB_DIR / "index.html").read_text(encoding="utf-8").lower()
     app_js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
     assert "registry census" not in index
-    assert "population || \"unspecified\"" in app_js
+    assert 'population || "unspecified"' in app_js
 
 
 def test_no_registry_figure_is_typed_into_a_page():
@@ -246,7 +255,8 @@ def test_coverage_uses_days_and_treats_a_week_old_snapshot_as_stale():
 def test_registry_snapshot_status_names_the_filter_from_the_api():
     js = (WEB_DIR / "app.js").read_text(encoding="utf-8")
     coverage = js.split("function paintCoverage", 1)[1].split(
-        "/* -------------------------------------------------------------- marketplace */", 1
+        "/* -------------------------------------------------------------- marketplace */",
+        1,
     )[0]
 
     assert "populationLabel(coverage)" in coverage

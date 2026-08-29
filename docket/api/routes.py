@@ -2070,5 +2070,9 @@ def create_app(
             "receipt": build_receipt(service.id, payload, result, payment=payment),
         }
 
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> FileResponse:
+        return FileResponse(WEB_DIR / "favicon.svg", media_type="image/svg+xml")
+
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
     return app
