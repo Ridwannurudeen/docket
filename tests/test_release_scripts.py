@@ -438,7 +438,10 @@ def test_release_refuses_the_range_activation_window_before_stopping_units(tmp_p
     assert (root / "opt" / "docket" / "old-release.txt").is_file()
 
 
-def test_release_refuses_the_yield_v6_capture_window_before_stopping_units(tmp_path):
+@pytest.mark.parametrize("now_utc", ["2026-09-03T12:01:00Z", "2026-09-03T12:02:30Z"])
+def test_release_refuses_the_yield_v6_capture_window_before_stopping_units(
+    tmp_path, now_utc
+):
     root = tmp_path / "root"
     _prepare_live_release(root)
     fake_bin = _fake_bin(tmp_path)
@@ -454,7 +457,7 @@ def test_release_refuses_the_yield_v6_capture_window_before_stopping_units(tmp_p
         environment=_environment(
             root,
             fake_bin,
-            DOCKET_RELEASE_NOW_UTC="2026-09-03T12:01:00Z",
+            DOCKET_RELEASE_NOW_UTC=now_utc,
         ),
     )
 

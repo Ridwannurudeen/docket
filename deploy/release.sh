@@ -432,8 +432,8 @@ refuse_yield_v6_capture_window() {
     [[ "${now_utc}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || \
         fatal 'release UTC clock must use YYYY-MM-DDTHH:MM:SSZ'
     if [[ "${now_utc}" > '2026-09-03T11:49:54Z' && \
-        "${now_utc}" < '2026-09-03T12:02:06Z' ]]; then
-        fatal 'Yield v3-06 capture activation window is closed to releases through 2026-09-03T12:02:05Z'
+        "${now_utc}" < '2026-09-03T12:03:06Z' ]]; then
+        fatal 'Yield v3-06 capture activation window is closed to releases through 2026-09-03T12:03:05Z'
     fi
 }
 
