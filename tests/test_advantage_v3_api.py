@@ -62,7 +62,10 @@ def test_the_current_surface_shows_the_complete_unscored_family_and_never_says_p
     assert report.REGISTERED_WAITING in rendered.text
     assert report.COMPLETE_UNSCORED in rendered.text
     assert report.SUPERSEDED_BEFORE_INPUT_LOCK in rendered.text
-    assert "if reconstruction fails, both surfaces report the error explicitly" in rendered.text
+    assert (
+        "if reconstruction fails, both surfaces report the error explicitly"
+        in rendered.text
+    )
     assert "<title>Agent advantage report v3 — Docket</title>" in rendered.text
     assert (
         "Every scheduled primary has a terminal ledger event; required scoring artifacts "
@@ -75,7 +78,7 @@ def test_the_current_surface_shows_the_complete_unscored_family_and_never_says_p
     family_page = client.get("/advantage/v3/v3-04-warden-security").text
     assert "<title>v3-04-warden-security — Docket</title>" in family_page
     assert "1 failed; 23 succeeded" in family_page
-    assert '{&quot;failed&quot;: 1, &quot;succeeded&quot;: 23}' not in family_page
+    assert "{&quot;failed&quot;: 1, &quot;succeeded&quot;: 23}" not in family_page
     assert "1 failed" in client.get("/advantage/v3/v3-02-yield-router").text
 
 
@@ -84,7 +87,12 @@ def test_openapi_names_every_v3_state(client):
         "get"
     ]["description"]
 
-    assert report.SUPERSEDED_BEFORE_INPUT_LOCK in description
+    for state in report.STATES:
+        assert state in description
+
+
+def test_report_module_documents_its_exact_closed_state_count():
+    assert "Only eight states exist" in report.__doc__
 
 
 def test_the_report_is_built_once_and_both_routes_use_that_startup_payload(
@@ -249,6 +257,14 @@ def test_both_agent_facing_documents_name_both_v3_routes(client):
         assert "/advantage/v3" in body, path
         assert "v3-05-range-doctor" in body, path
         assert "v3-01-range-doctor" in body, path
+
+    llms = client.get("/llms.txt").text
+    assert "five registered paired task families" not in llms
+    assert "committed v3 artifacts contain 6 families" in llms
+    for state in report.STATES:
+        assert state in llms
+    assert "committed-artifact observation on 2026-08-28" not in llms
+    assert "v3-02-yield-router and v3-05-range-doctor are locked_not_run" not in llms
 
 
 def test_the_root_index_adds_v3_without_moving_the_prior_reports(client):

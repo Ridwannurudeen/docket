@@ -15,6 +15,7 @@ from typing import Mapping
 import httpx
 from eth_account import Account
 
+from .advantage.v3 import report as v3_report
 from .hire.catalogue import HIRE_PRICE_ATOMIC, HIRE_PRICE_DISPLAY, USDT_TOKEN
 from .hire.receipts import canonical_hash, is_human_readable_result
 from .hire.x402 import (
@@ -107,13 +108,37 @@ class _ScriptSources(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.sources: list[str] = []
+        self.main_depth = 0
+        self.heading_depth = 0
+        self.main_text_present = False
+        self.main_heading_present = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag.lower() != "script":
+        tag = tag.lower()
+        if tag == "script":
+            source = dict(attrs).get("src")
+            if source:
+                self.sources.append(source)
+        if tag == "main":
+            self.main_depth += 1
+        elif self.main_depth and tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            self.heading_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if self.main_depth and tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            self.heading_depth = max(0, self.heading_depth - 1)
+        elif tag == "main":
+            self.main_depth = max(0, self.main_depth - 1)
+            if not self.main_depth:
+                self.heading_depth = 0
+
+    def handle_data(self, data: str) -> None:
+        if not self.main_depth or not data.strip():
             return
-        source = dict(attrs).get("src")
-        if source:
-            self.sources.append(source)
+        self.main_text_present = True
+        if self.heading_depth:
+            self.main_heading_present = True
 
 
 def _utc_now() -> datetime:
@@ -383,10 +408,22 @@ def _fresh_browser_check(client: httpx.Client, base_url: str) -> dict:
     parser.feed(response.text)
     observed["referenced_script_count"] = len(parser.sources)
     if not parser.sources:
-        evidence["failure"] = "no_referenced_javascript"
+        evidence["delivery_mode"] = "server_rendered_html"
+        observed["fetched_script_count"] = 0
+        observed["main_text_present"] = parser.main_text_present
+        observed["main_heading_present"] = parser.main_heading_present
+        if not parser.main_text_present or not parser.main_heading_present:
+            evidence["failure"] = "server_rendered_surface_incomplete"
+            return _check(
+                LEG_NAMES[0],
+                _STATUS_FAILED,
+                checked=checked,
+                observed=observed,
+                evidence=evidence,
+            )
         return _check(
             LEG_NAMES[0],
-            _STATUS_FAILED,
+            _STATUS_PASSED,
             checked=checked,
             observed=observed,
             evidence=evidence,
@@ -739,17 +776,31 @@ def _decision_grade(result: object, payload: dict) -> tuple[list[str], dict]:
     if not isinstance(measured, dict):
         failures.append("measured_value_missing")
     else:
-        measured_ok = (
-            _is_number(measured.get("this_run_seconds"))
-            and _is_number(measured.get("paired_manual_seconds"))
+        benchmark_available = (
+            _is_number(measured.get("paired_manual_seconds"))
             and isinstance(measured.get("quality_result"), dict)
             and bool(measured["quality_result"])
             and isinstance(measured.get("report_url"), str)
             and bool(measured["report_url"].strip())
+            and measured.get("benchmark_unavailable_reason") is None
+        )
+        benchmark_state = measured.get("benchmark_state")
+        unavailable_reason = measured.get("benchmark_unavailable_reason")
+        benchmark_explicitly_unavailable = (
+            measured.get("paired_manual_seconds") is None
+            and measured.get("quality_result") is None
+            and measured.get("report_url") is None
+            and benchmark_state in v3_report.STATES
+            and isinstance(unavailable_reason, str)
+            and bool(unavailable_reason.strip())
+        )
+        measured_ok = _is_number(measured.get("this_run_seconds")) and (
+            benchmark_available or benchmark_explicitly_unavailable
         )
         if not measured_ok:
             failures.append("measured_value_incomplete")
         observed["measured_value_present"] = measured_ok
+        observed["paired_benchmark_available"] = benchmark_available
     return failures, observed
 
 

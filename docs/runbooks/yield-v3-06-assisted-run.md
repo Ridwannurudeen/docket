@@ -77,6 +77,43 @@ Assemble the two first responses into
 calibration runbook does. Both seats must pass the registered threshold before input
 assembly.
 
+The concrete first-write sequence is:
+
+    $specPath = 'docket/advantage/v3/specs/v3-06-yield-router-assisted.json'
+    $calibrationSet = 'docket/advantage/v3/sources/yield-v6-assisted-calibration-set.json'
+    $calibrationRoot = 'docket/advantage/v3/calibration-captures/2026-09-03-yield-v6-assisted'
+    & .\.venv\Scripts\python.exe -m docket.advantage.v3.calibration_driver $specPath $calibrationRoot --evaluator-id seat-a --session-id "yield-v6-seat-a-$([guid]::NewGuid().ToString('N'))" --calibration-set $calibrationSet --seat docket.advantage.v3.seats.codex_cli:ask
+    if ($LASTEXITCODE -ne 0) { throw 'seat-a calibration did not capture; preserve its attempt' }
+    & .\.venv\Scripts\python.exe -m docket.advantage.v3.calibration_driver $specPath $calibrationRoot --evaluator-id seat-b --session-id "yield-v6-seat-b-$([guid]::NewGuid().ToString('N'))" --calibration-set $calibrationSet --seat docket.advantage.v3.seats.claude_cli:ask
+    if ($LASTEXITCODE -ne 0) { throw 'seat-b calibration did not capture; preserve its attempt' }
+
+Assemble and verify the two binding responses:
+
+    @'
+    import base64
+    import json
+    from pathlib import Path
+    from docket.advantage.v3.calibration import assemble_evaluator_calibration, verify_calibration_capture
+    from docket.advantage.v3.spec import load
+
+    root = Path('.').resolve()
+    spec = load(root / 'docket/advantage/v3/specs/v3-06-yield-router-assisted.json', repo_root=root)
+    calibration_set = (root / 'docket/advantage/v3/sources/yield-v6-assisted-calibration-set.json').read_bytes()
+    calibration_root = root / 'docket/advantage/v3/calibration-captures/2026-09-03-yield-v6-assisted'
+    rows = assemble_evaluator_calibration(spec, calibration_root, calibration_set)
+    body = {
+        'calibration_set': {'body_base64': base64.b64encode(calibration_set).decode('ascii')},
+        'evaluator_calibration': rows,
+    }
+    verify_calibration_capture(spec, body, calibration_root)
+    out = root / 'docket/advantage/v3/sources/yield-v6-assisted-evaluator-calibration.json'
+    with out.open('x', encoding='utf-8', newline='\n') as handle:
+        json.dump(rows, handle, indent=2, sort_keys=True)
+        handle.write('\n')
+    print(out)
+    '@ | .\.venv\Scripts\python.exe -
+    if ($LASTEXITCODE -ne 0) { throw 'v3-06 calibration assembly failed; preserve both sessions' }
+
 ## 4. Assemble, review and lock stage two
 
 ```powershell
@@ -105,6 +142,7 @@ path = root / 'docket/advantage/v3/specs/v3-06-yield-router-assisted.json'
 spec = load(path, repo_root=root)
 locked = lock_inputs(spec, repo_root=root)
 temporary = path.with_suffix('.json.locking')
+temporary.write_bytes(path.read_bytes())
 save(locked, temporary, repo_root=root)
 temporary.replace(path)
 assert_runnable(locked, repo_root=root)
@@ -163,3 +201,70 @@ slots in registered order:
 Publish every terminal result, including failures. Never delete, edit or replay a
 claimed primary. Scoring and A/B mapping begin only after all ten registered primaries
 are terminal.
+
+## 7. Blind evaluation, mapping and report closeout
+
+Export the two first-write evaluator sessions only after all ten primaries terminate:
+
+    @'
+    from pathlib import Path
+    from docket.advantage.v3.runner import ExperimentHarness
+    from docket.advantage.v3.spec import load
+
+    root = Path('.').resolve()
+    spec = load(root / 'docket/advantage/v3/specs/v3-06-yield-router-assisted.json', repo_root=root)
+    harness = ExperimentHarness(spec, root / 'docket/advantage/v3/runs', repo_root=root)
+    print(*harness.export_evaluation_sessions(root / 'data/yield-v6-evaluation-sessions'), sep='\n')
+    '@ | .\.venv\Scripts\python.exe -
+
+Give each session to its registered isolated evaluator and preserve that evaluator's first
+raw score-sheet bytes as data/yield-v6-seat-a.raw.json and
+data/yield-v6-seat-b.raw.json. A response must be only the completed
+score_sheet_template object from its session. Do not rerun a malformed or incomplete first
+response. Import both:
+
+    @'
+    from pathlib import Path
+    from docket.advantage.v3.runner import ExperimentHarness
+    from docket.advantage.v3.spec import load
+
+    root = Path('.').resolve()
+    spec = load(root / 'docket/advantage/v3/specs/v3-06-yield-router-assisted.json', repo_root=root)
+    harness = ExperimentHarness(spec, root / 'docket/advantage/v3/runs', repo_root=root)
+    for seat in ('seat-a', 'seat-b'):
+        raw = (root / f'data/yield-v6-{seat}.raw.json').read_bytes()
+        artifact = harness.import_evaluation_submission(raw, root / 'docket/advantage/v3/sheets')
+        print(artifact['evaluator_id'], artifact['raw_sheet_sha256'])
+    '@ | .\.venv\Scripts\python.exe -
+
+Do not reveal the A/B mapping until both imports succeed. Then publish it and verify the
+same family object served by /advantage/v3.json:
+
+    @'
+    import json
+    from pathlib import Path
+    from docket.advantage.v3 import report, runner, scoring
+    from docket.advantage.v3.spec import load
+
+    root = Path('.').resolve()
+    spec = load(root / 'docket/advantage/v3/specs/v3-06-yield-router-assisted.json', repo_root=root)
+    ledger = runner.ledger_path(spec, root / 'docket/advantage/v3/runs')
+    bundle = scoring.build_blinded_bundle(spec, ledger, repo_root=root)
+    scoring.publish_mapping(spec, bundle, root / 'docket/advantage/v3/sheets', root / 'docket/advantage/v3/mappings', repo_root=root)
+    payload = report.report()
+    family = next(row for row in payload['families'] if row['spec_id'] == spec.spec_id)
+    assert family['state'] == 'complete_scored'
+    print(json.dumps({
+        'state': family['state'],
+        'calibration': family['calibration'],
+        'run_progress': family['run_progress'],
+        'quality': family['quality'],
+        'speed': family['speed'],
+        'formula_metrics': family['formula_metrics'],
+        'falsifier_result': family['falsifier_result'],
+    }, indent=2, sort_keys=True))
+    '@ | .\.venv\Scripts\python.exe -
+
+Review the exact ledger, calibration captures, score sheets, mapping and report before
+requesting owner approval to commit or deploy them. This runbook does not authorize a push,
+deployment or submission.

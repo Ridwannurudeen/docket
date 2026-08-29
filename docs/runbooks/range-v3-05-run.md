@@ -1,5 +1,21 @@
 # Range v3-05 capture and input-lock run — Aug 26
 
+> Current-state handover: v3-05 is already captured, calibrated, input-locked and
+> deployed. Stages 0-3 are historical and must not be rerun. Confirm the locked input
+> below, then proceed only to the genuine owner-operated manual slots in stage 4.
+
+    @'
+    from pathlib import Path
+    from docket.advantage.v3.spec import assert_runnable, load
+
+    root = Path('.').resolve()
+    spec = load(root / 'docket/advantage/v3/specs/v3-05-range-doctor.json', repo_root=root)
+    assert spec.stage_one_protocol_hash == '0x2a83c1a331d579e5cef461d52c539711b4fa2bba6dd397aaad1bf38b6b47f9ab'
+    assert spec.inputs_sha256 == '73086fba1ddbb82074003b4c04ef8564358f86b896a0a609b5e5f7e3c543e8b6'
+    assert_runnable(spec, repo_root=root)
+    print('v3-05 locked input verified; stages 0-3 remain historical')
+    '@ | .\.venv\Scripts\python.exe -
+
 This is the operator procedure for `v3-05-range-doctor`. Run repository commands from the
 repository root in PowerShell. The three evidence stages are different operations:
 

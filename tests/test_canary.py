@@ -235,8 +235,7 @@ def test_measured_value_controls_the_real_canary_decision_grade():
     }
     populated = _decision_grade_result()
     assert (
-        populated["measured_value"]["report_url"]
-        == "/advantage/v3#v3-05-range-doctor"
+        populated["measured_value"]["report_url"] == "/advantage/v3#v3-05-range-doctor"
     )
 
     failures, observed = _decision_grade(populated, payload)
@@ -244,21 +243,183 @@ def test_measured_value_controls_the_real_canary_decision_grade():
     assert failures == []
     assert observed["measured_value_present"] is True
 
-    unavailable = _decision_grade_result()
-    unavailable["measured_value"] = {
+    incomplete = _decision_grade_result()
+    incomplete["measured_value"] = {
         "this_run_seconds": 1.25,
         "paired_manual_seconds": None,
         "quality_result": None,
         "report_url": None,
-        "benchmark_unavailable_reason": (
-            "The v3 paired family v3-05-range-doctor has no locked inputs."
-        ),
+        "benchmark_state": "locked_not_run",
+        "benchmark_unavailable_reason": None,
     }
 
-    failures, observed = _decision_grade(unavailable, payload)
+    failures, observed = _decision_grade(incomplete, payload)
 
     assert failures == ["measured_value_incomplete"]
     assert observed["measured_value_present"] is False
+
+
+def test_an_explicitly_unavailable_benchmark_is_still_an_honest_measured_run():
+    payload = {
+        "wallet": WALLET,
+        "token_id": TOKEN_ID,
+        "declared_position_value_usd": 10_000.0,
+        "estimated_recenter_cost_usd": 25.0,
+    }
+    result = _decision_grade_result()
+    result["measured_value"] = {
+        "this_run_seconds": 1.25,
+        "paired_manual_seconds": None,
+        "quality_result": None,
+        "report_url": None,
+        "benchmark_state": "locked_not_run",
+        "benchmark_unavailable_reason": (
+            "The v3 paired family v3-05-range-doctor has locked inputs but has not run."
+        ),
+    }
+
+    failures, observed = _decision_grade(result, payload)
+
+    assert failures == []
+    assert observed["measured_value_present"] is True
+
+
+def test_an_unresolved_benchmark_exception_is_not_decision_grade():
+    payload = {
+        "wallet": WALLET,
+        "token_id": TOKEN_ID,
+        "declared_position_value_usd": 10_000.0,
+        "estimated_recenter_cost_usd": 25.0,
+    }
+    result = _decision_grade_result()
+    result["measured_value"] = {
+        "this_run_seconds": 1.25,
+        "paired_manual_seconds": None,
+        "quality_result": None,
+        "report_url": None,
+        "benchmark_state": None,
+        "benchmark_unavailable_reason": (
+            "The v3 benchmark report failed while resolving measured value "
+            "(RuntimeError)."
+        ),
+    }
+
+    failures, observed = _decision_grade(result, payload)
+
+    assert failures == ["measured_value_incomplete"]
+    assert observed["measured_value_present"] is False
+
+
+def test_a_complete_server_rendered_homepage_needs_no_javascript_reference(tmp_path):
+    environment = _environment(tmp_path)
+    store = Store(environment["DOCKET_DB"])
+
+    def handler(request):
+        if request.url.path == "/":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/html; charset=utf-8"},
+                text=(
+                    "<!doctype html><html><body><main><h1>Docket</h1>"
+                    "<p>The public case file is server rendered.</p></main></body></html>"
+                ),
+                request=request,
+            )
+        return _public_response(request, store)
+
+    outcome = run_from_environment(
+        environment,
+        now=NOW,
+        transport=httpx.MockTransport(handler),
+        store=store,
+    )
+
+    browser = outcome.checks[0]
+    assert browser["status"] == "passed"
+    assert browser["observed"]["referenced_script_count"] == 0
+    assert browser["observed"]["fetched_script_count"] == 0
+    assert browser["evidence"]["delivery_mode"] == "server_rendered_html"
+
+
+@pytest.mark.parametrize(
+    "html",
+    (
+        "",
+        "<!doctype html><html><body>OK</body></html>",
+        "<!doctype html><html><body><main><p>No heading.</p></main></body></html>",
+    ),
+)
+def test_a_trivial_zero_script_page_is_not_a_complete_server_rendered_surface(
+    tmp_path, html
+):
+    environment = _environment(tmp_path)
+    store = Store(environment["DOCKET_DB"])
+
+    def handler(request):
+        if request.url.path == "/":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/html; charset=utf-8"},
+                text=html,
+                request=request,
+            )
+        return _public_response(request, store)
+
+    outcome = run_from_environment(
+        environment,
+        now=NOW,
+        transport=httpx.MockTransport(handler),
+        store=store,
+    )
+
+    browser = outcome.checks[0]
+    assert browser["status"] == "failed"
+    assert browser["observed"]["referenced_script_count"] == 0
+    assert browser["evidence"]["failure"] == "server_rendered_surface_incomplete"
+
+
+def test_unavailable_paired_benchmark_does_not_block_the_paid_gate_preflight(
+    tmp_path,
+):
+    environment = _environment(tmp_path, controlled_lp=True)
+    store = Store(environment["DOCKET_DB"])
+    result = _decision_grade_result()
+    result["measured_value"] = {
+        "this_run_seconds": 1.25,
+        "paired_manual_seconds": None,
+        "quality_result": None,
+        "report_url": None,
+        "benchmark_state": "locked_not_run",
+        "benchmark_unavailable_reason": (
+            "The v3 paired family v3-05-range-doctor has locked inputs but has not run."
+        ),
+    }
+
+    def handler(request):
+        if request.url.path != "/hire/range-doctor":
+            return _public_response(request, store)
+        assert "x-payment" not in request.headers
+        assert "x-docket-canary" not in request.headers
+        return httpx.Response(
+            200,
+            json={
+                "result": result,
+                "receipt": {"payment": {"status": "free_tier"}},
+            },
+            request=request,
+        )
+
+    outcome = run_from_environment(
+        environment,
+        now=NOW,
+        transport=httpx.MockTransport(handler),
+        store=store,
+    )
+
+    assert outcome.checks[3]["status"] == "passed"
+    assert [check["evidence"]["reason"] for check in outcome.checks[4:]] == [
+        "owner_payment_material_absent"
+    ] * 4
 
 
 def test_an_unfunded_canary_records_three_passes_and_never_greens_skipped_legs(

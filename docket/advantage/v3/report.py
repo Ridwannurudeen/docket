@@ -2,7 +2,7 @@
 
 Nothing in this module is a saved headline. Specifications, exact inputs, ledger events,
 calibration responses, score sheets and the published mapping are reopened on every call.
-Only six states exist, and the two terminal claim states are ``refuted`` and
+Only eight states exist, and the two terminal claim states are ``refuted`` and
 ``not_refuted``. The latter is deliberately bounded to the registered falsifier.
 """
 
@@ -322,8 +322,7 @@ def report(
         if (
             successor["spec_id"] != "v3-06-yield-router-assisted"
             or not isinstance(provenance, dict)
-            or provenance.get("status")
-            != "distinct_successor_after_failed_primary"
+            or provenance.get("status") != "distinct_successor_after_failed_primary"
         ):
             continue
         predecessor = by_id.get(provenance.get("prior_spec_id"))
@@ -332,8 +331,7 @@ def report(
             or predecessor["state"] != RUNNING
             or predecessor["spec"]["stage_one_protocol_hash"]
             != provenance.get("prior_stage_one_protocol_hash")
-            or predecessor["spec"]["spec_hash"]
-            != provenance.get("prior_spec_hash")
+            or predecessor["spec"]["spec_hash"] != provenance.get("prior_spec_hash")
             or provenance.get("prior_ledger_ref")
             != f"docket/advantage/v3/runs/{predecessor['spec_id']}.jsonl"
             or (Path(repo_root) / provenance["prior_ledger_ref"]).resolve()

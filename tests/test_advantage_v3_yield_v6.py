@@ -15,6 +15,8 @@ CALIBRATION_PATH = (
     ROOT / "docket/advantage/v3/sources/yield-v6-assisted-calibration-set.json"
 )
 PRIOR_LEDGER_PATH = ROOT / "docket/advantage/v3/runs/v3-02-yield-router.jsonl"
+RUNBOOK_PATH = ROOT / "docs/runbooks/yield-v3-06-assisted-run.md"
+RANGE_RUNBOOK_PATH = ROOT / "docs/runbooks/range-v3-05-run.md"
 
 
 def _constructor_record() -> dict:
@@ -180,3 +182,31 @@ def test_v6_has_a_registered_yield_input_validator():
         spec_module.INPUT_VALIDATORS["v3-06-yield-router-assisted"]
         is spec_module._validate_yield_inputs
     )
+
+
+def test_v6_runbook_seeds_the_atomic_lock_file_before_saving_stage_two():
+    runbook = RUNBOOK_PATH.read_text(encoding="utf-8")
+
+    assert "temporary.write_bytes(path.read_bytes())" in runbook
+    assert "save(locked, temporary, repo_root=root)" in runbook
+    assert runbook.index("temporary.write_bytes(path.read_bytes())") < runbook.index(
+        "save(locked, temporary, repo_root=root)"
+    )
+
+
+def test_v6_runbook_has_concrete_calibration_and_scoring_closeout_checks():
+    runbook = RUNBOOK_PATH.read_text(encoding="utf-8")
+
+    assert "verify_calibration_capture" in runbook
+    assert "assemble_evaluator_calibration" in runbook
+    assert "export_evaluation_sessions" in runbook
+    assert "import_evaluation_submission" in runbook
+    assert "publish_mapping" in runbook
+    assert "report.report" in runbook
+
+
+def test_v5_runbook_marks_completed_capture_and_lock_stages_historical():
+    runbook = RANGE_RUNBOOK_PATH.read_text(encoding="utf-8")
+
+    assert "Stages 0-3 are historical and must not be rerun" in runbook
+    assert "assert_runnable(spec, repo_root=root)" in runbook

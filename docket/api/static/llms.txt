@@ -500,10 +500,11 @@ GET /advantage/v2
     curl -s "$DOCKET/advantage/v2"
 
 GET /advantage/v3.json
-    The third report: five registered paired task families and the artifact-derived
+    The third report: six registered paired task families and the artifact-derived
     execution state of each one. The closed state vocabulary is
-    registered_waiting_for_inputs, superseded_before_input_lock, locked_not_run, running,
-    complete_unscored, refuted, and not_refuted. It never reports "proved".
+    registered_waiting_for_inputs, superseded_before_input_lock,
+    abandoned_after_failed_primary, locked_not_run, running, complete_unscored, refuted,
+    and not_refuted. It never reports "proved".
 
     v3-04-warden-security is complete_unscored with score_sheets_missing. All 24 scheduled
     primaries were claimed and terminal: 23 succeeded and manual w4-ho-01 failed. Seat B returned
@@ -1123,11 +1124,14 @@ Warden and 6/8 (0.75) manually; precision of 4/4 (1.00) and 6/8 (0.75); valid sc
 and 11/12; three Warden critical failures; 11/12 complete pairs; median saving 27.86 seconds;
 and median agent/manual ratio 0.0610434. Warden missed its recall, zero-critical, complete-pair,
 and median-saving limbs. Missing rubric medians prevent the complete registered falsifier from
-being evaluated, so the report publishes neither refuted nor not_refuted. At the 2026-08-28
-committed-artifact observation, v3-02-yield-router and v3-05-range-doctor are locked_not_run,
-with locked inputs and no claimed primaries; v3-01-range-doctor and v3-03-warden-security remain
-superseded_before_input_lock. The state vocabulary is deliberately bounded: the report never
-turns a non-refutation into "proved".
+being evaluated, so the report publishes neither refuted nor not_refuted. At the
+committed-artifact observation on 2026-08-29, the committed v3 artifacts contain 6 families:
+v3-02-yield-router is abandoned_after_failed_primary; v3-04-warden-security is
+complete_unscored; v3-05-range-doctor is locked_not_run; v3-06-yield-router-assisted is
+registered_waiting_for_inputs; v3-01-range-doctor and v3-03-warden-security are
+superseded_before_input_lock. V3-06 is a distinct successor with a future capture, fresh input
+lock and Codex-assisted baseline. It is not a retry or relabeling of v3-02. Never turn
+not_refuted into "proved".
 
 The JSON and page are one startup snapshot. The application constructs one report payload,
 renders the HTML from that same object, and serves both unchanged until restart. Future

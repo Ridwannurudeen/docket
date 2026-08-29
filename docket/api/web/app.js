@@ -1857,14 +1857,7 @@ async function initPancake() {
    simply not shown. */
 const WORKED_EXAMPLE_ID = "56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:129";
 
-async function workedExample(currentId) {
-  let detail;
-  try {
-    detail = await fetchJSON(`/agents/${WORKED_EXAMPLE_ID}`);
-  } catch (err) {
-    // Expected whenever the snapshot does not hold it. Silence is the honest state here.
-    return "";
-  }
+function workedExample(detail) {
   const answered = detail.observations.find(
     (obs) => obs.outcome === "responded",
   );
@@ -1874,16 +1867,12 @@ async function workedExample(currentId) {
   const what = isExplorer
     ? "That URL is the block explorer's own agent-creation page. It is a web page for humans, not an agent endpoint."
     : "Read the URL itself before reading the outcome.";
-  const link =
-    currentId === WORKED_EXAMPLE_ID
-      ? "You are looking at it."
-      : `<a href="/agent?${new URLSearchParams({ id: WORKED_EXAMPLE_ID }).toString()}">See the record</a>.`;
   return `<p>
       <strong>Worked example from this snapshot.</strong>
       ${escapeHTML(name)} (token ${escapeHTML(detail.token_id)}) declares
       <code>${escapeHTML(answered.url)}</code> as an endpoint. ${escapeHTML(what)}
       It replied with status ${escapeHTML(answered.status_code)}, so Docket records the outcome as
-      "Answered" — which is exactly as much as that word ever claims. ${link}
+      "Answered" — which is exactly as much as that word ever claims. You are looking at it.
     </p>`;
 }
 
@@ -2180,7 +2169,7 @@ async function initAgent() {
     const detail = await fetchJSON(`/agents/${id}`);
     document.title = `${displayName(detail)} — Docket`;
     paintCoverage(detail.coverage);
-    paintAgent(detail, await workedExample(id));
+    paintAgent(detail, id === WORKED_EXAMPLE_ID ? workedExample(detail) : "");
   } catch (err) {
     const line = region("snapshot");
     if (line) line.textContent = "Snapshot status unavailable.";

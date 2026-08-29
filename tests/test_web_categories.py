@@ -772,6 +772,36 @@ def test_the_experiment_register_keeps_every_missing_result_visible():
         assert f".{class_name}" in styles, class_name
 
 
+def test_yield_service_copy_names_both_current_registered_families():
+    home = _read("index.html")
+    row = re.search(
+        r'<article class="service-ledger-row" data-service-id="yield-router">.*?</article>',
+        home,
+        re.S,
+    ).group(0)
+
+    assert "v3-02" in row
+    assert "abandoned_after_failed_primary" in row
+    assert "v3-06" in row
+    assert "registered_waiting_for_inputs" in row
+    assert "Registered family locked_not_run" not in row
+
+
+def test_v3_vocabulary_names_the_abandoned_predecessor_state():
+    v3 = _read("advantage-v3.html")
+
+    assert "Read the nine definitions" in v3
+    assert "abandoned_after_failed_primary" in v3
+    assert "failed primary" in v3
+
+
+def test_agent_pages_do_not_probe_a_missing_worked_example_record():
+    js = _read("app.js")
+
+    assert "fetchJSON(`/agents/${WORKED_EXAMPLE_ID}`)" not in js
+    assert 'id === WORKED_EXAMPLE_ID ? workedExample(detail) : ""' in js
+
+
 def test_service_forms_put_the_worked_example_first_and_reproducibility_behind_disclosure():
     js = _read("app.js")
     styles = _read("style.css")
