@@ -202,6 +202,19 @@ def test_case_file_wraps_receipt_digests_before_external_css_loads():
     assert head.index(critical_wrap) < head.index('rel="stylesheet"')
 
 
+@pytest.mark.parametrize(
+    "name", ("advantage.html", "advantage-v2.html", "advantage-v3.html")
+)
+def test_advantage_tables_are_contained_before_external_css_loads(name):
+    page = (WEB_DIR / name).read_text(encoding="utf-8")
+    head = page.split("</head>", 1)[0]
+    rule = re.search(r"\.table-wrap\s*\{(?P<body>[^}]*)\}", head)
+
+    assert rule is not None
+    assert "overflow-x: auto;" in rule["body"]
+    assert head.index(rule.group(0)) < head.index('rel="stylesheet"')
+
+
 def test_definition_values_shrink_grid_tracks_for_unbroken_evidence():
     css = (WEB_DIR / "style.css").read_text(encoding="utf-8")
     rule = re.search(r"\.deflist dd\s*\{(?P<body>[^}]*)\}", css)
