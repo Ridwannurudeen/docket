@@ -193,6 +193,15 @@ def test_registry_text_is_wrapped_rather_than_left_to_break_the_layout():
         assert f'class="wrap-anywhere" data-region="{container}"' in text, name
 
 
+def test_case_file_wraps_receipt_digests_before_external_css_loads():
+    index = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    head = index.split("</head>", 1)[0]
+    critical_wrap = ".receipt-digest,\n      .receipt-ledger dd {\n        overflow-wrap: anywhere;\n      }"
+
+    assert critical_wrap in head
+    assert head.index(critical_wrap) < head.index('rel="stylesheet"')
+
+
 def test_definition_values_shrink_grid_tracks_for_unbroken_evidence():
     css = (WEB_DIR / "style.css").read_text(encoding="utf-8")
     rule = re.search(r"\.deflist dd\s*\{(?P<body>[^}]*)\}", css)

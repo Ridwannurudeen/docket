@@ -174,6 +174,20 @@ def test_concurrent_claimers_cannot_both_win_the_same_primary(locked):
     assert len(starts) == 1
 
 
+def test_lock_file_is_initialized_only_after_the_lock_is_owned(locked, monkeypatch):
+    spec, runs, root = locked
+    slot = runner.scheduled_slots(spec, repo_root=root)[0]
+
+    def reject_pre_lock_write(*_args):
+        raise PermissionError("lock byte written before ownership")
+
+    monkeypatch.setattr(runner.os, "write", reject_pre_lock_write)
+
+    event = runner.claim_slot(spec, runs, slot=slot, repo_root=root)
+
+    assert event["kind"] == runner.STARTED
+
+
 def test_registered_timeout_overrides_a_late_manual_submission(locked, monkeypatch):
     spec, runs, root = locked
     slot = runner.scheduled_slots(spec, repo_root=root)[0]

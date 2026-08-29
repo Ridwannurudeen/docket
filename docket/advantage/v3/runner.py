@@ -103,10 +103,7 @@ def _ledger_lock(path: Path):
     except FileExistsError:
         pass
     else:
-        try:
-            os.write(descriptor, b"0")
-        finally:
-            os.close(descriptor)
+        os.close(descriptor)
     with lock_path.open("r+b") as handle:
         if os.name == "nt":
             import msvcrt
@@ -114,6 +111,9 @@ def _ledger_lock(path: Path):
             handle.seek(0)
             msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
             try:
+                if handle.seek(0, os.SEEK_END) == 0:
+                    handle.write(b"0")
+                    handle.flush()
                 yield
             finally:
                 handle.seek(0)
@@ -123,6 +123,9 @@ def _ledger_lock(path: Path):
 
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             try:
+                if handle.seek(0, os.SEEK_END) == 0:
+                    handle.write(b"0")
+                    handle.flush()
                 yield
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
