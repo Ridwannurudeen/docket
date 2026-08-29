@@ -7,6 +7,7 @@ case order, replacement sheets, missing failures, speed denominators and Warden'
 
 import hashlib
 import json
+from base64 import b64encode
 from pathlib import Path
 
 import pytest
@@ -22,7 +23,12 @@ from test_advantage_v3_spec import SPECS_DIR, _input_record, _source_ref
 def _locked_family(tmp_path: Path, monkeypatch, spec_id: str):
     """One real registered protocol with synthetic bytes and no family-truth distraction."""
     registered = load(SPECS_DIR / f"{spec_id}.json")
-    body = registered._stage_one_body() | {"inputs_ref": "inputs.json"}
+    inputs_ref = (
+        registered.inputs_ref
+        if spec_id == "v3-06-yield-router-assisted"
+        else "inputs.json"
+    )
+    body = registered._stage_one_body() | {"inputs_ref": inputs_ref}
     stage_one = PairedSpec(**body)
     monkeypatch.setitem(
         spec_module.INPUT_VALIDATORS,
@@ -30,6 +36,32 @@ def _locked_family(tmp_path: Path, monkeypatch, spec_id: str):
         lambda _spec, _body, _cases, _repo_root: None,
     )
     inputs = _input_record(stage_one)
+    if spec_id == "v3-06-yield-router-assisted":
+        calibration_raw = (
+            SPECS_DIR.parent / "sources/yield-v6-assisted-calibration-set.json"
+        ).read_bytes()
+        calibration_cases = json.loads(calibration_raw)["cases"]
+        inputs["calibration_set"] = {
+            "sha256": hashlib.sha256(calibration_raw).hexdigest(),
+            "body_base64": b64encode(calibration_raw).decode(),
+        }
+        inputs["evaluator_calibration"] = [
+            {
+                "evaluator_id": evaluator["evaluator_id"],
+                "model_build": f"test-model-{number}",
+                "session_id": f"test-session-{number}",
+                "rubric_anchor_hash": canonical_hash(
+                    stage_one.quality_rubric["criteria"]
+                ),
+                "calibration_results": [
+                    case | {"submitted": case["expected"]}
+                    for case in calibration_cases
+                ],
+            }
+            for number, evaluator in enumerate(
+                stage_one.scoring["evaluator_roster"], start=1
+            )
+        ]
     if spec_id == "v3-03-warden-security":
         # Warden's calibration classes are checked against the vendor's published list, so
         # even an envelope built to avoid family truth carries the snapshot that names it.
@@ -39,6 +71,7 @@ def _locked_family(tmp_path: Path, monkeypatch, spec_id: str):
             b'{"classes":["class-0","class-1","class-2","class-3"]}\n',
         )
     path = tmp_path / stage_one.inputs_ref
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(inputs, sort_keys=True) + "\n", encoding="utf-8")
     spec_path = tmp_path / "specs" / f"{spec_id}.json"
     save(stage_one, spec_path, repo_root=tmp_path)
@@ -452,6 +485,43 @@ def test_yield_validity_rejects_a_wrong_snapshot_or_incomplete_universe(
         )
         is False
     )
+
+
+def test_yield_successor_uses_the_shared_projection_and_distinct_blinding_salt(
+    tmp_path, monkeypatch
+):
+    spec, inputs = _locked_family(
+        tmp_path, monkeypatch, "v3-06-yield-router-assisted"
+    )
+    raw = {
+        "sources": {"pools": {}, "token_list": {}},
+        "universe": {"included_pool_ids": ["0xaaa"], "excluded": []},
+        "rates": {"current": {"pool_id": "0xaaa"}, "candidates": []},
+        "scenario": {"position_size_usd": 10_000},
+        "decision": "STAY",
+        "destination_pool_id": None,
+        "limitations": ["Bounded to the frozen response."],
+        "receipt": {"service": "yield-router"},
+    }
+
+    projected = scoring.normalise_output(spec, raw)
+    derived = scoring.derive_blinding(
+        spec, [case["case_id"] for case in inputs["cases"]]
+    )
+    expected_seed = hashlib.sha256(
+        spec.stage_one_protocol_hash.encode()
+        + spec.inputs_sha256.encode()
+        + b"yield-v6-assisted-blinding"
+    ).hexdigest()
+
+    assert tuple(projected) == scoring.YIELD_FIELDS
+    assert projected["decision"] == {
+        "move_or_stay": "STAY",
+        "destination_pool_id": None,
+    }
+    assert "receipt" not in projected
+    assert derived["family_salt"] == "yield-v6-assisted-blinding"
+    assert derived["seed_sha256"] == expected_seed
 
 
 def test_one_first_write_sheet_per_seat_precedes_mapping_publication(

@@ -60,7 +60,7 @@ nondeterministic.
 The VPS release is a copied tree under `/opt/docket`, not a Git checkout. Build the wheel
 outside the checkout, then run the following from Git Bash at the exact tested commit. Every
 release identifier and digest below is computed; none is typed. The tar stream carries the
-wheel plus the complete `deploy/` directory, including all ten unit files.
+wheel plus the complete `deploy/` directory, including all twelve unit files.
 
 ```bash
 repo_root=$(pwd -P)
@@ -107,13 +107,14 @@ retained as `/opt/docket.bak-<UTC timestamp>`; it is never deleted by the releas
 The `.venv` link is flipped with a temporary symlink and `mv -T`. Unit files are installed
 only when their bytes differ, with a unified diff printed before each replacement. The old
 Aug-21 capture timer is retired and the Aug-26 pre-arm timer replaces it. The release reloads
-systemd, enables and starts the host-managed `docket.service`, and enables these five timers:
+systemd, enables and starts the host-managed `docket.service`, and enables these six timers:
 
 - `docket-canary.timer`
 - `docket-lp-record.timer`
 - `docket-refresh.timer`
 - `docket-v3-capture.timer`
 - `docket-v3-range-capture.timer`
+- `docket-v3-yield-v6-capture.timer`
 
 The live application service remains host-managed and uses `User=docket`,
 `WorkingDirectory=/var/lib/docket`, `DOCKET_DB=/var/lib/docket/data/agents.sqlite3`, and
@@ -269,7 +270,7 @@ separately after it returns success:
 ssh <deploy-user>@<host> \
   'readlink -f /opt/docket/.venv; cat /opt/docket/RELEASE-commit.txt /opt/docket/WHEEL-sha256.txt; /opt/docket/.venv/bin/python -c '\''import importlib.metadata as metadata; print(metadata.version("docket"))'\''; /opt/docket/.venv/bin/python -m pip check'
 ssh <deploy-user>@<host> \
-  'curl -fsS http://127.0.0.1:8090/services | sha256sum; curl -fsS http://127.0.0.1:8090/stats; systemctl list-timers docket-canary.timer docket-lp-record.timer docket-refresh.timer docket-v3-capture.timer docket-v3-range-capture.timer'
+  'curl -fsS http://127.0.0.1:8090/services | sha256sum; curl -fsS http://127.0.0.1:8090/stats; systemctl list-timers docket-canary.timer docket-lp-record.timer docket-refresh.timer docket-v3-capture.timer docket-v3-range-capture.timer docket-v3-yield-v6-capture.timer'
 ```
 
 Expected shape, not expected changing numbers:
@@ -281,7 +282,7 @@ Expected shape, not expected changing numbers:
   service carries `service_id`, `paid_stock`, `stock_status`, and all four admission booleans.
 - `/categories` has four rows and declares that category labels are Docket's.
 - `/advantage/v2.json` builds from the artifacts included in the wheel.
-- `/advantage/v3.json` has three registered families and reports their current artifact state.
+- `/advantage/v3.json` has six registered families and reports their current artifact state.
 - `/canary` exposes the latest durable result and bounded history rather than inferring uptime.
 
 Do not use a payment header in these manual checks. Only the governing runner may exercise

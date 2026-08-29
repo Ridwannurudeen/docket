@@ -84,8 +84,9 @@ def v3_index(payload: dict) -> str:
             f'<p><a href="/advantage/v3/{spec_id}">Read this family</a></p></article>'
         )
     return (
-        '<section aria-labelledby="v3-families"><h2 id="v3-families">Five registered '
-        'families</h2><p class="section-note">Each family has its own record and links '
+        '<section aria-labelledby="v3-families"><h2 id="v3-families">'
+        f'{len(payload["families"])} registered families</h2><p class="section-note">'
+        'Each family has its own record and links '
         "to the underlying artifacts; those artifacts no longer arrive in one document.</p>"
         f'<div class="cards">{"".join(cards)}</div></section>'
     )

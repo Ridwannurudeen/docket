@@ -64,7 +64,7 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/advantage` | The same report as a page for a human |
 | GET | `/advantage/v2.json` | Hashed experiments with per-experiment registration provenance: every run, the nulls beside every figure, each falsifier's computed result |
 | GET | `/advantage/v2` | The same v2 report as a page for a human |
-| GET | `/advantage/v3.json` | Five registered paired families and each artifact-derived execution or scoring state |
+| GET | `/advantage/v3.json` | Six registered paired families and each artifact-derived execution or scoring state |
 | GET | `/advantage/v3` | The same startup-bound v3 report as a page for a human |
 | GET | `/pancake` | JSON source map by default; the live PancakeSwap evidence dashboard for HTML callers |
 | GET | `/llms.txt` | Full plain-text reference |
@@ -367,8 +367,8 @@ curl -s "$DOCKET/advantage/v3.json"
 
 The reports are additive and none supersedes another. v1 is the original paired eligibility
 artifact at n=1. v2 is agent-versus-computed-null armour with no human arm. v3 is the
-registered paired evaluation scored by two prompt-blinded model seats run by one
-operator.
+registered paired evaluation scored by two prompt-blinded model seats. V3-06 discloses
+Codex as its assisted baseline operator and makes no human-versus-agent claim.
 
 Read `summary.states` before describing v3. `v3-04-warden-security` is
 `complete_unscored` with `score_sheets_missing`. Both calibration seats passed first
@@ -387,12 +387,14 @@ Warden and 6/8 (0.75) manually; precision of 4/4 (1.00) and 6/8 (0.75); valid sc
 27.86 seconds; and median agent/manual ratio 0.0610434. Warden missed its recall,
 zero-critical, complete-pair, and median-saving limbs. Missing rubric medians prevent the
 complete registered falsifier from being evaluated, so the report publishes neither
-`refuted` nor `not_refuted`. At the committed-artifact observation on 2026-08-28, the
-committed v3 artifacts contain 5 families: `v3-04-warden-security` is
-`complete_unscored`; `v3-02-yield-router` and `v3-05-range-doctor` are `locked_not_run`;
-`v3-01-range-doctor` and `v3-03-warden-security` are `superseded_before_input_lock`.
-V3-02 and v3-05 have locked inputs and no claimed primaries. Never turn `not_refuted`
-into "proved".
+`refuted` nor `not_refuted`. At the committed-artifact observation on 2026-08-29, the
+committed v3 artifacts contain 6 families: `v3-02-yield-router` is
+`abandoned_after_failed_primary`; `v3-04-warden-security` is `complete_unscored`;
+`v3-05-range-doctor` is `locked_not_run`; `v3-06-yield-router-assisted` is
+`registered_waiting_for_inputs`; `v3-01-range-doctor` and `v3-03-warden-security` are
+`superseded_before_input_lock`. V3-06 is a distinct successor with a future capture,
+fresh input lock and Codex-assisted baseline. It is not a retry or relabeling of v3-02.
+Never turn `not_refuted` into "proved".
 
 The process builds one v3 payload at startup and renders `/advantage/v3` from that exact
 object. Use the JSON for machine work and the page for a reader; neither changes until the

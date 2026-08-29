@@ -757,11 +757,13 @@ def test_the_experiment_register_keeps_every_missing_result_visible():
     register = re.search(
         r'<section[^>]+id="experiments".*?</section>', markup, re.S
     ).group(0)
-    assert "Five registered families. No scored result." in register
-    assert register.count('class="experiment-row"') == 5
-    assert register.count("Observed 28 Aug 2026") == 5
+    assert "Six registered families. No scored result." in register
+    assert register.count('class="experiment-row"') == 6
+    assert register.count("Observed 29 Aug 2026") == 6
     assert register.count("superseded_before_input_lock") == 2
-    assert register.count("locked_not_run") == 2
+    assert register.count("locked_not_run") == 1
+    assert register.count("abandoned_after_failed_primary") == 1
+    assert register.count("registered_waiting_for_inputs") == 1
     assert register.count("complete_unscored") == 1
     assert "Absent" in register
 

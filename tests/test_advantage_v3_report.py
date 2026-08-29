@@ -76,19 +76,22 @@ def _forbid_filesystem_writes(monkeypatch):
     monkeypatch.setattr(os, "open", fail_os_open)
 
 
-def test_the_committed_families_include_superseded_pilots_and_unscored_successor():
+def test_the_committed_families_preserve_the_failed_primary_and_name_its_successor():
     payload = report.report()
 
     assert [family["state"] for family in payload["families"]] == [
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
-        report.LOCKED_NOT_RUN,
+        report.ABANDONED_AFTER_FAILED_PRIMARY,
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
         report.COMPLETE_UNSCORED,
         report.LOCKED_NOT_RUN,
+        report.REGISTERED_WAITING,
     ]
     assert payload["summary"]["states"] == {
         report.COMPLETE_UNSCORED: 1,
-        report.LOCKED_NOT_RUN: 2,
+        report.ABANDONED_AFTER_FAILED_PRIMARY: 1,
+        report.LOCKED_NOT_RUN: 1,
+        report.REGISTERED_WAITING: 1,
         report.SUPERSEDED_BEFORE_INPUT_LOCK: 2,
     }
     assert "proved" not in json.dumps(payload).lower()
@@ -96,6 +99,16 @@ def test_the_committed_families_include_superseded_pilots_and_unscored_successor
     assert by_id["v3-01-range-doctor"]["superseded_by"] == "v3-05-range-doctor"
     assert by_id["v3-03-warden-security"]["superseded_by"] == ("v3-04-warden-security")
     assert by_id["v3-04-warden-security"]["unscored_reason"] == "score_sheets_missing"
+    predecessor = by_id["v3-02-yield-router"]
+    assert predecessor["abandoned_by"] == "v3-06-yield-router-assisted"
+    assert predecessor["successor_provenance"] == (
+        by_id["v3-06-yield-router-assisted"]["spec"]["successor_provenance"]
+    )
+    assert any(
+        event.get("kind") == runner.TERMINATED
+        and event.get("outcome") == runner.FAILED
+        for event in predecessor["ledger"]
+    )
     assert by_id["v3-04-warden-security"]["run_progress"] == {
         "scheduled_primaries": 24,
         "claimed_primaries": 24,

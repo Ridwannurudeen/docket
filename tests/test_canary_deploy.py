@@ -110,3 +110,26 @@ def test_the_v3_range_capture_starts_after_yield_and_uses_a_distinct_lock():
     assert "StartLimitIntervalSec=15min" in service
     assert "StartLimitBurst=3" in service
     assert "After=docket-v3-capture.service" not in service
+
+
+def test_the_v3_yield_v6_capture_prearms_with_a_distinct_target():
+    service = _read(DEPLOY / "systemd" / "docket-v3-yield-v6-capture.service")
+    timer = _read(DEPLOY / "systemd" / "docket-v3-yield-v6-capture.timer")
+
+    assert "OnCalendar=2026-09-03 11:50:00 UTC" in timer
+    assert "Unit=docket-v3-yield-v6-capture.service" in timer
+    assert "Persistent=true" in timer
+    assert not any(
+        line.startswith("RandomizedDelaySec=") for line in timer.splitlines()
+    )
+    assert (
+        "v3-06-yield-router-assisted /var/lib/docket/v3-capture/yield-v3-06"
+        in service.replace("\\\n", "")
+    )
+    assert "Nice=-5" in service
+    assert "TimeoutStartSec=15min" in service
+    assert "Restart=on-failure" in service
+    assert "RestartSec=30s" in service
+    assert "RestartPreventExitStatus=2 3" in service
+    assert "StartLimitIntervalSec=15min" in service
+    assert "StartLimitBurst=3" in service

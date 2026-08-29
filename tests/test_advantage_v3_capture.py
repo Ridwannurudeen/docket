@@ -32,6 +32,11 @@ SPEC_PATH = (
 )
 SPEC = load(SPEC_PATH)
 SCHEDULED = datetime(2026, 8, 26, 12, 0, 0, tzinfo=timezone.utc)
+YIELD_V6_SPEC_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "docket/advantage/v3/specs/v3-06-yield-router-assisted.json"
+)
+YIELD_V6_SPEC = load(YIELD_V6_SPEC_PATH)
 RANGE_SPEC_PATH = (
     Path(__file__).resolve().parents[1]
     / "docket/advantage/v3/specs/v3-05-range-doctor.json"
@@ -84,6 +89,18 @@ def test_the_scraped_urls_are_the_registered_constants():
     schedule = capture.registered_schedule(SPEC)
     assert schedule["pools_url"] == YIELD_SOURCE_URLS["pools"]
     assert schedule["token_list_url"] == YIELD_SOURCE_URLS["token_list"]
+
+
+def test_yield_successor_schedule_uses_its_structured_registered_attempts():
+    schedule = capture.registered_schedule(YIELD_V6_SPEC)
+
+    assert schedule == {
+        "first_attempt_at": "2026-09-03T12:00:00Z",
+        "pools_url": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
+        "token_list_url": (
+            "https://tokens.pancakeswap.finance/pancakeswap-extended.json"
+        ),
+    }
 
 
 def test_an_early_start_arms_then_waits_for_the_registered_moment(tmp_path):

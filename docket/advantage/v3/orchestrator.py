@@ -197,6 +197,51 @@ def _prepare(spec, runs_dir, repo_root) -> list[dict]:
     return recovered
 
 
+def _baseline_readiness(spec, slot) -> dict | None:
+    """Return the unscored readiness contract for its registered baseline arm."""
+    readiness = spec.execution_protocol.get("baseline_readiness")
+    identity = spec.execution_protocol.get("baseline_identity")
+    if (
+        isinstance(readiness, dict)
+        and readiness.get("required_before_primary") is True
+        and isinstance(identity, dict)
+        and slot.arm == identity.get("arm")
+    ):
+        return readiness
+    return None
+
+
+def _verify_baseline_readiness(spec, slot, input_stream) -> bool:
+    readiness = _baseline_readiness(spec, slot)
+    if readiness is None:
+        return False
+    print(
+        json.dumps(
+            {"baseline_readiness": readiness["fixture"]},
+            sort_keys=True,
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+    line = input_stream.readline()
+    try:
+        submitted = json.loads(line)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise OrchestratorRefused(
+            "the unscored baseline readiness answer is not valid JSON; no official "
+            "run event was written, so the readiness check may be retried"
+        ) from exc
+    if runner.canonical_hash(submitted) != runner.canonical_hash(
+        readiness["expected_output"]
+    ):
+        raise OrchestratorRefused(
+            "the unscored baseline readiness answer does not exactly match the "
+            "registered expected JSON; no official run event was written, so the "
+            "readiness check may be retried"
+        )
+    return True
+
+
 def _reveal(spec, slot, repo_root):
     """Load the locked case this slot is bound to.
 
@@ -248,6 +293,7 @@ def run_next(
     prepare=True,
     payment_headers=None,
     client=None,
+    readiness_verified=False,
 ) -> dict:
     """Claim the next open slot, run it once, persist the first terminal outcome.
 
@@ -263,14 +309,25 @@ def run_next(
         assert_runnable(spec, repo_root=_root(repo_root))
     except ValueError as exc:
         raise OrchestratorRefused(str(exc)) from exc
-    if prepare:
+    prepared = False
+    if prepare and not isinstance(
+        spec.execution_protocol.get("baseline_readiness"), dict
+    ):
         _prepare(spec, runs_dir, repo_root)
+        prepared = True
     try:
         nxt = next_open_slot(spec, runs_dir, repo_root=repo_root)
     except ValueError as exc:
         raise OrchestratorRefused(str(exc)) from exc
     if nxt is None:
         raise OrchestratorRefused("every registered primary is recorded")
+    if _baseline_readiness(spec, nxt) is not None and readiness_verified is not True:
+        raise OrchestratorRefused(
+            "the registered Codex-assisted baseline readiness check must pass before "
+            "the primary is claimed"
+        )
+    if prepare and not prepared:
+        _prepare(spec, runs_dir, repo_root)
     if slot is not None and slot.slot != nxt.slot:
         raise OrchestratorRefused(
             f"the registered {nxt.arm} block must run next; refusing {slot.slot}"
@@ -332,6 +389,7 @@ def run_remaining(
     limit=None,
     payment_headers=None,
     client=None,
+    readiness_verified=False,
 ) -> list[dict]:
     """Walk every remaining primary in registered order. A failed slot is not retried."""
     tick = time.monotonic_ns if clock is None else clock
@@ -340,6 +398,20 @@ def run_remaining(
         assert_runnable(spec, repo_root=_root(repo_root))
     except ValueError as exc:
         raise OrchestratorRefused(str(exc)) from exc
+    if isinstance(spec.execution_protocol.get("baseline_readiness"), dict):
+        try:
+            nxt = next_open_slot(spec, runs_dir, repo_root=repo_root)
+        except ValueError as exc:
+            raise OrchestratorRefused(str(exc)) from exc
+        if (
+            nxt is not None
+            and _baseline_readiness(spec, nxt) is not None
+            and readiness_verified is not True
+        ):
+            raise OrchestratorRefused(
+                "the registered Codex-assisted baseline readiness check must pass before "
+                "the run is opened"
+            )
     recovered = _prepare(spec, runs_dir, repo_root)
     results = list(recovered)
     ran = 0
@@ -360,6 +432,7 @@ def run_remaining(
                 prepare=False,
                 payment_headers=payment_headers,
                 client=client,
+                readiness_verified=readiness_verified,
             )
         )
         ran += 1
@@ -414,6 +487,16 @@ def main(argv: list[str] | None = None, *, client=None, stdin=None) -> int:
     input_stream = sys.stdin if stdin is None else stdin
 
     try:
+        readiness_verified = False
+        if isinstance(spec.execution_protocol.get("baseline_readiness"), dict):
+            nxt = next_open_slot(spec, runs_dir, repo_root=repo_root)
+            if nxt is not None and _baseline_readiness(spec, nxt) is not None:
+                if not args.interactive:
+                    raise OrchestratorRefused(
+                        "the Codex-assisted baseline readiness check requires "
+                        "--interactive; refusing before the run is opened"
+                    )
+                readiness_verified = _verify_baseline_readiness(spec, nxt, input_stream)
         recovered = _prepare(spec, runs_dir, repo_root)
         for event in recovered:
             print(f"{event['slot']} {event['outcome']}")
@@ -449,6 +532,7 @@ def main(argv: list[str] | None = None, *, client=None, stdin=None) -> int:
                 payment_headers=headers,
                 client=client,
                 prepare=False,
+                readiness_verified=readiness_verified,
             )
             print(f"{terminal['slot']} {terminal['outcome']}")
             if terminal["outcome"] == runner.BLOCKED_CONTRACT:

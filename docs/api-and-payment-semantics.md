@@ -35,7 +35,8 @@ requesting JSON receives the endpoint index.
 V3's states are `registered_waiting_for_inputs`, `superseded_before_input_lock`,
 `locked_not_run`, `running`, `complete_unscored`, `refuted`, and `not_refuted`. At the
 committed-artifact observation on 2026-08-28, `v3-04-warden-security` is
-`complete_unscored`; `v3-02-yield-router` and `v3-05-range-doctor` are `locked_not_run`;
+`complete_unscored`; `v3-02-yield-router` is `abandoned_after_failed_primary`;
+`v3-05-range-doctor` is `locked_not_run`;
 and `v3-01-range-doctor` and `v3-03-warden-security` are
 `superseded_before_input_lock`. V3-02 and v3-05 have locked inputs and no claimed primaries.
 V3-04 has all 24 primaries terminal (23 succeeded; one manual failed), but its missing

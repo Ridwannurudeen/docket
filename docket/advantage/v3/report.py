@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import runner, scoring
-from .spec import REPO_ROOT, is_warden_family, load as load_spec
+from .spec import REPO_ROOT, is_warden_family, is_yield_family, load as load_spec
 
 V3_DIR = Path(__file__).parent
 SPECS_DIR = V3_DIR / "specs"
@@ -21,6 +21,7 @@ MAPPINGS_DIR = V3_DIR / "mappings"
 
 REGISTERED_WAITING = "registered_waiting_for_inputs"
 SUPERSEDED_BEFORE_INPUT_LOCK = "superseded_before_input_lock"
+ABANDONED_AFTER_FAILED_PRIMARY = "abandoned_after_failed_primary"
 LOCKED_NOT_RUN = "locked_not_run"
 RUNNING = "running"
 COMPLETE_UNSCORED = "complete_unscored"
@@ -29,6 +30,7 @@ NOT_REFUTED = "not_refuted"
 STATES = (
     REGISTERED_WAITING,
     SUPERSEDED_BEFORE_INPUT_LOCK,
+    ABANDONED_AFTER_FAILED_PRIMARY,
     LOCKED_NOT_RUN,
     RUNNING,
     COMPLETE_UNSCORED,
@@ -85,7 +87,7 @@ def _common_checks(spec, quality: dict, speed: dict) -> list[dict]:
 
 def _falsifier(spec, quality: dict, speed: dict, formula_metrics: dict | None) -> dict:
     checks = _common_checks(spec, quality, speed)
-    if spec.spec_id == "v3-02-yield-router":
+    if is_yield_family(spec):
         checks.append(
             _check(
                 "any_agent_universe_differs_from_the_frozen_manifest",
@@ -261,7 +263,7 @@ def family_report(
         spec, bundle, sheets_dir, mapping, repo_root=repo_root
     )
     speed = scoring.speed_metrics(spec, attempts, inputs=inputs, repo_root=repo_root)
-    if spec.spec_id == "v3-02-yield-router":
+    if is_yield_family(spec):
         formula_metrics = scoring.yield_completeness(spec, inputs, attempts)
     elif is_warden_family(spec):
         formula_metrics = scoring.warden_metrics(
@@ -315,6 +317,39 @@ def report(
         ):
             predecessor["state"] = SUPERSEDED_BEFORE_INPUT_LOCK
             predecessor["superseded_by"] = successor["spec_id"]
+    for successor in families:
+        provenance = successor["spec"].get("successor_provenance")
+        if (
+            successor["spec_id"] != "v3-06-yield-router-assisted"
+            or not isinstance(provenance, dict)
+            or provenance.get("status")
+            != "distinct_successor_after_failed_primary"
+        ):
+            continue
+        predecessor = by_id.get(provenance.get("prior_spec_id"))
+        if (
+            predecessor is None
+            or predecessor["state"] != RUNNING
+            or predecessor["spec"]["stage_one_protocol_hash"]
+            != provenance.get("prior_stage_one_protocol_hash")
+            or predecessor["spec"]["spec_hash"]
+            != provenance.get("prior_spec_hash")
+            or provenance.get("prior_ledger_ref")
+            != f"docket/advantage/v3/runs/{predecessor['spec_id']}.jsonl"
+            or (Path(repo_root) / provenance["prior_ledger_ref"]).resolve()
+            != (Path(runs_dir) / f"{predecessor['spec_id']}.jsonl").resolve()
+        ):
+            continue
+        failed_primary = any(
+            event.get("kind") == runner.TERMINATED
+            and event.get("attempt_kind") == runner.PRIMARY
+            and event.get("outcome") == runner.FAILED
+            for event in predecessor["ledger"]
+        )
+        if failed_primary:
+            predecessor["state"] = ABANDONED_AFTER_FAILED_PRIMARY
+            predecessor["abandoned_by"] = successor["spec_id"]
+            predecessor["successor_provenance"] = provenance
     states = Counter(family["state"] for family in families)
     return {
         "version": "v3",

@@ -85,6 +85,7 @@ def test_every_v3_state_artifact_has_a_package_data_path():
 def test_v3_operator_runbooks_keep_experiment_ledgers_in_the_repository():
     for relative in (
         "docs/runbooks/yield-v3-02-run.md",
+        "docs/runbooks/yield-v3-06-assisted-run.md",
         "docs/runbooks/range-v3-05-run.md",
         "docs/deployment-runbook.md",
     ):

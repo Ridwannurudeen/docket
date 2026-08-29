@@ -96,7 +96,7 @@ UPSTREAM_RETRY_PAUSE_S = 1.0
 
 SERVICE_BENCHMARK_FAMILIES = {
     "range-doctor": "v3-05-range-doctor",
-    "yield-router": "v3-02-yield-router",
+    "yield-router": "v3-06-yield-router-assisted",
     "warden-scan": "v3-04-warden-security",
 }
 
@@ -186,6 +186,10 @@ def _measured_value(service_id: str, elapsed: float) -> dict:
             reason = (
                 f"The v3 paired family {spec_id} is complete but unscored: "
                 f"{family['unscored_reason']}."
+            )
+        elif state == v3_report.ABANDONED_AFTER_FAILED_PRIMARY:
+            reason = (
+                f"The v3 paired family {spec_id} was abandoned after a failed primary."
             )
         else:
             raise RuntimeError(f"v3 family {spec_id} has unknown benchmark state {state}")

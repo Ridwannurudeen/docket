@@ -17,6 +17,10 @@ STATE_TEXT = {
     report_module.SUPERSEDED_BEFORE_INPUT_LOCK: (
         "A later pilot-informed registration superseded this unlocked family. No arm ran."
     ),
+    report_module.ABANDONED_AFTER_FAILED_PRIMARY: (
+        "A primary failed under the no-retry rule. Its ledger remains published, and a "
+        "distinct successor does not replace or relabel it."
+    ),
     report_module.LOCKED_NOT_RUN: "Inputs are locked. No primary attempt has been claimed.",
     report_module.RUNNING: (
         "The claim-once ledger has claimed work without a terminal event. Expired "
@@ -116,9 +120,10 @@ def _arms(spec: dict) -> str:
     cards = []
     for arm_name in ("manual", "agent"):
         arm = spec["arms"][arm_name]
+        display_name = arm.get("display_name", arm_name.title())
         cards.append(
             '<div class="panel">'
-            f'<h3>{_esc(arm_name.title())} arm</h3><dl class="deflist">'
+            f'<h3>{_esc(display_name)} arm</h3><dl class="deflist">'
             f"<dt>What it does</dt><dd>{_esc(arm['what_it_does'])}</dd>"
             f"<dt>Who runs it</dt><dd>{_esc(arm['who_runs_it'])}</dd>"
             f"<dt>What is recorded</dt><dd>{_esc(arm['what_is_recorded'])}</dd>"

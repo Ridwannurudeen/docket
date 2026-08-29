@@ -10,8 +10,9 @@ import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -107,6 +108,32 @@ def test_registered_capture_schedule_keeps_range_boundary_and_recommits_yield():
         "2026-08-26T12:01:00Z",
         "2026-08-26T12:02:00Z",
     ]
+
+
+def test_yield_successor_capture_schedule_comes_from_the_registered_spec_helper(
+    monkeypatch,
+):
+    spec = SimpleNamespace(
+        spec_id="v3-06-yield-router-assisted",
+        execution_protocol={"agent_service_id": "yield-router"},
+    )
+    attempts = (
+        datetime(2026, 9, 1, 12, tzinfo=timezone.utc),
+        datetime(2026, 9, 1, 12, 1, tzinfo=timezone.utc),
+        datetime(2026, 9, 1, 12, 2, tzinfo=timezone.utc),
+    )
+    seen = []
+
+    def registered(candidate):
+        seen.append(candidate)
+        return attempts
+
+    monkeypatch.setattr(runner, "yield_capture_attempts", registered)
+
+    schedule = runner.registered_capture_schedule(spec)
+
+    assert seen == [spec]
+    assert tuple(slot.scheduled_at for slot in schedule) == attempts
 
 
 def test_primary_schedule_and_case_bindings_come_only_from_locked_inputs(locked):

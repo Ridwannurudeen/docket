@@ -438,6 +438,32 @@ def test_release_refuses_the_range_activation_window_before_stopping_units(tmp_p
     assert (root / "opt" / "docket" / "old-release.txt").is_file()
 
 
+def test_release_refuses_the_yield_v6_capture_window_before_stopping_units(tmp_path):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        wheel.as_posix(),
+        COMMIT,
+        digest,
+        environment=_environment(
+            root,
+            fake_bin,
+            DOCKET_RELEASE_NOW_UTC="2026-09-03T12:01:00Z",
+        ),
+    )
+
+    assert result.returncode != 0
+    assert "Yield v3-06 capture activation window" in result.stderr
+    assert "systemctl stop docket-canary.timer" not in result.stdout
+    assert (root / "opt" / "docket" / "old-release.txt").is_file()
+
+
 def test_release_tooling_never_changes_or_reloads_nginx():
     release = (DEPLOY / "release.sh").read_text(encoding="utf-8")
     preflight = (DEPLOY / "preflight.sh").read_text(encoding="utf-8")
@@ -507,7 +533,7 @@ def test_release_refuses_a_health_response_without_ok_status(tmp_path):
     assert (root / "opt" / "docket" / "old-release.txt").is_file()
 
 
-def test_release_retires_the_aug21_timer_and_enables_all_five_new_timers(tmp_path):
+def test_release_retires_the_aug21_timer_and_enables_all_six_timers(tmp_path):
     root = tmp_path / "root"
     _prepare_live_release(root)
     units = root / "etc" / "systemd" / "system"
@@ -544,11 +570,14 @@ def test_release_retires_the_aug21_timer_and_enables_all_five_new_timers(tmp_pat
         "docket-refresh.timer",
         "docket-v3-capture.timer",
         "docket-v3-range-capture.timer",
+        "docket-v3-yield-v6-capture.timer",
     ):
         assert f"systemctl enable --now {timer}" in result.stdout
     for name in (
         "docket-v3-range-capture.service",
         "docket-v3-range-capture.timer",
+        "docket-v3-yield-v6-capture.service",
+        "docket-v3-yield-v6-capture.timer",
     ):
         assert (units / name).read_bytes() == (DEPLOY / "systemd" / name).read_bytes()
 

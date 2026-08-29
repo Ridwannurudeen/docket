@@ -47,7 +47,7 @@ def _snapshot(payload):
         verb = "is" if len(spec_ids) == 1 else "are"
         clauses.append(f"{names} {verb} `{state}`")
     return (
-        "At the committed-artifact observation on 2026-08-28, the committed v3 artifacts "
+        "At the committed-artifact observation on 2026-08-29, the committed v3 artifacts "
         f"contain {payload['summary']['n_families']} families: {'; '.join(clauses)}."
     )
 

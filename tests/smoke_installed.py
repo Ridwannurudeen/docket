@@ -58,10 +58,13 @@ with tempfile.TemporaryDirectory(prefix="docket-installed-smoke-") as scratch:
         "v3-03-warden-security",
         "v3-04-warden-security",
         "v3-05-range-doctor",
+        "v3-06-yield-router-assisted",
     ]
     assert {family["state"] for family in families} == {
         "complete_unscored",
+        "abandoned_after_failed_primary",
         "locked_not_run",
+        "registered_waiting_for_inputs",
         "superseded_before_input_lock",
     }
 
@@ -69,6 +72,8 @@ with tempfile.TemporaryDirectory(prefix="docket-installed-smoke-") as scratch:
     assert page.status_code == 200, page.text
     assert "complete_unscored" in page.text
     assert "locked_not_run" in page.text
+    assert "abandoned_after_failed_primary" in page.text
+    assert "registered_waiting_for_inputs" in page.text
     for path in ("/llms.txt", "/skill.md"):
         document = client.get(path)
         assert document.status_code == 200, path

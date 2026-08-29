@@ -107,14 +107,15 @@ V2 stores corpora, hash-bearing specifications, runs, null baselines, every tria
 computed falsifiers under `docket/advantage/v2/`. `docket.advantage.v2.report.report()` is
 the common builder for `/advantage/v2.json` and its HTML page.
 
-V3 stores five stage-one paired specifications plus its claim-once runner, prompt-blinded
+V3 stores six stage-one paired specifications plus its claim-once runner, prompt-blinded
 scoring, and artifact-derived report under `docket/advantage/v3/`. Family state is derived
 from committed specs, inputs, ledgers, sheets, and mappings rather than asserted as an
-undated present here. At the committed-artifact observation on 2026-08-28, the committed v3
-artifacts contain 5 families: `v3-04-warden-security` is `complete_unscored`;
-`v3-02-yield-router` and `v3-05-range-doctor` are `locked_not_run`;
-`v3-01-range-doctor` and `v3-03-warden-security` are `superseded_before_input_lock`. The
-v3-02 and v3-05 inputs are locked and neither family has a claimed primary. V3-04 has all
+undated present here. At the committed-artifact observation on 2026-08-29, the committed v3
+artifacts contain 6 families: `v3-02-yield-router` is
+`abandoned_after_failed_primary`; `v3-04-warden-security` is `complete_unscored`;
+`v3-05-range-doctor` is `locked_not_run`; `v3-06-yield-router-assisted` is
+`registered_waiting_for_inputs`; `v3-01-range-doctor` and `v3-03-warden-security` are
+`superseded_before_input_lock`. V3-04 has all
 24 primaries terminal (23 succeeded; manual `w4-ho-01` failed). Its rubric is permanently
 unscored because seat B (Claude) returned no first scoring response and retry or substitution
 is forbidden; no registered falsifier result exists. The registration fields identify a

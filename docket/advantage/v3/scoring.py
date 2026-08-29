@@ -25,7 +25,13 @@ from pathlib import Path
 
 from ...hire.receipts import canonical_hash
 from . import runner
-from .spec import PairedSpec, assert_runnable, is_range_family, is_warden_family
+from .spec import (
+    PairedSpec,
+    assert_runnable,
+    is_range_family,
+    is_warden_family,
+    is_yield_family,
+)
 
 RANGE_FIELDS = (
     "position",
@@ -38,6 +44,15 @@ RANGE_FIELDS = (
     "coverage",
     "limitations",
     "sources",
+)
+
+YIELD_FIELDS = (
+    "sources",
+    "universe",
+    "rates",
+    "scenario",
+    "decision",
+    "limitations",
 )
 
 FAMILY_PROTOCOLS = {
@@ -54,14 +69,7 @@ FAMILY_PROTOCOLS = {
         "normalisation_version": (
             "yield.v1: sources, universe, rates, scenario, decision, limitations"
         ),
-        "fields": (
-            "sources",
-            "universe",
-            "rates",
-            "scenario",
-            "decision",
-            "limitations",
-        ),
+        "fields": YIELD_FIELDS,
         "family_salt": "yield-blinding",
         "service_literals": ("Yield Router", "yield-router", "yield_router"),
     },
@@ -107,6 +115,14 @@ FAMILY_PROTOCOLS = {
         "fields": RANGE_FIELDS,
         "family_salt": "range-v5-blinding",
         "service_literals": ("Range Doctor", "range-doctor", "range_doctor"),
+    },
+    "v3-06-yield-router-assisted": {
+        "normalisation_version": (
+            "yield.v1: sources, universe, rates, scenario, decision, limitations"
+        ),
+        "fields": YIELD_FIELDS,
+        "family_salt": "yield-v6-assisted-blinding",
+        "service_literals": ("Yield Router", "yield-router", "yield_router"),
     },
 }
 
@@ -299,7 +315,7 @@ def _range_projection(body: dict) -> dict:
 
 
 def _yield_projection(body: dict) -> dict:
-    if all(field in body for field in FAMILY_PROTOCOLS["v3-02-yield-router"]["fields"]):
+    if all(field in body for field in YIELD_FIELDS):
         projected = dict(body)
         if isinstance(projected.get("decision"), str):
             projected["decision"] = {
@@ -363,7 +379,7 @@ def _project_output(spec: PairedSpec, raw_output, case: dict | None) -> dict:
         body = {}
     if is_range_family(spec):
         projected = _range_projection(body)
-    elif spec.spec_id == "v3-02-yield-router":
+    elif is_yield_family(spec):
         projected = _yield_projection(body)
     else:
         projected = _warden_projection(body, case)
@@ -682,7 +698,7 @@ def _valid_completed_output(
         ):
             return False
     if (
-        spec.spec_id == "v3-02-yield-router"
+        is_yield_family(spec)
         and case is not None
         and inputs is not None
         and "pool_id" in case
@@ -1592,7 +1608,7 @@ def _exclusion_map(values) -> dict[str, str] | None:
 
 def yield_completeness(spec: PairedSpec, inputs: dict, attempts: dict) -> dict:
     """Check the hired arm's shown partition against every frozen source row."""
-    if spec.spec_id != "v3-02-yield-router":
+    if not is_yield_family(spec):
         raise ValueError("scoring: universe completeness requires the Yield family")
     if _exclusion_map(inputs["truth_manifest"]["excluded"]) is None:
         raise ValueError("scoring: frozen Yield exclusion manifest is malformed")

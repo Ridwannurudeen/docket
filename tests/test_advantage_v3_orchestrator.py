@@ -10,6 +10,7 @@ import base64
 import hashlib
 import inspect
 import json
+from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,35 @@ def _register_the_minimal_test_protocol_validator(monkeypatch):
 @pytest.fixture
 def locked(tmp_path: Path):
     stage_one = PairedSpec(**_valid())
+    record = _input_record(stage_one)
+    _write_inputs(tmp_path, stage_one, (json.dumps(record) + "\n").encode())
+    save(stage_one, tmp_path / "spec.json", repo_root=tmp_path)
+    spec = lock_inputs(stage_one, repo_root=tmp_path)
+    save(spec, tmp_path / "spec.json", repo_root=tmp_path)
+    return spec, tmp_path / "runs", tmp_path
+
+
+@pytest.fixture
+def assisted_locked(tmp_path: Path):
+    body = _valid()
+    body["arms"]["manual"]["display_name"] = "Codex-assisted baseline"
+    body["arms"]["agent"]["display_name"] = "Deployed Yield Router"
+    body["execution_protocol"] |= {
+        "baseline_identity": {
+            "arm": "manual",
+            "kind": "codex_assisted",
+            "operator": "Codex",
+            "display_name": "Codex-assisted baseline",
+            "human_or_independent": False,
+        },
+        "baseline_readiness": {
+            "required_before_primary": True,
+            "scored": False,
+            "fixture": {"instruction": "return the registered ready value"},
+            "expected_output": {"ready": True},
+        },
+    }
+    stage_one = PairedSpec(**body)
     record = _input_record(stage_one)
     _write_inputs(tmp_path, stage_one, (json.dumps(record) + "\n").encode())
     save(stage_one, tmp_path / "spec.json", repo_root=tmp_path)
@@ -130,6 +160,71 @@ def test_a_slot_is_claimed_on_disk_before_invoke_runs(locked):
     assert terminal["kind"] == runner.TERMINATED
     assert terminal["outcome"] == runner.SUCCEEDED
     assert terminal["raw_output"] == {"answer": "case-1:manual"}
+
+
+def test_assisted_run_next_refuses_without_verified_readiness_and_writes_no_event(
+    assisted_locked,
+):
+    spec, runs, root = assisted_locked
+
+    with pytest.raises(orchestrator.OrchestratorRefused, match="readiness check"):
+        orchestrator.run_next(spec, runs, repo_root=root, invoke=_succeed)
+
+    assert runner.read_events(runner.ledger_path(spec, runs)) == []
+
+
+@pytest.mark.parametrize(
+    "submission",
+    ("not-json\n", '{"ready":false}\n'),
+    ids=("malformed-json", "wrong-json"),
+)
+def test_invalid_assisted_readiness_is_retryable_and_writes_no_event(
+    assisted_locked, capsys, submission
+):
+    spec, runs, root = assisted_locked
+
+    code = orchestrator.main(
+        [
+            str(root / "spec.json"),
+            str(runs),
+            "--interactive",
+            "--repo-root",
+            str(root),
+            "--once",
+        ],
+        stdin=StringIO(submission),
+    )
+
+    assert code == 2
+    assert "may be retried" in capsys.readouterr().out
+    assert runner.read_events(runner.ledger_path(spec, runs)) == []
+
+
+def test_valid_assisted_readiness_precedes_the_official_run_and_primary(
+    assisted_locked,
+):
+    spec, runs, root = assisted_locked
+
+    code = orchestrator.main(
+        [
+            str(root / "spec.json"),
+            str(runs),
+            "--interactive",
+            "--repo-root",
+            str(root),
+            "--once",
+        ],
+        stdin=StringIO('{"ready":true}\n{"answer":"baseline"}\n'),
+    )
+
+    assert code == 0
+    events = runner.read_events(runner.ledger_path(spec, runs))
+    assert [event["kind"] for event in events] == [
+        runner.RUN_OPENED,
+        runner.STARTED,
+        runner.TERMINATED,
+    ]
+    assert events[-1]["raw_output"] == {"answer": "baseline"}
 
 
 def test_a_crash_after_claim_leaves_that_slot_interrupted_not_absent(locked):
@@ -891,18 +986,14 @@ def test_manual_reveal_includes_hash_checked_sources_without_truth(spec_name):
         raw = base64.b64decode(snapshot["body_base64"], validate=True)
         assert hashlib.sha256(raw).hexdigest() == snapshot["sha256"]
         assert snapshot["body"] == json.loads(raw)
-        assert snapshot["source_ref"].endswith(
-            f"#source_snapshots/{snapshot['name']}"
-        )
+        assert snapshot["source_ref"].endswith(f"#source_snapshots/{snapshot['name']}")
 
 
 def test_interactive_yield_records_revealed_sources_before_reading_answer(
     tmp_path, capsys
 ):
     root = spec_module.REPO_ROOT
-    spec = spec_module.load(
-        SPECS_DIR / "v3-02-yield-router.json", repo_root=root
-    )
+    spec = spec_module.load(SPECS_DIR / "v3-02-yield-router.json", repo_root=root)
     runs = tmp_path / "runs"
 
     class OneSubmission:

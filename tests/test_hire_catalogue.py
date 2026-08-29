@@ -36,6 +36,11 @@ def _benchmark_report():
             "registered_waiting_for_inputs",
             5,
         ),
+        "v3-06-yield-router-assisted": (
+            "yield-router",
+            "registered_waiting_for_inputs",
+            5,
+        ),
         "v3-03-warden-security": (
             "warden-scan",
             "superseded_before_input_lock",
@@ -370,7 +375,7 @@ def test_only_mapped_warden_and_yield_runners_gain_measured_value(monkeypatch):
     quality = {"quality_refuted": False}
     payload = _benchmark_report()
     manual_seconds = {
-        "v3-02-yield-router": 61.5,
+        "v3-06-yield-router-assisted": 61.5,
         "v3-04-warden-security": 27.25,
     }
     for family in payload["families"]:
@@ -477,7 +482,7 @@ def test_only_mapped_warden_and_yield_runners_gain_measured_value(monkeypatch):
         "this_run_seconds": 2.5,
         "paired_manual_seconds": 61.5,
         "quality_result": quality | {"rubric_scale": _rubric_scale(5)},
-        "report_url": "/advantage/v3#v3-02-yield-router",
+        "report_url": "/advantage/v3#v3-06-yield-router-assisted",
         "benchmark_state": "refuted",
         "falsifier_result": {"refuted": True, "checks": []},
         "benchmark_unavailable_reason": None,

@@ -94,11 +94,12 @@ failures, 11/12 complete pairs, a 27.86-second median saving, and a
 0.06104344152643808 median ratio. These are read-only frozen-label diagnostics, not a
 published §10 result. Missing rubric medians prevent a complete registered falsifier
 evaluation, so neither `refuted` nor `not_refuted` is published. At the committed-artifact
-observation on 2026-08-28, the committed v3 artifacts contain 5 families:
-`v3-04-warden-security` is `complete_unscored`; `v3-02-yield-router` and
-`v3-05-range-doctor` are `locked_not_run`; `v3-01-range-doctor` and
-`v3-03-warden-security` are `superseded_before_input_lock`. The v3-02 and v3-05 inputs are
-locked and neither family has a claimed primary.
+observation on 2026-08-29, the committed v3 artifacts contain 6 families:
+`v3-02-yield-router` is `abandoned_after_failed_primary`; `v3-04-warden-security` is
+`complete_unscored`; `v3-05-range-doctor` is `locked_not_run`;
+`v3-06-yield-router-assisted` is `registered_waiting_for_inputs`;
+`v3-01-range-doctor` and `v3-03-warden-security` are
+`superseded_before_input_lock`.
 
 ## 4. Check the registry data
 

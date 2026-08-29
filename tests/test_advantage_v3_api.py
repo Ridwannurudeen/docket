@@ -39,10 +39,11 @@ def test_the_current_surface_shows_the_complete_unscored_family_and_never_says_p
     assert rendered.headers["content-type"].startswith("text/html")
     assert [family["state"] for family in payload["families"]] == [
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
-        report.LOCKED_NOT_RUN,
+        report.ABANDONED_AFTER_FAILED_PRIMARY,
         report.SUPERSEDED_BEFORE_INPUT_LOCK,
         report.COMPLETE_UNSCORED,
         report.LOCKED_NOT_RUN,
+        report.REGISTERED_WAITING,
     ]
     v4 = next(
         family
@@ -56,7 +57,9 @@ def test_the_current_surface_shows_the_complete_unscored_family_and_never_says_p
         "terminal_primaries": 24,
         "outcomes": {"failed": 1, "succeeded": 23},
     }
-    assert rendered.text.count(report.LOCKED_NOT_RUN) >= 2
+    assert rendered.text.count(report.LOCKED_NOT_RUN) >= 1
+    assert report.ABANDONED_AFTER_FAILED_PRIMARY in rendered.text
+    assert report.REGISTERED_WAITING in rendered.text
     assert report.COMPLETE_UNSCORED in rendered.text
     assert report.SUPERSEDED_BEFORE_INPUT_LOCK in rendered.text
     assert "if reconstruction fails, both surfaces report the error explicitly" in rendered.text
@@ -73,10 +76,7 @@ def test_the_current_surface_shows_the_complete_unscored_family_and_never_says_p
     assert "<title>v3-04-warden-security — Docket</title>" in family_page
     assert "1 failed; 23 succeeded" in family_page
     assert '{&quot;failed&quot;: 1, &quot;succeeded&quot;: 23}' not in family_page
-    assert (
-        "No terminal outcomes."
-        in client.get("/advantage/v3/v3-02-yield-router").text
-    )
+    assert "1 failed" in client.get("/advantage/v3/v3-02-yield-router").text
 
 
 def test_openapi_names_every_v3_state(client):

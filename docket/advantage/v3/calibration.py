@@ -34,7 +34,7 @@ from pathlib import Path
 
 from ...hire.receipts import canonical_hash
 from .scoring import _artifact_component, _write_exclusive
-from .spec import PairedSpec, is_warden_family
+from .spec import PairedSpec, is_warden_family, is_yield_family
 
 REQUEST_VERSION = "v3.calibration-capture.request.v1"
 RESPONSE_VERSION = "v3.calibration-capture.response.v1"
@@ -137,7 +137,7 @@ def derive_prompt(spec: PairedSpec, calibration_set: bytes, evaluator_id: str) -
             )
     else:
         prompt_version = "v3.calibration-prompt.v5"
-        if spec.spec_id == "v3-02-yield-router":
+        if is_yield_family(spec):
             instruction = (
                 "Answer every case below under the registered rubric. Return exactly one "
                 "JSON object with this shape: "

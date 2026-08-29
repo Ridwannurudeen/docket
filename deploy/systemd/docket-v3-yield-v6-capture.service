@@ -1,0 +1,25 @@
+[Unit]
+Description=Docket v3-06 Yield Router assisted benchmark capture
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=15min
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+User=docket
+Group=docket
+WorkingDirectory=/var/lib/docket
+ExecStart=/opt/docket/.venv/bin/python -m docket.advantage.v3.capture \
+  v3-06-yield-router-assisted /var/lib/docket/v3-capture/yield-v3-06
+Nice=-5
+TimeoutStartSec=15min
+Restart=on-failure
+RestartSec=30s
+RestartPreventExitStatus=2 3
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/docket

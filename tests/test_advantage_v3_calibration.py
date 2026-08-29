@@ -22,6 +22,7 @@ SPECS_DIR = Path(__file__).resolve().parents[1] / "docket/advantage/v3/specs"
 SOURCES_DIR = Path(__file__).resolve().parents[1] / "docket/advantage/v3/sources"
 SPEC = load(SPECS_DIR / "v3-03-warden-security.json")
 YIELD_SPEC = load(SPECS_DIR / "v3-02-yield-router.json")
+YIELD_V6_SPEC = load(SPECS_DIR / "v3-06-yield-router-assisted.json")
 WARDEN_V4_SPEC = load(SPECS_DIR / "v3-04-warden-security.json")
 SEAT = "seat-a"
 WARDEN_CLASSES = json.loads(
@@ -208,9 +209,10 @@ def test_non_warden_prompt_change_leaves_v3_04_prompt_bytes_unchanged():
     )
 
 
-def test_pancake_prompt_requests_submitted_answers():
+@pytest.mark.parametrize("yield_spec", [YIELD_SPEC, YIELD_V6_SPEC])
+def test_pancake_prompt_requests_submitted_answers(yield_spec):
     shared = {
-        "spec_id": YIELD_SPEC.spec_id,
+        "spec_id": yield_spec.spec_id,
         "cases": [
             {
                 "case_id": f"cal-{number}",
@@ -222,7 +224,7 @@ def test_pancake_prompt_requests_submitted_answers():
     }
     raw_set = json.dumps(shared, sort_keys=True).encode()
 
-    prompt = json.loads(calibration.derive_prompt(YIELD_SPEC, raw_set, SEAT))
+    prompt = json.loads(calibration.derive_prompt(yield_spec, raw_set, SEAT))
 
     assert prompt["prompt_version"] == "v3.calibration-prompt.v5"
     assert "submitted" in prompt["instruction"]

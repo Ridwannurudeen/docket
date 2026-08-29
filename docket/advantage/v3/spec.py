@@ -80,6 +80,16 @@ SCORING_FIELDS = frozenset(
 CORRECTION_FIELDS = frozenset(
     {"status", "supersedes_stage_one_protocol_hash", "reason"}
 )
+SUCCESSOR_FIELDS = frozenset(
+    {
+        "status",
+        "prior_spec_id",
+        "prior_stage_one_protocol_hash",
+        "prior_spec_hash",
+        "prior_ledger_ref",
+        "reason",
+    }
+)
 SPEED_FIELDS = frozenset(
     {
         "formula",
@@ -119,6 +129,24 @@ YIELD_CAPTURE_NOT_BEFORE = datetime(2026, 8, 26, 12, tzinfo=timezone.utc)
 YIELD_CAPTURE_ATTEMPTS = tuple(
     YIELD_CAPTURE_NOT_BEFORE + timedelta(minutes=offset) for offset in range(3)
 )
+YIELD_ASSISTED_CAPTURE_ATTEMPTS = tuple(
+    datetime(2026, 9, 3, 12, tzinfo=timezone.utc) + timedelta(minutes=offset)
+    for offset in range(3)
+)
+YIELD_PRIOR_STAGE_ONE_PROTOCOL_HASH = (
+    "0x10d0fb31ea70c4bb31581952b99b6776d5f25d2c51bdf9543d47d07781266d3c"
+)
+YIELD_PRIOR_SPEC_HASH = (
+    "0xad391e9aa3b039ee5e43397d488deb25893253d3376b08ff544c5651566395d9"
+)
+YIELD_PRIOR_LEDGER_REF = "docket/advantage/v3/runs/v3-02-yield-router.jsonl"
+YIELD_SUCCESSOR_REASON = (
+    "The v3-02 official ledger remains published with manual primary "
+    "v3-02-yield-router::yield-01-916f992d::manual::primary failed as "
+    "invoke_error after 11219000000 ns. This is a distinct successor with new future "
+    "source captures and a disclosed Codex-assisted baseline; it does not replace, "
+    "retry or relabel that failed primary."
+)
 WARDEN_AUTHORABLE_CLASSES = frozenset(
     {
         "DRAIN_ADDRESS",
@@ -149,6 +177,11 @@ def is_warden_family(spec: "PairedSpec") -> bool:
 def is_range_family(spec: "PairedSpec") -> bool:
     """Whether a registered family uses the Range Doctor service protocol."""
     return spec.execution_protocol.get("agent_service_id") == "range-doctor"
+
+
+def is_yield_family(spec: "PairedSpec") -> bool:
+    """Whether a registered family uses the Yield Router service protocol."""
+    return spec.execution_protocol.get("agent_service_id") == "yield-router"
 
 
 def _warden_policy_enabled(spec: "PairedSpec") -> bool:
@@ -293,11 +326,12 @@ class PairedSpec:
     n_planned: int
     stopping_rule: str
     registration_provenance: str
-    protocol_correction: dict
+    protocol_correction: dict | None
     inputs_ref: str
     # Empty through stage one. ``lock_inputs`` is the only API that fills it from a file.
     inputs_sha256: str = ""
     pilot_provenance: dict | None = None
+    successor_provenance: dict | None = None
     failure_policy: str = field(
         default=(
             "Every scheduled primary attempt is published. A technical failure, timeout, "
@@ -321,10 +355,15 @@ class PairedSpec:
             "timing",
             "measures",
             "execution_protocol",
-            "protocol_correction",
         ):
             object.__setattr__(self, name, deepcopy(getattr(self, name)))
+        object.__setattr__(
+            self, "protocol_correction", deepcopy(self.protocol_correction)
+        )
         object.__setattr__(self, "pilot_provenance", deepcopy(self.pilot_provenance))
+        object.__setattr__(
+            self, "successor_provenance", deepcopy(self.successor_provenance)
+        )
 
         for name in (
             "spec_id",
@@ -488,26 +527,45 @@ class PairedSpec:
             if not str(self.measures.get(measure, "")).strip():
                 raise ValueError(f"spec: measures.{measure} is blank")
 
-        unsaid = _blank_fields(self.protocol_correction, CORRECTION_FIELDS)
-        if unsaid:
+        if (
+            self.spec_id == "v3-06-yield-router-assisted"
+            and self.protocol_correction is not None
+        ):
             raise ValueError(
-                f"spec: protocol_correction leaves {sorted(unsaid)} missing or blank"
-            )
-        if self.protocol_correction["status"] != "corrected_before_input_lock":
-            raise ValueError(
-                "spec: protocol correction must be labelled corrected_before_input_lock"
+                "spec: a distinct successor cannot be a protocol correction"
             )
         if (
-            OBJECT_HASH.fullmatch(
-                self.protocol_correction["supersedes_stage_one_protocol_hash"]
-            )
-            is None
+            self.spec_id != "v3-06-yield-router-assisted"
+            and self.protocol_correction is None
         ):
-            raise ValueError("spec: protocol correction must name the superseded hash")
+            raise ValueError("spec: protocol_correction is required for this family")
+        if self.protocol_correction is not None:
+            unsaid = _blank_fields(self.protocol_correction, CORRECTION_FIELDS)
+            if unsaid:
+                raise ValueError(
+                    "spec: protocol_correction leaves "
+                    f"{sorted(unsaid)} missing or blank"
+                )
+            if self.protocol_correction["status"] != "corrected_before_input_lock":
+                raise ValueError(
+                    "spec: protocol correction must be labelled "
+                    "corrected_before_input_lock"
+                )
+            if (
+                OBJECT_HASH.fullmatch(
+                    self.protocol_correction["supersedes_stage_one_protocol_hash"]
+                )
+                is None
+            ):
+                raise ValueError(
+                    "spec: protocol correction must name the superseded hash"
+                )
         if is_warden_family(self):
             _validate_warden_policy(self)
         if is_range_family(self) and "frame_definition" in self.case_selection:
             _validate_range_successor_registration(self)
+        if self.spec_id == "v3-06-yield-router-assisted":
+            _validate_yield_successor_registration(self)
 
         # The nested dicts remain ordinary JSON-shaped objects for deterministic saving.
         # Cache what construction validated so a later write through ``spec.scoring`` or
@@ -552,11 +610,17 @@ class PairedSpec:
             "stopping_rule": self.stopping_rule,
             "failure_policy": self.failure_policy,
             "registration_provenance": self.registration_provenance,
-            "protocol_correction": dict(self.protocol_correction),
+            "protocol_correction": (
+                dict(self.protocol_correction)
+                if self.protocol_correction is not None
+                else None
+            ),
             "inputs_ref": self.inputs_ref,
         }
         if self.pilot_provenance is not None:
             body["pilot_provenance"] = dict(self.pilot_provenance)
+        if self.successor_provenance is not None:
+            body["successor_provenance"] = dict(self.successor_provenance)
         return body
 
     def _body(self) -> dict:
@@ -2387,7 +2451,11 @@ def _computed_calibration_truth(spec: PairedSpec | str, inputs: dict) -> dict | 
                 cost / (value * net_apr / 365) if net_apr > 0 else None
             ),
         }
-    if spec_id == "v3-02-yield-router":
+    if (
+        is_yield_family(spec)
+        if isinstance(spec, PairedSpec)
+        else spec_id in {"v3-02-yield-router", "v3-06-yield-router-assisted"}
+    ):
         if not isinstance(inputs, dict):
             raise ValueError("spec: Yield calibration input must be an object")
         _required_fields(
@@ -2641,7 +2709,7 @@ def _validate_evaluator_calibration(
         case["expected"]["range_status"] for case in shared_cases
     } != {"in_range", "above_range", "below_range"}:
         raise ValueError("spec: Range calibration must cover all three range states")
-    if spec.spec_id == "v3-02-yield-router" and (
+    if is_yield_family(spec) and (
         None
         not in {case["expected"]["current_first_failed_gate"] for case in shared_cases}
         or len({case["expected"]["current_first_failed_gate"] for case in shared_cases})
@@ -2881,6 +2949,249 @@ def _utc_timestamp(value: str, context: str) -> datetime:
     return parsed
 
 
+def yield_capture_attempts(spec: PairedSpec) -> tuple[datetime, ...]:
+    """Return the capture schedule registered inside a Yield family protocol."""
+    if not is_yield_family(spec) and spec.spec_id != (
+        "v3-02-yield-router-REHEARSAL-NOT-REGISTERED"
+    ):
+        raise ValueError("spec: capture attempts requested for a non-Yield family")
+    if spec.spec_id in {
+        "v3-02-yield-router",
+        "v3-02-yield-router-REHEARSAL-NOT-REGISTERED",
+    }:
+        return YIELD_CAPTURE_ATTEMPTS
+    values = spec.case_selection.get("source_capture_attempts")
+    if not isinstance(values, list) or len(values) != 3:
+        raise ValueError("spec: Yield successor needs exactly three source captures")
+    attempts = tuple(_utc_timestamp(value, "Yield source capture") for value in values)
+    if attempts != tuple(sorted(set(attempts))):
+        raise ValueError("spec: Yield source captures are not strictly increasing")
+    return attempts
+
+
+def _yield_readiness_output(fixture: dict) -> dict:
+    required = {"fixture_id", "current_pool_id", "scenario", "source_snapshots"}
+    if not isinstance(fixture, dict) or set(fixture) != required:
+        raise ValueError("spec: Yield baseline readiness fixture is not self-contained")
+    if fixture["fixture_id"] != "readiness-synthetic":
+        raise ValueError("spec: Yield readiness fixture id is invalid")
+    serialized = json.dumps(fixture, sort_keys=True)
+    if any(
+        value in serialized
+        for value in (
+            "02-yield-cases.json",
+            "06-yield-assisted-cases.json",
+            "yield-01-916f992d",
+        )
+    ):
+        raise ValueError("spec: Yield readiness fixture references official inputs")
+    snapshots = fixture["source_snapshots"]
+    if not isinstance(snapshots, dict) or set(snapshots) != {"pools", "token_list"}:
+        raise ValueError("spec: Yield readiness needs two synthetic snapshots")
+    bodies = {}
+    for name, snapshot in snapshots.items():
+        if not isinstance(snapshot, dict) or set(snapshot) != {
+            "url",
+            "observed_at",
+            "sha256",
+            "body",
+        }:
+            raise ValueError("spec: Yield readiness snapshot is invalid")
+        if snapshot["url"] != f"synthetic://yield-readiness/{name}":
+            raise ValueError("spec: Yield readiness source is not synthetic")
+        _utc_timestamp(snapshot["observed_at"], "Yield readiness observed_at")
+        raw = json.dumps(
+            snapshot["body"], sort_keys=True, separators=(",", ":")
+        ).encode()
+        if hashlib.sha256(raw).hexdigest() != snapshot["sha256"]:
+            raise ValueError("spec: Yield readiness snapshot digest is incorrect")
+        bodies[name] = snapshot["body"]
+    pools = bodies["pools"]
+    tokens = bodies["token_list"]
+    if (
+        not isinstance(pools, list)
+        or len(pools) != 3
+        or not isinstance(tokens, dict)
+        or not isinstance(tokens.get("tokens"), list)
+    ):
+        raise ValueError("spec: Yield readiness source shapes are invalid")
+    allowlist = _token_allowlist(tokens, "Yield readiness token-list")
+    included = []
+    excluded = []
+    rows = {}
+    for row in pools:
+        if not isinstance(row, dict):
+            raise ValueError("spec: Yield readiness pool must be an object")
+        pool_id = str(row.get("id") or "").lower()
+        if ADDRESS.fullmatch(pool_id) is None or pool_id in rows:
+            raise ValueError("spec: Yield readiness pool ids are invalid")
+        rows[pool_id] = row
+        failed = _yield_first_failed_gate(row, allowlist)
+        if failed is None:
+            included.append(pool_id)
+        else:
+            excluded.append(
+                {
+                    "pool_id": pool_id,
+                    "first_failed_gate": failed,
+                    "reason": failed,
+                }
+            )
+    if len(included) != 2 or len(excluded) != 1:
+        raise ValueError("spec: Yield readiness fixture must exercise one exclusion")
+    current_pool = fixture["current_pool_id"]
+    if current_pool not in included:
+        raise ValueError("spec: Yield readiness current pool is not eligible")
+    scenario = fixture["scenario"]
+    expected_scenario = {
+        "position_size_usd": 10000,
+        "switching_cost_usd": 25,
+        "horizon_days": 30,
+    }
+    if scenario != expected_scenario:
+        raise ValueError("spec: Yield readiness scenario is invalid")
+    rates = {
+        pool_id: (
+            _yield_number(rows[pool_id], "feeUSD24h")
+            - _yield_number(rows[pool_id], "protocolFeeUSD24h")
+        )
+        * 365
+        / _yield_number(rows[pool_id], "tvlUSD")
+        for pool_id in included
+    }
+    destination = min(included, key=lambda pool_id: (-rates[pool_id], pool_id))
+    current_rate = rates[current_pool]
+    destination_rate = rates[destination]
+    extra = 10000 * (destination_rate - current_rate) / 365
+    days = 25 / extra if extra > 0 else None
+    move = days is not None and days <= 30
+    formula = "(feeUSD24h-protocolFeeUSD24h)*365/tvlUSD"
+
+    def rate_record(pool_id: str) -> dict:
+        row = rows[pool_id]
+        return {
+            "pool_id": pool_id,
+            "feeUSD24h": row["feeUSD24h"],
+            "protocolFeeUSD24h": row["protocolFeeUSD24h"],
+            "tvlUSD": row["tvlUSD"],
+            "net_apr": rates[pool_id],
+            "formula": formula,
+            "observation_window": "24h",
+        }
+
+    return {
+        "sources": {
+            name: {
+                key: snapshots[name][key] for key in ("url", "observed_at", "sha256")
+            }
+            for name in ("pools", "token_list")
+        },
+        "universe": {
+            "considered": len(pools),
+            "included_count": len(included),
+            "excluded_count": len(excluded),
+            "included_pool_ids": included,
+            "excluded": excluded,
+        },
+        "rates": {
+            "current": rate_record(current_pool),
+            "candidates": [rate_record(pool_id) for pool_id in included],
+        },
+        "scenario": {
+            **scenario,
+            "current_net_apr": current_rate,
+            "destination_net_apr": destination_rate,
+            "extra_usd_per_day": extra,
+            "days_to_recover": days,
+            "formula": (
+                "extra_usd_per_day=10000*(destination_net_apr-current_net_apr)/365; "
+                "days_to_recover=25/extra_usd_per_day"
+            ),
+            "cost_scope": (
+                "Caller-supplied estimate covering gas on all legs, swap fee and "
+                "impact, and uncollected fees"
+            ),
+        },
+        "decision": {
+            "move_or_stay": "MOVE" if move else "STAY",
+            "destination_pool_id": destination if move else None,
+            "rule": (
+                "Highest eligible net APR; lowercase pool-address ascending tie-break; "
+                "MOVE only for a positive delta recovered within 30 days"
+            ),
+        },
+        "limitations": [
+            "The annualised 24-hour rate is an observation, not a forecast.",
+            "A pool-wide rate is not a concentrated-position return.",
+            "Destination impermanent loss is not modelled.",
+            "The switching cost is caller-supplied.",
+            "The comparison is bounded to this exact synthetic readiness fixture.",
+        ],
+    }
+
+
+def _validate_yield_successor_registration(spec: PairedSpec) -> None:
+    if not is_yield_family(spec):
+        raise ValueError("spec: Yield assisted successor must use Yield Router")
+    if spec.protocol_correction is not None:
+        raise ValueError("spec: a distinct successor cannot be a protocol correction")
+    if spec.inputs_ref != "docket/advantage/v3/inputs/06-yield-assisted-cases.json":
+        raise ValueError("spec: Yield assisted successor inputs_ref is invalid")
+    if yield_capture_attempts(spec) != YIELD_ASSISTED_CAPTURE_ATTEMPTS:
+        raise ValueError("spec: Yield assisted capture schedule is invalid")
+    if spec.claim != (
+        "Within the exact frozen eligible top-pools response and common "
+        "$10,000/$25/30-day scenario, the deployed Yield Router's median rubric "
+        "total is no lower than the Codex-assisted baseline's, every deployed Yield "
+        "Router universe exactly matches the truth manifest, and the deployed Yield "
+        "Router is materially faster under the registered complete-pair "
+        "30-second/0.50 threshold."
+    ) or any(word in spec.claim.lower().split() for word in ("human", "manual")):
+        raise ValueError("spec: Yield assisted successor claim is not explicit")
+    if {arm: spec.arms[arm].get("display_name") for arm in ARMS} != {
+        "agent": "Deployed Yield Router",
+        "manual": "Codex-assisted baseline",
+    }:
+        raise ValueError("spec: Yield assisted arm display names are invalid")
+    expected_identity = {
+        "arm": "manual",
+        "kind": "codex_assisted",
+        "operator": "Codex",
+        "display_name": "Codex-assisted baseline",
+        "human_or_independent": False,
+    }
+    if spec.execution_protocol.get("baseline_identity") != expected_identity:
+        raise ValueError("spec: Yield assisted baseline identity is invalid")
+    readiness = spec.execution_protocol.get("baseline_readiness")
+    if not isinstance(readiness, dict) or set(readiness) != {
+        "required_before_primary",
+        "scored",
+        "fixture",
+        "expected_output",
+    }:
+        raise ValueError("spec: Yield assisted baseline readiness is incomplete")
+    if (
+        readiness["required_before_primary"] is not True
+        or readiness["scored"] is not False
+    ):
+        raise ValueError("spec: Yield assisted readiness flags are invalid")
+    if readiness["expected_output"] != _yield_readiness_output(readiness["fixture"]):
+        raise ValueError("spec: Yield assisted readiness answer is not canonical")
+    provenance = spec.successor_provenance
+    if not isinstance(provenance, dict) or set(provenance) != SUCCESSOR_FIELDS:
+        raise ValueError("spec: Yield assisted successor provenance is incomplete")
+    expected_provenance = {
+        "status": "distinct_successor_after_failed_primary",
+        "prior_spec_id": "v3-02-yield-router",
+        "prior_stage_one_protocol_hash": YIELD_PRIOR_STAGE_ONE_PROTOCOL_HASH,
+        "prior_spec_hash": YIELD_PRIOR_SPEC_HASH,
+        "prior_ledger_ref": YIELD_PRIOR_LEDGER_REF,
+        "reason": YIELD_SUCCESSOR_REASON,
+    }
+    if provenance != expected_provenance:
+        raise ValueError("spec: Yield assisted successor provenance is invalid")
+
+
 def _yield_number(row: dict, field: str) -> float:
     try:
         value = float(row[field])
@@ -2936,11 +3247,14 @@ def _validate_yield_inputs(
         raise ValueError(
             "spec: Yield inputs need exactly pools and token_list snapshots"
         )
+    attempts = yield_capture_attempts(spec)
     source_bodies = {}
     for name, snapshot in snapshots.items():
         if not isinstance(snapshot, dict):
             raise ValueError(f"spec: Yield {name} source snapshot must be an object")
-        source_bodies[name] = _validate_source_snapshot(snapshot, name)
+        source_bodies[name] = _validate_source_snapshot(
+            snapshot, name, attempts=attempts
+        )
     if (
         snapshots["pools"]["attempt_ordinal"]
         != snapshots["token_list"]["attempt_ordinal"]
@@ -2958,9 +3272,7 @@ def _validate_yield_inputs(
             {"attempt_ordinal", "scheduled_at", "pools_status", "token_list_status"},
             "Yield capture attempt",
         )
-        expected_time = (
-            YIELD_CAPTURE_ATTEMPTS[index - 1].isoformat().replace("+00:00", "Z")
-        )
+        expected_time = attempts[index - 1].isoformat().replace("+00:00", "Z")
         if (
             attempt["attempt_ordinal"] != index
             or attempt["scheduled_at"] != expected_time
@@ -3414,6 +3726,7 @@ INPUT_VALIDATORS = {
     "v3-03-warden-security": _validate_warden_inputs,
     "v3-04-warden-security": _validate_warden_inputs,
     "v3-05-range-doctor": _validate_range_successor_inputs,
+    "v3-06-yield-router-assisted": _validate_yield_inputs,
 }
 
 

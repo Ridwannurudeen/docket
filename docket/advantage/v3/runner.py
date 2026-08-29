@@ -48,12 +48,13 @@ import httpx
 from ...hire.receipts import canonical_hash
 from .spec import (
     RANGE_CAPTURE_NOT_BEFORE,
-    YIELD_CAPTURE_ATTEMPTS,
     YIELD_SOURCE_URLS,
     PairedSpec,
     assert_runnable,
     is_range_family,
     is_warden_family,
+    is_yield_family,
+    yield_capture_attempts,
 )
 
 ARMS = ("manual", "agent")
@@ -219,8 +220,8 @@ def registered_capture_schedule(spec: PairedSpec) -> tuple[CaptureSlot, ...]:
                 "pool_truth_capture_attempts"
             ]
         )
-    elif spec.spec_id == "v3-02-yield-router":
-        attempts = YIELD_CAPTURE_ATTEMPTS
+    elif is_yield_family(spec):
+        attempts = yield_capture_attempts(spec)
     else:
         attempts = ()
     return tuple(
@@ -995,7 +996,7 @@ def _manual_reveal(
         )
         source_ref = pool_truth_ref["ref"]
         snapshots = _read_locked_json(pool_truth_ref, repo_root)["source_snapshots"]
-    elif spec.spec_id == "v3-02-yield-router":
+    elif is_yield_family(spec):
         source_ref = spec.inputs_ref
         snapshots = inputs["source_snapshots"]
     else:
@@ -1005,7 +1006,9 @@ def _manual_reveal(
     for name, snapshot in snapshots.items():
         raw = b64decode(snapshot["body_base64"], validate=True)
         if hashlib.sha256(raw).hexdigest() != snapshot["sha256"]:
-            raise ValueError("runner: a locked manual source changed after input validation")
+            raise ValueError(
+                "runner: a locked manual source changed after input validation"
+            )
         exposed[name] = {
             **snapshot,
             "name": name,
@@ -1067,7 +1070,7 @@ def _agent_payload(spec: PairedSpec, inputs: dict, case: dict, repo_root: Path) 
             "pool_snapshot": snapshots["pools"],
             "token_list_snapshot": snapshots["token_list"],
         }
-    if spec.spec_id == "v3-02-yield-router":
+    if is_yield_family(spec):
         return {
             "pool": case["pool_id"],
             "position_size_usd": case["position_value_usd"],

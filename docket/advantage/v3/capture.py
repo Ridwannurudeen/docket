@@ -45,7 +45,7 @@ from pathlib import Path
 import httpx
 
 from .runner import _ledger_lock
-from .spec import load
+from .spec import is_yield_family, load, yield_capture_attempts
 
 # The registered attempt policy. Read from the spec at run time rather than duplicated as
 # behaviour — these constants exist to name what the code is checking against, and a spec
@@ -461,7 +461,20 @@ def registered_schedule(spec) -> dict:
         }
     chosen_by = str(spec.case_selection.get("chosen_by", ""))
     population = str(spec.case_selection.get("population", ""))
-    moment = _first(chosen_by, r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+    if isinstance(getattr(spec, "execution_protocol", None), dict) and is_yield_family(
+        spec
+    ):
+        attempts = yield_capture_attempts(spec)
+        first = attempts[0]
+        if attempts != tuple(
+            first + timedelta(seconds=offset) for offset in ATTEMPT_OFFSETS_S
+        ):
+            raise CaptureRefused(
+                "the Yield family does not register three one-minute source captures"
+            )
+        moment = _stamp_at(first)
+    else:
+        moment = _first(chosen_by, r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
     # A trailing full stop belongs to the sentence, not the URL. The registration writes these
     # in prose, and one of them ends a sentence — fetching "…extended.json." would 404 against
     # a URL nobody registered.
