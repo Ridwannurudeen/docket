@@ -243,6 +243,36 @@ run_canary_test() {
     "${RUNUSER_COMMAND}" -u docket-canary -g docket-canary -- test "$@"
 }
 
+validate_database_storage_mode() {
+    local header header_status
+    [[ -f "${DATABASE_PATH}" && ! -L "${DATABASE_PATH}" ]] || fatal \
+        "runtime database is missing or unsafe: ${DATABASE_PATH}"
+    for sidecar in "${DATABASE_PATH}-wal" "${DATABASE_PATH}-shm"; do
+        [[ ! -e "${sidecar}" && ! -L "${sidecar}" ]] || fatal \
+            'live database is in WAL mode; quiesce and convert it to DELETE mode before release'
+    done
+    trace_command "${JSON_PYTHON}" - "${DATABASE_PATH}"
+    set +e
+    header="$("${JSON_PYTHON}" - "${DATABASE_PATH}" <<'PY'
+import sys
+from pathlib import Path
+
+with Path(sys.argv[1]).open("rb") as database:
+    header = database.read(20)
+if len(header) != 20 or header[:16] != b"SQLite format 3\x00":
+    raise SystemExit("invalid SQLite database header")
+print(f"{header[18]}:{header[19]}")
+PY
+    )"
+    header_status=$?
+    set -e
+    (( header_status == 0 )) || fatal 'live database has an invalid SQLite header'
+    [[ "${header}" == '1:1' ]] || fatal \
+        'live database is in WAL mode; quiesce and convert it to DELETE mode before release'
+}
+
+validate_database_storage_mode
+
 run_fs install -d -m 0755 "${OPT_ROOT}" "${VENV_ROOT}"
 BUILDING_VENV=0
 PUBLISHED_VENV=0

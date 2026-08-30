@@ -419,6 +419,30 @@ def test_release_refuses_a_held_process_lock_before_artifact_or_runtime_mutation
     assert "/run/lock/docket" not in script
 
 
+def test_release_refuses_wal_before_artifact_or_runtime_mutation(tmp_path):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    database = root / "var" / "lib" / "docket" / "data" / "agents.sqlite3"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        _write_release_manifest(wheel, digest).as_posix(),
+        environment=_environment(root, fake_bin),
+    )
+
+    assert result.returncode != 0
+    assert "WAL mode" in result.stderr
+    assert not (root / "opt" / "docket-venvs" / COMMIT[:12]).exists()
+    assert (root / "opt" / "docket" / "old-release.txt").is_file()
+    assert not (root / "var" / "backups" / "docket").exists()
+
+
 @pytest.mark.skipif(os.name == "nt", reason="util-linux flock is required")
 def test_two_release_processes_cannot_enter_artifact_mutation_together(tmp_path):
     real_flock = shutil.which("flock")
@@ -620,6 +644,7 @@ def test_release_refuses_a_missing_runtime_lock_before_mutation(tmp_path):
 
 def test_release_refuses_an_existing_venv_with_different_identity(tmp_path):
     root = tmp_path / "root"
+    _prepare_live_release(root)
     venv = root / "opt" / "docket-venvs" / COMMIT[:12]
     venv.mkdir(parents=True)
     (venv / "RELEASE-commit.txt").write_text(OLD_COMMIT + "\n", encoding="ascii")
@@ -644,7 +669,7 @@ def test_release_refuses_an_existing_venv_with_different_identity(tmp_path):
 
 def test_release_refuses_when_pip_show_disagrees_with_the_wheel(tmp_path):
     root = tmp_path / "root"
-    root.mkdir()
+    _prepare_live_release(root)
     fake_bin = _fake_bin(tmp_path)
     wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
     digest = _write_wheel(wheel)

@@ -35,6 +35,35 @@ CANARY_CHECKS = [
 ]
 
 
+def test_store_rejects_wal_before_schema_changes(tmp_path: Path):
+    path = tmp_path / "wal.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE marker (value TEXT NOT NULL)")
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+
+    with pytest.raises(RuntimeError, match="DELETE journal mode"):
+        Store(path)
+
+    with sqlite3.connect(path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_schema WHERE type = 'table'"
+            )
+        }
+    assert tables == {"marker"}
+
+
+def test_existing_store_rejects_wal_mode_drift(tmp_path: Path):
+    path = tmp_path / "wal-drift.sqlite3"
+    store = Store(path)
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+
+    with pytest.raises(RuntimeError, match="DELETE journal mode"):
+        store.begin_snapshot(chain_id=56, expected=1)
+
+
 def test_snapshot_roundtrip(tmp_path: Path):
     store = Store(tmp_path / "d.sqlite3")
     sid = store.begin_snapshot(chain_id=56, expected=243421)

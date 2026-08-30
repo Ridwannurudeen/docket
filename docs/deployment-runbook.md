@@ -206,8 +206,10 @@ SQLite paths it needs. Its account has `/nonexistent` as its home and `/usr/sbin
 canary config and payment-key paths inaccessible with `InaccessiblePaths`, independently of
 their discretionary permissions. The installer grants named `docket` and `docket-canary`
 access ACLs on the live database and access/default ACLs on its directory, with no access for
-other users, so SQLite journal and WAL sidecars inherit both writers without sharing signer
-files.
+other users, so SQLite rollback journals remain recoverable by both writers without sharing
+signer files. Docket supports SQLite `DELETE` journal mode only: the release and every `Store`
+initialization reject WAL without changing it, so conversion requires a separate quiesced
+operator action that preserves any uncheckpointed WAL state.
 
 Every tracked Python service applies the runtime-tested systemd 255 containment set:
 `UMask=0027`, an empty `CapabilityBoundingSet=`, `PrivateDevices=true`,

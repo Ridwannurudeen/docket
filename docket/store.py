@@ -229,6 +229,12 @@ class Store:
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         try:
+            journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            if str(journal_mode).lower() != "delete":
+                raise RuntimeError(
+                    "Docket requires SQLite DELETE journal mode; "
+                    f"found {journal_mode!r}"
+                )
             with (
                 conn
             ):  # commits on clean exit; contextlib.closing would silently drop writes

@@ -1,5 +1,6 @@
 import base64
 import json
+import sqlite3
 from datetime import datetime, timezone
 
 import httpx
@@ -309,6 +310,28 @@ def test_an_unresolved_benchmark_exception_is_not_decision_grade():
 
     assert failures == ["measured_value_incomplete"]
     assert observed["measured_value_present"] is False
+
+
+def test_wal_database_fails_before_any_canary_http(tmp_path):
+    environment = _environment(tmp_path, controlled_lp=True, paid=True)
+    with sqlite3.connect(environment["DOCKET_DB"]) as connection:
+        connection.execute("CREATE TABLE marker (value TEXT NOT NULL)")
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(500, request=request)
+
+    with pytest.raises(RuntimeError, match="DELETE journal mode"):
+        run_from_environment(
+            environment,
+            now=NOW,
+            transport=httpx.MockTransport(handler),
+        )
+
+    assert requests == []
 
 
 def test_a_complete_server_rendered_homepage_needs_no_javascript_reference(tmp_path):
