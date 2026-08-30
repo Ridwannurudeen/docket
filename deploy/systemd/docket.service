@@ -12,7 +12,7 @@ Environment=DOCKET_DB=/var/lib/docket/data/agents.sqlite3
 ExecStart=/opt/docket/.venv/bin/python -P -m uvicorn --factory docket.api:create_app --host 127.0.0.1 --port 8090
 Restart=on-failure
 RestartSec=5
-UMask=0027
+UMask=0007
 CapabilityBoundingSet=
 NoNewPrivileges=true
 PrivateTmp=true

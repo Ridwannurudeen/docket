@@ -35,6 +35,18 @@ def test_the_web_unit_cannot_open_canary_signing_material():
     ) in unit
 
 
+def test_database_writers_preserve_cross_user_sqlite_sidecar_access():
+    for name in (
+        "docket.service",
+        "docket-canary.service",
+        "docket-refresh.service",
+    ):
+        unit = _read(DEPLOY / "systemd" / name)
+
+        assert "UMask=0007" in unit
+        assert "UMask=0027" not in unit
+
+
 def test_the_timer_runs_daily_with_jitter_and_catches_one_missed_run():
     timer = _read(DEPLOY / "systemd" / "docket-canary.timer")
 

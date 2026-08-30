@@ -1195,7 +1195,7 @@ def test_the_tracked_application_unit_matches_the_verified_runtime():
         ),
         "Restart": "on-failure",
         "RestartSec": "5",
-        "UMask": "0027",
+        "UMask": "0007",
         "CapabilityBoundingSet": "",
         "NoNewPrivileges": "true",
         "PrivateTmp": "true",
@@ -1231,7 +1231,7 @@ def test_the_tracked_application_unit_matches_the_verified_runtime():
     assert "IPAddressDeny=" not in service
     runbook = (ROOT / "docs/deployment-runbook.md").read_text(encoding="utf-8")
     for directive in (
-        "UMask=0027",
+        "UMask=0007",
         "CapabilityBoundingSet=",
         "PrivateDevices=true",
         "ProtectClock=true",
@@ -1259,7 +1259,6 @@ def test_the_tracked_application_unit_matches_the_verified_runtime():
 
 def test_every_tracked_python_service_uses_safe_execution_and_containment():
     expected = {
-        "UMask": "0027",
         "CapabilityBoundingSet": "",
         "PrivateDevices": "true",
         "ProtectClock": "true",
@@ -1307,6 +1306,15 @@ def test_every_tracked_python_service_uses_safe_execution_and_containment():
             "docket.api:create_app --host 127.0.0.1 --port 8090"
         ),
     }
+    expected_umasks = {
+        "docket-canary.service": "0007",
+        "docket-refresh.service": "0007",
+        "docket.service": "0007",
+        "docket-lp-record.service": "0027",
+        "docket-v3-capture.service": "0027",
+        "docket-v3-range-capture.service": "0027",
+        "docket-v3-yield-v6-capture.service": "0027",
+    }
     services = sorted((DEPLOY / "systemd").glob("*.service"))
 
     assert {service.name for service in services} == set(expected_exec_starts)
@@ -1322,6 +1330,7 @@ def test_every_tracked_python_service_uses_safe_execution_and_containment():
 
         for key, value in expected.items():
             assert directives.get(key) == [value], f"{service.name}: {key}"
+        assert directives.get("UMask") == [expected_umasks[service.name]]
         assert directives.get("WorkingDirectory") == ["/var/lib/docket"]
         assert [
             " ".join(value.split()) for value in directives.get("ExecStart", [])
