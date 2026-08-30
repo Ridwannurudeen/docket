@@ -1,32 +1,24 @@
 [Unit]
-Description=Docket daily service, payment, and LP canary
-Wants=network-online.target docket.service
-After=network-online.target docket.service
+Description=Docket - evidence API and site for BSC ERC-8004 agents
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-Type=oneshot
+Type=simple
 User=docket
 Group=docket
 WorkingDirectory=/var/lib/docket
-EnvironmentFile=/etc/docket/docket-canary.conf
 Environment=DOCKET_DB=/var/lib/docket/data/agents.sqlite3
-Environment=DOCKET_CANARY_END_AT=2026-09-24T00:00:00Z
-Environment=DOCKET_CANARY_TOKEN_FILE=/etc/docket/docket-canary.token
-ExecStart=/opt/docket/.venv/bin/python -m docket.canary
-
-# The shared host is already busy. This job is network-bound and yields both CPU and disk IO.
-Nice=10
-IOSchedulingClass=idle
-TimeoutStartSec=8min
-Restart=no
+ExecStart=/opt/docket/.venv/bin/uvicorn --factory docket.api:create_app --host 127.0.0.1 --port 8090
+Restart=on-failure
+RestartSec=5
 UMask=0027
 CapabilityBoundingSet=
-
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
-ProtectHome=true
 ProtectSystem=strict
+ProtectHome=true
 ProtectClock=true
 ProtectHostname=true
 ProtectKernelLogs=true
@@ -46,3 +38,6 @@ RemoveIPC=true
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

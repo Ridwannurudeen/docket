@@ -2,9 +2,11 @@ import asyncio
 import base64
 import hashlib
 import json
+import sqlite3
 import threading
 import time
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -164,6 +166,42 @@ def _authorization(
 def _sha256_of_canonical_json(obj) -> str:
     blob = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return "0x" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _seed_payment_state(db_path, *, nonce, stale, status="settling"):
+    assert status in {"verified", "output_ready", "settling"}
+    store = Store(db_path)
+    request = {"wallet": WALLET}
+    result = {"address": WALLET, "assessment": "stored result"}
+    payment_id = f"payment-{nonce}"
+    reserved, _ = store.reserve_payment(
+        nonce=nonce,
+        payment_id=payment_id,
+        service_id="range-doctor",
+        payer="0x" + "22" * 20,
+        recipient=PAY_TO,
+        asset=USDT_TOKEN,
+        amount=str(5 * 10**17),
+        resource="http://testserver/hire/range-doctor",
+        input_hash=_sha256_of_canonical_json(request),
+    )
+    assert reserved is True
+    if status in {"output_ready", "settling"}:
+        store.record_payment_output(
+            payment_id,
+            output_hash=_sha256_of_canonical_json(result),
+            result=result,
+        )
+    if status == "settling":
+        assert store.begin_payment_settlement(payment_id) is True
+    age_seconds = routes.SETTLEMENT_RECONCILE_STALE_SECONDS + (60 if stale else -60)
+    updated_at = datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE hire_payments SET updated_at = ? WHERE nonce = ?",
+            (updated_at.isoformat(), nonce),
+        )
+    return store, request, result
 
 
 def test_the_catalogue_tells_a_stranger_what_to_send(tmp_path, monkeypatch):
@@ -413,13 +451,308 @@ def test_a_request_docket_could_not_read_never_spends_the_allowance(
             client.post("/hire/range-doctor", json={"wallet": "not-an-address"}),
             client.post("/hire/range-doctor", json={"limit": 1}),
             client.post("/hire/nope", json={"wallet": WALLET}),
-            client.post("/hire/range-doctor", content=b"not json"),
+            client.post(
+                "/hire/range-doctor",
+                content=b"not json",
+                headers={"content-type": "application/json"},
+            ),
         ]
         assert [r.status_code for r in unreadable] == [422, 422, 404, 400]
 
     served = client.post("/hire/range-doctor", json={"wallet": WALLET})
     assert served.status_code == 200
     assert served.json()["receipt"]["payment"]["status"] == "free_tier"
+
+
+def test_hire_rejects_a_browser_safelisted_content_type_before_work(
+    tmp_path, monkeypatch
+):
+    work_calls = []
+    monkeypatch.setitem(
+        SERVICES,
+        "range-doctor",
+        replace(
+            get_service("range-doctor"),
+            run=lambda payload: work_calls.append(payload) or {"decision": "ran"},
+        ),
+    )
+    app = create_app(tmp_path / "hire-media-type.sqlite3")
+
+    response = TestClient(app).post(
+        "/hire/range-doctor",
+        content=json.dumps({"wallet": WALLET}),
+        headers={
+            "content-type": "text/plain",
+            "origin": "https://attacker.invalid",
+        },
+    )
+
+    assert response.status_code == 415
+    assert response.json()["error"]["code"] == "unsupported_media_type"
+    assert app.state.hire_allowances == {}
+    assert work_calls == []
+
+
+@pytest.mark.parametrize(
+    "headers",
+    (
+        [],
+        [
+            ("content-type", "application/json"),
+            ("content-type", "text/plain"),
+        ],
+    ),
+)
+def test_hire_requires_exactly_one_json_content_type(tmp_path, monkeypatch, headers):
+    app = create_app(tmp_path / f"hire-content-types-{len(headers)}.sqlite3")
+
+    response = TestClient(app).post(
+        "/hire/range-doctor",
+        content=json.dumps({"wallet": WALLET}),
+        headers=headers,
+    )
+
+    assert response.status_code == 415
+    assert response.json()["error"]["code"] == "unsupported_media_type"
+    assert app.state.hire_allowances == {}
+
+
+def test_cors_preflight_does_not_advertise_json_post_mutations(tmp_path, monkeypatch):
+    client = TestClient(create_app(tmp_path / "cors-preflight.sqlite3"))
+
+    response = client.options(
+        "/hire/range-doctor",
+        headers={
+            "origin": "https://attacker.invalid",
+            "access-control-request-method": "POST",
+            "access-control-request-headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "POST" not in response.headers["access-control-allow-methods"]
+
+
+def test_recovery_rejects_a_browser_safelisted_content_type_before_allowance(
+    tmp_path, monkeypatch
+):
+    app = create_app(tmp_path / "recovery-media-type.sqlite3")
+
+    response = TestClient(app).post(
+        "/hire/range-doctor/recover",
+        content="{}",
+        headers={"content-type": "text/plain"},
+    )
+
+    assert response.status_code == 415
+    assert response.json()["error"]["code"] == "unsupported_media_type"
+    assert app.state.recovery_allowances == {}
+
+
+def test_reconciliation_rejects_a_browser_safelisted_content_type_before_auth(
+    tmp_path, monkeypatch
+):
+    app = create_app(tmp_path / "reconcile-media-type.sqlite3")
+
+    response = TestClient(app).post(
+        "/hire/range-doctor/reconcile",
+        content="{}",
+        headers={"content-type": "application/x-www-form-urlencoded"},
+    )
+
+    assert response.status_code == 415
+    assert response.json()["error"]["code"] == "unsupported_media_type"
+
+
+def test_hire_accepts_application_json_with_a_charset(tmp_path, monkeypatch):
+    app = create_app(tmp_path / "hire-json-charset.sqlite3")
+
+    response = TestClient(app).post(
+        "/hire/range-doctor",
+        content=json.dumps({"wallet": WALLET}),
+        headers={"content-type": "application/json; charset=utf-8"},
+    )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"wallet":"' + WALLET.encode() + b'","unexpected":NaN}',
+        b'{"wallet":' + b"[" * 10_000 + b"0" + b"]" * 10_000 + b"}",
+        b'{"wallet":"\\ud800"}',
+    ],
+)
+def test_non_canonical_or_excessively_nested_json_is_a_client_error(
+    tmp_path, monkeypatch, body
+):
+    app = create_app(tmp_path / f"invalid-json-{len(body)}.sqlite3")
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/hire/range-doctor",
+        content=body,
+        headers={"content-type": "application/json"},
+    )
+
+    assert len(body) <= routes.MAX_HIRE_REQUEST_BODY_BYTES
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_json"
+    assert app.state.hire_allowances == {}
+
+
+def test_a_declared_oversized_hire_body_is_rejected_before_allowance_or_work(
+    tmp_path, monkeypatch
+):
+    work_calls = []
+    monkeypatch.setitem(
+        SERVICES,
+        "range-doctor",
+        replace(
+            get_service("range-doctor"),
+            run=lambda payload: work_calls.append(payload) or {"decision": "ran"},
+        ),
+    )
+    app = create_app(tmp_path / "declared-body-limit.sqlite3")
+    body = (
+        b'{"wallet":"'
+        + WALLET.encode()
+        + b'","padding":"'
+        + b"x" * routes.MAX_HIRE_REQUEST_BODY_BYTES
+        + b'"}'
+    )
+
+    response = TestClient(app).post(
+        "/hire/range-doctor",
+        content=body,
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert response.json() == {
+        "error": {
+            "code": "request_body_too_large",
+            "message": (
+                f"JSON request bodies must not exceed "
+                f"{routes.MAX_HIRE_REQUEST_BODY_BYTES} bytes."
+            ),
+        }
+    }
+    assert app.state.hire_allowances == {}
+    assert work_calls == []
+
+
+def test_a_chunked_oversized_hire_body_is_counted_without_content_length(
+    tmp_path, monkeypatch
+):
+    work_calls = []
+    monkeypatch.setitem(
+        SERVICES,
+        "range-doctor",
+        replace(
+            get_service("range-doctor"),
+            run=lambda payload: work_calls.append(payload) or {"decision": "ran"},
+        ),
+    )
+    app = create_app(tmp_path / "chunked-body-limit.sqlite3")
+    body = (
+        b'{"wallet":"'
+        + WALLET.encode()
+        + b'","padding":"'
+        + b"x" * routes.MAX_HIRE_REQUEST_BODY_BYTES
+        + b'"}'
+    )
+    chunks = (body[offset : offset + 65_536] for offset in range(0, len(body), 65_536))
+
+    response = TestClient(app).post(
+        "/hire/range-doctor",
+        content=chunks,
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "request_body_too_large"
+    assert app.state.hire_allowances == {}
+    assert work_calls == []
+
+
+def test_actual_hire_body_size_wins_over_an_underreported_content_length(
+    tmp_path, monkeypatch
+):
+    work_calls = []
+    monkeypatch.setitem(
+        SERVICES,
+        "range-doctor",
+        replace(
+            get_service("range-doctor"),
+            run=lambda payload: work_calls.append(payload) or {"decision": "ran"},
+        ),
+    )
+    app = create_app(tmp_path / "underreported-body-limit.sqlite3")
+    body = (
+        b'{"wallet":"'
+        + WALLET.encode()
+        + b'","padding":"'
+        + b"x" * routes.MAX_HIRE_REQUEST_BODY_BYTES
+        + b'"}'
+    )
+
+    response = TestClient(app).post(
+        "/hire/range-doctor",
+        content=body,
+        headers={
+            "content-length": "1",
+            "content-type": "application/json",
+        },
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "request_body_too_large"
+    assert app.state.hire_allowances == {}
+    assert work_calls == []
+
+
+def test_a_chunked_hire_body_at_the_exact_limit_is_accepted(tmp_path, monkeypatch):
+    app = create_app(tmp_path / "exact-body-limit.sqlite3")
+    prefix = b'{"wallet":"' + WALLET.encode() + b'","padding":"'
+    suffix = b'"}'
+    body = (
+        prefix
+        + b"x" * (routes.MAX_HIRE_REQUEST_BODY_BYTES - len(prefix) - len(suffix))
+        + suffix
+    )
+    chunks = (body[offset : offset + 65_536] for offset in range(0, len(body), 65_536))
+
+    response = TestClient(app).post(
+        "/hire/range-doctor",
+        content=chunks,
+        headers={"content-type": "application/json"},
+    )
+
+    assert len(body) == routes.MAX_HIRE_REQUEST_BODY_BYTES
+    assert response.status_code == 200
+
+
+def test_an_invalid_content_length_is_a_structured_client_error(tmp_path, monkeypatch):
+    app = create_app(tmp_path / "invalid-content-length.sqlite3")
+
+    response = TestClient(app).post(
+        "/hire/range-doctor",
+        content=b'{"wallet":"' + WALLET.encode() + b'"}',
+        headers={
+            "content-length": "not-a-decimal-length",
+            "content-type": "application/json",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": {
+            "code": "invalid_content_length",
+            "message": "Content-Length must be one non-negative decimal byte count.",
+        }
+    }
+    assert app.state.hire_allowances == {}
 
 
 def test_a_slow_hire_does_not_delay_concurrent_health(tmp_path, monkeypatch):
@@ -530,19 +863,13 @@ def test_a_paid_hire_settles_when_the_benchmark_report_fails(tmp_path, monkeypat
     response = client.post(
         "/hire/range-doctor",
         json={"wallet": WALLET},
-        headers={
-            "X-PAYMENT": _authorization(
-                Account.create(), nonce="0x" + "13" * 32
-            )
-        },
+        headers={"X-PAYMENT": _authorization(Account.create(), nonce="0x" + "13" * 32)},
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["result"]["address"] == WALLET
-    assert body["result"]["measured_value"] | {
-        "this_run_seconds": None
-    } == {
+    assert body["result"]["measured_value"] | {"this_run_seconds": None} == {
         "this_run_seconds": None,
         "paired_manual_seconds": None,
         "quality_result": None,
@@ -556,6 +883,174 @@ def test_a_paid_hire_settles_when_the_benchmark_report_fails(tmp_path, monkeypat
     assert exception_message not in response.text
     assert body["receipt"]["payment"]["status"] == "settled"
     assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+
+
+def test_a_facilitator_exception_never_leaks_public_details(tmp_path, monkeypatch):
+    private_detail = r"credential leaked from C:\opt\facilitator\private.json"
+
+    class FailingFacilitator(FixtureFacilitator):
+        def verify(self, envelope):
+            self.calls.append(("verify", envelope))
+            raise PermissionError(private_detail)
+
+    facilitator = FailingFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="facilitator-exception",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+
+    response = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": _authorization(Account.create(), nonce="0x" + "14" * 32)},
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "error": {
+            "code": "payment_verification_unavailable",
+            "message": (
+                "The configured facilitator could not verify the payment just now. "
+                "No work ran and no charge was attempted."
+            ),
+        }
+    }
+    assert private_detail not in response.text
+    assert "PermissionError" not in response.text
+    assert [name for name, _ in facilitator.calls] == ["verify"]
+
+
+def test_a_paid_service_exception_never_leaks_public_details(tmp_path, monkeypatch):
+    private_detail = "upstream token=internal-only failed at /opt/docket/private"
+
+    def fail(_payload):
+        raise RuntimeError(private_detail)
+
+    monkeypatch.setitem(
+        SERVICES,
+        "range-doctor",
+        replace(get_service("range-doctor"), run=fail),
+    )
+    facilitator = FixtureFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="paid-service-exception",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+
+    response = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": _authorization(Account.create(), nonce="0x" + "15" * 32)},
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "error": {
+            "code": "service_failed",
+            "message": "range-doctor could not complete this request. No settlement ran.",
+        }
+    }
+    assert private_detail not in response.text
+    assert "RuntimeError" not in response.text
+    assert [name for name, _ in facilitator.calls] == ["verify"]
+
+
+def test_a_paid_non_finite_result_never_settles_or_becomes_undeliverable(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setitem(
+        SERVICES,
+        "range-doctor",
+        replace(
+            get_service("range-doctor"),
+            run=lambda _payload: {"decision": "complete", "score": float("nan")},
+        ),
+    )
+    facilitator = FixtureFacilitator()
+    nonce = "0x" + "28" * 32
+    configured = _client(
+        tmp_path,
+        monkeypatch,
+        name="paid-non-finite-result",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+    client = TestClient(configured.app, raise_server_exceptions=False)
+
+    response = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": _authorization(Account.create(), nonce=nonce)},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error"] == {
+        "code": "service_failed",
+        "message": "range-doctor could not complete this request. No settlement ran.",
+    }
+    assert [name for name, _ in facilitator.calls] == ["verify"]
+    payment = Store(tmp_path / "paid-non-finite-result.sqlite3").payment_by_nonce(nonce)
+    assert payment["status"] == "failed_no_charge"
+    assert payment["result_json"] is None
+    assert payment["receipt_json"] is None
+
+
+def test_a_free_non_finite_result_is_rejected_before_receipt_delivery(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setitem(
+        SERVICES,
+        "range-doctor",
+        replace(
+            get_service("range-doctor"),
+            run=lambda _payload: {"decision": "complete", "score": float("inf")},
+        ),
+    )
+    configured = _client(tmp_path, monkeypatch, name="free-non-finite-result")
+    client = TestClient(configured.app, raise_server_exceptions=False)
+
+    response = client.post("/hire/range-doctor", json={"wallet": WALLET})
+
+    assert response.status_code == 502
+    assert response.json()["error"] == {
+        "code": "service_failed",
+        "message": "range-doctor could not complete this request. Retry.",
+    }
+
+
+def test_a_free_service_exception_never_leaks_public_details(tmp_path, monkeypatch):
+    private_detail = "rpc bearer internal-only failed at /opt/docket/private"
+
+    def fail(_payload):
+        raise RuntimeError(private_detail)
+
+    monkeypatch.setitem(
+        SERVICES,
+        "range-doctor",
+        replace(get_service("range-doctor"), run=fail),
+    )
+    response = _client(tmp_path, monkeypatch, name="free-service-exception").post(
+        "/hire/range-doctor", json={"wallet": WALLET}
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "error": {
+            "code": "service_failed",
+            "message": "range-doctor could not complete this request. Retry.",
+        }
+    }
+    assert private_detail not in response.text
+    assert "RuntimeError" not in response.text
 
 
 def test_b402_configuration_maps_the_payment_and_accepts_its_network(
@@ -809,6 +1304,107 @@ def test_a_settled_result_can_be_recovered_without_repeating_work_or_settlement(
     assert recovered.json() == first.json()
     assert work_calls == [WALLET]
     assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
+
+
+@pytest.mark.parametrize(
+    "tampered_field",
+    (
+        "service",
+        "input_hash",
+        "output_hash",
+        "payment_payer",
+        "payment_status",
+        "transaction_id",
+        "stored_transaction_id",
+        "non_finite_result",
+        "non_utf8_result",
+    ),
+)
+def test_payment_recovery_refuses_a_receipt_not_bound_to_the_stored_row(
+    tmp_path, monkeypatch, tampered_field
+):
+    token = "operator-recovery-token"
+    suffix = {
+        "service": "21",
+        "input_hash": "22",
+        "output_hash": "23",
+        "payment_payer": "24",
+        "payment_status": "25",
+        "transaction_id": "26",
+        "stored_transaction_id": "27",
+        "non_finite_result": "29",
+        "non_utf8_result": "30",
+    }[tampered_field]
+    nonce = "0x" + suffix * 32
+    name = f"tampered-receipt-{tampered_field}"
+    db_path = tmp_path / f"{name}.sqlite3"
+    facilitator = FixtureFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name=name,
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+        canary_token=token,
+    )
+    first = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": _authorization(Account.create(), nonce=nonce)},
+    )
+    assert first.status_code == 200
+    receipt = first.json()["receipt"]
+    if tampered_field == "stored_transaction_id":
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE hire_payments SET transaction_id = NULL WHERE nonce = ?",
+                (nonce,),
+            )
+    elif tampered_field in {"non_finite_result", "non_utf8_result"}:
+        result_json = (
+            '{"decision":"done","score":NaN}'
+            if tampered_field == "non_finite_result"
+            else '{"decision":"\\ud800"}'
+        )
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE hire_payments SET result_json = ? WHERE nonce = ?",
+                (result_json, nonce),
+            )
+    elif tampered_field.startswith("payment_"):
+        receipt["payment"][tampered_field.removeprefix("payment_")] = "tampered"
+    elif tampered_field == "transaction_id":
+        receipt["payment"]["transaction_id"] = "0xtampered"
+    else:
+        receipt[tampered_field] = "tampered"
+    if tampered_field not in {
+        "stored_transaction_id",
+        "non_finite_result",
+        "non_utf8_result",
+    }:
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE hire_payments SET receipt_json = ? WHERE nonce = ?",
+                (json.dumps(receipt), nonce),
+            )
+
+    recovered = client.post(
+        "/hire/range-doctor/recover",
+        json={"nonce": nonce},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert recovered.status_code == 500
+    assert recovered.json()["error"] == {
+        "code": "payment_record_incomplete",
+        "message": (
+            "The stored payment result is incomplete and cannot be delivered."
+            if tampered_field in {"non_finite_result", "non_utf8_result"}
+            else "The stored payment receipt is incomplete and cannot be delivered."
+        ),
+    }
+    assert Store(db_path).payment_by_nonce(nonce)["operator_recovered_at"] is None
 
 
 def test_operator_recovery_uses_the_canary_bearer_and_records_the_access(
@@ -1118,6 +1714,277 @@ def test_payment_recovery_refuses_an_unknown_nonce_without_running_work(
     assert response.json()["error"]["code"] == "payment_not_found"
     assert work_calls == []
     assert facilitator.calls == []
+
+
+def test_operator_reconciles_a_stale_settlement_without_any_external_call(
+    tmp_path, monkeypatch
+):
+    token = "operator-reconcile-token"
+    nonce = "0x" + "12" * 32
+    db_path = tmp_path / "reconcile-stale.sqlite3"
+    facilitator = FixtureFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="reconcile-stale",
+        facilitator=facilitator,
+        canary_token=token,
+    )
+    store, request, result = _seed_payment_state(db_path, nonce=nonce, stale=True)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("reconciliation performed an external action")
+
+    monkeypatch.setattr(routes, "verify_payment", fail_if_called)
+    monkeypatch.setitem(
+        SERVICES,
+        "range-doctor",
+        replace(get_service("range-doctor"), run=fail_if_called),
+    )
+
+    response = client.post(
+        "/hire/range-doctor/reconcile",
+        json={"nonce": nonce},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    recovered = client.post(
+        "/hire/range-doctor/recover",
+        json={"nonce": nonce},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["result"] == result
+    assert body["receipt"]["service"] == "range-doctor"
+    assert body["receipt"]["input_hash"] == _sha256_of_canonical_json(request)
+    assert body["receipt"]["output_hash"] == _sha256_of_canonical_json(result)
+    assert body["receipt"]["payment"] == {
+        "status": "settlement_unknown",
+        "asset": USDT_TOKEN,
+        "amount": str(5 * 10**17),
+        "payer": "0x" + "22" * 20,
+        "recipient": PAY_TO,
+        "nonce": nonce,
+        "payment_id": f"payment-{nonce}",
+        "resource": "http://testserver/hire/range-doctor",
+        "evidence": (
+            "operator reconciled a stale settling state without making another external "
+            "call; prior settlement outcome remains unknown"
+        ),
+    }
+    assert recovered.status_code == 200
+    assert recovered.json() == body
+    stored = store.payment_by_nonce(nonce)
+    assert stored["status"] == "settlement_unknown"
+    assert stored["receipt"] == body["receipt"]
+    assert stored["transaction_id"] is None
+    assert stored["network"] is None
+    assert stored["operator_recovered_at"] is not None
+    assert facilitator.calls == []
+
+
+@pytest.mark.parametrize("status", ("verified", "output_ready"))
+def test_operator_closes_a_stale_pre_settlement_state_without_external_work(
+    tmp_path, monkeypatch, status
+):
+    token = "operator-reconcile-token"
+    nonce = "0x" + ("17" if status == "verified" else "18") * 32
+    db_path = tmp_path / f"reconcile-{status}.sqlite3"
+    facilitator = FixtureFacilitator()
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name=f"reconcile-{status}",
+        facilitator=facilitator,
+        canary_token=token,
+    )
+    store, _, result = _seed_payment_state(
+        db_path, nonce=nonce, stale=True, status=status
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("pre-settlement reconciliation performed external work")
+
+    monkeypatch.setattr(routes, "verify_payment", fail_if_called)
+    monkeypatch.setitem(
+        SERVICES,
+        "range-doctor",
+        replace(get_service("range-doctor"), run=fail_if_called),
+    )
+
+    response = client.post(
+        "/hire/range-doctor/reconcile",
+        json={"nonce": nonce},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "payment": {
+            "status": "failed_no_charge",
+            "previous_status": status,
+            "service": "range-doctor",
+            "nonce": nonce,
+            "payment_id": f"payment-{nonce}",
+            "charge_attempted": False,
+            "result_delivered": False,
+        }
+    }
+    stored = store.payment_by_nonce(nonce)
+    assert stored["status"] == "failed_no_charge"
+    assert stored.get("result") == (result if status == "output_ready" else None)
+    assert stored["transaction_id"] is None
+    assert stored["network"] is None
+    assert stored["receipt_json"] is None
+    assert facilitator.calls == []
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected_code"),
+    (
+        ({}, "operator_unauthorized"),
+        ({"Authorization": "Bearer wrong-token"}, "operator_unauthorized"),
+    ),
+)
+def test_settlement_reconciliation_requires_the_operator_bearer(
+    tmp_path, monkeypatch, headers, expected_code
+):
+    token = "operator-reconcile-token"
+    nonce = "0x" + "13" * 32
+    db_path = tmp_path / "reconcile-auth.sqlite3"
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="reconcile-auth",
+        canary_token=token,
+    )
+    store, _, _ = _seed_payment_state(db_path, nonce=nonce, stale=True)
+
+    response = client.post(
+        "/hire/range-doctor/reconcile", json={"nonce": nonce}, headers=headers
+    )
+
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == "Bearer"
+    assert response.json()["error"]["code"] == expected_code
+    assert store.payment_by_nonce(nonce)["status"] == "settling"
+
+
+@pytest.mark.parametrize("status", ("verified", "output_ready", "settling"))
+def test_operator_cannot_reconcile_an_active_payment_state(
+    tmp_path, monkeypatch, status
+):
+    token = "operator-reconcile-token"
+    nonce = "0x" + "14" * 32
+    db_path = tmp_path / "reconcile-fresh.sqlite3"
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="reconcile-fresh",
+        canary_token=token,
+    )
+    store, _, _ = _seed_payment_state(db_path, nonce=nonce, stale=False, status=status)
+
+    response = client.post(
+        "/hire/range-doctor/reconcile",
+        json={"nonce": nonce},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "settlement_still_active"
+    stored = store.payment_by_nonce(nonce)
+    assert stored["status"] == status
+    assert stored["receipt_json"] is None
+
+
+def test_facilitator_verification_reason_is_not_exposed(tmp_path, monkeypatch):
+    private_reason = "signature lookup failed against internal node 10.0.0.4"
+
+    class RejectingFacilitator(FixtureFacilitator):
+        def verify(self, envelope):
+            self.calls.append(("verify", envelope))
+            payer = envelope["paymentPayload"]["payload"]["authorization"]["from"]
+            return {
+                "isValid": False,
+                "payer": payer,
+                "invalidReason": private_reason,
+            }
+
+    facilitator = RejectingFacilitator()
+    nonce = "0x" + "15" * 32
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="private-verification-reason",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+
+    response = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": _authorization(Account.create(), nonce=nonce)},
+    )
+
+    assert response.status_code == 402
+    assert response.json()["error"] == {
+        "code": "payment_not_verified",
+        "message": (
+            "The facilitator rejected the payment. No work ran and no charge was attempted."
+        ),
+    }
+    assert private_reason not in response.text
+    assert (
+        Store(tmp_path / "private-verification-reason.sqlite3").payment_by_nonce(nonce)
+        == {}
+    )
+    assert [name for name, _ in facilitator.calls] == ["verify"]
+
+
+def test_settlement_failure_reason_is_private_but_durably_recorded(
+    tmp_path, monkeypatch
+):
+    private_reason = "relayer key alias prod-7 is unavailable"
+
+    class RefusingFacilitator(FixtureFacilitator):
+        def settle(self, envelope):
+            self.calls.append(("settle", envelope))
+            return {"success": False, "errorReason": private_reason}
+
+    facilitator = RefusingFacilitator()
+    nonce = "0x" + "16" * 32
+    client = _client(
+        tmp_path,
+        monkeypatch,
+        name="private-settlement-reason",
+        pay_to=PAY_TO,
+        facilitator=facilitator,
+        admit_range=True,
+    )
+
+    response = client.post(
+        "/hire/range-doctor",
+        json={"wallet": WALLET},
+        headers={"X-PAYMENT": _authorization(Account.create(), nonce=nonce)},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error"] == {
+        "code": "settlement_failed",
+        "message": (
+            "The facilitator did not settle this authorization. No result was delivered."
+        ),
+    }
+    assert private_reason not in response.text
+    stored = Store(tmp_path / "private-settlement-reason.sqlite3").payment_by_nonce(
+        nonce
+    )
+    assert stored["status"] == "settlement_failed"
+    assert stored["error"] == private_reason
+    assert [name for name, _ in facilitator.calls] == ["verify", "settle"]
 
 
 def test_de_admission_after_verification_prevents_settlement(tmp_path, monkeypatch):

@@ -56,6 +56,7 @@ no_go() {
 }
 
 readonly -a UNIT_NAMES=(
+    docket.service
     docket-canary.service
     docket-canary.timer
     docket-lp-record.service

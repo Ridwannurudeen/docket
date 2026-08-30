@@ -1,6 +1,6 @@
 """Bind delivered work to its input with hashes a caller can recompute alone.
 
-Hashes are SHA-256 over canonical JSON: sorted keys, no separator whitespace,
+Hashes are SHA-256 over finite canonical JSON: sorted keys, no separator whitespace,
 ``ensure_ascii=False`` and UTF-8. A receipt asserts delivery, not correctness.
 A ``settled`` payment block means the configured facilitator returned a successful
 v2 settlement and transaction id; it is not Docket's own chain-finality proof.
@@ -13,7 +13,13 @@ from datetime import datetime, timezone
 
 def canonical_hash(obj) -> str:
     """SHA-256 over canonical JSON, ``0x``-prefixed and key-order independent."""
-    blob = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    blob = json.dumps(
+        obj,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
     return "0x" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 

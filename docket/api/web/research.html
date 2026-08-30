@@ -8,8 +8,8 @@
       name="description"
       content="Filter the ERC-8004 agents in Docket's current snapshot by feedback, declared endpoint, observed response and name family."
     />
-    <link rel="stylesheet" href="/static/style.css?v=11" />
-    <script type="module" src="/static/app.js?v=11"></script>
+    <link rel="stylesheet" href="/static/style.css?v=12" />
+    <script type="module" src="/static/app.js?v=12"></script>
   </head>
   <body data-page="research">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -118,8 +118,15 @@
         </section>
 
         <section aria-labelledby="results-heading">
-          <h2 id="results-heading">Agents</h2>
-          <div class="wrap-anywhere" data-region="results">
+          <h2 id="results-heading" tabindex="-1">Agents</h2>
+          <p
+            class="visually-hidden"
+            data-region="results-status"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          ></p>
+          <div class="wrap-anywhere" data-region="results" aria-busy="true">
             <span class="skeleton skeleton-row skeleton-wide"></span>
             <span class="skeleton skeleton-row skeleton-wide"></span>
             <span class="skeleton skeleton-row skeleton-wide"></span>

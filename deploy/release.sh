@@ -10,26 +10,13 @@ if [[ "${1:-}" == "--dry-run" ]]; then
     shift
 fi
 
-if [[ $# -ne 3 ]]; then
+if [[ $# -ne 1 ]]; then
     printf '%s\n' \
-        'Usage: release.sh [--dry-run] <wheel> <40-hex-source-commit> <wheel-sha256>' >&2
+        'Usage: release.sh [--dry-run] <release-manifest.json>' >&2
     exit 2
 fi
 
-readonly WHEEL_ARGUMENT=$1
-SOURCE_COMMIT=${2,,}
-EXPECTED_WHEEL_SHA=${3,,}
-[[ "${SOURCE_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || {
-    printf '%s\n' 'Source commit must be exactly 40 hexadecimal characters.' >&2
-    exit 2
-}
-[[ "${EXPECTED_WHEEL_SHA}" =~ ^[0-9a-f]{64}$ ]] || {
-    printf '%s\n' 'Wheel SHA-256 must be exactly 64 hexadecimal characters.' >&2
-    exit 2
-}
-
-readonly SOURCE_COMMIT EXPECTED_WHEEL_SHA
-readonly COMMIT12=${SOURCE_COMMIT:0:12}
+readonly MANIFEST_ARGUMENT=$1
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 if (( DRY_RUN )); then
@@ -90,140 +77,346 @@ fatal() {
     exit 1
 }
 
-[[ -f "${WHEEL_ARGUMENT}" ]] || fatal "wheel does not exist: ${WHEEL_ARGUMENT}"
-WHEEL="$(cd -- "$(dirname -- "${WHEEL_ARGUMENT}")" && pwd -P)/$(basename -- "${WHEEL_ARGUMENT}")"
-readonly WHEEL
+if (( DRY_RUN )); then
+    RELEASE_LOCK=${DOCKET_RELEASE_LOCK_PATH:-$(root_path /run/docket/release.lock)}
+    FLOCK_COMMAND=${DOCKET_RELEASE_FLOCK:-flock}
+    run_fs mkdir -p "$(dirname -- "${RELEASE_LOCK}")"
+    run_fs chmod 0700 "$(dirname -- "${RELEASE_LOCK}")"
+else
+    RELEASE_LOCK_DIR=/run/docket
+    RELEASE_LOCK=${RELEASE_LOCK_DIR}/release.lock
+    FLOCK_COMMAND=flock
+    [[ -d /run && ! -L /run ]] || fatal '/run must be a real directory'
+    [[ "$(stat -c '%U:%G' /run)" == root:root ]] || fatal \
+        '/run must be owned by root:root'
+    run_mode=$(stat -c '%a' /run)
+    (( (8#${run_mode} & 8#022) == 0 )) || fatal \
+        '/run must not be group/world writable'
+    if [[ ! -e "${RELEASE_LOCK_DIR}" && ! -L "${RELEASE_LOCK_DIR}" ]]; then
+        run_fs mkdir -m 0700 -- "${RELEASE_LOCK_DIR}"
+    fi
+    [[ -d "${RELEASE_LOCK_DIR}" && ! -L "${RELEASE_LOCK_DIR}" ]] || fatal \
+        "release lock directory is invalid: ${RELEASE_LOCK_DIR}"
+    [[ "$(stat -c '%a:%U:%G' "${RELEASE_LOCK_DIR}")" == '700:root:root' ]] || fatal \
+        'release lock directory must be mode 0700 and owned by root:root'
+fi
+readonly RELEASE_LOCK FLOCK_COMMAND
+if [[ -e "${RELEASE_LOCK}" || -L "${RELEASE_LOCK}" ]]; then
+    [[ -f "${RELEASE_LOCK}" && ! -L "${RELEASE_LOCK}" ]] || fatal \
+        "release lock must be a regular file: ${RELEASE_LOCK}"
+    if (( ! DRY_RUN )); then
+        [[ "$(stat -c '%a:%U:%G' "${RELEASE_LOCK}")" == '600:root:root' ]] || fatal \
+            'existing release lock must be mode 0600 and owned by root:root'
+    fi
+fi
+exec {RELEASE_LOCK_FD}>"${RELEASE_LOCK}" || fatal \
+    "could not open release lock: ${RELEASE_LOCK}"
+readonly RELEASE_LOCK_FD
+trace_command "${FLOCK_COMMAND}" -n "${RELEASE_LOCK_FD}"
+"${FLOCK_COMMAND}" -n "${RELEASE_LOCK_FD}" || fatal \
+    'another Docket release is already running'
+if (( DRY_RUN )); then
+    run_fs chmod 0600 "${RELEASE_LOCK}"
+else
+    run_fs chown root:root "${RELEASE_LOCK}"
+    run_fs chmod 0600 "${RELEASE_LOCK}"
+fi
 
-trace_command sha256sum "${WHEEL}"
-ACTUAL_WHEEL_SHA="$(sha256sum "${WHEEL}" | awk '{ print tolower($1) }')"
-[[ "${ACTUAL_WHEEL_SHA}" == "${EXPECTED_WHEEL_SHA}" ]] || fatal \
-    "wheel SHA-256 mismatch: got ${ACTUAL_WHEEL_SHA}, expected ${EXPECTED_WHEEL_SHA}"
-readonly ACTUAL_WHEEL_SHA
-
-trace_command python3 - "${WHEEL}"
+[[ -f "${MANIFEST_ARGUMENT}" ]] || fatal \
+    "release manifest does not exist: ${MANIFEST_ARGUMENT}"
+MANIFEST="$(cd -- "$(dirname -- "${MANIFEST_ARGUMENT}")" && pwd -P)/$(basename -- "${MANIFEST_ARGUMENT}")"
+readonly MANIFEST
+VERIFY_SECURITY_ARGS=()
+if (( ! DRY_RUN )); then
+    VERIFY_SECURITY_ARGS=(--secure-owner 0)
+fi
+readonly -a VERIFY_SECURITY_ARGS
+trace_command python3 "${SCRIPT_DIR}/release_bundle.py" verify "${MANIFEST}" \
+    "${SCRIPT_DIR}" "${VERIFY_SECURITY_ARGS[@]}"
 set +e
-wheel_metadata="$({ python3 - "${WHEEL}" <<'PY'
-import email.parser
-import sys
-import zipfile
-
-with zipfile.ZipFile(sys.argv[1]) as archive:
-    metadata_paths = [
-        name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
-    ]
-    if len(metadata_paths) != 1:
-        raise SystemExit("wheel must contain exactly one dist-info/METADATA file")
-    metadata = email.parser.Parser().parsestr(
-        archive.read(metadata_paths[0]).decode("utf-8")
-    )
-    print(metadata.get("Name", ""))
-    print(metadata.get("Version", ""))
-PY
+manifest_verification="$({
+    python3 "${SCRIPT_DIR}/release_bundle.py" verify "${MANIFEST}" \
+        "${SCRIPT_DIR}" "${VERIFY_SECURITY_ARGS[@]}"
 } 2>&1)"
-metadata_status=$?
+manifest_status=$?
 set -e
-(( metadata_status == 0 )) || fatal "wheel metadata check failed: ${wheel_metadata}"
-wheel_metadata=${wheel_metadata//$'\r'/}
-mapfile -t metadata_lines <<<"${wheel_metadata}"
-WHEEL_NAME=${metadata_lines[0]:-}
-WHEEL_VERSION=${metadata_lines[1]:-}
-[[ "${WHEEL_NAME,,}" == docket && -n "${WHEEL_VERSION}" ]] || fatal \
-    "wheel metadata must name docket and carry a version"
-readonly WHEEL_NAME WHEEL_VERSION
+(( manifest_status == 0 )) || fatal \
+    "release manifest verification failed: ${manifest_verification}"
+manifest_verification=${manifest_verification//$'\r'/}
+mapfile -t manifest_lines <<<"${manifest_verification}"
+[[ ${#manifest_lines[@]} -eq 8 ]] || fatal \
+    'release manifest verifier returned an invalid response'
+SOURCE_COMMIT=${manifest_lines[0]}
+WHEEL=${manifest_lines[1]}
+EXPECTED_WHEEL_SHA=${manifest_lines[2]}
+WHEEL_NAME=${manifest_lines[3]}
+WHEEL_VERSION=${manifest_lines[4]}
+RUNTIME_LOCK=${manifest_lines[5]}
+RUNTIME_LOCK_SHA=${manifest_lines[6]}
+MANIFEST_SHA=${manifest_lines[7]}
+readonly SOURCE_COMMIT WHEEL EXPECTED_WHEEL_SHA WHEEL_NAME WHEEL_VERSION
+readonly RUNTIME_LOCK RUNTIME_LOCK_SHA MANIFEST_SHA
+readonly ACTUAL_WHEEL_SHA=${EXPECTED_WHEEL_SHA}
+readonly COMMIT12=${SOURCE_COMMIT:0:12}
+printf 'Release manifest verified: %s (%s).\n' "${SOURCE_COMMIT}" "${MANIFEST_SHA}"
 
 readonly OPT_ROOT="$(root_path /opt)"
 readonly OPT_DOCKET="$(root_path /opt/docket)"
 readonly VENV_ROOT="$(root_path /opt/docket-venvs)"
 readonly VENV="${VENV_ROOT}/${COMMIT12}"
+readonly VENV_PARTIAL="${VENV}.partial"
+readonly VENV_INVALID="${VENV}.invalid"
 readonly SYSTEMD_ROOT="$(root_path /etc/systemd/system)"
 readonly JOURNALD_ROOT="$(root_path /etc/systemd/journald.conf.d)"
 readonly JOURNALD_TARGET="${JOURNALD_ROOT}/docket.conf"
 readonly CANARY_CONFIG="$(root_path /etc/docket/docket-canary.conf)"
 readonly CANARY_TOKEN="$(root_path /etc/docket/docket-canary.token)"
+readonly DATABASE_PATH="$(root_path /var/lib/docket/data/agents.sqlite3)"
+readonly DATABASE_BACKUP_ROOT="$(root_path /var/backups/docket)"
 if (( DRY_RUN )); then
     JSON_PYTHON=python3
+    BACKUP_PYTHON=${DOCKET_RELEASE_BACKUP_PYTHON:-python3}
+    FSYNC_PYTHON=${DOCKET_RELEASE_FSYNC_PYTHON:-python3}
+    COPY_COMMAND=${DOCKET_RELEASE_COPY:-cp}
     CURL_COMMAND=${DOCKET_RELEASE_CURL:-curl}
     JOURNALCTL_COMMAND=${DOCKET_RELEASE_JOURNALCTL:-journalctl}
     RUNUSER_COMMAND=${DOCKET_RELEASE_RUNUSER:-runuser}
     SYSTEMCTL_COMMAND=${DOCKET_RELEASE_SYSTEMCTL:-systemctl}
 else
     JSON_PYTHON="${OPT_DOCKET}/.venv/bin/python"
+    BACKUP_PYTHON="${OPT_DOCKET}/.venv/bin/python"
+    FSYNC_PYTHON=python3
+    COPY_COMMAND=cp
     CURL_COMMAND=curl
     JOURNALCTL_COMMAND=journalctl
     RUNUSER_COMMAND=runuser
     SYSTEMCTL_COMMAND=systemctl
 fi
-readonly JSON_PYTHON CURL_COMMAND JOURNALCTL_COMMAND RUNUSER_COMMAND SYSTEMCTL_COMMAND
+readonly JSON_PYTHON BACKUP_PYTHON FSYNC_PYTHON COPY_COMMAND CURL_COMMAND JOURNALCTL_COMMAND
+readonly RUNUSER_COMMAND SYSTEMCTL_COMMAND
 
 run_fs install -d -m 0755 "${OPT_ROOT}" "${VENV_ROOT}"
-if [[ -e "${VENV}" ]]; then
-    [[ -d "${VENV}" ]] || fatal "existing venv path is not a directory: ${VENV}"
+BUILDING_VENV=0
+PUBLISHED_VENV=0
+QUARANTINED_VENV=0
+VENV_WORK=${VENV}
+cleanup_partial_venv() {
+    if (( BUILDING_VENV )); then
+        if (( PUBLISHED_VENV )) && [[ -e "${VENV}" || -L "${VENV}" ]]; then
+            trace_command rm -rf -- "${VENV}"
+            rm -rf -- "${VENV}"
+        fi
+        if (( QUARANTINED_VENV )) && \
+            [[ -d "${VENV_INVALID}" && ! -L "${VENV_INVALID}" ]] && \
+            [[ ! -e "${VENV}" && ! -L "${VENV}" ]]; then
+            trace_command mv -T -- "${VENV_INVALID}" "${VENV}"
+            mv -T -- "${VENV_INVALID}" "${VENV}"
+        fi
+        if [[ -e "${VENV_PARTIAL}" || -L "${VENV_PARTIAL}" ]]; then
+            trace_command rm -rf -- "${VENV_PARTIAL}"
+            rm -rf -- "${VENV_PARTIAL}"
+        fi
+    fi
+}
+on_venv_exit() {
+    local status=$?
+    trap - EXIT
+    if (( status != 0 )); then
+        set +e
+        cleanup_partial_venv
+    fi
+    exit "${status}"
+}
+trap on_venv_exit EXIT
+
+fsync_paths() {
+    local kind=$1
+    shift
+    trace_command "${FSYNC_PYTHON}" - "${kind}" "$@"
+    if (( ! DRY_RUN )) || [[ -n "${DOCKET_RELEASE_FSYNC_PYTHON:-}" ]]; then
+        "${FSYNC_PYTHON}" - "${kind}" "$@" <<'PY'
+import os
+import sys
+
+kind, *paths = sys.argv[1:]
+flags = os.O_RDONLY
+if kind == "directory":
+    flags |= getattr(os, "O_DIRECTORY", 0)
+elif kind != "file":
+    raise SystemExit(f"unsupported fsync path kind: {kind}")
+for path in paths:
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+PY
+    fi
+}
+
+VENV_VALIDATION_REASON=
+validate_release_environment() {
+    local path=$1
+    local python=$2
+    local installed_name installed_version pip_show
+    VENV_VALIDATION_REASON=
+    trace_command "${python}" -m pip check
+    if { (( ! DRY_RUN )) || [[ -n "${DOCKET_RELEASE_VENV_PYTHON:-}" ]]; } && \
+        ! "${python}" -m pip check; then
+        VENV_VALIDATION_REASON='release environment failed pip check'
+        return 1
+    fi
+    trace_command "${RUNUSER_COMMAND}" -u docket -- "${path}/bin/python" -c \
+        'import docket, docket.api, docket.canary'
+    if (( ! DRY_RUN )) || [[ -n "${DOCKET_RELEASE_RUNUSER:-}" ]]; then
+        if ! "${RUNUSER_COMMAND}" -u docket -- "${path}/bin/python" -c \
+            'import docket, docket.api, docket.canary'; then
+            VENV_VALIDATION_REASON='docket service user cannot import the installed release'
+            return 1
+        fi
+    fi
+    trace_command "${python}" -m pip show docket
+    if (( DRY_RUN )); then
+        installed_name=docket
+        installed_version=${DOCKET_RELEASE_INSTALLED_VERSION:-${WHEEL_VERSION}}
+    else
+        pip_show="$("${python}" -m pip show docket)" || {
+            VENV_VALIDATION_REASON='pip show docket failed for the release environment'
+            return 1
+        }
+        printf '%s\n' "${pip_show}"
+        installed_name="$(awk -F ': ' '$1 == "Name" { print $2 }' <<<"${pip_show}")"
+        installed_version="$(awk -F ': ' '$1 == "Version" { print $2 }' <<<"${pip_show}")"
+    fi
+    if [[ "${installed_name,,}" != docket || "${installed_version}" != "${WHEEL_VERSION}" ]]; then
+        VENV_VALIDATION_REASON="pip show docket version ${installed_version:-<missing>} does not match wheel ${WHEEL_VERSION}"
+        return 1
+    fi
+}
+
+if [[ -e "${VENV}" || -L "${VENV}" ]]; then
+    [[ -d "${VENV}" && ! -L "${VENV}" ]] || fatal \
+        "existing venv path is not a directory: ${VENV}"
     existing_commit=
     existing_sha=
     existing_version=
+    existing_lock_sha=
     [[ ! -f "${VENV}/RELEASE-commit.txt" ]] || \
         existing_commit="$(<"${VENV}/RELEASE-commit.txt")"
     [[ ! -f "${VENV}/WHEEL-sha256.txt" ]] || \
         existing_sha="$(<"${VENV}/WHEEL-sha256.txt")"
     [[ ! -f "${VENV}/DOCKET-version.txt" ]] || \
         existing_version="$(<"${VENV}/DOCKET-version.txt")"
+    [[ ! -f "${VENV}/RUNTIME-LOCK-sha256.txt" ]] || \
+        existing_lock_sha="$(<"${VENV}/RUNTIME-LOCK-sha256.txt")"
     if [[ "${existing_commit}" != "${SOURCE_COMMIT}" || \
         "${existing_sha}" != "${EXPECTED_WHEEL_SHA}" || \
-        "${existing_version}" != "${WHEEL_VERSION}" ]]; then
+        "${existing_version}" != "${WHEEL_VERSION}" || \
+        "${existing_lock_sha}" != "${RUNTIME_LOCK_SHA}" ]]; then
         fatal "existing venv identity differs: ${VENV}"
     fi
-    printf 'Reusing matching venv: %s\n' "${VENV}"
+    if (( DRY_RUN )); then
+        existing_python=${DOCKET_RELEASE_VENV_PYTHON:-${VENV}/bin/python}
+    else
+        existing_python=${VENV}/bin/python
+    fi
+    if validate_release_environment "${VENV}" "${existing_python}"; then
+        printf 'Reusing matching venv: %s\n' "${VENV}"
+    else
+        printf 'Matching venv failed validation; rebuilding: %s\n' \
+            "${VENV_VALIDATION_REASON}" >&2
+        BUILDING_VENV=1
+        VENV_WORK=${VENV_PARTIAL}
+    fi
 else
-    (
-        run_fs umask 022
-        trace_command python3 -m venv "${VENV}"
-        if (( DRY_RUN )); then
-            install -d -m 0755 "${VENV}/bin"
-        else
-            python3 -m venv "${VENV}"
-        fi
-        trace_command "${VENV}/bin/python" -m pip install -- "${WHEEL}"
-        if (( ! DRY_RUN )); then
-            "${VENV}/bin/python" -m pip install -- "${WHEEL}"
-        fi
-    )
+    BUILDING_VENV=1
+    VENV_WORK=${VENV_PARTIAL}
 fi
-
-trace_command "${VENV}/bin/python" -m pip check
-if (( ! DRY_RUN )); then
-    "${VENV}/bin/python" -m pip check
+if [[ -e "${VENV_PARTIAL}" || -L "${VENV_PARTIAL}" ]]; then
+    [[ -d "${VENV_PARTIAL}" && ! -L "${VENV_PARTIAL}" ]] || fatal \
+        "stale partial venv path is invalid: ${VENV_PARTIAL}"
+    run_fs rm -rf -- "${VENV_PARTIAL}"
 fi
-trace_command "${RUNUSER_COMMAND}" -u docket -- "${VENV}/bin/python" -c \
-    'import docket, docket.api, docket.canary'
-if (( ! DRY_RUN )) || [[ -n "${DOCKET_RELEASE_RUNUSER:-}" ]]; then
-    if ! "${RUNUSER_COMMAND}" -u docket -- "${VENV}/bin/python" -c \
-        'import docket, docket.api, docket.canary'; then
-        fatal 'docket service user cannot import the installed release'
+if [[ -e "${VENV_INVALID}" || -L "${VENV_INVALID}" ]]; then
+    [[ -d "${VENV_INVALID}" && ! -L "${VENV_INVALID}" ]] || fatal \
+        "quarantined venv path is invalid: ${VENV_INVALID}"
+    if [[ -e "${VENV}" || -L "${VENV}" ]]; then
+        run_fs rm -rf -- "${VENV_INVALID}"
     fi
 fi
-trace_command "${VENV}/bin/python" -m pip show docket
+readonly VENV_WORK
 if (( DRY_RUN )); then
-    installed_name=docket
-    installed_version=${DOCKET_RELEASE_INSTALLED_VERSION:-${WHEEL_VERSION}}
+    VENV_PYTHON=${DOCKET_RELEASE_VENV_PYTHON:-${VENV_WORK}/bin/python}
 else
-    pip_show="$("${VENV}/bin/python" -m pip show docket)"
-    printf '%s\n' "${pip_show}"
-    installed_name="$(awk -F ': ' '$1 == "Name" { print $2 }' <<<"${pip_show}")"
-    installed_version="$(awk -F ': ' '$1 == "Version" { print $2 }' <<<"${pip_show}")"
+    VENV_PYTHON=${VENV_WORK}/bin/python
 fi
-[[ "${installed_name,,}" == docket && "${installed_version}" == "${WHEEL_VERSION}" ]] || fatal \
-    "pip show docket version ${installed_version:-<missing>} does not match wheel ${WHEEL_VERSION}"
+readonly VENV_PYTHON
 
-if [[ ! -e "${VENV}/RELEASE-commit.txt" ]]; then
-    trace_command printf '%s\\n' "${SOURCE_COMMIT}" '>' "${VENV}/RELEASE-commit.txt"
-    printf '%s\n' "${SOURCE_COMMIT}" >"${VENV}/RELEASE-commit.txt"
-    trace_command printf '%s\\n' "${EXPECTED_WHEEL_SHA}" '>' "${VENV}/WHEEL-sha256.txt"
-    printf '%s\n' "${EXPECTED_WHEEL_SHA}" >"${VENV}/WHEEL-sha256.txt"
-    trace_command printf '%s\\n' "${WHEEL_VERSION}" '>' "${VENV}/DOCKET-version.txt"
-    printf '%s\n' "${WHEEL_VERSION}" >"${VENV}/DOCKET-version.txt"
+if (( BUILDING_VENV )); then
+    if ! (
+        run_fs umask 022
+        trace_command python3 -m venv "${VENV_WORK}"
+        if (( DRY_RUN )); then
+            install -d -m 0755 "${VENV_WORK}/bin"
+        else
+            python3 -m venv "${VENV_WORK}" || exit 1
+        fi
+        trace_command "${VENV_PYTHON}" -m pip install --require-hashes \
+            --only-binary=:all: -r "${RUNTIME_LOCK}"
+        if (( ! DRY_RUN )) || [[ -n "${DOCKET_RELEASE_VENV_PYTHON:-}" ]]; then
+            "${VENV_PYTHON}" -m pip install --require-hashes \
+                --only-binary=:all: -r "${RUNTIME_LOCK}" || exit 1
+        fi
+        trace_command "${VENV_PYTHON}" -m pip install --no-deps "${WHEEL}"
+        if (( ! DRY_RUN )) || [[ -n "${DOCKET_RELEASE_VENV_PYTHON:-}" ]]; then
+            "${VENV_PYTHON}" -m pip install --no-deps "${WHEEL}" || exit 1
+        fi
+    ); then
+        fatal 'release environment installation failed'
+    fi
 fi
+
+if (( BUILDING_VENV )); then
+    validate_release_environment "${VENV_WORK}" "${VENV_PYTHON}" || fatal \
+        "${VENV_VALIDATION_REASON}"
+    trace_command printf '%s\\n' "${SOURCE_COMMIT}" '>' "${VENV_WORK}/RELEASE-commit.txt"
+    printf '%s\n' "${SOURCE_COMMIT}" >"${VENV_WORK}/RELEASE-commit.txt"
+    trace_command printf '%s\\n' "${EXPECTED_WHEEL_SHA}" '>' \
+        "${VENV_WORK}/WHEEL-sha256.txt"
+    printf '%s\n' "${EXPECTED_WHEEL_SHA}" >"${VENV_WORK}/WHEEL-sha256.txt"
+    trace_command printf '%s\\n' "${WHEEL_VERSION}" '>' "${VENV_WORK}/DOCKET-version.txt"
+    printf '%s\n' "${WHEEL_VERSION}" >"${VENV_WORK}/DOCKET-version.txt"
+    trace_command printf '%s\\n' "${RUNTIME_LOCK_SHA}" '>' \
+        "${VENV_WORK}/RUNTIME-LOCK-sha256.txt"
+    printf '%s\n' "${RUNTIME_LOCK_SHA}" >"${VENV_WORK}/RUNTIME-LOCK-sha256.txt"
+    fsync_paths file \
+        "${VENV_WORK}/RELEASE-commit.txt" \
+        "${VENV_WORK}/WHEEL-sha256.txt" \
+        "${VENV_WORK}/DOCKET-version.txt" \
+        "${VENV_WORK}/RUNTIME-LOCK-sha256.txt" || fatal \
+        'could not durably publish release environment identity'
+    fsync_paths directory "${VENV_WORK}" || fatal \
+        'could not durably publish release environment identity directory'
+    if [[ -e "${VENV}" || -L "${VENV}" ]]; then
+        run_fs mv -T -- "${VENV}" "${VENV_INVALID}"
+        QUARANTINED_VENV=1
+    fi
+    run_fs mv -T -- "${VENV_WORK}" "${VENV}"
+    PUBLISHED_VENV=1
+    fsync_paths directory "${VENV_ROOT}" || fatal \
+        'could not durably publish release environment root'
+    BUILDING_VENV=0
+    PUBLISHED_VENV=0
+    if [[ -e "${VENV_INVALID}" || -L "${VENV_INVALID}" ]]; then
+        run_fs rm -rf -- "${VENV_INVALID}"
+        fsync_paths directory "${VENV_ROOT}" || fatal \
+            'could not durably remove the quarantined release environment'
+    fi
+fi
+trap - EXIT
 
 readonly -a UNIT_NAMES=(
+    docket.service
     docket-canary.service
     docket-canary.timer
     docket-lp-record.service
@@ -273,10 +466,26 @@ readonly STAGE="$(root_path "/opt/docket.stage-${COMMIT12}")"
 readonly BACKUP="$(root_path "/opt/docket.bak-${STAMP}")"
 readonly FAILED_RELEASE="$(root_path "/opt/docket.failed-${STAMP}-${COMMIT12}")"
 readonly UNIT_BACKUP="$(root_path "/opt/docket-unit-backups/${STAMP}-${COMMIT12}")"
-[[ ! -e "${STAGE}" ]] || fatal "stage already exists: ${STAGE}"
+readonly DATABASE_BACKUP="${DATABASE_BACKUP_ROOT}/agents-${STAMP}.sqlite3"
+readonly DATABASE_BACKUP_PARTIAL="${DATABASE_BACKUP}.partial"
+if [[ -e "${STAGE}" || -L "${STAGE}" ]]; then
+    [[ -d "${STAGE}" && ! -L "${STAGE}" ]] || fatal \
+        "stale release stage is invalid: ${STAGE}"
+    if (( ! DRY_RUN )); then
+        [[ "$(stat -c '%U:%G' "${STAGE}")" == root:root ]] || fatal \
+            "stale release stage must be owned by root:root: ${STAGE}"
+    fi
+    printf 'Removing stale release stage: %s\n' "${STAGE}"
+    run_fs rm -rf -- "${STAGE}"
+fi
 [[ ! -e "${BACKUP}" ]] || fatal "backup already exists: ${BACKUP}"
 [[ ! -e "${FAILED_RELEASE}" ]] || fatal "failed-release target exists: ${FAILED_RELEASE}"
+[[ ! -e "${DATABASE_BACKUP}" ]] || fatal \
+    "database backup already exists: ${DATABASE_BACKUP}"
+[[ ! -e "${DATABASE_BACKUP_PARTIAL}" ]] || fatal \
+    "partial database backup already exists: ${DATABASE_BACKUP_PARTIAL}"
 [[ -d "${OPT_DOCKET}" ]] || fatal "current release is missing: ${OPT_DOCKET}"
+[[ -f "${DATABASE_PATH}" ]] || fatal "runtime database is missing: ${DATABASE_PATH}"
 
 if (( DRY_RUN )); then
     [[ -f "${OPT_DOCKET}/.venv.target" ]] || fatal \
@@ -289,24 +498,56 @@ fi
 [[ -n "${PREVIOUS_VENV_TARGET}" ]] || fatal 'current release .venv target is empty'
 readonly PREVIOUS_VENV_TARGET
 
+STAGE_CREATED=0
+cleanup_stage() {
+    if (( STAGE_CREATED )) && [[ -e "${STAGE}" || -L "${STAGE}" ]]; then
+        trace_command rm -rf -- "${STAGE}"
+        rm -rf -- "${STAGE}"
+    fi
+}
+on_stage_exit() {
+    local status=$?
+    trap - EXIT
+    if (( status != 0 )); then
+        set +e
+        cleanup_stage
+    fi
+    exit "${status}"
+}
+trap on_stage_exit EXIT
+
+STAGE_CREATED=1
 run_fs install -d -m 0755 "${STAGE}/deploy"
-run_fs cp -a "${SCRIPT_DIR}/." "${STAGE}/deploy/"
+run_fs "${COPY_COMMAND}" -a "${SCRIPT_DIR}/." "${STAGE}/deploy/"
+run_fs cp -- "${MANIFEST}" "${STAGE}/release-manifest.json"
 trace_command printf '%s\\n' "${SOURCE_COMMIT}" '>' "${STAGE}/RELEASE-commit.txt"
 printf '%s\n' "${SOURCE_COMMIT}" >"${STAGE}/RELEASE-commit.txt"
 trace_command printf '%s  %s\\n' "${EXPECTED_WHEEL_SHA}" "$(basename -- "${WHEEL}")" \
     '>' "${STAGE}/WHEEL-sha256.txt"
 printf '%s  %s\n' "${EXPECTED_WHEEL_SHA}" "$(basename -- "${WHEEL}")" \
     >"${STAGE}/WHEEL-sha256.txt"
+trace_command printf '%s\\n' "${RUNTIME_LOCK_SHA}" '>' \
+    "${STAGE}/RUNTIME-LOCK-sha256.txt"
+printf '%s\n' "${RUNTIME_LOCK_SHA}" >"${STAGE}/RUNTIME-LOCK-sha256.txt"
 
 declare -A UNIT_EXISTED=()
+declare -A TIMER_EXISTED=()
 declare -A TIMER_WAS_ENABLED=()
 declare -A TIMER_WAS_ACTIVE=()
+APP_STOP_ATTEMPTED=0
 APP_STOPPED=0
 BACKUP_MOVED=0
 SWAPPED=0
 UNITS_TOUCHED=0
 TIMER_STATE_DIRTY=0
 RELEASE_OK=0
+
+run_timer_systemctl() {
+    trace_command systemctl "$@"
+    if (( ! DRY_RUN )) || [[ -n "${DOCKET_RELEASE_SYSTEMCTL:-}" ]]; then
+        "${SYSTEMCTL_COMMAND}" "$@"
+    fi
+}
 
 atomic_venv_link() {
     local target=$1
@@ -322,6 +563,40 @@ atomic_venv_link() {
         run_fs ln -sfn "${target}" "${temporary}"
         run_fs mv -Tf "${temporary}" "${link}"
     fi
+}
+
+create_database_backup() {
+    local backup_output backup_status
+    trace_command install -d -o root -g root -m 0700 "${DATABASE_BACKUP_ROOT}"
+    if (( DRY_RUN )); then
+        install -d "${DATABASE_BACKUP_ROOT}"
+    else
+        install -d -o root -g root -m 0700 "${DATABASE_BACKUP_ROOT}"
+    fi
+    # sqlite_backup.py performs the online backup, PRAGMA quick_check and durable publish.
+    trace_command "${BACKUP_PYTHON}" "${SCRIPT_DIR}/sqlite_backup.py" \
+        "${DATABASE_PATH}" "${DATABASE_BACKUP}"
+    set +e
+    backup_output="$(
+        (
+            umask 077
+            "${BACKUP_PYTHON}" "${SCRIPT_DIR}/sqlite_backup.py" \
+                "${DATABASE_PATH}" "${DATABASE_BACKUP}"
+        ) 2>&1
+    )"
+    backup_status=$?
+    set -e
+    if (( backup_status != 0 )); then
+        fatal "SQLite backup failed: ${backup_output}"
+    fi
+    [[ -f "${DATABASE_BACKUP}" ]] || fatal \
+        "SQLite backup did not create ${DATABASE_BACKUP}"
+    if (( ! DRY_RUN )); then
+        [[ "$(stat -c '%a:%U:%G' "${DATABASE_BACKUP}")" == '600:root:root' ]] || \
+            fatal 'SQLite backup must be mode 0600 and owned by root:root'
+    fi
+    printf 'Database backup verified: %s (chmod 0600, durably published).\n' \
+        "${DATABASE_BACKUP}"
 }
 
 wait_for_health() {
@@ -365,15 +640,16 @@ restore_units() {
     fi
     (( TIMER_STATE_DIRTY )) || return 0
     for name in "${TIMER_NAMES[@]}"; do
+        [[ "${TIMER_EXISTED[${name}]:-0}" == 1 ]] || continue
         if [[ "${TIMER_WAS_ENABLED[${name}]:-0}" == 1 ]]; then
-            run_host systemctl enable "${name}" || return 1
+            run_timer_systemctl enable "${name}" || return 1
         else
-            run_host systemctl disable "${name}" || return 1
+            run_timer_systemctl disable "${name}" || return 1
         fi
         if [[ "${TIMER_WAS_ACTIVE[${name}]:-0}" == 1 ]]; then
-            run_host systemctl start "${name}" || return 1
+            run_timer_systemctl start "${name}" || return 1
         else
-            run_host systemctl stop "${name}" || return 1
+            run_timer_systemctl stop "${name}" || return 1
         fi
     done
 }
@@ -392,10 +668,10 @@ rollback() {
         atomic_venv_link "${PREVIOUS_VENV_TARGET}" "${OPT_DOCKET}/.venv" || rollback_ok=0
     fi
     restore_units || rollback_ok=0
-    if (( APP_STOPPED || BACKUP_MOVED || SWAPPED )); then
+    if (( APP_STOP_ATTEMPTED || APP_STOPPED || BACKUP_MOVED || SWAPPED )); then
         run_host systemctl start docket.service || rollback_ok=0
     fi
-    if (( ! APP_STOPPED && ! BACKUP_MOVED && ! SWAPPED && rollback_ok )); then
+    if (( ! APP_STOP_ATTEMPTED && ! APP_STOPPED && ! BACKUP_MOVED && ! SWAPPED && rollback_ok )); then
         printf '%s\n' 'Rollback completed and the captured timer state was restored.' >&2
     elif (( rollback_ok )) && wait_for_health; then
         printf '%s\n' 'Rollback completed and the previous release is healthy.' >&2
@@ -409,9 +685,10 @@ on_exit() {
     trap - EXIT
     if (( status != 0 && ! RELEASE_OK )); then
         set +e
-        if (( APP_STOPPED || BACKUP_MOVED || SWAPPED || TIMER_STATE_DIRTY )); then
+        if (( APP_STOP_ATTEMPTED || APP_STOPPED || BACKUP_MOVED || SWAPPED || TIMER_STATE_DIRTY )); then
             rollback
         fi
+        cleanup_stage
     fi
     exit "${status}"
 }
@@ -439,20 +716,50 @@ refuse_yield_v6_capture_window() {
 
 refuse_range_capture_window
 refuse_yield_v6_capture_window
+trace_command python3 "${SCRIPT_DIR}/release_bundle.py" verify "${MANIFEST}" \
+    "${SCRIPT_DIR}" "${VERIFY_SECURITY_ARGS[@]}"
+set +e
+manifest_reverification="$({
+    python3 "${SCRIPT_DIR}/release_bundle.py" verify "${MANIFEST}" \
+        "${SCRIPT_DIR}" "${VERIFY_SECURITY_ARGS[@]}"
+} 2>&1)"
+manifest_reverification_status=$?
+set -e
+(( manifest_reverification_status == 0 )) || fatal \
+    "release manifest reverification failed before mutation: ${manifest_reverification}"
+manifest_reverification=${manifest_reverification//$'\r'/}
+[[ "${manifest_reverification}" == "${manifest_verification}" ]] || fatal \
+    'release artifact bindings changed before mutation'
+printf '%s\n' 'Release manifest reverified before mutation.'
 
 for name in "${TIMER_NAMES[@]}"; do
-    if (( DRY_RUN )); then
+    if (( DRY_RUN )) && [[ -z "${DOCKET_RELEASE_SYSTEMCTL:-}" ]]; then
+        TIMER_EXISTED["${name}"]=1
         TIMER_WAS_ENABLED["${name}"]=1
         TIMER_WAS_ACTIVE["${name}"]=1
     else
+        trace_command systemctl show --property=LoadState --value "${name}"
+        if ! load_state="$(
+            "${SYSTEMCTL_COMMAND}" show --property=LoadState --value "${name}"
+        )"; then
+            fatal "could not read the installed state of ${name}"
+        fi
+        if [[ "${load_state}" == not-found ]]; then
+            TIMER_EXISTED["${name}"]=0
+            TIMER_WAS_ENABLED["${name}"]=0
+            TIMER_WAS_ACTIVE["${name}"]=0
+            continue
+        fi
+        [[ -n "${load_state}" ]] || fatal "systemd returned no load state for ${name}"
+        TIMER_EXISTED["${name}"]=1
         trace_command systemctl is-enabled --quiet "${name}"
-        if systemctl is-enabled --quiet "${name}"; then
+        if "${SYSTEMCTL_COMMAND}" is-enabled --quiet "${name}"; then
             TIMER_WAS_ENABLED["${name}"]=1
         else
             TIMER_WAS_ENABLED["${name}"]=0
         fi
         trace_command systemctl is-active --quiet "${name}"
-        if systemctl is-active --quiet "${name}"; then
+        if "${SYSTEMCTL_COMMAND}" is-active --quiet "${name}"; then
             TIMER_WAS_ACTIVE["${name}"]=1
         else
             TIMER_WAS_ACTIVE["${name}"]=0
@@ -460,14 +767,29 @@ for name in "${TIMER_NAMES[@]}"; do
     fi
 done
 
-run_host systemctl stop docket-canary.timer
 TIMER_STATE_DIRTY=1
-trace_command systemctl is-active --quiet docket-canary.service
+for name in "${TIMER_NAMES[@]}"; do
+    [[ "${TIMER_EXISTED[${name}]:-0}" == 1 ]] || continue
+    run_host systemctl stop "${name}"
+    if (( DRY_RUN )) && [[ -n "${DOCKET_RELEASE_SYSTEMCTL:-}" ]]; then
+        "${SYSTEMCTL_COMMAND}" stop "${name}"
+    fi
+done
+for name in "${TIMER_NAMES[@]}"; do
+    service="${name%.timer}.service"
+    trace_command systemctl is-active --quiet "${service}"
+    if { (( ! DRY_RUN )) || [[ -n "${DOCKET_RELEASE_SYSTEMCTL:-}" ]]; } && \
+        "${SYSTEMCTL_COMMAND}" is-active --quiet "${service}"; then
+        fatal "${service} is active after release timers were stopped"
+    fi
+done
+create_database_backup
+APP_STOP_ATTEMPTED=1
+trace_command systemctl stop docket.service
 if { (( ! DRY_RUN )) || [[ -n "${DOCKET_RELEASE_SYSTEMCTL:-}" ]]; } && \
-    "${SYSTEMCTL_COMMAND}" is-active --quiet docket-canary.service; then
-    fatal 'docket-canary.service is active after its timer was stopped'
+    ! "${SYSTEMCTL_COMMAND}" stop docket.service; then
+    fatal 'could not stop docket.service'
 fi
-run_host systemctl stop docket.service
 APP_STOPPED=1
 run_fs mv -- "${OPT_DOCKET}" "${BACKUP}"
 BACKUP_MOVED=1
@@ -547,16 +869,6 @@ if (( ! DRY_RUN )) || [[ -n "${DOCKET_RELEASE_JOURNALCTL:-}" ]]; then
 fi
 
 run_host systemctl enable --now docket.service
-for name in "${TIMER_NAMES[@]}"; do
-    if [[ "${name}" == docket-v3-range-capture.timer ]]; then
-        refuse_range_capture_window
-    fi
-    if [[ "${name}" == docket-v3-yield-v6-capture.timer ]]; then
-        refuse_yield_v6_capture_window
-    fi
-    run_host systemctl enable --now "${name}"
-done
-
 wait_for_health || fatal 'new release did not pass /health within 30 seconds'
 
 trace_command "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/stats
@@ -583,6 +895,41 @@ raise SystemExit(not top <= body.keys() or not rows or any(not service <= row.ke
     fatal 'served /services is missing its release contract fields'
 fi
 
+trace_command "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/services
+if ! "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/services | "${JSON_PYTHON}" -c '
+import json, sys
+body = json.load(sys.stdin)
+rows = body.get("services")
+expected = {
+    "grid-operator",
+    "health-guard",
+    "range-doctor",
+    "solvent-signal",
+    "warden-scan",
+    "yield-router",
+}
+service_ids = [row.get("service_id") for row in rows] if isinstance(rows, list) else []
+raise SystemExit(
+    len(service_ids) != len(expected)
+    or set(service_ids) != expected
+    or body.get("total") != len(expected)
+)
+'; then
+    fatal 'served /services does not match the release inventory'
+fi
+
+trace_command "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/categories
+if ! "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/categories | "${JSON_PYTHON}" -c '
+import json, sys
+body = json.load(sys.stdin)
+rows = body.get("categories")
+expected = {"rebalancing", "grid_trading", "yield_optimisation", "health_factor"}
+categories = [row.get("category") for row in rows] if isinstance(rows, list) else []
+raise SystemExit(len(categories) != len(expected) or set(categories) != expected)
+'; then
+    fatal 'served /categories does not match the release inventory'
+fi
+
 trace_command "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/advantage/v3.json
 if ! "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/advantage/v3.json | "${JSON_PYTHON}" -c '
 import json, sys
@@ -594,6 +941,54 @@ raise SystemExit(not isinstance(families, list) or not isinstance(n_families, in
 '; then
     fatal 'served /advantage/v3.json is missing its release contract fields'
 fi
+
+trace_command "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/advantage/v3.json
+if ! "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/advantage/v3.json | "${JSON_PYTHON}" -c '
+import json, sys
+body = json.load(sys.stdin)
+families = body.get("families")
+expected = {
+    "v3-01-range-doctor": "superseded_before_input_lock",
+    "v3-02-yield-router": "abandoned_after_failed_primary",
+    "v3-03-warden-security": "superseded_before_input_lock",
+    "v3-04-warden-security": "complete_unscored",
+    "v3-05-range-doctor": "locked_not_run",
+    "v3-06-yield-router-assisted": "registered_waiting_for_inputs",
+}
+observed = (
+    {row.get("spec_id"): row.get("state") for row in families}
+    if isinstance(families, list)
+    else {}
+)
+summary = body.get("summary")
+n_families = summary.get("n_families") if isinstance(summary, dict) else None
+raise SystemExit(
+    not isinstance(families, list)
+    or len(families) != len(expected)
+    or observed != expected
+    or n_families != len(expected)
+)
+'; then
+    fatal 'served /advantage/v3.json does not match the release state'
+fi
+
+trace_command "${CURL_COMMAND}" -fsS -H 'Accept: text/html' http://127.0.0.1:8090/
+if ! "${CURL_COMMAND}" -fsS -H 'Accept: text/html' \
+    http://127.0.0.1:8090/ | grep -Fq '<title>Docket'; then
+    fatal 'served homepage smoke failed'
+fi
+
+trace_command "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/static/style.css
+if ! "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/static/style.css | \
+    grep -Fq ':root {'; then
+    fatal 'served static asset smoke failed'
+fi
+
+refuse_range_capture_window
+refuse_yield_v6_capture_window
+for name in "${TIMER_NAMES[@]}"; do
+    run_host systemctl enable --now "${name}"
+done
 
 RELEASE_OK=1
 printf 'Release complete: %s (%s), wheel %s.\n' \

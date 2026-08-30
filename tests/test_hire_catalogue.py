@@ -489,6 +489,28 @@ def test_only_mapped_warden_and_yield_runners_gain_measured_value(monkeypatch):
     }
 
 
+def test_warden_payload_limit_preserves_the_exact_text_or_rejects_before_upstream(
+    monkeypatch,
+):
+    calls = []
+
+    def call_upstream(method, url, body=None):
+        calls.append((method, url, body))
+        return {"verdict": "ALLOW"}
+
+    monkeypatch.setattr(catalogue, "_call_upstream", call_upstream)
+    maximum = "x" * catalogue.WARDEN_MAX_PAYLOAD_CHARACTERS
+
+    get_service("warden-scan").run({"payload": maximum})
+
+    assert calls == [("POST", catalogue.WARDEN_SCAN_URL, {"payload": maximum})]
+    assert get_service("warden-scan").input_schema["payload"]["maxLength"] == 4_000
+
+    with pytest.raises(ValueError, match="must not exceed 4000 characters"):
+        get_service("warden-scan").run({"payload": maximum + "x"})
+    assert len(calls) == 1
+
+
 def test_hire_uses_the_process_pinned_report_until_reset(monkeypatch):
     waiting = _benchmark_state(
         "v3-05-range-doctor", "registered_waiting_for_inputs"

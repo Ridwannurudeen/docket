@@ -20,17 +20,19 @@ Running a local copy instead? Point DOCKET at it; nothing below changes.
     python -m uvicorn --factory "docket.api:create_app" --host 127.0.0.1 --port 8099
     DOCKET=http://127.0.0.1:8099
 
-The public contract needs no authentication, API key, account or wallet. Every path
-but two are GET and read-only. POST /hire/{service_id} runs work. POST
-/agents/{agent_id}/probe repeats one pinned reachability probe and stores the on-demand
-observation separately; it is not part of the snapshot's coverage figures. Both POST routes
-share the public free-work allowance and need no credential. A private owner-operated
-canary uses a separate bootstrap credential described under "Hiring". It is not a public
-API credential.
+The public read contract needs no authentication, API key, account or wallet. Most paths
+are GET and read-only. POST /hire/{service_id} runs work. POST /agents/{agent_id}/probe
+repeats one pinned reachability probe and stores the on-demand observation separately; it
+is not part of the snapshot's coverage figures. Those public work routes share the free-work
+allowance and need no credential. Paid-result recovery also accepts the buyer's signed
+payment. Operator recovery and crash reconciliation use the bearer form of the private token
+described under "Hiring"; the canary uses that token through its dedicated header. It is not
+a general public API credential.
 
-Responses are JSON except /llms.txt (text/plain) and /skill.md (text/markdown). CORS
-is GET-only from any origin, no credentials, so a cross-origin browser page cannot
-hire; hire from a CLI, a server, or same-origin.
+Responses are JSON except /llms.txt (text/plain) and /skill.md (text/markdown). Every
+mutation requires exactly one `Content-Type: application/json` header before it spends an
+allowance, authenticates, runs work, or writes state. Browser CORS preflights allow GET only,
+so a cross-origin page cannot send that JSON mutation; use a CLI, a server, or same-origin.
 
 Docket serves one snapshot at a time: the newest sweep that ran to completion. A sweep
 that has begun and not finished is never served, because its counts are still being
@@ -57,8 +59,9 @@ GET /pancake
     With Accept: text/html, the PancakeSwap evidence dashboard. JSON/default callers get
     the same-origin source paths for its live Range Doctor hire, fixed-window LP record,
     v2 decision-impact object, and the dated method behind its PancakeSwap context. The
-    page runs the worked-example body from GET /services/range-doctor; its figures come
-    from the response rather than from the HTML shell.
+    page offers an explicit Run fresh decision control for the worked-example body from
+    GET /services/range-doctor. Opening the page performs no hire and spends no allowance;
+    after the user runs it, its fresh figures come from the response rather than the HTML shell.
 
     curl -s "$DOCKET/pancake"
 
@@ -203,9 +206,11 @@ POST /agents/{agent_id}/probe
     snapshot's coverage figures. It shares the 20-attempt fixed 3,600-second peer-address
     window with free service hires; exhaustion returns 429 `probe_rate_limited` with
     `Retry-After`. Any HTTP status is `responded`. This measures whether a host answered
-    one request, not what the agent does behind it.
+    one request, not what the agent does behind it. The request body must be the empty JSON
+    object `{}` with `Content-Type: application/json`; no other input is accepted.
 
-    curl -s -X POST "$DOCKET/agents/56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:49637/probe"
+    curl -s -X POST "$DOCKET/agents/56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:49637/probe" \
+      -H 'content-type: application/json' -d '{}'
 
 GET /categories
     BNB's four job categories: the job each one gets done, what an agent doing that job
@@ -332,7 +337,9 @@ POST /hire/{service_id}
     Runs the service and returns the result bound to a receipt. The body is JSON,
     with the fields that service's input_schema marks required. No account, key or
     connected wallet is needed. A required wallet field is the address to read, not a
-    wallet connection or signature.
+    wallet connection or signature. Send exactly one `Content-Type: application/json`
+    header. Every mutation rejects a body larger than 1,048,576 bytes before JSON decoding;
+    the application enforces this even without nginx.
 
     curl -s -X POST "$DOCKET/hire/range-doctor" \
       -H 'content-type: application/json' \
@@ -340,6 +347,28 @@ POST /hire/{service_id}
 
     Returns {"result": {...}, "receipt": {...}}. Read "Hiring" below before quoting
     anything from the receipt.
+
+POST /hire/{service_id}/reconcile
+    Operator-only crash reconciliation. Send `Authorization: Bearer` with the token loaded
+    from DOCKET_CANARY_TOKEN_FILE and body {"nonce":"0x..."}. Only an unchanged `verified`,
+    `output_ready`, or `settling` row whose stored `updated_at` is at least 15 minutes old
+    can move. `verified` and `output_ready` prove the one-way settlement boundary was never
+    crossed, so their compare-and-swap writes terminal `failed_no_charge`; the response is a
+    compact payment confirmation with `charge_attempted:false` and `result_delivered:false`,
+    not a receipt. An unchanged `settling` row moves to `settlement_unknown` and returns its
+    stored result plus a new receipt that claims no transaction or settled outcome.
+
+    This route never verifies or resends the authorization, runs the service, calls the
+    facilitator, or retries settlement. For a pre-settlement row it records that no settlement
+    call occurred; for `settling`, its evidence says only that reconciliation made no additional
+    external call and the pre-crash outcome remains unknown. A concurrent state transition wins
+    and is not overwritten. Missing or wrong bearer returns 401; a row younger than the age
+    floor returns 409 settlement_still_active.
+
+    curl -s -X POST "$DOCKET/hire/range-doctor/reconcile" \
+      -H 'content-type: application/json' \
+      -H "Authorization: Bearer $DOCKET_OPERATOR_TOKEN" \
+      -d '{"nonce":"0x..."}'
 
 POST /hire/{service_id}/recover
     Re-presents the exact original JSON body and signed X-PAYMENT or PAYMENT-SIGNATURE
@@ -558,6 +587,10 @@ Branch on "code", which is stable. "message" is prose for a human and may change
       not_found                404  no such path
       method_not_allowed       405  the path exists, that method does not
       invalid_json             400  the hire body was not a JSON object
+      invalid_content_length   400  Content-Length was not one unambiguous decimal count
+      request_body_too_large   413  a mutation body exceeded 1,048,576 bytes
+      unsupported_media_type  415  a mutation did not send exactly one application/json
+                                    Content-Type header
       missing_field            422  the hire body omitted a required field; the message
                                     names it
       invalid_field            422  a field was present and the service could not read
@@ -581,6 +614,11 @@ Branch on "code", which is stable. "message" is prose for a human and may change
                                     authorization already settled and cannot be replayed
       authorization_spent      409  this authorization reached a terminal no-replay state
       payment_in_progress      409  another request reserved or is settling this payment
+      settlement_still_active  409  an in-flight row has not crossed the 15-minute operator
+                                    reconciliation floor
+      payment_not_reconcilable 409  the row is not in a reconcilable in-flight state
+      payment_state_changed    409  the row changed after the operator read it; reread state
+      payment_already_settled  409  a concurrent settled transition won reconciliation
       settlement_pending_reconciliation
                               409  one settlement call had an unknown outcome; no retry runs
       service_failed           502  the service could not complete; the message names
@@ -599,6 +637,10 @@ Branch on "code", which is stable. "message" is prose for a human and may change
       service_de_admitted      503  the shared admission gate closed after verification;
                                     no result was delivered and no settlement ran
       lp_record_unavailable    500  the controlled LP journal could not be read
+      payment_record_incomplete
+                              500  a stored result, receipt, timestamp or binding failed
+                                    integrity checks and was not delivered
+      internal_server_error    500  an unexpected server failure; no private detail is exposed
 
 
 ## Coverage: why every number carries one
@@ -875,13 +917,14 @@ rather than as \uXXXX escapes. In Python, exactly:
     import hashlib, json
 
     def digest(obj):
-        blob = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        blob = json.dumps(obj, sort_keys=True, separators=(",", ":"),
+                          ensure_ascii=False, allow_nan=False)
         return "0x" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
     digest(request_body)       == receipt["input_hash"]
     digest(response["result"]) == receipt["output_hash"]
 
-ensure_ascii=False is part of the recipe, not an implementation detail: with
+ensure_ascii=False and allow_nan=False are part of the recipe, not implementation details: with
 ensure_ascii=True a non-ASCII payload hashes to something else. Everything Docket
 puts in a result today is ASCII, where the two settings agree — but a field you send
 need not be. Recompute both: a receipt whose input_hash is not the hash of what you
@@ -916,10 +959,11 @@ chain 56, verifying contract 0xE1Af7DaEa624bA3B5073f24A6Ea5531434D82d88. The pay
 must approve that RelayerV3 proxy as USDT spender before the facilitator can accept it.
 
 Docket first requires the exact version, resource, requirements, signed token, amount,
-recipient, Relayer domain, canonical TransferWithAuthorization fields and active validity window,
-then recovers the payer. It asks the configured facilitator to verify, atomically binds
+recipient, Relayer domain, canonical TransferWithAuthorization fields, an active validity
+window, and `validBefore <= now + maxTimeoutSeconds`, then recovers the payer. It asks the
+configured facilitator to verify, atomically binds
 nonce and payment_id to service, resource and input hash, and only then runs the work.
-After a service returns a non-empty human-readable result, Docket adds the output hash,
+After a service returns a finite-JSON, non-empty human-readable result, Docket adds the output hash,
 durably enters its one-way settling state and calls settle once. An exact identical
 settled replay is rejected with 409 `authorization_replay`; it does not return the
 stored result and it never runs or settles twice. A nonce bound to other work is refused

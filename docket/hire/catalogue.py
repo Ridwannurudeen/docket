@@ -88,6 +88,7 @@ ROUTER_POSITION_USD = 10_000.0
 ROUTER_SWITCHING_COST_USD = 15.0
 SOLVENT_SIGNAL_URL = "https://solvent.gudman.xyz/signal"
 WARDEN_SCAN_URL = "https://warden.gudman.xyz/api/demo/scan"
+WARDEN_MAX_PAYLOAD_CHARACTERS = 4_000
 UPSTREAM_TIMEOUT_S = 30.0
 # One retry, no more. Both hosts answered in about a second once reached, so a
 # second failure is the upstream rather than the road to it.
@@ -294,8 +295,15 @@ def _run_solvent_signal(payload: dict) -> dict:
 
 def _run_warden_scan(payload: dict) -> dict:
     """Only the declared field travels upstream; whatever else a caller sent stays here."""
+    text = payload["payload"]
+    if not isinstance(text, str):
+        raise ValueError("payload must be a string")
+    if len(text) > WARDEN_MAX_PAYLOAD_CHARACTERS:
+        raise ValueError(
+            f"payload must not exceed {WARDEN_MAX_PAYLOAD_CHARACTERS} characters"
+        )
     started = time.perf_counter()
-    result = _call_upstream("POST", WARDEN_SCAN_URL, {"payload": payload["payload"]})
+    result = _call_upstream("POST", WARDEN_SCAN_URL, {"payload": text})
     elapsed = max(0.0, time.perf_counter() - started)
     return result | {"measured_value": _measured_value("warden-scan", elapsed)}
 
@@ -1212,7 +1220,11 @@ SERVICES: dict[str, Service] = {
             "payload": {
                 "type": "string",
                 "required": True,
-                "description": "the untrusted text to scan, sent to Warden unmodified",
+                "maxLength": WARDEN_MAX_PAYLOAD_CHARACTERS,
+                "description": (
+                    "the untrusted text to scan, sent to Warden unmodified; "
+                    "4,000 characters maximum"
+                ),
             },
         },
         typical_seconds=5,

@@ -113,6 +113,10 @@ li {
   list-style: none;
 }
 
+summary {
+  min-height: 44px;
+}
+
 code,
 .mono {
   font-family: var(--mono);
@@ -230,6 +234,7 @@ section {
 
 .brand {
   display: inline-flex;
+  min-height: 44px;
   align-items: center;
   gap: var(--s-2);
   color: var(--fg);
@@ -258,6 +263,10 @@ section {
 }
 
 .site-nav a {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
   padding: var(--s-1) var(--s-2);
   border-radius: var(--radius);
   color: var(--fg-dim);
@@ -378,9 +387,13 @@ section {
   border-left-color: var(--danger);
 }
 
-.notice h3 {
+.notice h3,
+.notice-heading {
   margin-bottom: var(--s-2);
   font-size: var(--fs-md);
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 /* --------------------------------------------------------------- metrics */
@@ -509,6 +522,21 @@ section {
 
 .service > :last-child {
   margin-bottom: 0;
+}
+
+.agent-cards {
+  display: none;
+}
+
+.agent-card {
+  padding: var(--s-3);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.agent-card h3 {
+  margin-bottom: var(--s-2);
 }
 
 .admission {
@@ -722,6 +750,7 @@ pre {
 
 .check {
   display: inline-flex;
+  min-height: 44px;
   align-items: center;
   gap: var(--s-2);
   font-size: var(--fs-sm);
@@ -758,6 +787,7 @@ select,
 input[type="text"],
 input[type="number"],
 textarea {
+  min-height: 44px;
   max-width: 100%;
   padding: var(--s-2) var(--s-3);
   border: var(--border-w) solid var(--control-border);
@@ -825,6 +855,8 @@ textarea {
 
 .btn {
   display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
   align-items: center;
   gap: var(--s-2);
   padding: var(--s-2) var(--s-3);
@@ -1832,6 +1864,22 @@ textarea {
 
   .stats-table {
     min-width: 0;
+  }
+
+  .browse-table {
+    display: none;
+  }
+
+  .agent-cards {
+    display: grid;
+    gap: var(--s-3);
+  }
+
+  .agent-card h3 a {
+    display: inline-flex;
+    min-width: 44px;
+    min-height: 44px;
+    align-items: center;
   }
 }
 

@@ -33,6 +33,7 @@ PAGES = (
     "service.html",
     "pancake.html",
 )
+ASSET_PAGES = (*PAGES, "stats.html")
 
 
 @pytest.fixture
@@ -461,7 +462,7 @@ def test_the_stylesheet_and_module_are_versioned_so_a_returning_reader_gets_them
     /static/style.css against the new markup, because nothing about the URL had changed —
     the job grid lost its layout and the run form its controls. The version query is what
     makes a redeploy reach somebody who has been here before."""
-    for name in PAGES:
+    for name in ASSET_PAGES:
         text = _read(name)
         assert 'href="/static/style.css?v=' in text, name
         # advantage.html reads no live data and loads no module; every page that does
@@ -476,12 +477,10 @@ def test_every_page_asks_for_the_same_version_of_the_same_two_files():
     that moved pull the new file, the pages that did not keep the old one out of cache,
     and which design a reader sees depends on where they landed."""
     tokens = set()
-    for name in PAGES:
+    for name in ASSET_PAGES:
         text = _read(name)
         tokens.update(re.findall(r'/static/(?:style\.css|app\.js)\?v=([^"]+)', text))
-    assert len(tokens) == 1, (
-        f"the site asks for several asset versions at once: {tokens}"
-    )
+    assert tokens == {"12"}, f"the site asks for unexpected asset versions: {tokens}"
 
 
 # ------------------------------------------------- served claims vs served reality
@@ -677,9 +676,10 @@ def test_pay_and_hire_is_rendered_only_for_admitted_paid_stock():
 def test_a_service_with_no_presenter_still_shows_its_payload():
     """A service without a presenter must degrade to the old behaviour, not an empty region."""
     js = re.sub(r"\s+", " ", (WEB_DIR / "app.js").read_text(encoding="utf-8"))
-    assert (
-        "if (!presenter) return `<pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>`;"
-    ) in js
+    fallback = js.split("if (!presenter)", 1)[1].split("return presenter", 1)[0]
+
+    assert '<h3 id="result-heading">What came back</h3>' in fallback
+    assert "<pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>" in fallback
 
 
 def test_warden_results_are_presented_as_a_decision_not_a_payload():

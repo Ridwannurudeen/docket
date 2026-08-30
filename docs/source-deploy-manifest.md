@@ -81,6 +81,7 @@ docket
 docket.advantage
 docket.advantage.v2
 docket.advantage.v3
+docket.advantage.v3.seats
 docket.api
 docket.agents
 docket.agents.grid
@@ -90,6 +91,7 @@ docket.agents.yield_router
 docket.escrow
 docket.execution
 docket.hire
+docket.identity
 docket.marketplace
 experiments
 ```
@@ -105,8 +107,8 @@ The wheel includes:
 - API machine docs and browser assets under `docket/api/static/` and `docket/api/web/`.
 - V1 experiment JSON.
 - V2 corpora, specs, and runs.
-- V3 specifications and locked inputs, served report shell, and any JSONL ledgers, nested
-  score sheets, or mappings present in the source tree.
+- V3 specifications, source snapshots, locked inputs, served report shell, and any JSONL
+  ledgers, nested score sheets, or mappings present in the source tree.
 - The MIT license in distribution metadata.
 - The README as Markdown package metadata.
 
@@ -140,9 +142,21 @@ artifact. The warning remains a backend-maintenance risk; this build does not hi
 | `docket/advantage/v3/specs/v3-03-warden-security.json` | `d18270a88d0bfcd4d2fae807824427d117e7a1d6440317afd5b8a519cd1e9771` |
 | `docket/advantage/v3/specs/v3-04-warden-security.json` | `7c8b964f26bbdf120d7ac717c062cb27d92392c78a044babf715a94d7bd14b7c` |
 | `docket/advantage/v3/specs/v3-05-range-doctor.json` | `23208479f4f96ee0e8ec878fb49bf08c6918849e2cce022e57fe971ae5f123fe` |
-| `docket/advantage/v3/sources/warden-v4-vendor-snapshot.json` | `8db24277dea2154e15f0b8e0f70941dfc62494f501b21fb838733e0b5a046bf7` |
+| `docket/advantage/v3/specs/v3-06-yield-router-assisted.json` | `2ac836e15989710aec91ce9c2ebeb8fac49e32962c595cebfdbf09e5aad766d5` |
+| `docket/advantage/v3/sources/range-v5-calibration-set.json` | `df2e7247f712247462689b7718ee978e6bbb7596ebf05998754ec8bb540b77c6` |
+| `docket/advantage/v3/sources/range-v5-enumerable-frame.json` | `ea41a6391e2d40f15c394224d9c7b0699b3eeca4968a2de9f75c43df32469761` |
+| `docket/advantage/v3/sources/range-v5-evaluator-calibration.json` | `08e39929d39a9042cb24d18911257233ed3e77bc6951184554bb1f0d7ca27f55` |
+| `docket/advantage/v3/sources/range-v5-pool-truth.json` | `da230d53de248dba9f9241e090a3a1a6b1b8cb6c5e6962db99ac00db5cce147f` |
+| `docket/advantage/v3/sources/warden-calibration-set.json` | `63d2c6d750127e3ab874b02b87d1921a6685cf3ae1b79c3727ef7c05829a3fcf` |
+| `docket/advantage/v3/sources/warden-heldout-cases.json` | `3ae8fb89f81ef9fb8147a8f6e2d8b921457c1ec9a31596b76f2055245ead12d4` |
+| `docket/advantage/v3/sources/warden-reason-codes.html` | `918243ffe946df74b6307eadbb23398ba53c1bcea070cdb328877e3b65e31e63` |
 | `docket/advantage/v3/sources/warden-v4-calibration-set.json` | `68850351a675ef6a6f0293d9108112318b42324477c6f87cbb2fe41841d5e55b` |
 | `docket/advantage/v3/sources/warden-v4-heldout-cases.json` | `a06795b6c2eabbd0581be61cd26c5ed163eb406c5b958885e32c06834b658df7` |
+| `docket/advantage/v3/sources/warden-v4-vendor-snapshot.json` | `8db24277dea2154e15f0b8e0f70941dfc62494f501b21fb838733e0b5a046bf7` |
+| `docket/advantage/v3/sources/warden-vendor-snapshot.json` | `3afc28c59abb6a115ae75172b14a07b8050881f8f9b5c6a397f40df939790de7` |
+| `docket/advantage/v3/sources/yield-v2-calibration-set.json` | `4194cd7f5ae7b5eb6535a8a228deaf238b80ee68630bf0a18ca8bb4bb0f2c5b6` |
+| `docket/advantage/v3/sources/yield-v2-evaluator-calibration.json` | `de46911bed9c8f7fe993e39f4668fd86240f1edc77fa517e7c96cd854636e4e7` |
+| `docket/advantage/v3/sources/yield-v6-assisted-calibration-set.json` | `a78ac78c79ef3b47905db0d2b365a82a2d31d24940b3867e87c21954ff59f08f` |
 | `docket/advantage/v3/provenance/warden-v3-03-pilot.json` | `8ed4c761e10c590da88c04764536d791ab5c3f2aa68d0945378c41f572cb99ef` |
 | `docket/advantage/v3/provenance/warden-pilot-history.json` | `2221f0c31f594c8dcf90aeaafaf2de241b77c095cdb4730b6cabb248f8103419` |
 | `docket/advantage/v3/provenance/range-v3-05-feasibility.json` | `6f878193b0b8fbf973c363f358ab5e932515a3f9770934406048d55d5b565874` |

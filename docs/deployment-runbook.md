@@ -10,36 +10,58 @@ Do not designate a release until all of these pass on the exact source tree:
 
 1. `python -m pytest -q`.
 2. `node --check docket/api/web/app.js`.
-3. The wheel builds without an error.
-4. A fresh environment outside the checkout installs that wheel.
-5. `tests/smoke_installed.py` confirms its import path is outside the checkout and exercises
+3. `uv==0.11.16` reproduces the committed hashed runtime lock without a diff.
+4. The clean-HEAD release builder produces and verifies the wheel and manifest.
+5. A fresh environment outside the checkout installs the hashed runtime lock, then that
+   wheel without resolving any additional dependencies, and passes `pip check`.
+6. `tests/smoke_installed.py` confirms its import path is outside the checkout and exercises
    all four category hire routes plus the v3 JSON, HTML, and agent-facing documents.
-6. The secret/history review reports file paths and secret kinds only, never values.
-7. The source commit and wheel SHA-256 are recorded before any deploy claim is made.
+7. The secret/history review reports file paths and secret kinds only, never values.
+8. The generated manifest records the source commit and every shipped digest before any
+   deploy claim is made.
 
 Repository publication, deployment, settlement enablement, spending, and submission are
 owner-only actions.
 
-## Build a wheel
+## Build an integrity-bound release bundle
 
-The verified build frontend for this build is `build==1.5.0`; the backend requires
-`setuptools>=77` because the project uses SPDX and license-file metadata.
+The reviewed builder lock pins `build==1.5.0`, `setuptools==83.0.0`, all builder
+transitive dependencies, and the `uv==0.11.16` dependency-lock exporter to exact wheel hashes.
 
 ```bash
-python -m pip install build==1.5.0
-python -m build --wheel --outdir /path/outside/checkout/dist
+python -m pip install --require-hashes --only-binary=:all: -r deploy/build-requirements.txt
+uv export --quiet --frozen --no-dev --no-emit-project --format requirements.txt \
+  --output-file deploy/runtime-requirements.txt
+git diff --exit-code -- deploy/runtime-requirements.txt
+python deploy/release_bundle.py build /path/outside/checkout/docket-release
 ```
 
-Keep the output outside the checkout. Record the wheel filename and SHA-256. A rebuild may
-have a different archive digest, so the recorded digest identifies one artifact, not every
-wheel produced from the source.
+The builder refuses any tracked or untracked working-tree change, derives the full Git HEAD,
+and uses `git archive` so the build reads only that committed tree. It creates a temporary
+builder virtual environment, installs the committed builder lock with `--require-hashes` and
+`--only-binary=:all:`, and builds without build isolation using only that environment. It adds
+`docket-provenance.json` to the wheel's dist-info directory and rewrites `RECORD` with the
+embedded commit member's correct SHA-256 and size. It then emits
+`release-manifest.json`, binding the source commit, final wheel filename and SHA-256, runtime
+lock SHA-256, and every file under `deploy/`. The output directory must not already exist and
+must remain outside the checkout.
+
+The manifest and embedded member provide an integrity binding, not artifact authenticity.
+They are deliberately unsigned: they detect omission, corruption, mixing, and substitution
+within a release bundle, but do not prove who built or approved it. This procedure makes no
+signature, identity, or reproducible-byte claim.
 
 ## Clean installation
 
 ```bash
+bundle=/path/outside/checkout/docket-release
 python -m venv /path/outside/checkout/docket-venv
-/path/outside/checkout/docket-venv/bin/python -m pip install \
-  /path/outside/checkout/dist/docket-0.1.0-py3-none-any.whl
+/path/outside/checkout/docket-venv/bin/python -m pip install --require-hashes \
+  --only-binary=:all: \
+  -r "$bundle/deploy/runtime-requirements.txt"
+/path/outside/checkout/docket-venv/bin/python -m pip install --no-deps \
+  "$bundle"/docket-*.whl
+/path/outside/checkout/docket-venv/bin/python -m pip check
 cd /path/outside/checkout
 GITHUB_WORKSPACE=/absolute/path/to/checkout \
   ./docket-venv/bin/python -I \
@@ -57,22 +79,20 @@ nondeterministic.
 
 ## Ship and release the copied deployment
 
-The VPS release is a copied tree under `/opt/docket`, not a Git checkout. Build the wheel
-outside the checkout, then run the following from Git Bash at the exact tested commit. Every
-release identifier and digest below is computed; none is typed. The tar stream carries the
-wheel plus the complete `deploy/` directory, including all twelve unit files.
+The VPS release is a copied tree under `/opt/docket`, not a Git checkout. Build the release
+bundle outside the checkout, then run the following from Git Bash. The tar stream carries the
+generated manifest and wheel plus the complete `deploy/` directory, including the hashed
+runtime lock and all thirteen tracked unit files.
 
 ```bash
-repo_root=$(pwd -P)
-source_commit=$(git rev-parse HEAD)
-wheel=$(realpath /path/outside/checkout/dist/docket-0.1.0-py3-none-any.whl)
-wheel_name=$(basename "$wheel")
-wheel_sha=$(sha256sum "$wheel" | awk '{print $1}')
+bundle=$(realpath /path/outside/checkout/docket-release)
+source_commit=$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["source_commit"])' \
+  "$bundle/release-manifest.json")
 remote_bundle="/var/tmp/docket-release-${source_commit:0:12}"
 
 ssh <deploy-user>@<host> "install -d -o root -g root -m 0700 '$remote_bundle'"
-tar -cf - -C "$repo_root" deploy -C "$(dirname "$wheel")" "$wheel_name" | \
-  ssh <deploy-user>@<host> "tar -xf - -C '$remote_bundle'"
+tar -cf - -C "$bundle" . | \
+  ssh <deploy-user>@<host> "tar --no-same-owner -xf - -C '$remote_bundle'"
 ssh <deploy-user>@<host> \
   "bash '$remote_bundle/deploy/preflight.sh' 22"
 ```
@@ -80,34 +100,71 @@ ssh <deploy-user>@<host> \
 `preflight.sh` requires `nginx -t` to exit successfully, print `test is successful`, and
 emit exactly the operator-supplied number of lines containing the fixed `[warn]` token, whether
 nginx uses timestamped error-log or `nginx: [warn]` form. It also requires at least 2 GiB free
-under `/opt`, verifies all ten tracked units with `systemd-analyze verify`, and prints the
+under `/opt`, verifies all thirteen tracked units with `systemd-analyze verify`, and prints the
 current journal disk use. It never edits or reloads nginx. The tracked rate-limit example is
 still an owner-reviewed, separately applied nginx change.
 
-After preflight, make a SQLite-consistent backup without copying the live database into the
-shipped tree, then invoke the release with the computed values:
+`--no-same-owner` is required because extraction runs as root: it makes every copied artifact
+root-owned instead of preserving the workstation's numeric owner. The private mode-`0700`
+bundle directory prevents another user from replacing verified artifacts.
+
+After preflight, pass only the generated manifest. The release itself quiesces timer-triggered
+writers, then makes and verifies the SQLite-consistent backup before it stops the application
+service or swaps the live tree:
 
 ```bash
 ssh <deploy-user>@<host> \
-  'stamp=$(date -u +%Y%m%dT%H%M%SZ); install -d -o root -g root -m 0700 /var/backups/docket; /opt/docket/.venv/bin/python -c '\''import sqlite3,sys; source=sqlite3.connect("/var/lib/docket/data/agents.sqlite3"); destination=sqlite3.connect(sys.argv[1]); source.backup(destination); destination.close(); source.close()'\'' "/var/backups/docket/agents-${stamp}.sqlite3"'
-ssh <deploy-user>@<host> \
-  "bash '$remote_bundle/deploy/release.sh' '$remote_bundle/$wheel_name' '$source_commit' '$wheel_sha'"
+  "bash '$remote_bundle/deploy/release.sh' '$remote_bundle/release-manifest.json'"
 ```
 
-`release.sh` verifies the wheel digest and metadata, installs it into
-`/opt/docket-venvs/<commit12>` under `umask 022`, runs `pip check`, and requires the `docket`
-service user to import `docket`, `docket.api`, and `docket.canary` before comparing
-`pip show docket` with the wheel metadata. The rest of the release retains `umask 027`. A
-pre-existing commit-named environment is reused only when its full commit, wheel digest, and
-package-version records all match. The script writes the full computed commit to
-`RELEASE-commit.txt`, stages the deploy assets, stops the canary timer, proves no canary
-service is active, and then performs the back-up-then-replace swap. The old release is
-retained as `/opt/docket.bak-<UTC timestamp>`; it is never deleted by the release.
+`release.sh` requires the manifest beside the wheel and the executing `deploy/` directory.
+It verifies the exact manifest schema, every declared digest and deploy-file inventory, the
+entire wheel `RECORD`, and the embedded wheel commit. A live release also requires the bundle
+tree to be root-owned and neither group- nor world-writable; every ancestor must be similarly
+protected or a root-owned sticky directory such as `/var/tmp`.
+
+A nonblocking whole-process lock at `/run/docket/release.lock` is acquired before artifact
+verification, environment construction, staging, or runtime mutation and remains held through
+health validation or rollback. `/run` must be root-owned and non-writable by group or world;
+the script creates `/run/docket` as root mode `0700` and accepts an existing lock only at
+`root:root` mode `0600`. A concurrent release fails before it can touch artifacts or services.
+
+The script installs the runtime dependencies with
+`pip install --require-hashes --only-binary=:all: -r deploy/runtime-requirements.txt`, then
+installs the wheel with `pip install --no-deps <wheel>`, then runs `pip check`. These steps
+happen in `/opt/docket-venvs/<commit12>.partial` under `umask 022`, before any database or
+service mutation. It
+requires the `docket` service user to import `docket`, `docket.api`, and `docket.canary` before
+comparing `pip show docket` with the wheel metadata. The rest of the release retains
+`umask 027`. A pre-existing commit-named environment is reused only when its full commit,
+wheel digest, package version, and runtime-lock digest records all match and its `pip check`,
+imports, and installed version validate. A matching but invalid environment is retained until
+a replacement passes those checks. The four identity files receive file fsync, the partial
+directory receives directory fsync, the environment is atomically renamed to the final path,
+and the parent environment directory receives directory fsync. Failed construction removes
+the partial tree; an interrupted partial or quarantined invalid tree is recoverable on rerun.
+
+The exact manifest is reverified immediately before the database/service mutation boundary,
+and its second verifier output must equal the first. The script writes the derived commit to
+`RELEASE-commit.txt`, retains the manifest and runtime-lock digest, and stages the bound deploy
+assets. It then uses the currently deployed Python and SQLite backup API to write
+`/var/backups/docket/agents-<UTC timestamp>.sqlite3` through an exclusive temporary file.
+It requires `PRAGMA quick_check` to return exactly `ok`, atomically publishes the backup,
+and requires mode `0600` with owner `root:root` outside dry-run. Before that backup, the script
+captures the enabled and active states of all six timers, stops all six timers, and requires all
+six corresponding worker services to be inactive. It never kills an active worker: it aborts
+and restores all captured timer states instead. A failed backup likewise restores timer state
+while leaving the application service and current release tree untouched. After the verified
+backup, the script stops the application service and performs the release-tree swap. A stale
+root-owned staging tree from an interrupted pre-swap copy is removed under the process lock,
+and a failed copy removes its partial stage. The old release is retained as
+`/opt/docket.bak-<UTC timestamp>`; it is never deleted by the release.
 
 The `.venv` link is flipped with a temporary symlink and `mv -T`. Unit files are installed
 only when their bytes differ, with a unified diff printed before each replacement. The old
 Aug-21 capture timer is retired and the Aug-26 pre-arm timer replaces it. The release reloads
-systemd, enables and starts the host-managed `docket.service`, and enables these six timers:
+systemd, then enables and starts the tracked `docket.service`. It enables these six timers only
+after health, inventory, v3-state, homepage, and static-asset gates all pass:
 
 - `docket-canary.timer`
 - `docket-lp-record.timer`
@@ -116,24 +173,68 @@ systemd, enables and starts the host-managed `docket.service`, and enables these
 - `docket-v3-range-capture.timer`
 - `docket-v3-yield-v6-capture.timer`
 
-The live application service remains host-managed and uses `User=docket`,
+The tracked application unit uses `User=docket`, `Group=docket`,
 `WorkingDirectory=/var/lib/docket`, `DOCKET_DB=/var/lib/docket/data/agents.sqlite3`, and
 `/opt/docket/.venv/bin/uvicorn --factory docket.api:create_app --host 127.0.0.1 --port 8090`.
-The database and LP journal remain under `/var/lib/docket`; neither is copied into `/opt`.
+Host-specific archive and canary-token environment files remain separate systemd drop-ins;
+they are not folded into the tracked base unit. The database and LP journal remain under
+`/var/lib/docket`; neither is copied into `/opt`.
+
+Every tracked Python service applies the runtime-tested systemd 255 containment set:
+`UMask=0027`, an empty `CapabilityBoundingSet=`, `PrivateDevices=true`,
+`ProtectClock=true`, `ProtectHostname=true`, `ProtectKernelLogs=true`,
+`ProtectKernelModules=true`, `ProtectKernelTunables=true`,
+`ProtectControlGroups=true`, `ProtectProc=invisible`, `ProcSubset=pid`,
+`LockPersonality=true`, `MemoryDenyWriteExecute=true`,
+`RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6`, `RestrictNamespaces=true`,
+`RestrictRealtime=true`, `RestrictSUIDSGID=true`, `RemoveIPC=true`,
+`SystemCallArchitectures=native`,
+`SystemCallFilter=@system-service`, and `SystemCallErrorNumber=EPERM`. They retain the
+existing filesystem and no-new-privileges protections. They do not set `PrivateNetwork` or
+`IPAddressDeny`, because Docket requires DNS, outbound TLS, RPC, and facilitator access.
+The timer units remain scheduling-only and are unchanged by this containment policy.
 
 The release polls `/health` for up to 30 seconds because startup normally takes 8-10 seconds.
-It then checks the documented `/stats` coverage/refresh fields, the `/services` identity,
-stock-status, and four-limb admission fields, and the `/advantage/v3.json` family and summary
-shape. A failure after service stop triggers automatic rollback: the failed new tree is retained
+It then checks the documented `/stats` coverage/refresh fields; the exact six service IDs
+(`range-doctor`, `grid-operator`, `health-guard`, `yield-router`,
+`solvent-signal`, and `warden-scan`); the exact four categories; every service's
+stock and four-limb admission fields; and the exact six v3 IDs with their committed current
+states. It also requires the browser homepage and tracked stylesheet to serve their authored
+markers. A failure after service stop triggers automatic rollback: the failed new tree is retained
 as `/opt/docket.failed-<timestamp>-<commit12>`, the backup tree and prior `.venv` target are
 restored, changed units and prior timer states are restored, the prior service is started, and
 `/health` is checked again. A database backup is not automatically restored; if an additive
 migration is incompatible with the prior source, keep the service stopped and investigate
 against the saved SQLite backup.
 
+The live-tree transition is a two-directory rename, not an atomic symlink exchange. A power loss
+between moving `/opt/docket` to its timestamped backup and moving the staged tree into place can
+leave `/opt/docket` absent. After reboot, keep `docket.service` and all six timers stopped; inspect
+the exact `/opt/docket.bak-<timestamp>` and `/opt/docket.stage-<commit12>` recorded for that
+release. If the live path is absent, restore the known prior tree with
+`mv -- /opt/docket.bak-<timestamp> /opt/docket`, verify its `.venv` target and release identity,
+restore the saved unit files when they had been changed, run `systemctl daemon-reload`, start only
+`docket.service`, and require the complete health/inventory/web gates before restoring the captured
+timer states. Do not blindly rerun the release or delete either residue before this recovery.
+
+The v3 state gate is intentionally release-specific:
+
+- `v3-01-range-doctor`: `superseded_before_input_lock`
+- `v3-02-yield-router`: `abandoned_after_failed_primary`
+- `v3-03-warden-security`: `superseded_before_input_lock`
+- `v3-04-warden-security`: `complete_unscored`
+- `v3-05-range-doctor`: `locked_not_run`
+- `v3-06-yield-router-assisted`: `registered_waiting_for_inputs`
+
+Change that gate only with a committed artifact-state transition and its regression test.
+
 For local regression tests, `--dry-run` requires `DOCKET_RELEASE_ROOT` and maps every managed
-path into that fake root. It executes the filesystem state machine there and prints every
-host command without running it. The test suite supplies a fake `curl` to exercise rollback.
+path into that fake root. It executes the filesystem state machine, including a real backup
+of the fake-root SQLite database, verifies the artifact bindings twice, and prints every host
+command without running it. The process lock path and host commands are injectable only in this
+fake-root mode for deterministic concurrency and failure tests. The live root-ownership check is
+omitted because the fake bundle is intentionally owned by the test user. The test suite supplies
+a fake `curl` to exercise rollback.
 
 ### V3 experiment-arm ledgers
 
@@ -263,17 +364,17 @@ fund a job.
 
 ## Post-release evidence collection
 
-The release checks response shape. Collect the deployed identity and exact response evidence
-separately after it returns success:
+The release checks the response contract and pinned inventory. Collect the deployed identity
+and exact response evidence separately after it returns success:
 
 ```bash
 ssh <deploy-user>@<host> \
-  'readlink -f /opt/docket/.venv; cat /opt/docket/RELEASE-commit.txt /opt/docket/WHEEL-sha256.txt; /opt/docket/.venv/bin/python -c '\''import importlib.metadata as metadata; print(metadata.version("docket"))'\''; /opt/docket/.venv/bin/python -m pip check'
+  'readlink -f /opt/docket/.venv; cat /opt/docket/RELEASE-commit.txt /opt/docket/WHEEL-sha256.txt /opt/docket/RUNTIME-LOCK-sha256.txt; sha256sum /opt/docket/release-manifest.json; /opt/docket/.venv/bin/python -c '\''import importlib.metadata as metadata; print(metadata.version("docket"))'\''; /opt/docket/.venv/bin/python -m pip check'
 ssh <deploy-user>@<host> \
   'curl -fsS http://127.0.0.1:8090/services | sha256sum; curl -fsS http://127.0.0.1:8090/stats; systemctl list-timers docket-canary.timer docket-lp-record.timer docket-refresh.timer docket-v3-capture.timer docket-v3-range-capture.timer docket-v3-yield-v6-capture.timer'
 ```
 
-Expected shape, not expected changing numbers:
+Expected response contract; only the operational numbers change:
 
 - `/health` returns `status`, `snapshot_id`, the served snapshot's capture time, and its age.
 - `/stats` returns `coverage` with its snapshot, time, age, sampled/expected/dropped counts,
@@ -317,6 +418,16 @@ not recheck the expired signature, change payment status, or call the service or
 A wrong or unavailable token returns `401 operator_unauthorized`. Both buyer and operator
 recovery share a 10-attempt-per-minute peer-address bound and return
 `429 recovery_rate_limited` with `Retry-After` when it is exhausted.
+
+For an in-flight row left by a process crash, wait at least 15 minutes from its unchanged
+`updated_at`, then send the same operator bearer and `{"nonce":"<nonce>"}` body to
+`POST /hire/{service_id}/reconcile`. A stale `verified` or `output_ready` row becomes terminal
+`failed_no_charge`; the response confirms `charge_attempted:false` and
+`result_delivered:false` and carries no receipt. A stale `settling` row becomes
+`settlement_unknown` and returns a recoverable result and receipt because the pre-crash
+settlement outcome cannot be known. This route never calls the service or facilitator. A fresh
+row returns `409 settlement_still_active`, and a concurrent state change returns
+`409 payment_state_changed` without being overwritten.
 
 ## Daily governing canary
 
@@ -388,7 +499,7 @@ previous promoted snapshot in service.
 
 `release.sh` installs these two unit files with the other tracked units, reloads systemd, and
 enables the refresh timer only after the exact tested wheel is under `/opt/docket` and the
-SQLite-consistent backup has been made. Inspect the first completed run with
+SQLite-consistent backup and all release response gates have passed. Inspect the first completed run with
 `systemctl status docket-refresh.service` plus `journalctl -u docket-refresh.service` before
 treating freshness as operational.
 
@@ -411,9 +522,11 @@ snapshot contains every configured id.
 
 ## Database handling
 
-The runtime database contains observation snapshots and payment lifecycle state. Before a
-release, copy it using a SQLite-consistent backup method and record the backup time. Do not
-replace it with the repository's ignored `data/` path.
+The runtime database contains observation snapshots and payment lifecycle state.
+`release.sh` stops timer scheduling, proves all timer workers inactive, creates its timestamped
+SQLite-consistent backup, and prints the verified path before stopping the application service.
+Record that path and time in the deployment record. Do not
+replace the runtime database with the repository's ignored `data/` path.
 
 The store applies additive schema migrations at startup. A rollback must retain the same
 database only if the previous source understands its schema; otherwise restore the backup

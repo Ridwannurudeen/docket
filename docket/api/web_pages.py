@@ -118,8 +118,8 @@ def pancake_initial(
     replacements = {
         "<!-- pancake-decision-initial -->": (
             '<div class="panel"><p><strong>No live position decision is embedded.</strong> '
-            "JavaScript requests one fresh Range Doctor run when this page opens; the "
-            "server-rendered evidence below is available before that run.</p>"
+            "JavaScript offers one fresh Range Doctor run and does not run it when this page "
+            "opens; the server-rendered evidence below is available before that run.</p>"
             f'<p class="dim">{_esc(service.what_you_get)}</p></div>'
         ),
         "<!-- pancake-record-initial -->": _pancake_record(history),

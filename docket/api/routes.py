@@ -20,11 +20,12 @@ preview access.
 import hashlib
 import hmac
 import json
+import logging
 import os
 import time
 from collections import OrderedDict
 from dataclasses import asdict, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -104,6 +105,8 @@ from .models import (
 )
 from .web_pages import pancake_initial, service_initial, stats_page
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_DB_PATH = "data/agents.sqlite3"
 DEFAULT_LP_RECORD_PATH = "lp-record/controlled.jsonl"
 LP_RECORD_MAX_BYTES = 8 * 1024 * 1024
@@ -162,6 +165,24 @@ FREE_TIER_WINDOW_S = 3600
 MAX_ALLOWANCE_CLIENTS = 10_000
 RECOVERY_ATTEMPTS = 10
 RECOVERY_WINDOW_S = 60
+# The facilitator times out after ten seconds. Fifteen minutes keeps an active call well
+# outside the operator-only crash-recovery boundary even under scheduler or network delay.
+SETTLEMENT_RECONCILE_STALE_SECONDS = 15 * 60
+# Public mutation bodies stop here, before JSON decoding. The nginx example enforces the same
+# boundary, but this application check remains authoritative for direct and chunked requests.
+MAX_HIRE_REQUEST_BODY_BYTES = 1024 * 1024
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; base-uri 'none'; object-src 'none'; "
+        "frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; "
+        "script-src 'self'; style-src 'self' "
+        "'sha256-6rUoS78zt/PNQ8nNYAej0vxT3N4WfeWR+hzuvLTdgbM=' "
+        "'sha256-JBSnR/xdx/11XiOtHyfG4Ek2qcx2LGkIYxA0HafpeV4='; connect-src 'self'"
+    ),
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+}
 # Stated on every /stats response: a number about liveness is unreadable without it.
 PROBE_METHOD = (
     "One GET per declared A2A or MCP endpoint, single attempt, 8s timeout, redirects not "
@@ -295,6 +316,80 @@ def _error(status_code: int, code: str, message: str) -> JSONResponse:
     )
 
 
+def _json_content_type_error(request: Request) -> JSONResponse | None:
+    values = request.headers.getlist("content-type")
+    if (
+        len(values) != 1
+        or values[0].partition(";")[0].strip().lower() != "application/json"
+    ):
+        return _error(
+            415,
+            "unsupported_media_type",
+            "This endpoint accepts JSON request bodies only; send Content-Type: application/json.",
+        )
+    return None
+
+
+def _matches_canonical_hash(value, expected: object) -> bool:
+    if not isinstance(expected, str):
+        return False
+    try:
+        return canonical_hash(value) == expected
+    except (TypeError, ValueError, RecursionError):
+        return False
+
+
+async def _read_hire_json(
+    request: Request,
+) -> tuple[object | None, JSONResponse | None]:
+    content_type_error = _json_content_type_error(request)
+    if content_type_error is not None:
+        return None, content_type_error
+    declared_values = request.headers.getlist("content-length")
+    if declared_values:
+        if any(
+            not value.isascii() or not value.isdecimal() for value in declared_values
+        ):
+            return None, _error(
+                400,
+                "invalid_content_length",
+                "Content-Length must be one non-negative decimal byte count.",
+            )
+        normalized_values = [value.lstrip("0") or "0" for value in declared_values]
+        if len(set(normalized_values)) != 1:
+            return None, _error(
+                400,
+                "invalid_content_length",
+                "Content-Length must be one non-negative decimal byte count.",
+            )
+        maximum = str(MAX_HIRE_REQUEST_BODY_BYTES)
+        declared = normalized_values[0]
+        if len(declared) > len(maximum) or (
+            len(declared) == len(maximum) and declared > maximum
+        ):
+            return None, _error(
+                413,
+                "request_body_too_large",
+                f"JSON request bodies must not exceed {MAX_HIRE_REQUEST_BODY_BYTES} bytes.",
+            )
+
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > MAX_HIRE_REQUEST_BODY_BYTES:
+            return None, _error(
+                413,
+                "request_body_too_large",
+                f"JSON request bodies must not exceed {MAX_HIRE_REQUEST_BODY_BYTES} bytes.",
+            )
+        body.extend(chunk)
+    try:
+        payload = json.loads(body, parse_constant=_reject_json_constant)
+        canonical_hash(payload)
+        return payload, None
+    except (TypeError, ValueError, RecursionError):
+        return None, None
+
+
 async def _http_error(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     # Registered on Starlette's class, not FastAPI's subclass, so the router's own 404 on an
     # unknown path emits the contract shape too.
@@ -310,6 +405,23 @@ async def _validation_error(
     first = exc.errors()[0]
     where = ".".join(str(part) for part in first["loc"][1:])
     return _error(422, "invalid_query_parameter", f"{where}: {first['msg']}")
+
+
+async def _unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+    route = getattr(request.scope.get("route"), "path", "<unmatched>")
+    logger.error(
+        "unexpected request failure: method=%s route=%s exception_type=%s",
+        request.method,
+        route,
+        type(exc).__name__,
+    )
+    response = _error(
+        500,
+        "internal_server_error",
+        "The server could not complete this request. Retry.",
+    )
+    response.headers.update(SECURITY_HEADERS)
+    return response
 
 
 def _snapshot_age_seconds(captured_at: str | None) -> int | None:
@@ -430,7 +542,7 @@ def _read_lp_record_lines(path: Path) -> dict:
 
 
 def create_app(
-    db_path: str | Path = DEFAULT_DB_PATH,
+    db_path: str | Path | None = None,
     snapshot_id: int | None = None,
     facilitator: Facilitator | None = None,
 ) -> FastAPI:
@@ -440,6 +552,8 @@ def create_app(
     resolves the newest promoted snapshot once per request, so a completed refresh becomes
     visible without a process restart and no request can cross between two snapshots.
     """
+    if db_path is None:
+        db_path = os.environ.get("DOCKET_DB", DEFAULT_DB_PATH)
     db_path = Path(db_path)
     store = Store(db_path)
     refresh_status_path = db_path.parent / LAST_REFRESH_FILENAME
@@ -527,6 +641,8 @@ def create_app(
     app = FastAPI(
         title="Docket",
         version="0.1.0",
+        docs_url=None,
+        redoc_url=None,
         description=(
             "Read-only observations about ERC-8004 agents registered on BSC. Docket reports "
             "what it measured and how much of the registry it covered. It does not rate, "
@@ -545,6 +661,13 @@ def create_app(
     )
     app.add_exception_handler(StarletteHTTPException, _http_error)
     app.add_exception_handler(RequestValidationError, _validation_error)
+    app.add_exception_handler(Exception, _unexpected_error)
+
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.update(SECURITY_HEADERS)
+        return response
 
     def _current_snapshot_id() -> int | None:
         if follow_latest_snapshot:
@@ -1093,6 +1216,15 @@ def create_app(
     @app.post("/agents/{agent_id:path}/probe", response_model=None)
     async def probe_agent(agent_id: str, request: Request) -> JSONResponse | dict:
         """Repeat the most recently answered A2A/MCP endpoint with the pinned probe."""
+        payload, body_error = await _read_hire_json(request)
+        if body_error is not None:
+            return body_error
+        if payload != {}:
+            return _error(
+                400,
+                "invalid_json",
+                "Re-probe requires an empty JSON object.",
+            )
         sid = _serving()
         probe_store = Store(db_path)
         agent = probe_store.agent_by_id(sid, agent_id)
@@ -1440,9 +1572,26 @@ def create_app(
                 "well exist; Docket could not reach a node to check. Retry.",
             )
 
-    @app.post("/hire/{service_id}/recover", response_model=None)
-    async def recover_hire(service_id: str, request: Request) -> JSONResponse | dict:
-        """Deliver a stored terminal result to its buyer or the token-authenticated operator."""
+    @app.post("/hire/{service_id}/reconcile", response_model=None)
+    async def reconcile_hire(service_id: str, request: Request) -> JSONResponse | dict:
+        """Classify one stale durable payment row without another external call."""
+        content_type_error = _json_content_type_error(request)
+        if content_type_error is not None:
+            return content_type_error
+        _, operator_authorized = _operator_authorized(request)
+        if not operator_authorized:
+            return JSONResponse(
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+                content={
+                    "error": {
+                        "code": "operator_unauthorized",
+                        "message": (
+                            "The operator reconciliation credential was not accepted."
+                        ),
+                    }
+                },
+            )
         service = get_service(service_id)
         if service is None:
             return _error(
@@ -1450,6 +1599,220 @@ def create_app(
                 "service_not_found",
                 f"No service {service_id!r}. GET /hire lists every service Docket offers.",
             )
+        payload, body_error = await _read_hire_json(request)
+        if body_error is not None:
+            return body_error
+        if not isinstance(payload, dict):
+            return _error(
+                400,
+                "invalid_json",
+                "Settlement reconciliation requires a JSON object with the stored nonce.",
+            )
+        nonce = payload.get("nonce")
+        if not isinstance(nonce, str) or not nonce:
+            return _error(
+                400,
+                "payment_invalid",
+                "Settlement reconciliation requires the stored authorization nonce.",
+            )
+        nonce = nonce.lower()
+        existing = await run_in_threadpool(store.payment_by_nonce, nonce)
+        if not existing:
+            return _error(
+                404,
+                "payment_not_found",
+                "No stored payment has that authorization nonce.",
+            )
+        if existing["service_id"] != service.id:
+            return _error(
+                409,
+                "authorization_mismatch",
+                "That authorization is not bound to this service.",
+            )
+        payment_status = existing["status"]
+        if payment_status not in {"verified", "output_ready", "settling"}:
+            return _error(
+                409,
+                "payment_not_reconcilable",
+                "That payment is not in a reconcilable in-flight state. Use recovery for "
+                "a terminal result.",
+            )
+        updated_at_text = existing.get("updated_at")
+        try:
+            updated_at = datetime.fromisoformat(updated_at_text.replace("Z", "+00:00"))
+        except (AttributeError, ValueError):
+            return _error(
+                500,
+                "payment_record_incomplete",
+                "The stored payment timestamp is incomplete and cannot be reconciled.",
+            )
+        if updated_at.tzinfo is None:
+            return _error(
+                500,
+                "payment_record_incomplete",
+                "The stored payment timestamp is incomplete and cannot be reconciled.",
+            )
+        now = datetime.now(timezone.utc)
+        stale_before = now - timedelta(seconds=SETTLEMENT_RECONCILE_STALE_SECONDS)
+        if updated_at.astimezone(timezone.utc) > stale_before:
+            return _error(
+                409,
+                "settlement_still_active",
+                "That payment state has not crossed the operator reconciliation age floor.",
+            )
+        if payment_status in {"verified", "output_ready"}:
+            result = existing.get("result")
+            output_hash = existing.get("output_hash")
+            valid_state = (
+                existing.get("transaction_id") is None
+                and existing.get("network") is None
+                and existing.get("receipt_json") is None
+            )
+            if payment_status == "verified":
+                valid_state = (
+                    valid_state
+                    and existing.get("result_json") is None
+                    and output_hash is None
+                )
+            else:
+                valid_state = (
+                    valid_state
+                    and isinstance(result, dict)
+                    and _matches_canonical_hash(result, output_hash)
+                )
+            if not valid_state:
+                return _error(
+                    500,
+                    "payment_record_incomplete",
+                    "The stored pre-settlement payment binding is incomplete and cannot "
+                    "be reconciled.",
+                )
+            reconciled = await run_in_threadpool(
+                store.reconcile_stale_pre_settlement,
+                nonce,
+                expected_status=payment_status,
+                expected_updated_at=updated_at_text,
+                stale_before=stale_before.isoformat(),
+                error=(
+                    f"operator classified a stale {payment_status} state as "
+                    "failed_no_charge; no settlement call was made"
+                ),
+            )
+            if not reconciled:
+                current = await run_in_threadpool(store.payment_by_nonce, nonce)
+                if current.get("status") == "settled":
+                    return _error(
+                        409,
+                        "payment_already_settled",
+                        "A concurrent settled transition won and was not overwritten. Use "
+                        "recovery for its terminal result.",
+                    )
+                return _error(
+                    409,
+                    "payment_state_changed",
+                    "The payment changed while reconciliation was attempted. Reread its "
+                    "state before taking any action.",
+                )
+            return {
+                "payment": {
+                    "status": "failed_no_charge",
+                    "previous_status": payment_status,
+                    "service": existing["service_id"],
+                    "nonce": existing["nonce"],
+                    "payment_id": existing["payment_id"],
+                    "charge_attempted": False,
+                    "result_delivered": False,
+                }
+            }
+        result = existing.get("result")
+        input_hash = existing.get("input_hash")
+        output_hash = existing.get("output_hash")
+        valid_input_hash = (
+            isinstance(input_hash, str)
+            and len(input_hash) == 66
+            and input_hash.startswith("0x")
+        )
+        try:
+            int(input_hash[2:], 16)
+        except (TypeError, ValueError):
+            valid_input_hash = False
+        if (
+            not valid_input_hash
+            or not isinstance(result, dict)
+            or not _matches_canonical_hash(result, output_hash)
+            or existing.get("transaction_id") is not None
+            or existing.get("network") is not None
+        ):
+            return _error(
+                500,
+                "payment_record_incomplete",
+                "The stored payment binding is incomplete and cannot be reconciled.",
+            )
+        payment = {
+            "status": "settlement_unknown",
+            "asset": existing["asset"],
+            "amount": existing["amount"],
+            "payer": existing["payer"],
+            "recipient": existing["recipient"],
+            "nonce": existing["nonce"],
+            "payment_id": existing["payment_id"],
+            "resource": existing["resource"],
+            "evidence": (
+                "operator reconciled a stale settling state without making another "
+                "external call; prior settlement outcome remains unknown"
+            ),
+        }
+        receipt = {
+            "service": existing["service_id"],
+            "input_hash": input_hash,
+            "output_hash": output_hash,
+            "delivered_at": now.isoformat(),
+            "payment": payment,
+        }
+        reconciled = await run_in_threadpool(
+            store.reconcile_stale_settlement,
+            nonce,
+            expected_updated_at=updated_at_text,
+            stale_before=stale_before.isoformat(),
+            receipt=receipt,
+            error=(
+                "operator classified a stale settling state as settlement_unknown; "
+                "no additional external call was made"
+            ),
+        )
+        if not reconciled:
+            current = await run_in_threadpool(store.payment_by_nonce, nonce)
+            if current.get("status") == "settled":
+                return _error(
+                    409,
+                    "payment_already_settled",
+                    "A concurrent settled transition won and was not overwritten. Use "
+                    "recovery for its terminal result.",
+                )
+            return _error(
+                409,
+                "payment_state_changed",
+                "The payment changed while reconciliation was attempted. Reread its state "
+                "before taking any action.",
+            )
+        return {"result": result, "receipt": receipt}
+
+    @app.post("/hire/{service_id}/recover", response_model=None)
+    async def recover_hire(service_id: str, request: Request) -> JSONResponse | dict:
+        """Deliver a stored terminal result to its buyer or the token-authenticated operator.
+
+        Request bodies are limited to 1,048,576 bytes before JSON decoding.
+        """
+        service = get_service(service_id)
+        if service is None:
+            return _error(
+                404,
+                "service_not_found",
+                f"No service {service_id!r}. GET /hire lists every service Docket offers.",
+            )
+        content_type_error = _json_content_type_error(request)
+        if content_type_error is not None:
+            return content_type_error
         client_ip = request.client.host if request.client else "unknown"
         resets_in = _spend_window(
             recoveries,
@@ -1484,10 +1847,9 @@ def create_app(
                     }
                 },
             )
-        try:
-            payload = await request.json()
-        except ValueError:
-            payload = None
+        payload, body_error = await _read_hire_json(request)
+        if body_error is not None:
+            return body_error
         if not isinstance(payload, dict):
             return _error(
                 400,
@@ -1572,16 +1934,56 @@ def create_app(
                 "That payment has no terminal deliverable result.",
             )
         result = existing.get("result")
-        if not isinstance(result, dict) or existing.get(
-            "output_hash"
-        ) != canonical_hash(result):
+        if not isinstance(result, dict) or not _matches_canonical_hash(
+            result, existing.get("output_hash")
+        ):
             return _error(
                 500,
                 "payment_record_incomplete",
                 "The stored payment result is incomplete and cannot be delivered.",
             )
         receipt = existing.get("receipt")
-        if not isinstance(receipt, dict):
+        payment = receipt.get("payment") if isinstance(receipt, dict) else None
+        expected_payment = {
+            "status": existing["status"],
+            "asset": existing["asset"],
+            "amount": existing["amount"],
+            "payer": existing["payer"],
+            "recipient": existing["recipient"],
+            "nonce": existing["nonce"],
+            "payment_id": existing["payment_id"],
+        }
+        receipt_matches = (
+            isinstance(receipt, dict)
+            and receipt.get("service") == existing["service_id"]
+            and receipt.get("input_hash") == existing["input_hash"]
+            and receipt.get("output_hash") == existing["output_hash"]
+            and isinstance(payment, dict)
+            and all(
+                payment.get(key) == value for key, value in expected_payment.items()
+            )
+            and (
+                "resource" not in payment
+                or payment.get("resource") == existing["resource"]
+            )
+        )
+        if existing["status"] == "settled":
+            receipt_matches = (
+                receipt_matches
+                and bool(existing.get("transaction_id"))
+                and bool(existing.get("network"))
+                and payment.get("transaction_id") == existing["transaction_id"]
+                and payment.get("network") == existing["network"]
+            )
+        else:
+            receipt_matches = (
+                receipt_matches
+                and existing.get("transaction_id") is None
+                and existing.get("network") is None
+                and payment.get("transaction_id") is None
+                and payment.get("network") is None
+            )
+        if not receipt_matches:
             return _error(
                 500,
                 "payment_record_incomplete",
@@ -1603,7 +2005,8 @@ def create_app(
 
         Ordered so a caller learns what is wrong before anything is spent on its behalf:
         an unknown service and a malformed request cost no allowance, and the work runs
-        only once the request is known to be servable.
+        only once the request is known to be servable. Request bodies are limited to
+        1,048,576 bytes before JSON decoding.
         """
         service = get_service(service_id)
         if service is None:
@@ -1612,10 +2015,9 @@ def create_app(
                 "service_not_found",
                 f"No service {service_id!r}. GET /hire lists every service Docket offers.",
             )
-        try:
-            payload = await request.json()
-        except ValueError:
-            payload = None
+        payload, body_error = await _read_hire_json(request)
+        if body_error is not None:
+            return body_error
         if not isinstance(payload, dict):
             return _error(
                 400,
@@ -1799,22 +2201,19 @@ def create_app(
             )
             try:
                 verification = await run_in_threadpool(facilitator.verify, envelope)
-            except Exception as exc:
+            except Exception:
                 _refund_allowance(client_ip, spent=allowance_spent)
                 return _error(
                     502,
                     "payment_verification_unavailable",
-                    f"The configured facilitator could not verify the payment: "
-                    f"{type(exc).__name__}: {exc}. No work ran and no charge was attempted.",
+                    "The configured facilitator could not verify the payment just now. "
+                    "No work ran and no charge was attempted.",
                 )
             if (
                 verification.get("isValid") is not True
                 or str(verification.get("payer", "")).lower() != verified.payer.lower()
             ):
                 _refund_allowance(client_ip, spent=allowance_spent)
-                invalid_reason = verification.get("invalidReason") or (
-                    "payer or validity mismatch"
-                )
                 return JSONResponse(
                     status_code=402,
                     content={
@@ -1822,7 +2221,8 @@ def create_app(
                         "error": {
                             "code": "payment_not_verified",
                             "message": (
-                                f"The facilitator rejected the payment: {invalid_reason}."
+                                "The facilitator rejected the payment. No work ran and no "
+                                "charge was attempted."
                             ),
                         },
                     },
@@ -1877,8 +2277,22 @@ def create_app(
                 return _error(
                     502,
                     "service_failed",
-                    f"{service.id} could not complete: {type(exc).__name__}: {exc}. "
-                    "No settlement ran.",
+                    f"{service.id} could not complete this request. No settlement ran.",
+                )
+
+            try:
+                output_hash = canonical_hash(result)
+            except (TypeError, ValueError, RecursionError) as exc:
+                await run_in_threadpool(
+                    store.fail_payment,
+                    verified.payment_id,
+                    status="failed_no_charge",
+                    error=f"invalid JSON result: {type(exc).__name__}",
+                )
+                return _error(
+                    502,
+                    "service_failed",
+                    f"{service.id} could not complete this request. No settlement ran.",
                 )
 
             if not is_human_readable_result(result):
@@ -1894,7 +2308,6 @@ def create_app(
                     "The service produced no non-empty human-readable result. No settlement ran.",
                 )
 
-            output_hash = canonical_hash(result)
             await run_in_threadpool(
                 store.record_payment_output,
                 verified.payment_id,
@@ -1933,6 +2346,7 @@ def create_app(
                 "recipient": pay_to,
                 "nonce": verified.nonce,
                 "payment_id": verified.payment_id,
+                "resource": resource_url,
                 "evidence": "stored state after one settlement attempt",
             }
             try:
@@ -1971,7 +2385,8 @@ def create_app(
                 return _error(
                     502,
                     "settlement_failed",
-                    f"The facilitator did not settle this authorization: {settlement_error}.",
+                    "The facilitator did not settle this authorization. No result was "
+                    "delivered.",
                 )
 
             transaction_id = str(settlement.get("transaction") or "")
@@ -2015,6 +2430,7 @@ def create_app(
                 "recipient": pay_to,
                 "nonce": verified.nonce,
                 "payment_id": verified.payment_id,
+                "resource": resource_url,
                 "transaction_id": transaction_id,
                 "network": network,
                 "evidence": "configured facilitator settlement response",
@@ -2049,11 +2465,20 @@ def create_app(
         # Everything else is the deliberate other side of that boundary: the request was
         # readable, the work was attempted on this caller's behalf, and upstream resources
         # were spent on it. That hire stays spent whether or not it finished.
-        except Exception as exc:
+        except Exception:
             return _error(
                 502,
                 "service_failed",
-                f"{service.id} could not complete: {type(exc).__name__}: {exc}",
+                f"{service.id} could not complete this request. Retry.",
+            )
+
+        try:
+            canonical_hash(result)
+        except (TypeError, ValueError, RecursionError):
+            return _error(
+                502,
+                "service_failed",
+                f"{service.id} could not complete this request. Retry.",
             )
 
         payment = (

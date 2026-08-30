@@ -105,8 +105,8 @@ export async function fetchJSON(path) {
 }
 
 /** POST a JSON document to this origin, raising the API's own error.code.
-    Same-origin only: Docket's CORS is GET-only and credential-free, so a cross-origin
-    page cannot hire — which is deliberate, and is why this never takes an absolute URL. */
+    Browser calls stay same-origin: mutation routes require application/json and Docket's
+    GET-only CORS denies their preflight. CLI and server callers remain supported. */
 export async function postJSON(path, body) {
   let resp;
   try {
@@ -231,9 +231,10 @@ export function outcomeLabel(outcome) {
 /* ------------------------------------------------------------------ states */
 
 /** Replace a region with the failure, its code, and a way out. Never a blank page. */
-export function renderError(container, err) {
+export function renderError(container, err, heading = "") {
   if (!container) return;
   container.innerHTML = `<div class="panel panel-error" role="alert">
+      ${heading ? `<h1>${escapeHTML(heading)}</h1>` : ""}
       <p class="error-code">${escapeHTML(err && err.code ? err.code : "request_failed")}</p>
       <p>${escapeHTML(err && err.message ? err.message : "The request failed.")}</p>
       <p class="btn-row"><button type="button" class="btn" data-retry>Try again</button></p>
@@ -317,7 +318,7 @@ function paintCoverage(coverage) {
         ? "This snapshot's freshness is unavailable"
         : "This snapshot is stale";
     banner.innerHTML = `<div class="notice notice-warn">
-        <h3>${heading}</h3>
+        <p class="notice-heading">${heading}</p>
         <p>${completeness} ${freshness}</p>
       </div>`;
     banner.hidden = false;
@@ -938,7 +939,10 @@ function presentResult(record, answer) {
       <pre>${escapeHTML(JSON.stringify(answer, null, 2))}</pre>
     </details>`;
   if (!presenter)
-    return `<pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>`;
+    return `<section aria-labelledby="result-heading">
+        <h3 id="result-heading">What came back</h3>
+        <pre>${escapeHTML(JSON.stringify(result, null, 2))}</pre>
+      </section>`;
   return presenter(result, answer.receipt || {}, record) + raw;
 }
 
@@ -1216,8 +1220,11 @@ function paintOutcome(record, answer) {
         </p>
       </div>
     </section>`;
-  region("outcome").innerHTML =
-    `${presentResult(record, answer)}${receiptSection}`;
+  const outcome = region("outcome");
+  outcome.innerHTML = `${presentResult(record, answer)}${receiptSection}`;
+  const heading = outcome.querySelector("h3");
+  heading.setAttribute("tabindex", "-1");
+  return heading;
 }
 
 function wireActivation(record) {
@@ -1228,8 +1235,11 @@ function wireActivation(record) {
   wireArrayControls(form);
   const buttons = form.querySelectorAll('button[type="submit"]');
   const outcome = region("outcome");
+  const outcomeStatus = region("outcome-status");
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    outcome.setAttribute("aria-busy", "false");
+    outcomeStatus.textContent = "";
     let body;
     try {
       body = submissionBody(record, form, event.submitter);
@@ -1265,29 +1275,42 @@ function wireActivation(record) {
     buttons.forEach((button) => {
       button.disabled = true;
     });
-    outcome.innerHTML = `<div class="notice" role="status">
+    outcome.setAttribute("aria-busy", "true");
+    outcomeStatus.textContent = `Running ${record.name}.`;
+    outcome.innerHTML = `<div class="notice">
         <p>Running ${escapeHTML(record.name)}. It usually takes about
         ${escapeHTML(fmtInt(record.typical_seconds))} seconds, and this is one attempt.</p>
       </div>`;
+    let completedHeading = null;
     try {
-      paintOutcome(record, await postJSON(record.hire_path, body));
+      completedHeading = paintOutcome(
+        record,
+        await postJSON(record.hire_path, body),
+      );
+      outcomeStatus.textContent = `${record.name} finished. The result is ready.`;
     } catch (err) {
+      outcomeStatus.textContent = "";
       paintRunFailure(outcome, err);
     } finally {
+      outcome.setAttribute("aria-busy", "false");
       buttons.forEach((button) => {
         button.disabled = false;
       });
     }
+    if (completedHeading) completedHeading.focus();
   });
 }
 
-async function initService() {
+export async function initService() {
   const id = new URLSearchParams(window.location.search).get("id");
   const target = region("service");
   const activate = region("activate");
+  const activationSection = region("activation-section");
   if (!id) {
     activate.innerHTML = "";
+    activationSection.hidden = true;
     target.innerHTML = `<div class="panel panel-error" role="alert">
+        <h1>No service selected</h1>
         <p class="error-code">no_service_requested</p>
         <p>This page shows one service, named by an <code>id</code> in the address. None was
           given.</p>
@@ -1302,7 +1325,8 @@ async function initService() {
     wireActivation(record);
   } catch (err) {
     activate.innerHTML = "";
-    renderError(target, err);
+    activationSection.hidden = true;
+    renderError(target, err, "Service unavailable");
   }
 }
 
@@ -1378,7 +1402,7 @@ async function respondingIds() {
   return ids;
 }
 
-function browseRow(item, responders) {
+function browsePresentation(item, responders) {
   const href = `/agent?${new URLSearchParams({ id: item.agent_id }).toString()}`;
   const name = displayName(item);
   const placeholder = item.placeholder_name
@@ -1398,6 +1422,12 @@ function browseRow(item, responders) {
   } else {
     endpoint = '<span class="dim">None declared</span>';
   }
+  return { href, name, placeholder, protocols, endpoint };
+}
+
+function browseRow(item, responders) {
+  const { href, name, placeholder, protocols, endpoint } =
+    browsePresentation(item, responders);
   return `<tr>
       <td><a href="${href}">${escapeHTML(name)}</a>${placeholder}</td>
       <td class="num mono">${escapeHTML(item.token_id)}</td>
@@ -1406,6 +1436,22 @@ function browseRow(item, responders) {
       <td>${endpoint}</td>
       <td class="mono">${escapeHTML(item.name_family)}</td>
     </tr>`;
+}
+
+function browseCard(item, responders) {
+  const { href, name, placeholder, protocols, endpoint } =
+    browsePresentation(item, responders);
+  return `<article class="agent-card">
+      <h3><a href="${href}">${escapeHTML(name)}</a></h3>
+      ${placeholder}
+      <dl class="deflist">
+        <dt>Token</dt><dd class="num mono">${escapeHTML(item.token_id)}</dd>
+        <dt>Feedback</dt><dd class="num">${escapeHTML(fmtInt(item.feedback_count))}</dd>
+        <dt>Declared protocols</dt><dd>${protocols}</dd>
+        <dt>Endpoint</dt><dd>${endpoint}</dd>
+        <dt>Name family</dt><dd class="mono">${escapeHTML(item.name_family)}</dd>
+      </dl>
+    </article>`;
 }
 
 function emptyState(listing, state) {
@@ -1455,7 +1501,7 @@ function paintResults(listing, responders, state) {
     const prevOff = Math.max(0, listing.offset - BROWSE_LIMIT);
     const nextOff = listing.offset + BROWSE_LIMIT;
     target.innerHTML = `${summary}
-      <div class="table-wrap">
+      <div class="browse-table table-wrap">
         <table>
           <caption>
             "Answered" means a host replied to one GET at that agent's declared endpoint during
@@ -1474,6 +1520,9 @@ function paintResults(listing, responders, state) {
           <tbody>${listing.items.map((item) => browseRow(item, responders)).join("")}</tbody>
         </table>
       </div>
+      <div class="agent-cards" aria-label="Agents">
+        ${listing.items.map((item) => browseCard(item, responders)).join("")}
+      </div>
       <p class="btn-row">
         <button type="button" class="btn" data-offset="${prevOff}" ${listing.offset === 0 ? "disabled" : ""}>Previous</button>
         <button type="button" class="btn" data-offset="${nextOff}" ${nextOff >= listing.total ? "disabled" : ""}>Next</button>
@@ -1482,15 +1531,26 @@ function paintResults(listing, responders, state) {
 
   for (const button of target.querySelectorAll("[data-offset]")) {
     button.addEventListener("click", () => {
-      goToBrowse({ ...state, offset: Number(button.dataset.offset) }, true);
+      goToBrowse(
+        { ...state, offset: Number(button.dataset.offset) },
+        true,
+        true,
+      );
     });
   }
   const clear = target.querySelector('[data-action="clear"]');
   if (clear) clear.addEventListener("click", clearFilters);
 }
 
-async function loadBrowse(state) {
+async function loadBrowse(state, focusResults) {
   const token = ++browseRequest;
+  const target = region("results");
+  const status = region("results-status");
+  target.setAttribute("aria-busy", "true");
+  status.textContent = "Loading agents.";
+  for (const button of target.querySelectorAll("[data-offset]")) {
+    button.disabled = true;
+  }
   const params = filtersToQuery(state);
   params.set("limit", String(BROWSE_LIMIT));
   try {
@@ -1502,15 +1562,27 @@ async function loadBrowse(state) {
     if (token !== browseRequest) return;
     paintCoverage(listing.coverage);
     paintResults(listing, responders, state);
+    target.setAttribute("aria-busy", "false");
+    const shownTo = Math.min(
+      listing.offset + listing.items.length,
+      listing.total,
+    );
+    status.textContent = listing.total
+      ? `Agents updated. Showing ${listing.offset + 1} to ${shownTo} of ${listing.total} matching agents.`
+      : "Agents updated. No agents match.";
+    if (focusResults) document.getElementById("results-heading").focus();
   } catch (err) {
     if (token !== browseRequest) return;
     const line = region("snapshot");
     if (line) line.textContent = "Snapshot status unavailable.";
-    renderError(region("results"), err);
+    renderError(target, err);
+    target.setAttribute("aria-busy", "false");
+    status.textContent = "Agents could not be loaded.";
+    if (focusResults) document.getElementById("results-heading").focus();
   }
 }
 
-function goToBrowse(state, push) {
+function goToBrowse(state, push, focusResults = false) {
   browseState = state;
   const query = filtersToQuery(state).toString();
   if (push) {
@@ -1521,7 +1593,7 @@ function goToBrowse(state, push) {
     );
   }
   syncControls(state);
-  loadBrowse(state);
+  loadBrowse(state, focusResults);
 }
 
 function clearFilters() {
@@ -1534,7 +1606,21 @@ function clearFilters() {
       offset: 0,
     },
     true,
+    true,
   );
+}
+
+function preserveNameFamilyOption(select, selected) {
+  // A shared link may name a family outside the top five; keep it selectable.
+  if (
+    selected &&
+    !Array.from(select.options).some((option) => option.value === selected)
+  ) {
+    select.insertAdjacentHTML(
+      "beforeend",
+      `<option value="${escapeHTML(selected)}">${escapeHTML(selected)}</option>`,
+    );
+  }
 }
 
 async function fillNameFamilyOptions(selected) {
@@ -1554,32 +1640,28 @@ async function fillNameFamilyOptions(selected) {
     options = `<option value="" disabled>Name family list unavailable: ${escapeHTML(err.code)}</option>`;
   }
   select.innerHTML = `<option value="">All name families</option>${options}`;
-  // A shared link may name a family outside the top five; keep it selectable.
-  if (
-    selected &&
-    !Array.from(select.options).some((option) => option.value === selected)
-  ) {
-    select.insertAdjacentHTML(
-      "beforeend",
-      `<option value="${escapeHTML(selected)}">${escapeHTML(selected)}</option>`,
-    );
-  }
+  preserveNameFamilyOption(select, selected);
   select.value = selected || "";
 }
 
-async function initBrowse() {
+export async function initBrowse() {
   const state = readFilters();
   browseState = state;
+  const nameFamily = document.querySelector('[data-filter="name_family"]');
+  if (nameFamily) preserveNameFamilyOption(nameFamily, state.name_family);
   for (const control of document.querySelectorAll("[data-filter]")) {
     control.addEventListener("change", () =>
-      goToBrowse(stateFromControls(), true),
+      goToBrowse(stateFromControls(), true, true),
     );
   }
   const clear = document.querySelector('[data-action="clear"]');
   if (clear) clear.addEventListener("click", clearFilters);
-  window.addEventListener("popstate", () => goToBrowse(readFilters(), false));
-  await fillNameFamilyOptions(state.name_family);
+  window.addEventListener("popstate", () =>
+    goToBrowse(readFilters(), false, true),
+  );
   goToBrowse(state, false);
+  await fillNameFamilyOptions(state.name_family);
+  syncControls(browseState);
 }
 
 /* ---------------------------------------------------------- Pancake record */
@@ -1800,7 +1882,7 @@ function paintPancakeContext(orientation) {
     <p class="dim">${escapeHTML(meta.method || "The source method is unavailable.")}</p>`;
 }
 
-async function initPancake() {
+export async function initPancake() {
   const [recordResult, historyResult, advantageResult, orientationResult] =
     await Promise.allSettled([
       fetchJSON("/services/range-doctor"),
@@ -1836,18 +1918,36 @@ async function initPancake() {
     return;
   }
   const record = recordResult.value;
-  try {
-    const answer = await postJSON(record.hire_path, exampleBody(record));
-    paintPancakeLive(record, answer);
-  } catch (err) {
-    for (const name of [
-      "pancake-decision",
-      "pancake-economics",
-      "pancake-actions",
-    ]) {
-      renderError(region(name), err);
+  const target = region("pancake-decision");
+  target.innerHTML = `<div class="panel">
+      <p><strong>No fresh position decision has run.</strong> The evidence below remains available
+        without spending a hire allowance. Run one read when you want current position data.</p>
+      <p class="btn-row">
+        <button type="button" class="btn btn-primary" data-pancake-run
+          aria-describedby="pancake-run-note">Run fresh decision</button>
+      </p>
+      <p class="dim" id="pancake-run-note" aria-live="polite">One explicit run uses one free-tier
+        hire attempt and performs the read-only Range Doctor request.</p>
+    </div>`;
+  const button = target.querySelector("[data-pancake-run]");
+  const note = target.querySelector("#pancake-run-note");
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    button.textContent = "Running fresh decision…";
+    note.textContent = `Running ${record.name}; this is one attempt.`;
+    try {
+      const answer = await postJSON(record.hire_path, exampleBody(record));
+      paintPancakeLive(record, answer);
+    } catch (err) {
+      for (const name of [
+        "pancake-decision",
+        "pancake-economics",
+        "pancake-actions",
+      ]) {
+        renderError(region(name), err);
+      }
     }
-  }
+  });
 }
 
 /* ------------------------------------------------------------ agent detail */
@@ -1877,12 +1977,10 @@ function workedExample(detail) {
 }
 
 function observationRows(detail) {
-  return (
-    detail.latest_on_demand_observation ||
-    detail.observations
-      .map((obs) => {
-        const outcome = outcomeLabel(obs.outcome);
-        return `<tr>
+  return detail.observations
+    .map((obs) => {
+      const outcome = outcomeLabel(obs.outcome);
+      return `<tr>
           <td class="url mono">${escapeHTML(obs.url)}</td>
           <td>${escapeHTML(obs.kind)}</td>
           <td><span class="outcome ${outcome.className}">${escapeHTML(outcome.label)}</span></td>
@@ -1891,12 +1989,11 @@ function observationRows(detail) {
           <td title="${escapeHTML(obs.observed_at || "")}">${escapeHTML(relativeTime(obs.observed_at))}</td>
           <td>${obs.detail ? escapeHTML(obs.detail) : `<span class="dim">${DASH}</span>`}</td>
         </tr>`;
-      })
-      .join("")
-  );
+    })
+    .join("");
 }
 
-function observationSection(detail) {
+export function observationSection(detail) {
   if (detail.observations.length) {
     return `<div class="table-wrap">
         <table>
@@ -2159,6 +2256,7 @@ async function initAgent() {
   if (!id) {
     region("snapshot").hidden = true;
     target.innerHTML = `<div class="panel panel-error" role="alert">
+        <h1>No agent selected</h1>
         <p class="error-code">no_agent_requested</p>
         <p>This page shows one agent, named by an <code>id</code> in the address. None was given.</p>
         <p class="btn-row"><a class="btn" href="/research">Pick one from the listing</a></p>
@@ -2173,7 +2271,7 @@ async function initAgent() {
   } catch (err) {
     const line = region("snapshot");
     if (line) line.textContent = "Snapshot status unavailable.";
-    renderError(target, err);
+    renderError(target, err, "Agent unavailable");
   }
 }
 

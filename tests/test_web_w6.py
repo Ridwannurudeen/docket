@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import hashlib
 import sqlite3
 import subprocess
@@ -137,7 +138,7 @@ def test_live_probe_records_on_demand_without_changing_snapshot_coverage(
 
     with monkeypatch.context() as keyed_lookup:
         keyed_lookup.setattr(Store, "iter_agents", unexpected_full_scan)
-        response = client.post(f"/agents/{AGENT_ID}/probe")
+        response = client.post(f"/agents/{AGENT_ID}/probe", json={})
 
     assert response.status_code == 200
     assert calls == [
@@ -174,7 +175,7 @@ def test_live_probe_records_on_demand_without_changing_snapshot_coverage(
     detail = client.get(f"/agents/{AGENT_ID}").json()
     assert detail["observations"][0]["outcome"] == "responded"
     assert detail["latest_on_demand_observation"]["outcome"] == "timeout"
-    refused = client.post(f"/agents/{AGENT_ID}/probe")
+    refused = client.post(f"/agents/{AGENT_ID}/probe", json={})
     assert refused.status_code == 409
     assert refused.json()["error"]["code"] == "probe_not_available"
 
@@ -191,7 +192,7 @@ def test_live_probe_requires_the_last_recorded_probe_to_have_answered(
         raise AssertionError("an ineligible endpoint must not be probed")
 
     monkeypatch.setattr(routes, "probe_one", unexpected_probe)
-    response = client.post(f"/agents/{AGENT_ID}/probe")
+    response = client.post(f"/agents/{AGENT_ID}/probe", json={})
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "probe_not_available"
@@ -205,7 +206,7 @@ def test_live_probe_requires_a_callable_declaration(tmp_path, monkeypatch):
         raise AssertionError("a non-callable declaration must not be probed")
 
     monkeypatch.setattr(routes, "probe_one", unexpected_probe)
-    response = client.post(f"/agents/{AGENT_ID}/probe")
+    response = client.post(f"/agents/{AGENT_ID}/probe", json={})
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "probe_not_available"
@@ -222,11 +223,45 @@ def test_live_probe_shares_the_free_work_allowance(tmp_path, monkeypatch):
         raise AssertionError("a rate-limited request must not be probed")
 
     monkeypatch.setattr(routes, "probe_one", unexpected_probe)
-    response = client.post(f"/agents/{AGENT_ID}/probe")
+    response = client.post(f"/agents/{AGENT_ID}/probe", json={})
 
     assert response.status_code == 429
     assert response.headers["retry-after"]
     assert response.json()["error"]["code"] == "probe_rate_limited"
+
+
+@pytest.mark.parametrize(
+    ("content_type", "body"),
+    [
+        ("text/plain", "{}"),
+        ("application/x-www-form-urlencoded", "field=value"),
+    ],
+)
+def test_live_probe_rejects_non_json_before_work_or_state_mutation(
+    tmp_path, monkeypatch, content_type, body
+):
+    client, store, snapshot_id = _agent_client(tmp_path)
+    allowances_before = dict(client.app.state.hire_allowances)
+
+    def unexpected_store(*_args, **_kwargs):
+        raise AssertionError("an unsupported body must not open the store")
+
+    def unexpected_probe(*_args, **_kwargs):
+        raise AssertionError("an unsupported body must not run a probe")
+
+    monkeypatch.setattr(routes, "Store", unexpected_store)
+    monkeypatch.setattr(routes, "probe_one", unexpected_probe)
+
+    response = client.post(
+        f"/agents/{AGENT_ID}/probe",
+        content=body,
+        headers={"Content-Type": content_type},
+    )
+
+    assert response.status_code == 415
+    assert response.json()["error"]["code"] == "unsupported_media_type"
+    assert client.app.state.hire_allowances == allowances_before
+    assert store.latest_on_demand_liveness(snapshot_id, AGENT_ID) == {}
 
 
 def test_live_probe_leaves_the_event_loop_free_for_health(tmp_path, monkeypatch):
@@ -268,7 +303,7 @@ def test_live_probe_leaves_the_event_loop_free_for_health(tmp_path, monkeypatch)
             transport=transport, base_url="http://testserver"
         ) as async_client:
             probing = asyncio.create_task(
-                async_client.post(f"/agents/{AGENT_ID}/probe")
+                async_client.post(f"/agents/{AGENT_ID}/probe", json={})
             )
             assert await asyncio.to_thread(started.wait, 1)
             before = time.monotonic()
@@ -299,6 +334,8 @@ def test_pancake_page_is_content_negotiated_and_machine_discoverable(tmp_path):
     assert "0/231" in html.text
     assert "post-hoc" in html.text
     assert "No live position decision is embedded" in html.text
+    assert "does not run it when this page opens" in html.text
+    assert "requests one fresh Range Doctor run when this page opens" not in html.text
     assert machine.status_code == 200
     assert machine.headers["vary"] == "Accept"
     assert machine.json()["page"] == "/pancake"
@@ -359,14 +396,804 @@ def test_w6_frontend_contract_is_runtime_driven_and_actionable():
         in page
     )
     assert 'href="/skill.md"' in page
+    assert (
+        "offers the worked Range Doctor request when you choose Run fresh decision"
+        in page
+    )
+    assert "runs the worked Range Doctor request when it opens" not in page
     assert "pancake: initPancake" in script
-    assert "postJSON(record.hire_path, exampleBody(record))" in script
+    assert "data-pancake-run" in script
+    assert "await postJSON(record.hire_path, exampleBody(record))" in script
     for runtime_path in (
         'fetchJSON("/services/range-doctor")',
         'fetchJSON("/lp-record")',
         'fetchJSON("/advantage/v2.json")',
     ):
         assert runtime_path in script
+
+
+def test_research_starts_the_listing_before_name_family_options_finish():
+    script = Path("docket/api/web/app.js").read_text(encoding="utf-8")
+    init = script[script.index("async function initBrowse()") :]
+
+    assert init.index("goToBrowse(state, false)") < init.index(
+        "await fillNameFamilyOptions(state.name_family)"
+    )
+
+
+def test_research_has_a_native_mobile_agent_view():
+    script = Path("docket/api/web/app.js").read_text(encoding="utf-8")
+    styles = Path("docket/api/web/style.css").read_text(encoding="utf-8")
+
+    assert 'class="agent-cards"' in script
+    assert 'class="browse-table table-wrap"' in script
+    assert ".agent-cards" in styles
+    assert ".browse-table" in styles
+    mobile = styles[styles.index("@media (max-width: 640px)") :]
+    touch_target_start = mobile.index(".agent-card h3 a")
+    touch_target = mobile[touch_target_start : mobile.index("}", touch_target_start)]
+    assert "display: inline-flex" in touch_target
+    assert "min-width: 44px" in touch_target
+    assert "min-height: 44px" in touch_target
+
+
+def test_research_loading_and_focus_are_bound_to_the_winning_request(tmp_path):
+    research = Path("docket/api/web/research.html").read_text(encoding="utf-8")
+
+    assert 'id="results-heading" tabindex="-1"' in research
+    assert 'data-region="results-status"' in research
+    assert 'role="status"' in research
+    assert 'aria-live="polite"' in research
+    assert 'data-region="results" aria-busy="true"' in research
+
+    module = tmp_path / "app.mjs"
+    module.write_text(
+        Path("docket/api/web/app.js").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    script = tmp_path / "research-loading.mjs"
+    script.write_text(
+        r"""
+const listeners = {};
+const pendingListings = [];
+const history = [];
+const statusUpdates = [];
+const coverage = {
+  snapshot_id: 34,
+  captured_at: "2026-08-29T00:00:00Z",
+  snapshot_age_seconds: 60,
+  sampled: 101,
+  expected: 101,
+  dropped: 0,
+  complete: true,
+  population: "all",
+  filter: null,
+};
+const item = (name, token) => ({
+  agent_id: `56:0xregistry:${token}`,
+  token_id: String(token),
+  name,
+  placeholder_name: false,
+  protocols: [],
+  declares_callable: false,
+  feedback_count: 0,
+  name_family: name,
+});
+const listing = (name, offset, total) => ({
+  coverage,
+  items: [item(name, offset + 1)],
+  offset,
+  total,
+});
+const response = (payload) => ({
+  ok: true,
+  status: 200,
+  json: async () => payload,
+});
+const failedResponse = {
+  ok: false,
+  status: 503,
+  json: async () => ({ error: { code: "listing_unavailable", message: "Listing unavailable." } }),
+};
+const retry = { addEventListener: () => {} };
+const results = {
+  attributes: { "aria-busy": "true" },
+  _html: "",
+  pagers: [],
+  get innerHTML() { return this._html; },
+  set innerHTML(value) {
+    this._html = value;
+    this.pagers = [...value.matchAll(/data-offset="(\d+)"/g)].map((match) => {
+      const pager = {
+        dataset: { offset: match[1] },
+        disabled: false,
+        addEventListener: (_name, callback) => { pager.callback = callback; },
+      };
+      return pager;
+    });
+  },
+  setAttribute: (name, value) => { results.attributes[name] = String(value); },
+  getAttribute: (name) => results.attributes[name] ?? null,
+  querySelectorAll: (selector) => selector === "[data-offset]" ? results.pagers : [],
+  querySelector: (selector) => selector === "[data-retry]" ? retry : null,
+};
+const resultsStatus = {
+  _text: "",
+  get textContent() { return this._text; },
+  set textContent(value) {
+    this._text = value;
+    statusUpdates.push(value);
+  },
+};
+const resultsHeading = {
+  focusCount: 0,
+  focus() { this.focusCount += 1; },
+};
+const snapshot = { innerHTML: "", textContent: "" };
+const partial = { innerHTML: "", hidden: true };
+const checkbox = {
+  type: "checkbox",
+  dataset: { filter: "has_feedback" },
+  checked: false,
+  addEventListener: (name, callback) => { listeners[`checkbox-${name}`] = callback; },
+};
+const select = {
+  type: "select-one",
+  dataset: { filter: "name_family" },
+  options: [{ value: "" }],
+  value: "",
+  insertAdjacentHTML: (_position, html) => {
+    select.options.push({ value: html.match(/value="([^"]+)"/)[1] });
+  },
+  addEventListener: (name, callback) => { listeners[`select-${name}`] = callback; },
+};
+const clear = {
+  addEventListener: (name, callback) => { listeners[`clear-${name}`] = callback; },
+};
+const regions = { results, "results-status": resultsStatus, snapshot, partial };
+globalThis.document = {
+  body: { dataset: {} },
+  querySelector: (selector) => {
+    const match = selector.match(/^\[data-region="([^"]+)"\]$/);
+    if (match) return regions[match[1]] || null;
+    if (selector === '[data-filter="name_family"]') return select;
+    if (selector === '[data-action="clear"]') return clear;
+    return null;
+  },
+  querySelectorAll: (selector) => selector === "[data-filter]" ? [checkbox, select] : [],
+  getElementById: (id) => id === "results-heading" ? resultsHeading : null,
+};
+globalThis.window = {
+  location: { search: "", pathname: "/research" },
+  history: { pushState: (_state, _title, url) => history.push(String(url)) },
+  addEventListener: (name, callback) => { listeners[name] = callback; },
+};
+let listingRequest = 0;
+globalThis.fetch = (path) => {
+  const value = String(path);
+  if (value === "/stats") {
+    return Promise.resolve(response({ top_name_families: [] }));
+  }
+  if (value.includes("responded=true")) {
+    return Promise.resolve(response({ items: [], total: 0 }));
+  }
+  listingRequest += 1;
+  if (listingRequest === 1) {
+    return Promise.resolve(response(listing("Initial", 0, 101)));
+  }
+  return new Promise((resolve) => pendingListings.push({ path: value, resolve }));
+};
+const { initBrowse } = await import("./app.mjs");
+await initBrowse();
+await new Promise(setImmediate);
+if (resultsHeading.focusCount !== 0) {
+  throw new Error("initial browse boot stole focus");
+}
+if (results.getAttribute("aria-busy") !== "false") {
+  throw new Error("initial listing did not leave the results ready");
+}
+const next = results.pagers.find((button) => button.dataset.offset === "50");
+if (!next || typeof next.callback !== "function") {
+  throw new Error("initial Next control was not wired");
+}
+next.callback();
+if (!next.disabled) throw new Error("stale pager remained interactive while loading");
+checkbox.checked = true;
+listeners["checkbox-change"]();
+if (pendingListings.length !== 2) {
+  throw new Error(`expected two pending listing requests, got ${pendingListings.length}`);
+}
+if (results.getAttribute("aria-busy") !== "true") {
+  throw new Error("winning request did not mark results busy");
+}
+if (resultsStatus.textContent !== "Loading agents.") {
+  throw new Error(`missing concise loading status: ${resultsStatus.textContent}`);
+}
+pendingListings[0].resolve(response(listing("Stale", 50, 101)));
+await new Promise(setImmediate);
+if (results.getAttribute("aria-busy") !== "true") {
+  throw new Error("stale response cleared the winning request's busy state");
+}
+if (resultsStatus.textContent !== "Loading agents.") {
+  throw new Error("stale response overwrote the winning request's status");
+}
+if (resultsHeading.focusCount !== 0) {
+  throw new Error("stale response moved focus");
+}
+pendingListings[1].resolve(response(listing("Winner", 0, 1)));
+await new Promise(setImmediate);
+if (results.getAttribute("aria-busy") !== "false") {
+  throw new Error("winning response did not clear busy state");
+}
+if (resultsStatus.textContent !== "Agents updated. Showing 1 to 1 of 1 matching agents.") {
+  throw new Error(`missing completion status: ${resultsStatus.textContent}`);
+}
+if (resultsHeading.focusCount !== 1) {
+  throw new Error(`winning navigation focused ${resultsHeading.focusCount} times`);
+}
+if (!results.innerHTML.includes("Winner") || results.innerHTML.includes("Stale")) {
+  throw new Error("winning response did not exclusively paint the listing");
+}
+if (statusUpdates.filter((value) => value.startsWith("Agents updated.")).length !== 2) {
+  throw new Error(`unexpected completion announcements: ${JSON.stringify(statusUpdates)}`);
+}
+listeners.popstate();
+if (results.getAttribute("aria-busy") !== "true") {
+  throw new Error("history navigation did not mark results busy");
+}
+pendingListings[2].resolve(failedResponse);
+await new Promise(setImmediate);
+if (results.getAttribute("aria-busy") !== "false") {
+  throw new Error("failed history navigation did not clear busy state");
+}
+if (resultsStatus.textContent !== "Agents could not be loaded.") {
+  throw new Error(`missing failure status: ${resultsStatus.textContent}`);
+}
+if (resultsHeading.focusCount !== 2) {
+  throw new Error("failed history navigation did not restore results focus");
+}
+if (!results.innerHTML.includes('role="alert"')) {
+  throw new Error("failed history navigation did not expose an alert");
+}
+""",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        ["node", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_service_success_has_one_completion_status_and_focus_target(tmp_path):
+    service = Path("docket/api/web/service.html").read_text(encoding="utf-8")
+
+    assert 'data-region="activation-section"' in service
+    assert 'data-region="outcome-status"' in service
+    assert 'role="status"' in service
+    assert 'aria-live="polite"' in service
+    assert 'data-region="outcome" aria-busy="false"' in service
+
+    module = tmp_path / "app.mjs"
+    module.write_text(
+        Path("docket/api/web/app.js").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    script = tmp_path / "service-completion.mjs"
+    script.write_text(
+        r"""
+let submit;
+let resolveRun;
+let postCalls = 0;
+let postMode = "pending";
+const statusUpdates = [];
+const busyUpdates = [];
+const buttonUpdates = [[], []];
+const buttons = buttonUpdates.map((updates) => ({
+  _disabled: false,
+  get disabled() { return this._disabled; },
+  set disabled(value) {
+    this._disabled = Boolean(value);
+    updates.push(this._disabled);
+  },
+}));
+const fieldControls = new Map();
+const resultHeading = {
+  attributes: {},
+  focusCount: 0,
+  setAttribute(name, value) { this.attributes[name] = String(value); },
+  focus() { this.focusCount += 1; },
+};
+const form = {
+  elements: { namedItem: (name) => fieldControls.get(name) || null },
+  querySelector: () => null,
+  querySelectorAll: (selector) => {
+    if (selector === "[data-array-control]") return [];
+    if (selector === 'button[type="submit"]') return buttons;
+    return [];
+  },
+  addEventListener: (name, callback) => {
+    if (name === "submit") submit = callback;
+  },
+};
+const serviceRegion = { innerHTML: "" };
+const activate = {
+  innerHTML: "",
+  querySelector: (selector) => selector === "[data-activate]" ? form : null,
+};
+const outcome = {
+  attributes: { "aria-busy": "false" },
+  innerHTML: "",
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+    if (name === "aria-busy") busyUpdates.push(String(value));
+  },
+  getAttribute(name) { return this.attributes[name] ?? null; },
+  querySelector: (selector) => selector === "h3" ? resultHeading : null,
+};
+const outcomeStatus = {
+  _text: "",
+  get textContent() { return this._text; },
+  set textContent(value) {
+    this._text = value;
+    statusUpdates.push(value);
+  },
+};
+const activationSection = { hidden: false };
+const regions = {
+  service: serviceRegion,
+  activate,
+  outcome,
+  "outcome-status": outcomeStatus,
+  "activation-section": activationSection,
+};
+globalThis.document = {
+  title: "Service — Docket",
+  body: { dataset: {} },
+  querySelector: (selector) => {
+    const match = selector.match(/^\[data-region="([^"]+)"\]$/);
+    return match ? regions[match[1]] || null : null;
+  },
+  querySelectorAll: () => [],
+};
+globalThis.window = { location: { search: "?id=demo" } };
+const record = {
+  service_id: "demo",
+  name: "Demo service",
+  metrics: [],
+  category_job: null,
+  agent_path: null,
+  identity: "No chain identity.",
+  identity_note: "No binding.",
+  evidence: [],
+  paid_stock: false,
+  stock_status: "hold",
+  price_display: "$0.50",
+  typical_seconds: 1,
+  evidence_modality: "runtime",
+  activation_means: "Runs one read.",
+  hire_method: "POST",
+  hire_path: "/hire/demo",
+  what_you_get: "A result.",
+  limitations: "One observation.",
+  input_schema: { wallet: { type: "string", required: true } },
+};
+fieldControls.set("wallet", { value: "0xabc" });
+const response = (payload) => ({
+  ok: true,
+  status: 200,
+  json: async () => payload,
+});
+globalThis.fetch = (path, options = {}) => {
+  if (!options.method) return Promise.resolve(response(record));
+  postCalls += 1;
+  if (postMode === "reject") throw new Error("connection lost");
+  return new Promise((resolve) => { resolveRun = resolve; });
+};
+const { initService } = await import("./app.mjs");
+await initService();
+if (typeof submit !== "function") throw new Error("service form was not wired");
+const running = submit({
+  preventDefault() {},
+  submitter: { matches: () => false },
+});
+if (!buttons.every((button) => button.disabled)) {
+  throw new Error("all submit controls were not disabled during the run");
+}
+if (outcome.getAttribute("aria-busy") !== "true") {
+  throw new Error("service outcome was not marked busy");
+}
+if (outcomeStatus.textContent !== "Running Demo service.") {
+  throw new Error(`missing run status: ${outcomeStatus.textContent}`);
+}
+resolveRun(response({ result: { ok: true }, receipt: { payment: { status: "not_required" } } }));
+await running;
+if (!buttons.every((button) => !button.disabled)) {
+  throw new Error("submit controls were not restored after the run");
+}
+if (outcome.getAttribute("aria-busy") !== "false") {
+  throw new Error("service outcome remained busy after completion");
+}
+if (outcomeStatus.textContent !== "Demo service finished. The result is ready.") {
+  throw new Error(`missing completion status: ${outcomeStatus.textContent}`);
+}
+if (statusUpdates.filter((value) => value.includes("finished")).length !== 1) {
+  throw new Error(`completion was announced more than once: ${JSON.stringify(statusUpdates)}`);
+}
+if (resultHeading.focusCount !== 1 || resultHeading.attributes.tabindex !== "-1") {
+  throw new Error("completed result heading was not focused exactly once");
+}
+if (outcome.innerHTML.includes('role="status"') || outcome.innerHTML.includes("aria-live")) {
+  throw new Error("transient outcome markup duplicated the persistent live status");
+}
+fieldControls.get("wallet").value = "";
+postMode = "reject";
+const validationCalls = postCalls;
+const validationBusyStart = busyUpdates.length;
+await submit({
+  preventDefault() {},
+  submitter: { matches: () => false },
+});
+if (postCalls !== validationCalls) {
+  throw new Error("missing required input reached the network");
+}
+if (busyUpdates.slice(validationBusyStart).includes("true")) {
+  throw new Error("missing required input entered the busy state");
+}
+if (!buttons.every((button) => !button.disabled)) {
+  throw new Error("missing required input changed submit availability");
+}
+fieldControls.get("wallet").value = "0xabc";
+const rejectionBusyStart = busyUpdates.length;
+await submit({
+  preventDefault() {},
+  submitter: { matches: () => false },
+});
+if (postCalls !== validationCalls + 1) {
+  throw new Error("the rejected request was not attempted exactly once");
+}
+if (busyUpdates.slice(rejectionBusyStart).join(",") !== "false,true,false") {
+  throw new Error(`rejected request busy sequence was ${busyUpdates.slice(rejectionBusyStart)}`);
+}
+if (!buttons.every((button) => !button.disabled)) {
+  throw new Error("submit controls were not restored after rejection");
+}
+if (outcomeStatus.textContent !== "") {
+  throw new Error("a failed request left a stale polite completion status");
+}
+if ((outcome.innerHTML.match(/role="alert"/g) || []).length !== 1) {
+  throw new Error("a failed request did not expose exactly one alert");
+}
+""",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        ["node", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_terminal_agent_and_service_states_keep_primary_headings():
+    agent = Path("docket/api/web/agent.html").read_text(encoding="utf-8")
+    service = Path("docket/api/web/service.html").read_text(encoding="utf-8")
+    script = Path("docket/api/web/app.js").read_text(encoding="utf-8")
+
+    assert "<h1>This page reads live data with JavaScript</h1>" in agent
+    assert "<h1>No agent selected</h1>" in script
+    assert 'renderError(target, err, "Agent unavailable")' in script
+    assert "<h1>No service selected</h1>" in script
+    assert 'renderError(target, err, "Service unavailable")' in script
+    assert 'data-region="activation-section"' in service
+    assert script.count("activationSection.hidden = true") == 2
+
+
+def test_interactive_targets_have_a_44_pixel_floor():
+    styles = Path("docket/api/web/style.css").read_text(encoding="utf-8")
+
+    def rule(selector):
+        start = styles.index(selector)
+        return styles[start : styles.index("}", start)]
+
+    nav = rule(".site-nav a {")
+    assert "min-width: 44px" in nav
+    assert "min-height: 44px" in nav
+    checks = rule(".check {")
+    assert "min-height: 44px" in checks
+    controls = rule('select,\ninput[type="text"]')
+    assert "min-height: 44px" in controls
+    buttons = rule(".btn {")
+    assert "min-width: 44px" in buttons
+    assert "min-height: 44px" in buttons
+    summaries = rule("summary {")
+    assert "min-height: 44px" in summaries
+
+
+def test_snapshot_warning_does_not_create_a_heading_before_agent_title():
+    script = Path("docket/api/web/app.js").read_text(encoding="utf-8")
+    styles = Path("docket/api/web/style.css").read_text(encoding="utf-8")
+
+    assert '<p class="notice-heading">${heading}</p>' in script
+    assert "<h3>${heading}</h3>" not in script
+    assert ".notice-heading" in styles
+
+
+def test_critical_inline_styles_are_exactly_hash_bound_by_csp(tmp_path):
+    styles = []
+    for page in Path("docket/api/web").glob("*.html"):
+        html = page.read_text(encoding="utf-8")
+        assert 'style="' not in html, page
+        assert html.count("<style>") == html.count("</style>"), page
+        if "<style>" in html:
+            assert html.count("<style>") == 1, page
+            styles.append(html.split("<style>", 1)[1].split("</style>", 1)[0])
+
+    assert len(styles) == 4
+    policy = (
+        TestClient(create_app(tmp_path / "csp.sqlite3"))
+        .get("/")
+        .headers["content-security-policy"]
+    )
+    assert "'unsafe-inline'" not in policy
+    for style in set(styles):
+        digest = base64.b64encode(hashlib.sha256(style.encode()).digest()).decode()
+        assert f"'sha256-{digest}'" in policy
+
+
+def test_research_preserves_query_name_family_during_concurrent_boot(tmp_path):
+    module = tmp_path / "app.mjs"
+    module.write_text(
+        Path("docket/api/web/app.js").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    script = tmp_path / "research-boot.mjs"
+    script.write_text(
+        r"""
+const listeners = {};
+const requests = [];
+const checkbox = {
+  type: "checkbox",
+  dataset: { filter: "has_feedback" },
+  checked: false,
+  addEventListener: (name, callback) => { listeners[name] = callback; },
+};
+const select = {
+  type: "select-one",
+  dataset: { filter: "name_family" },
+  options: [{ value: "" }],
+  _value: "",
+  get value() { return this._value; },
+  set value(next) {
+    this._value = this.options.some((option) => option.value === next) ? next : "";
+  },
+  insertAdjacentHTML: (_position, html) => {
+    const value = html.match(/value="([^"]+)"/)[1];
+    select.options.push({ value });
+  },
+  addEventListener: (name, callback) => { listeners[`select-${name}`] = callback; },
+};
+const results = {
+  setAttribute: () => {},
+  querySelectorAll: () => [],
+};
+const resultsStatus = { textContent: "" };
+globalThis.document = {
+  body: { dataset: {} },
+  querySelector: (selector) => {
+    if (selector === '[data-filter="name_family"]') return select;
+    if (selector === '[data-region="results"]') return results;
+    if (selector === '[data-region="results-status"]') return resultsStatus;
+    return null;
+  },
+  querySelectorAll: (selector) => selector === "[data-filter]" ? [select, checkbox] : [],
+};
+globalThis.window = {
+  location: { search: "?name_family=rare-family", pathname: "/research" },
+  history: { pushState: (_state, _title, url) => requests.push(String(url)) },
+  addEventListener: () => {},
+};
+globalThis.fetch = (path) => {
+  requests.push(String(path));
+  return new Promise(() => {});
+};
+const { initBrowse } = await import("./app.mjs");
+initBrowse();
+if (select.value !== "rare-family") {
+  throw new Error(`query family was synchronously lost: ${select.value}`);
+}
+checkbox.checked = true;
+listeners.change();
+const listing = requests.find((path) =>
+  path.startsWith("/agents?") &&
+  path.includes("name_family=rare-family") &&
+  path.includes("has_feedback=true")
+);
+if (!listing) {
+  throw new Error(`interaction dropped query family: ${requests.join(" | ")}`);
+}
+""",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        ["node", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_pancake_only_posts_after_explicit_run_click(tmp_path):
+    module = tmp_path / "app.mjs"
+    module.write_text(
+        Path("docket/api/web/app.js").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    script = tmp_path / "pancake-boot.mjs"
+    script.write_text(
+        r"""
+const requests = [];
+let runFresh;
+const button = {
+  disabled: false,
+  textContent: "",
+  addEventListener: (name, callback) => {
+    if (name === "click") runFresh = callback;
+  },
+};
+const note = { textContent: "" };
+const regions = Object.fromEntries([
+  "pancake-decision",
+  "pancake-economics",
+  "pancake-actions",
+  "pancake-record",
+  "pancake-impact",
+  "pancake-context",
+].map((name) => [name, {
+  innerHTML: "",
+  querySelector: (selector) => selector === "[data-pancake-run]" ? button : note,
+}]));
+globalThis.document = {
+  body: { dataset: {} },
+  querySelector: (selector) => {
+    const match = selector.match(/^\[data-region="([^"]+)"\]$/);
+    return match ? regions[match[1]] : null;
+  },
+  querySelectorAll: () => [],
+};
+globalThis.window = {};
+const payloads = {
+  "/services/range-doctor": {
+    name: "Range Doctor",
+    hire_path: "/hire/range-doctor",
+    input_schema: {},
+  },
+  "/lp-record": { lines: [], skipped_unparsable: 0, truncated: false },
+  "/advantage/v2.json": {
+    decision_impact: {
+      registration_state: "post_hoc",
+      registration_note: "Registered after analysis.",
+      ranking_reversals: { numerator: 0, denominator: 1, what_this_measures: "pairs" },
+      dollars_at_notionals: {
+        notionals: [{ notional_usd: 10000, n_pools: 1, median_annual_overstatement_usd: 1 }],
+      },
+      break_even_shift: {
+        notional_usd: 10000,
+        n_moves: 1,
+        median_days_later_than_gross_implies: 1,
+        what_it_does_not_measure: "future rates",
+      },
+    },
+  },
+  "/pancake": {
+    pancake_context: {
+      first_party_skills: "Read-only context.",
+      subgraph_meta: {
+        query_observed_at: "2026-08-22T00:00:00Z",
+        indexed_at: "2026-08-21T00:00:00Z",
+        has_indexing_errors: false,
+        method: "Subgraph query.",
+      },
+    },
+  },
+  "/hire/range-doctor": { result: { positions: [] }, receipt: {} },
+};
+globalThis.fetch = async (path, options = {}) => {
+  requests.push({ path, method: options.method || "GET" });
+  return { ok: true, status: 200, json: async () => payloads[path] };
+};
+const { initPancake } = await import("./app.mjs");
+await initPancake();
+if (requests.some((request) => request.method === "POST")) {
+  throw new Error("page initialization performed a POST");
+}
+if (typeof runFresh !== "function") throw new Error("explicit run control was not wired");
+await runFresh();
+const posts = requests.filter((request) => request.method === "POST");
+if (posts.length !== 1 || posts[0].path !== "/hire/range-doctor") {
+  throw new Error(`expected one explicit hire POST, got ${JSON.stringify(posts)}`);
+}
+""",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        ["node", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_on_demand_probe_does_not_replace_sweep_observation_rows(tmp_path):
+    module = tmp_path / "app.mjs"
+    module.write_text(
+        Path("docket/api/web/app.js").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    script = tmp_path / "agent-observations.mjs"
+    script.write_text(
+        r"""
+globalThis.document = {
+  body: { dataset: {} },
+  querySelector: () => null,
+  querySelectorAll: () => [],
+};
+globalThis.window = {};
+const { observationSection } = await import("./app.mjs");
+const rendered = observationSection({
+  coverage: { snapshot_id: 34 },
+  declares_callable: true,
+  endpoints: ["https://a.example/a2a"],
+  observations: [{
+    url: "https://a.example/a2a",
+    kind: "a2a",
+    outcome: "responded",
+    status_code: 204,
+    elapsed_ms: 120,
+    observed_at: "2026-08-21T10:00:00Z",
+    detail: null,
+  }],
+  latest_on_demand_observation: {
+    url: "https://a.example/a2a",
+    kind: "a2a",
+    outcome: "timeout",
+    status_code: null,
+    elapsed_ms: 8000,
+    observed_at: "2026-08-22T10:00:00Z",
+    detail: "ReadTimeout",
+  },
+});
+if (rendered.includes("[object Object]")) {
+  throw new Error("the on-demand observation replaced the sweep rows");
+}
+for (const text of ["https://a.example/a2a", "Answered", "204"]) {
+  if (!rendered.includes(text)) throw new Error(`sweep table omitted ${text}`);
+}
+""",
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        ["node", str(script)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_agent_action_block_reuses_the_six_outcomes_and_gates_reprobe():

@@ -1,9 +1,12 @@
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier, BrokenBarrierError
 
 import pytest
 
-from docket.store import Store
+from docket.hire.receipts import canonical_hash
+from docket.store import SCHEMA, Store
 
 ROW = {
     "agent_id": "56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:136384",
@@ -218,6 +221,346 @@ def test_a_payment_table_predating_operator_recovery_is_migrated(tmp_path: Path)
     with sqlite3.connect(path) as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(hire_payments)")}
     assert "operator_recovered_at" in columns
+
+
+def test_concurrent_store_initialization_serializes_a_legacy_payment_migration(
+    tmp_path: Path, monkeypatch
+):
+    path = tmp_path / "concurrent-legacy-payments.sqlite3"
+    with sqlite3.connect(path) as conn:
+        conn.executescript(
+            """CREATE TABLE hire_payments (
+                   nonce TEXT PRIMARY KEY,
+                   payment_id TEXT NOT NULL UNIQUE,
+                   service_id TEXT NOT NULL,
+                   payer TEXT NOT NULL,
+                   recipient TEXT NOT NULL,
+                   asset TEXT NOT NULL,
+                   amount TEXT NOT NULL,
+                   resource TEXT NOT NULL,
+                   input_hash TEXT NOT NULL,
+                   output_hash TEXT,
+                   status TEXT NOT NULL,
+                   result_json TEXT,
+                   receipt_json TEXT,
+                   transaction_id TEXT,
+                   network TEXT,
+                   error TEXT,
+                   created_at TEXT NOT NULL,
+                   updated_at TEXT NOT NULL
+               );"""
+        )
+        conn.executescript(SCHEMA)
+        conn.execute("ALTER TABLE snapshots ADD COLUMN stop_reason TEXT")
+
+    begin_barrier = Barrier(2)
+    alter_barrier = Barrier(2)
+    real_connect = sqlite3.connect
+
+    class CoordinatedConnection(sqlite3.Connection):
+        def execute(self, sql, parameters=(), /):
+            normalized = " ".join(sql.split())
+            if normalized == "BEGIN IMMEDIATE":
+                try:
+                    begin_barrier.wait(timeout=1)
+                except BrokenBarrierError:
+                    pass
+            if normalized == (
+                "ALTER TABLE hire_payments ADD COLUMN operator_recovered_at TEXT"
+            ):
+                try:
+                    alter_barrier.wait(timeout=1)
+                except BrokenBarrierError:
+                    pass
+            return super().execute(sql, parameters)
+
+    def coordinated_connect(*args, **kwargs):
+        kwargs["factory"] = CoordinatedConnection
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", coordinated_connect)
+    errors = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(Store, path) for _ in range(2)]
+        for future in futures:
+            try:
+                future.result()
+            except Exception as exc:
+                errors.append(exc)
+
+    assert errors == []
+    with real_connect(path) as conn:
+        columns = [
+            row[1]
+            for row in conn.execute("PRAGMA table_info(hire_payments)")
+            if row[1] == "operator_recovered_at"
+        ]
+    assert columns == ["operator_recovered_at"]
+
+
+def test_current_schema_initialization_does_not_take_the_migration_write_lock(
+    tmp_path: Path, monkeypatch
+):
+    path = tmp_path / "current-schema.sqlite3"
+    Store(path)
+    statements = []
+    real_connect = sqlite3.connect
+
+    class TracedConnection(sqlite3.Connection):
+        def execute(self, sql, parameters=(), /):
+            statements.append(" ".join(sql.split()))
+            return super().execute(sql, parameters)
+
+    def traced_connect(*args, **kwargs):
+        kwargs["factory"] = TracedConnection
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", traced_connect)
+
+    Store(path)
+
+    assert "BEGIN IMMEDIATE" not in statements
+
+
+def _settling_payment(store: Store, *, nonce: str) -> tuple[str, dict]:
+    payment_id = f"payment-{nonce}"
+    result = {"answer": "durably stored"}
+    reserved, _ = store.reserve_payment(
+        nonce=nonce,
+        payment_id=payment_id,
+        service_id="range-doctor",
+        payer="0xpayer",
+        recipient="0xrecipient",
+        asset="0xasset",
+        amount="500000000000000000",
+        resource="https://docket.example/hire/range-doctor",
+        input_hash="0xinput",
+    )
+    assert reserved is True
+    store.record_payment_output(
+        payment_id, output_hash=canonical_hash(result), result=result
+    )
+    assert store.begin_payment_settlement(payment_id) is True
+    return payment_id, result
+
+
+def test_payment_output_storage_rejects_non_finite_json_atomically(tmp_path: Path):
+    store = Store(tmp_path / "non-finite-payment.sqlite3")
+    payment_id = "payment-non-finite"
+    reserved, _ = store.reserve_payment(
+        nonce="non-finite",
+        payment_id=payment_id,
+        service_id="range-doctor",
+        payer="0xpayer",
+        recipient="0xrecipient",
+        asset="0xasset",
+        amount="500000000000000000",
+        resource="https://docket.example/hire/range-doctor",
+        input_hash="0xinput",
+    )
+    assert reserved is True
+
+    with pytest.raises(ValueError):
+        store.record_payment_output(
+            payment_id,
+            output_hash="0xoutput",
+            result={"decision": "complete", "score": float("nan")},
+        )
+
+    payment = store.payment_by_nonce("non-finite")
+    assert payment["status"] == "verified"
+    assert payment["result_json"] is None
+    assert payment["output_hash"] is None
+
+
+def test_stale_settlement_reconciliation_is_an_exact_state_and_timestamp_cas(
+    tmp_path: Path,
+):
+    path = tmp_path / "stale-payment.sqlite3"
+    store = Store(path)
+    _, result = _settling_payment(store, nonce="stale")
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "UPDATE hire_payments SET updated_at = ? WHERE nonce = ?",
+            ("2026-08-29T10:00:00+00:00", "stale"),
+        )
+    existing = store.payment_by_nonce("stale")
+    receipt = {
+        "service": existing["service_id"],
+        "input_hash": existing["input_hash"],
+        "output_hash": existing["output_hash"],
+        "delivered_at": "2026-08-29T10:16:00+00:00",
+        "payment": {"status": "settlement_unknown"},
+    }
+
+    reconciled = store.reconcile_stale_settlement(
+        "stale",
+        expected_updated_at=existing["updated_at"],
+        stale_before="2026-08-29T10:01:00+00:00",
+        receipt=receipt,
+        error="operator classified a stale settling state",
+    )
+
+    assert reconciled is True
+    stored = store.payment_by_nonce("stale")
+    assert stored["status"] == "settlement_unknown"
+    assert stored["result"] == result
+    assert stored["receipt"] == receipt
+    assert stored["error"] == "operator classified a stale settling state"
+    assert stored["transaction_id"] is None
+    assert stored["network"] is None
+    assert stored["operator_recovered_at"] is not None
+
+
+def test_reconciliation_refuses_fresh_or_changed_settlement_rows(tmp_path: Path):
+    path = tmp_path / "fresh-payment.sqlite3"
+    store = Store(path)
+    payment_id, _ = _settling_payment(store, nonce="fresh")
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "UPDATE hire_payments SET updated_at = ? WHERE nonce = ?",
+            ("2026-08-29T10:15:00+00:00", "fresh"),
+        )
+    existing = store.payment_by_nonce("fresh")
+    receipt = {"payment": {"status": "settlement_unknown"}}
+
+    assert (
+        store.reconcile_stale_settlement(
+            "fresh",
+            expected_updated_at=existing["updated_at"],
+            stale_before="2026-08-29T10:00:00+00:00",
+            receipt=receipt,
+            error="must not be stored",
+        )
+        is False
+    )
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "UPDATE hire_payments SET updated_at = ? WHERE nonce = ?",
+            ("2026-08-29T09:00:00+00:00", "fresh"),
+        )
+    stale_observation = store.payment_by_nonce("fresh")
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "UPDATE hire_payments SET updated_at = ? WHERE nonce = ?",
+            ("2026-08-29T09:01:00+00:00", "fresh"),
+        )
+    assert (
+        store.reconcile_stale_settlement(
+            "fresh",
+            expected_updated_at=stale_observation["updated_at"],
+            stale_before="2026-08-29T11:00:00+00:00",
+            receipt=receipt,
+            error="must not act on a stale observation",
+        )
+        is False
+    )
+    settled_receipt = {"payment": {"status": "settled"}}
+    store.finish_payment(
+        payment_id,
+        transaction_id="0xtransaction",
+        network="eip155:56",
+        receipt=settled_receipt,
+    )
+    assert (
+        store.reconcile_stale_settlement(
+            "fresh",
+            expected_updated_at=existing["updated_at"],
+            stale_before="2026-08-29T11:00:00+00:00",
+            receipt=receipt,
+            error="must not overwrite settled",
+        )
+        is False
+    )
+    stored = store.payment_by_nonce("fresh")
+    assert stored["status"] == "settled"
+    assert stored["transaction_id"] == "0xtransaction"
+    assert stored["receipt"] == settled_receipt
+
+
+@pytest.mark.parametrize("status", ("verified", "output_ready"))
+def test_stale_pre_settlement_reconciliation_is_an_exact_state_and_timestamp_cas(
+    tmp_path: Path, status: str
+):
+    path = tmp_path / f"stale-{status}.sqlite3"
+    store = Store(path)
+
+    def seed(nonce: str) -> tuple[str, dict]:
+        payment_id = f"payment-{nonce}"
+        result = {"answer": "durably stored"}
+        reserved, _ = store.reserve_payment(
+            nonce=nonce,
+            payment_id=payment_id,
+            service_id="range-doctor",
+            payer="0xpayer",
+            recipient="0xrecipient",
+            asset="0xasset",
+            amount="500000000000000000",
+            resource="https://docket.example/hire/range-doctor",
+            input_hash="0xinput",
+        )
+        assert reserved is True
+        if status == "output_ready":
+            store.record_payment_output(
+                payment_id, output_hash=canonical_hash(result), result=result
+            )
+        return payment_id, result
+
+    payment_id, result = seed("stale")
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "UPDATE hire_payments SET updated_at = ? WHERE nonce = ?",
+            ("2026-08-29T10:00:00+00:00", "stale"),
+        )
+    existing = store.payment_by_nonce("stale")
+
+    assert store.reconcile_stale_pre_settlement(
+        "stale",
+        expected_status=status,
+        expected_updated_at=existing["updated_at"],
+        stale_before="2026-08-29T10:01:00+00:00",
+        error=f"operator closed stale {status}",
+    )
+
+    stored = store.payment_by_nonce("stale")
+    assert stored["status"] == "failed_no_charge"
+    assert stored.get("result") == (result if status == "output_ready" else None)
+    assert stored["error"] == f"operator closed stale {status}"
+    assert stored["transaction_id"] is None
+    assert stored["network"] is None
+    assert stored["receipt_json"] is None
+
+    fresh_id, fresh_result = seed("fresh")
+    fresh = store.payment_by_nonce("fresh")
+    assert not store.reconcile_stale_pre_settlement(
+        "fresh",
+        expected_status=status,
+        expected_updated_at=fresh["updated_at"],
+        stale_before="2026-08-29T10:00:00+00:00",
+        error="must not close a fresh row",
+    )
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "UPDATE hire_payments SET updated_at = ? WHERE nonce = ?",
+            ("2026-08-29T09:00:00+00:00", "fresh"),
+        )
+    stale_observation = store.payment_by_nonce("fresh")
+    if status == "verified":
+        store.record_payment_output(
+            fresh_id, output_hash=canonical_hash(fresh_result), result=fresh_result
+        )
+    else:
+        assert store.begin_payment_settlement(fresh_id)
+    assert not store.reconcile_stale_pre_settlement(
+        "fresh",
+        expected_status=status,
+        expected_updated_at=stale_observation["updated_at"],
+        stale_before="2026-08-29T11:00:00+00:00",
+        error="must not overwrite a concurrent state change",
+    )
+    assert store.payment_by_nonce("fresh")["status"] == (
+        "output_ready" if status == "verified" else "settling"
+    )
 
 
 def test_latest_complete_snapshot_skips_a_sweep_that_never_finished(tmp_path: Path):

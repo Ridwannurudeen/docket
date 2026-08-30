@@ -240,6 +240,16 @@ def test_one_canonical_exact_authorization_verifies_and_exposes_its_nonce():
     assert verified.payment_id.startswith("0x")
 
 
+def test_payment_identity_rejects_non_finite_extension_fields():
+    payment, requirements, resource = _payment(Account.create())
+    payment["unexpected"] = float("nan")
+
+    verified, reason = _verify(payment, requirements, resource)
+
+    assert verified is None
+    assert "finite JSON" in reason
+
+
 def test_exact_price_rejects_both_short_payment_and_overpayment():
     """`exact` means equality. Accepting an overpayment would silently restore the old
     minimum-price behavior and make the published flat 0.50 USDT offer false."""
@@ -313,19 +323,26 @@ def test_token_is_a_signed_canonical_authorization_field():
 
 def test_b402_validity_window_includes_both_documented_boundaries():
     acct = Account.create()
-    payment, requirements, resource = _payment(
-        acct, valid_after=100, valid_before=200
-    )
+    payment, requirements, resource = _payment(acct, valid_after=100, valid_before=200)
 
     assert _verify(payment, requirements, resource, now=100)[1] == OK
     assert _verify(payment, requirements, resource, now=200)[1] == OK
 
 
+def test_b402_authorization_expiry_cannot_exceed_the_advertised_timeout():
+    payment, requirements, resource = _payment(
+        Account.create(), valid_after=0, valid_before=401
+    )
+
+    verified, reason = _verify(payment, requirements, resource, now=100)
+
+    assert verified is None
+    assert "maxTimeoutSeconds" in reason
+
+
 def test_shared_signer_emits_the_exact_b402_scalar_types_and_domain():
     acct = Account.create()
-    challenge = build_challenge(
-        get_service("range-doctor"), PAY_TO, resource=RESOURCE
-    )
+    challenge = build_challenge(get_service("range-doctor"), PAY_TO, resource=RESOURCE)
     payment = build_signed_payment(
         acct,
         challenge["accepts"][0],
@@ -347,9 +364,10 @@ def test_shared_signer_emits_the_exact_b402_scalar_types_and_domain():
     }
     assert signature.startswith("0x")
     assert len(signature) == 132
-    assert _verify(
-        payment, challenge["accepts"][0], challenge["resource"], now=100
-    )[1] == OK
+    assert (
+        _verify(payment, challenge["accepts"][0], challenge["resource"], now=100)[1]
+        == OK
+    )
 
 
 def test_header_is_read_from_either_supported_spelling():
@@ -366,9 +384,7 @@ def test_malformed_header_returns_none_rather_than_raising():
 def test_facilitator_envelope_selects_b402_without_weakening_generic_v2():
     payment, requirements, _ = _payment(Account.create())
 
-    generic = facilitator_envelope(
-        payment, requirements, kind=GENERIC_FACILITATOR
-    )
+    generic = facilitator_envelope(payment, requirements, kind=GENERIC_FACILITATOR)
     assert generic == {
         "x402Version": 2,
         "paymentPayload": payment,
@@ -466,9 +482,7 @@ def test_preflight_reads_every_prerequisite_and_only_verifies(tmp_path):
         whitelisted=True,
         domain=_domain(),
     )
-    facilitator = _VerifyOnlyFacilitator(
-        {"isValid": True, "payer": account.address}
-    )
+    facilitator = _VerifyOnlyFacilitator({"isValid": True, "payer": account.address})
 
     report = payment_preflight(
         _preflight_environment(key_file),

@@ -124,7 +124,7 @@ def render_markdown(report: dict) -> str:
         f"Population swept: **{report['population'] or 'unspecified'}**. Both figures above "
         f"are totals for that query, not for the registry — the largest chain-wide total any "
         f"sweep here has recorded is "
-        f"**{f'{report['registry_total']:,}' if report['registry_total'] else 'unmeasured'}**.",
+        f"**{format(report['registry_total'], ',') if report['registry_total'] else 'unmeasured'}**.",
         "",
         "| Signal | Agents | Share |",
         "| --- | ---: | ---: |",

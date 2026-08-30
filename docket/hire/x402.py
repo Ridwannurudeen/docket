@@ -119,6 +119,10 @@ B402_PREFLIGHT_ABI = [
 ]
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON constant {value}")
+
+
 @dataclass(frozen=True)
 class VerifiedPayment:
     payer: str
@@ -223,8 +227,11 @@ def parse_payment_header(headers) -> dict | None:
         if not raw:
             continue
         try:
-            payload = json.loads(base64.b64decode(raw, validate=True))
-        except (ValueError, TypeError):
+            payload = json.loads(
+                base64.b64decode(raw, validate=True),
+                parse_constant=_reject_json_constant,
+            )
+        except (ValueError, TypeError, RecursionError):
             return None
         return payload if isinstance(payload, dict) else None
     return None
@@ -349,6 +356,18 @@ def verify_payment(
         return None, "malformed authorization: fields are not canonical B402"
     if expected_requirements.get("network") != NETWORK:
         return None, f"wrong chain: payment requirements are not for {NETWORK}"
+    try:
+        max_timeout_seconds = int(expected_requirements["maxTimeoutSeconds"])
+    except (KeyError, TypeError, ValueError):
+        return (
+            None,
+            "malformed payment requirements: maxTimeoutSeconds must be an integer",
+        )
+    if max_timeout_seconds <= 0:
+        return (
+            None,
+            "malformed payment requirements: maxTimeoutSeconds must be positive",
+        )
     if recipient.lower() != pay_to.lower():
         return None, f"wrong recipient: authorization names {recipient}, not {pay_to}"
     if token.lower() != asset.lower():
@@ -372,6 +391,11 @@ def verify_payment(
             None,
             f"expired: validBefore {valid_before} is before now ({checked_at})",
         )
+    if valid_before > checked_at + max_timeout_seconds:
+        return (
+            None,
+            "authorization expiry exceeds the advertised maxTimeoutSeconds",
+        )
 
     domain_fields = EIP712_DOMAINS.get(asset.lower())
     if domain_fields is None:
@@ -388,14 +412,13 @@ def verify_payment(
     if recovered.lower() != payer.lower():
         return None, f"signature recovers {recovered}, not the declared payer {payer}"
 
-    return (
-        VerifiedPayment(
-            payer=recovered,
-            nonce=nonce.lower(),
-            payment_id=canonical_hash(payment),
-        ),
-        OK,
-    )
+    try:
+        payment_id = canonical_hash(payment)
+    except (TypeError, ValueError, RecursionError):
+        return None, "malformed payment: identity requires finite JSON values"
+    return VerifiedPayment(
+        payer=recovered, nonce=nonce.lower(), payment_id=payment_id
+    ), OK
 
 
 def payment_preflight(
@@ -437,9 +460,11 @@ def payment_preflight(
         )
 
     try:
-        private_key = Path(
-            str(environment["DOCKET_CANARY_PRIVATE_KEY_FILE"])
-        ).read_text(encoding="ascii").strip()
+        private_key = (
+            Path(str(environment["DOCKET_CANARY_PRIVATE_KEY_FILE"]))
+            .read_text(encoding="ascii")
+            .strip()
+        )
         account = Account.from_key(private_key)
     except (OSError, UnicodeError, ValueError):
         raise PreflightConfigurationError(
@@ -499,8 +524,7 @@ def payment_preflight(
     )
 
     resource_url = (
-        str(environment["DOCKET_CANARY_BASE_URL"]).rstrip("/")
-        + f"/hire/{service.id}"
+        str(environment["DOCKET_CANARY_BASE_URL"]).rstrip("/") + f"/hire/{service.id}"
     )
     challenge = build_challenge(service, pay_to, resource=resource_url)
     payment = build_signed_payment(

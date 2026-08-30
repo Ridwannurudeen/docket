@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from docket.hire.receipts import (
     build_receipt,
     canonical_hash,
@@ -16,6 +18,11 @@ def test_canonical_hash_is_key_order_independent():
 
 def test_canonical_hash_changes_when_content_changes():
     assert canonical_hash({"a": 1}) != canonical_hash({"a": 2})
+
+
+def test_canonical_hash_rejects_non_finite_json_values():
+    with pytest.raises(ValueError):
+        canonical_hash({"decision": "complete", "score": float("nan")})
 
 
 def test_canonical_hash_is_recomputable_by_a_third_party():

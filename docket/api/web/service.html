@@ -8,8 +8,8 @@
       name="description"
       content="One Docket service: what arrives, what to send, what it costs, what has been observed of it, what it cannot do — and the control that runs it."
     />
-    <link rel="stylesheet" href="/static/style.css?v=11" />
-    <script type="module" src="/static/app.js?v=11"></script>
+    <link rel="stylesheet" href="/static/style.css?v=12" />
+    <script type="module" src="/static/app.js?v=12"></script>
   </head>
   <body data-page="service">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -72,12 +72,19 @@ curl -s -X POST /hire/range-doctor \
           </noscript>
         </section>
 
-        <section aria-labelledby="activate-heading">
+        <section data-region="activation-section" aria-labelledby="activate-heading">
           <h2 id="activate-heading">Run it</h2>
           <div class="wrap-anywhere" data-region="activate">
             <span class="skeleton skeleton-row skeleton-wide"></span>
           </div>
-          <div class="wrap-anywhere" data-region="outcome"></div>
+          <p
+            class="visually-hidden"
+            data-region="outcome-status"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          ></p>
+          <div class="wrap-anywhere" data-region="outcome" aria-busy="false"></div>
         </section>
       </div>
     </main>

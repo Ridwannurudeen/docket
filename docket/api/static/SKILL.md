@@ -31,12 +31,14 @@ DOCKET=https://docket.gudman.xyz   # the public host; or the origin serving this
 curl -s "$DOCKET/health"       # liveness plus snapshot capture time and age
 ```
 
-The public contract needs no authentication, key, account or wallet. Two routes are not
-read-only GETs: `POST /hire/{service_id}` runs work, and `POST /agents/{agent_id}/probe`
+The public read contract needs no authentication, key, account or wallet. Two public work
+routes are not read-only GETs: `POST /hire/{service_id}` runs work, and `POST /agents/{agent_id}/probe`
 repeats one pinned reachability probe and stores its on-demand observation separately. It is
-not part of the snapshot's coverage figures. The two POST routes share the public free-work
-allowance and need no credential. The private owner canary credential described
-in Workflow 4 is not a public API credential. `GET $DOCKET/llms.txt` is the full reference;
+not part of the snapshot's coverage figures. They share the public free-work allowance and
+need no credential. Buyer recovery and operator-only recovery/reconciliation are the other
+POST routes. Every mutation requires exactly one `Content-Type: application/json` header.
+The private owner canary credential described in Workflow 4 is not a public API credential.
+`GET $DOCKET/llms.txt` is the full reference;
 `GET $DOCKET/openapi.json` is the generated schema. If a workflow is not in one of
 those, Docket does not serve it - say so rather than inventing an endpoint.
 
@@ -57,6 +59,8 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/registrations/{service_id}.json` | Byte-exact ERC-8004 document for one of the four category services |
 | GET | `/hire` | The catalogue: inputs, flat 0.50 USDT term, stock status and four admission facts |
 | POST | `/hire/{service_id}` | Runs the service; returns the result and a hash-bound receipt |
+| POST | `/hire/{service_id}/recover` | Returns a stored terminal result through buyer-signed or operator-token recovery; runs no work or settlement |
+| POST | `/hire/{service_id}/reconcile` | Operator-only classification of one stale in-flight payment row; makes no external call |
 | GET | `/compare` | One-clause jobs, declared and measured times, freshness, and evidence links side by side |
 | GET | `/escrow` | Escrow terms: addresses, dispute window, the ordered call sequence |
 | GET | `/escrow/job/{job_id}` | One job's live on-chain state and when it can be settled |
@@ -86,12 +90,15 @@ literally; do not URL-encode the colons.
 
 Errors are always `{"error": {"code": "...", "message": "..."}}`. Branch on `code`:
 `agent_not_found`, `not_found`, `method_not_allowed`, `invalid_query_parameter`,
-`no_snapshot`, and on the hire routes `service_not_found` (404), `invalid_json` (400),
+`no_snapshot`, `unsupported_media_type` (415), and on the hire routes
+`service_not_found` (404), `invalid_json` (400),
 `missing_field` (422, the message names the field), `invalid_field` (422),
 `payment_invalid`/`payment_not_verified`/`free_tier_exhausted` (402),
 `canary_unauthorized` (403; no work or charge attempted),
 `authorization_replay`/`authorization_spent`/`payment_in_progress`/
-`settlement_pending_reconciliation` (409), `service_failed`/`empty_result`/
+`settlement_pending_reconciliation`/`settlement_still_active`/
+`payment_not_reconcilable`/`payment_state_changed`/`payment_already_settled` (409),
+`service_failed`/`empty_result`/
 `payment_verification_unavailable`/`settlement_failed`/`settlement_unknown` (502),
 and `settlement_unavailable`/`service_de_admitted` (503).
 
@@ -251,15 +258,16 @@ Docket's code:
 import hashlib, json
 
 def digest(obj):
-    blob = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    blob = json.dumps(obj, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False, allow_nan=False)
     return "0x" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 assert digest(request_body) == receipt["input_hash"]
 assert digest(response["result"]) == receipt["output_hash"]
 ```
 
-`ensure_ascii=False` is part of the recipe: with `ensure_ascii=True` a non-ASCII
-payload hashes to something else.
+`ensure_ascii=False` and `allow_nan=False` are part of the recipe: non-ASCII bytes must
+stay literal, and `NaN`/`Infinity` are not JSON values Docket will hash or deliver.
 
 Every catalogue entry carries `paid_stock`, `stock_status` and the four `admission`
 facts: fresh paired benchmark, cold canary, decision-grade presenter and true

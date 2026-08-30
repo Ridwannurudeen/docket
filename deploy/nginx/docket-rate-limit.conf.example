@@ -5,6 +5,8 @@ limit_req_zone $binary_remote_addr zone=docket_hire_per_ip:10m rate=30r/m;
 # location alongside it for every non-hire path. This outer limit bounds free, paid and
 # recovery request bursts; the application separately bounds free hires and recovery.
 location ^~ /hire/ {
+    # Matches Docket's application limit; the app still counts streamed bodies itself.
+    client_max_body_size 1m;
     limit_req zone=docket_hire_per_ip burst=10 nodelay;
     limit_req_status 429;
 

@@ -189,27 +189,40 @@ class Store:
             snapshot_columns = {
                 r["name"] for r in conn.execute("PRAGMA table_info(snapshots)")
             }
-            if "population" not in snapshot_columns:
-                conn.execute("ALTER TABLE snapshots ADD COLUMN population TEXT")
-            if "stop_reason" not in snapshot_columns:
-                conn.execute("ALTER TABLE snapshots ADD COLUMN stop_reason TEXT")
-            if "promoted_at" not in snapshot_columns:
-                conn.execute("ALTER TABLE snapshots ADD COLUMN promoted_at TEXT")
-                conn.execute(
-                    """UPDATE snapshots SET promoted_at = finished_at
-                       WHERE finished_at IS NOT NULL
-                         AND sampled IS NOT NULL AND expected IS NOT NULL
-                         AND sampled = expected AND sampled > 0
-                         AND (stop_reason IS NULL OR stop_reason = ?)""",
-                    (COMPLETE_STOP_REASON,),
-                )
             payment_columns = {
                 r["name"] for r in conn.execute("PRAGMA table_info(hire_payments)")
             }
-            if "operator_recovered_at" not in payment_columns:
-                conn.execute(
-                    "ALTER TABLE hire_payments ADD COLUMN operator_recovered_at TEXT"
-                )
+            if not {"population", "stop_reason", "promoted_at"} <= snapshot_columns or (
+                "operator_recovered_at" not in payment_columns
+            ):
+                # `executescript` leaves no transaction open. Reserve the writer only when a
+                # migration may be needed, then recheck under that lock: another initializer
+                # may have completed the same migration while this connection waited.
+                conn.execute("BEGIN IMMEDIATE")
+                snapshot_columns = {
+                    r["name"] for r in conn.execute("PRAGMA table_info(snapshots)")
+                }
+                payment_columns = {
+                    r["name"] for r in conn.execute("PRAGMA table_info(hire_payments)")
+                }
+                if "population" not in snapshot_columns:
+                    conn.execute("ALTER TABLE snapshots ADD COLUMN population TEXT")
+                if "stop_reason" not in snapshot_columns:
+                    conn.execute("ALTER TABLE snapshots ADD COLUMN stop_reason TEXT")
+                if "promoted_at" not in snapshot_columns:
+                    conn.execute("ALTER TABLE snapshots ADD COLUMN promoted_at TEXT")
+                    conn.execute(
+                        """UPDATE snapshots SET promoted_at = finished_at
+                           WHERE finished_at IS NOT NULL
+                             AND sampled IS NOT NULL AND expected IS NOT NULL
+                             AND sampled = expected AND sampled > 0
+                             AND (stop_reason IS NULL OR stop_reason = ?)""",
+                        (COMPLETE_STOP_REASON,),
+                    )
+                if "operator_recovered_at" not in payment_columns:
+                    conn.execute(
+                        "ALTER TABLE hire_payments ADD COLUMN operator_recovered_at TEXT"
+                    )
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -292,6 +305,9 @@ class Store:
     def record_payment_output(
         self, payment_id: str, *, output_hash: str, result: dict
     ) -> None:
+        result_json = json.dumps(
+            result, sort_keys=True, ensure_ascii=False, allow_nan=False
+        )
         with self._conn() as conn:
             cursor = conn.execute(
                 """UPDATE hire_payments
@@ -300,7 +316,7 @@ class Store:
                    WHERE payment_id = ? AND status = 'verified'""",
                 (
                     output_hash,
-                    json.dumps(result, sort_keys=True, ensure_ascii=False),
+                    result_json,
                     _now(),
                     payment_id,
                 ),
@@ -335,13 +351,98 @@ class Store:
                 (
                     transaction_id,
                     network,
-                    json.dumps(receipt, sort_keys=True, ensure_ascii=False),
+                    json.dumps(
+                        receipt, sort_keys=True, ensure_ascii=False, allow_nan=False
+                    ),
                     _now(),
                     payment_id,
                 ),
             )
         if cursor.rowcount != 1:
             raise ValueError("payment was not finalized from settling state")
+
+    def reconcile_stale_settlement(
+        self,
+        nonce: str,
+        *,
+        expected_updated_at: str,
+        stale_before: str,
+        receipt: dict,
+        error: str,
+    ) -> bool:
+        """Atomically classify one unchanged stale settlement without retrying it."""
+        payment = receipt.get("payment") if isinstance(receipt, dict) else None
+        if (
+            not isinstance(payment, dict)
+            or payment.get("status") != "settlement_unknown"
+        ):
+            raise ValueError("reconciliation requires a settlement_unknown receipt")
+        receipt_json = json.dumps(
+            receipt, sort_keys=True, ensure_ascii=False, allow_nan=False
+        )
+        reconciled_at = _now()
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE hire_payments
+                   SET status = 'settlement_unknown', error = ?, receipt_json = ?,
+                       operator_recovered_at = ?, updated_at = ?
+                   WHERE nonce = ? AND status = 'settling' AND updated_at = ?
+                     AND julianday(updated_at) <= julianday(?)
+                     AND transaction_id IS NULL AND network IS NULL""",
+                (
+                    error,
+                    receipt_json,
+                    reconciled_at,
+                    reconciled_at,
+                    nonce,
+                    expected_updated_at,
+                    stale_before,
+                ),
+            )
+        return cursor.rowcount == 1
+
+    def reconcile_stale_pre_settlement(
+        self,
+        nonce: str,
+        *,
+        expected_status: str,
+        expected_updated_at: str,
+        stale_before: str,
+        error: str,
+    ) -> bool:
+        """Close one unchanged stale row whose settlement boundary was never crossed."""
+        if expected_status not in {"verified", "output_ready"}:
+            raise ValueError(
+                "pre-settlement reconciliation requires an in-flight state"
+            )
+        reconciled_at = _now()
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE hire_payments
+                   SET status = 'failed_no_charge', error = ?, updated_at = ?
+                   WHERE nonce = ? AND status = ? AND updated_at = ?
+                     AND julianday(updated_at) <= julianday(?)
+                     AND transaction_id IS NULL AND network IS NULL
+                     AND receipt_json IS NULL
+                     AND (
+                         (? = 'verified' AND result_json IS NULL
+                                           AND output_hash IS NULL)
+                         OR
+                         (? = 'output_ready' AND result_json IS NOT NULL
+                                               AND output_hash IS NOT NULL)
+                     )""",
+                (
+                    error,
+                    reconciled_at,
+                    nonce,
+                    expected_status,
+                    expected_updated_at,
+                    stale_before,
+                    expected_status,
+                    expected_status,
+                ),
+            )
+        return cursor.rowcount == 1
 
     def fail_payment(
         self,
@@ -362,7 +463,7 @@ class Store:
         if status != "settlement_unknown" and receipt is not None:
             raise ValueError(f"{status} does not accept a recovery receipt")
         receipt_json = (
-            json.dumps(receipt, sort_keys=True, ensure_ascii=False)
+            json.dumps(receipt, sort_keys=True, ensure_ascii=False, allow_nan=False)
             if receipt is not None
             else None
         )

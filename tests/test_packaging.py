@@ -7,10 +7,18 @@ during Stage 4, then `docket.agents.venus` and `docket.agents.yield_router`, whi
 are two of the four scored marketplace categories. Both times every test passed.
 """
 
+import os
+import shutil
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
+RELEASE_BUNDLE = ROOT / "deploy" / "release_bundle.py"
+BUILD_REQUIREMENTS = ROOT / "deploy" / "build-requirements.txt"
 
 
 def _packages_on_disk() -> set[str]:
@@ -36,6 +44,37 @@ def _advantage_package_data() -> set[str]:
         )
 
 
+def _source_manifest() -> str:
+    return (ROOT / "docs/source-deploy-manifest.md").read_text(encoding="utf-8")
+
+
+def _manifest_packages() -> set[str]:
+    import re
+
+    match = re.search(
+        r"`pyproject\.toml` declares:\s*```text\s*(.*?)\s*```",
+        _source_manifest(),
+        re.S,
+    )
+    assert match is not None, "the source manifest has no explicit package inventory"
+    return {line.strip() for line in match.group(1).splitlines() if line.strip()}
+
+
+def _manifest_artifact_rows() -> list[tuple[str, str]]:
+    import re
+
+    return re.findall(
+        r"^\| `([^`]+)` \| `([0-9a-f]{64})` \|$", _source_manifest(), re.M
+    )
+
+
+def _manifest_artifact_hashes() -> dict[str, str]:
+    rows = _manifest_artifact_rows()
+    hashes = dict(rows)
+    assert len(hashes) == len(rows), "the evidence manifest repeats an artifact path"
+    return hashes
+
+
 def test_every_package_in_the_tree_is_declared_for_the_build():
     """An undeclared package is absent from the wheel and present in every test run."""
     missing = _packages_on_disk() - _packages_declared()
@@ -49,6 +88,195 @@ def test_no_declared_package_has_gone_missing_from_the_tree():
     """The other direction: a stale name makes the build fail on a fresh checkout."""
     stale = _packages_declared() - _packages_on_disk()
     assert not stale, f"declared but not in the tree: {sorted(stale)}"
+
+
+def test_build_backend_is_exactly_pinned():
+    with (ROOT / "pyproject.toml").open("rb") as fh:
+        build_system = tomllib.load(fh)["build-system"]
+
+    assert build_system["requires"] == ["setuptools==83.0.0"]
+
+
+def test_builder_dependencies_and_transitives_are_fully_hash_locked():
+    import re
+
+    assert BUILD_REQUIREMENTS.is_file()
+    contents = BUILD_REQUIREMENTS.read_text(encoding="utf-8")
+    assert "--only-binary=:all:" in contents
+    logical_lines = [
+        line.strip()
+        for line in contents.replace("\\\n", " ").splitlines()
+        if line.strip() and not line.lstrip().startswith(("#", "--"))
+    ]
+    expected = {
+        "build": "1.5.0",
+        "colorama": "0.4.6",
+        "packaging": "26.3",
+        "pyproject-hooks": "1.2.0",
+        "setuptools": "83.0.0",
+        "uv": "0.11.16",
+    }
+    locked = {line.split("==", 1)[0]: line for line in logical_lines}
+
+    assert set(locked) == set(expected)
+    for name, version in expected.items():
+        line = locked[name]
+        assert line.startswith(f"{name}=={version}")
+        hashes = re.findall(r"--hash=sha256:([0-9a-f]{64})(?:\s|$)", line)
+        assert hashes, f"{name} has no reviewed SHA-256"
+        assert len(hashes) == len(set(hashes)), f"{name} repeats a SHA-256"
+    assert "; os_name == 'nt'" in locked["colorama"]
+
+
+def test_release_bundle_creates_and_populates_a_locked_temporary_builder():
+    script = RELEASE_BUNDLE.read_text(encoding="utf-8")
+
+    assert 'BUILD_LOCK_PATH = "deploy/build-requirements.txt"' in script
+    builder_venv = script.index('builder_venv = temporary_root / "builder-venv"')
+    create_venv = script.index('"venv",', builder_venv)
+    hash_install = script.index('"--require-hashes",', create_venv)
+    build = script.index('"--no-isolation",', hash_install)
+    assert "str(build_lock)" in script[hash_install:build]
+    assert "str(builder_python)" in script[hash_install:]
+    assert builder_venv < create_venv < hash_install < build
+    assert "isolated wheel build failed" not in script
+
+
+def test_release_bundle_builder_refuses_a_dirty_worktree(tmp_path):
+    assert RELEASE_BUNDLE.is_file()
+    repo = tmp_path / "repo"
+    deploy = repo / "deploy"
+    deploy.mkdir(parents=True)
+    shutil.copy2(RELEASE_BUNDLE, deploy / RELEASE_BUNDLE.name)
+    (repo / "tracked.txt").write_text("committed\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=Docket Tests",
+            "-c",
+            "user.email=docket-tests@example.invalid",
+            "commit",
+            "-qm",
+            "fixture",
+        ],
+        check=True,
+    )
+    (repo / "tracked.txt").write_text("dirty\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(deploy / RELEASE_BUNDLE.name),
+            "build",
+            str(tmp_path / "bundle"),
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "working tree is not clean" in result.stderr
+    assert not (tmp_path / "bundle").exists()
+
+
+@pytest.mark.skipif(not hasattr(os, "getuid"), reason="POSIX ownership is required")
+@pytest.mark.parametrize("writable_target", ["bundle", "asset"])
+def test_secure_bundle_verification_refuses_untrusted_write_permissions(
+    tmp_path, writable_target
+):
+    from tests.test_release_scripts import _write_release_manifest, _write_wheel
+
+    bundle = tmp_path / "release-bundle"
+    copied_deploy = bundle / "deploy"
+    shutil.copytree(ROOT / "deploy", copied_deploy)
+    wheel = bundle / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+    manifest = _write_release_manifest(wheel, digest, deploy=copied_deploy)
+    if writable_target == "bundle":
+        bundle.chmod(0o777)
+    else:
+        (copied_deploy / "journald-docket.conf").chmod(0o666)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(copied_deploy / "release_bundle.py"),
+            "verify",
+            str(manifest),
+            str(copied_deploy),
+            "--secure-owner",
+            str(os.getuid()),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "group/world writable" in result.stderr
+
+
+def test_ci_builds_and_smokes_the_real_provenance_bundle():
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    assert (
+        workflow.count(
+            "python -m pip install --require-hashes --only-binary=:all: "
+            "-r deploy/build-requirements.txt"
+        )
+        == 2
+    )
+    assert "python -m pip install uv==" not in workflow
+    assert "python -m pip install build==" not in workflow
+    assert "--output-file deploy/runtime-requirements.txt" in workflow
+    assert "git diff --exit-code -- deploy/runtime-requirements.txt" in workflow
+    assert "python deploy/release_bundle.py build" in workflow
+    assert "release-bundle/deploy/runtime-requirements.txt" in workflow
+    assert "pip install --require-hashes" in workflow
+    assert workflow.count("--only-binary=:all:") == 3
+    assert "pip install --no-deps" in workflow
+    assert 'docket-venv/bin/python" -m pip check' in workflow
+    assert 'python-version: ["3.11", "3.12"]' in workflow
+
+
+def test_runbook_uses_the_integrity_bound_release_commands():
+    runbook = (ROOT / "docs/deployment-runbook.md").read_text(encoding="utf-8")
+    normalized = " ".join(runbook.split())
+
+    for required in (
+        "setuptools==83.0.0",
+        "python -m pip install --require-hashes --only-binary=:all: -r "
+        "deploy/build-requirements.txt",
+        "python deploy/release_bundle.py build",
+        "without build isolation",
+        "pip install --require-hashes",
+        "--only-binary=:all:",
+        "pip install --no-deps",
+        "tar --no-same-owner -xf -",
+        "release-manifest.json",
+        "root-owned",
+        "reverified immediately before",
+        "integrity binding, not artifact authenticity",
+        "temporary builder virtual environment",
+        "whole-process lock",
+        "/run/docket/release.lock",
+        "all six timers",
+        "directory fsync",
+        "two-directory rename",
+        "power loss",
+    ):
+        assert required in normalized
+    assert "setuptools>=77" not in runbook
+    assert "python -m pip install build==" not in runbook
+    assert "<40-hex-source-commit>" not in runbook
+    assert "'$source_commit' '$wheel_sha'" not in runbook
 
 
 def test_each_scored_marketplace_category_has_its_agent_package_declared():
@@ -65,6 +293,31 @@ def test_each_scored_marketplace_category_has_its_agent_package_declared():
         "docket.agents.venus",  # health factor — Health Guard
     ):
         assert package in declared, f"{package} would not ship in a built distribution"
+
+
+def test_source_manifest_names_the_exact_declared_package_inventory():
+    assert _manifest_packages() == _packages_declared()
+
+
+def test_source_manifest_names_every_v3_spec_and_source_exactly_once():
+    expected = {
+        path.relative_to(ROOT).as_posix()
+        for directory in (
+            ROOT / "docket/advantage/v3/specs",
+            ROOT / "docket/advantage/v3/sources",
+        )
+        for path in directory.iterdir()
+        if path.is_file()
+    }
+    published = {
+        path
+        for path in _manifest_artifact_hashes()
+        if path.startswith(
+            ("docket/advantage/v3/specs/", "docket/advantage/v3/sources/")
+        )
+    }
+
+    assert published == expected
 
 
 def test_every_v3_state_artifact_has_a_package_data_path():
@@ -123,10 +376,8 @@ def test_the_published_evidence_hashes_match_the_files_they_name():
     because it invites a reader to conclude the evidence was swapped.
     """
     import hashlib
-    import re
 
-    manifest = (ROOT / "docs/source-deploy-manifest.md").read_text(encoding="utf-8")
-    rows = re.findall(r"^\| `([^`]+\.json)` \| `([0-9a-f]{64})` \|$", manifest, re.M)
+    rows = _manifest_artifact_hashes().items()
     assert rows, "the evidence manifest lists no artifact digests"
 
     stale = []
@@ -219,7 +470,7 @@ def test_the_range_runbook_verifies_the_released_units_and_armed_state():
     runbook = (ROOT / "docs/runbooks/range-v3-05-run.md").read_text(encoding="utf-8")
 
     for required in (
-        "test \"$(</opt/docket/RELEASE-commit.txt)\" = \"$expected_commit\"",
+        'test "$(</opt/docket/RELEASE-commit.txt)" = "$expected_commit"',
         'cmp -s "$service" /opt/docket/deploy/systemd/docket-v3-range-capture.service',
         'cmp -s "$timer" /opt/docket/deploy/systemd/docket-v3-range-capture.timer',
         '(timer, "OnCalendar", "2026-08-26 12:03:00 UTC")',
@@ -229,6 +480,4 @@ def test_the_range_runbook_verifies_the_released_units_and_armed_state():
         "Range arm check failed; only if the timer missed 12:03Z",
     ):
         assert required in runbook
-    assert (
-        "systemctl is-active docket-v3-range-capture.service; test -f" not in runbook
-    )
+    assert "systemctl is-active docket-v3-range-capture.service; test -f" not in runbook

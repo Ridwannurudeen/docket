@@ -64,6 +64,19 @@ def client(tmp_path):
     return TestClient(create_app(db, snapshot_id=sid))
 
 
+def test_application_factory_honors_the_configured_database(tmp_path, monkeypatch):
+    configured_db = tmp_path / "configured" / "agents.sqlite3"
+    working_directory = tmp_path / "working"
+    working_directory.mkdir()
+    monkeypatch.chdir(working_directory)
+    monkeypatch.setenv("DOCKET_DB", str(configured_db))
+
+    create_app()
+
+    assert configured_db.exists()
+    assert not (working_directory / "data" / "agents.sqlite3").exists()
+
+
 def test_health_names_the_snapshot_it_serves(client):
     body = client.get("/health").json()
     assert body["status"] == "ok"
@@ -174,7 +187,9 @@ def test_stats_carries_the_registry_total_the_snapshot_is_a_slice_of(tmp_path):
     body = TestClient(create_app(db, snapshot_id=sid)).get("/stats").json()
     assert body["registry_total"] == 247065
     assert body["coverage"]["complete"] is True
-    assert body["coverage"]["expected"] == 1  # complete against its own query, not the chain
+    assert (
+        body["coverage"]["expected"] == 1
+    )  # complete against its own query, not the chain
     assert body["registry_total"] > body["coverage"]["expected"]
 
 
@@ -203,7 +218,10 @@ def test_the_served_snapshot_is_the_newest_COMPLETE_one(tmp_path):
     assert client.get("/stats").json()["coverage"]["snapshot_id"] == done
     assert client.get("/agents").json()["total"] == 2  # not the crashed sweep's 1
     # Naming it explicitly is still honoured: an operator may inspect a partial sweep.
-    assert TestClient(create_app(db, snapshot_id=crashed)).get("/agents").json()["total"] == 1
+    assert (
+        TestClient(create_app(db, snapshot_id=crashed)).get("/agents").json()["total"]
+        == 1
+    )
 
 
 def test_only_an_unfinished_sweep_reports_no_snapshot_rather_than_serving_it(tmp_path):
@@ -240,7 +258,10 @@ def test_agents_are_filterable_and_labelled_by_name_family_not_publisher(client)
     assert narrowed["coverage"]["filter"] == "name_family=solvent"
     stats = client.get("/stats").json()
     assert stats["distinct_name_families"] == 2
-    assert {row["name_family"] for row in stats["top_name_families"]} == {"solvent", "unknown"}
+    assert {row["name_family"] for row in stats["top_name_families"]} == {
+        "solvent",
+        "unknown",
+    }
     for retired in ("distinct_publishers", "top_publishers"):
         assert retired not in stats
 
@@ -255,10 +276,15 @@ def test_the_retired_publisher_filter_is_refused_not_silently_ignored(client):
     err = resp.json()["error"]
     assert err["code"] == "invalid_query_parameter"
     assert "publisher" in err["message"]
-    assert "name_family" in err["message"]  # names the replacement, not just the mistake
+    assert (
+        "name_family" in err["message"]
+    )  # names the replacement, not just the mistake
     # Refused even when it would have changed nothing, so a client cannot learn the wrong name
     # from a request that happened to work.
-    assert client.get("/agents", params={"publisher": "nothing-matches-this"}).status_code == 422
+    assert (
+        client.get("/agents", params={"publisher": "nothing-matches-this"}).status_code
+        == 422
+    )
     assert client.get("/agents", params={"name_family": "solvent"}).status_code == 200
 
 
@@ -296,6 +322,79 @@ def test_bad_query_value_returns_the_structured_error_shape(client):
 def test_openapi_is_served_so_an_agent_need_not_guess(client):
     spec = client.get("/openapi.json").json()
     assert "/agents" in spec["paths"] and "/stats" in spec["paths"]
+
+
+def test_every_response_carries_the_same_security_policy(client):
+    expected = {
+        "content-security-policy": (
+            "default-src 'self'; base-uri 'none'; object-src 'none'; "
+            "frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; "
+            "script-src 'self'; style-src 'self' "
+            "'sha256-6rUoS78zt/PNQ8nNYAej0vxT3N4WfeWR+hzuvLTdgbM=' "
+            "'sha256-JBSnR/xdx/11XiOtHyfG4Ek2qcx2LGkIYxA0HafpeV4='; connect-src 'self'"
+        ),
+        "x-frame-options": "DENY",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "strict-origin-when-cross-origin",
+    }
+    requests = (
+        client.get("/", headers={"Accept": "text/html"}),
+        client.get("/"),
+        client.get("/missing"),
+        client.get("/static/style.css"),
+    )
+
+    assert [response.status_code for response in requests] == [200, 200, 404, 200]
+    for response in requests:
+        assert {name: response.headers[name] for name in expected} == expected
+
+
+def test_unhandled_errors_are_generic_logged_without_private_details(tmp_path, caplog):
+    private_detail = "bearer docket-internal-only at C:\\private\\database.sqlite3"
+    app = create_app(tmp_path / "unhandled.sqlite3")
+
+    @app.get("/_test/unhandled")
+    def unhandled():
+        raise RuntimeError(private_detail)
+
+    with caplog.at_level("ERROR", logger="docket.api.routes"):
+        response = TestClient(app, raise_server_exceptions=False).get(
+            "/_test/unhandled"
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": {
+            "code": "internal_server_error",
+            "message": "The server could not complete this request. Retry.",
+        }
+    }
+    assert private_detail not in response.text
+    assert "RuntimeError" not in response.text
+    assert response.headers["content-security-policy"].startswith("default-src 'self'")
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    records = [
+        record for record in caplog.records if record.name == "docket.api.routes"
+    ]
+    assert len(records) == 1
+    assert records[0].getMessage() == (
+        "unexpected request failure: method=GET route=/_test/unhandled "
+        "exception_type=RuntimeError"
+    )
+    assert private_detail not in records[0].getMessage()
+    assert "docket-internal-only" not in caplog.text
+    assert r"C:\private\database.sqlite3" not in caplog.text
+
+
+@pytest.mark.parametrize("path", ["/docs", "/redoc"])
+def test_external_interactive_docs_are_disabled_without_hiding_openapi(client, path):
+    response = client.get(path)
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+    assert client.get("/openapi.json").status_code == 200
 
 
 def test_llms_txt_documents_every_path_the_spec_declares(client):
@@ -339,7 +438,9 @@ def test_agent_facing_docs_name_the_public_host(client):
         body = client.get(path).text
         assert PUBLIC_HOST in body, f"{path} does not name the public host"
         assert "no public host" not in body, f"{path} still denies a public host"
-        assert "no public deployment" not in body, f"{path} still denies a public deployment"
+        assert "no public deployment" not in body, (
+            f"{path} still denies a public deployment"
+        )
 
 
 def test_cors_advertises_only_methods_that_are_actually_served(client):
@@ -351,7 +452,9 @@ def test_cors_advertises_only_methods_that_are_actually_served(client):
             "Access-Control-Request-Method": "GET",
         },
     )
-    advertised = {m.strip() for m in preflight.headers["access-control-allow-methods"].split(",")}
+    advertised = {
+        m.strip() for m in preflight.headers["access-control-allow-methods"].split(",")
+    }
     for method in advertised:
         assert client.request(method, "/agents").status_code != 405
 

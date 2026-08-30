@@ -23,3 +23,4 @@ dist/
 # Transient cross-process coordination locks created by runner._ledger_lock and the
 # calibration session guard. One byte each, recreated on demand; never evidence.
 *.lock
+!uv.lock

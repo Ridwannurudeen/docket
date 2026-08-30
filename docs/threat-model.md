@@ -75,9 +75,15 @@ Threat: one authorization funds different work, the same nonce settles twice, a 
 changed after verification, or an ambiguous facilitator failure is retried.
 
 Controls: x402 validation binds resource, offer, asset, recipient, chain, validity window,
-nonce, and signature; SQLite atomically reserves a nonce and binds service/input; output is
-hashed before the state moves one way into `settling`; a settlement call is attempted once;
-unknown outcomes are terminal pending reconciliation rather than automatically retried.
+advertised maximum timeout, nonce, and signature; SQLite atomically reserves a nonce and binds
+service/input; output must be finite JSON and is hashed before the state moves one way into
+`settling`; a settlement call is attempted once;
+unknown outcomes are terminal rather than automatically retried. A bearer-only operator route
+can classify an unchanged in-flight row after 15 minutes. `verified` and `output_ready` are
+closed as `failed_no_charge` because the settlement boundary was never crossed; `settling`
+becomes `settlement_unknown`. Exact state-and-timestamp compare-and-swaps preserve every
+concurrent winner, and the operation never verifies, runs work, calls the facilitator, or
+retries settlement.
 
 Residual risk: a successful facilitator response is not independent chain-finality proof.
 There is no committed live settlement record. The whole path remains disabled and no stock
@@ -88,10 +94,23 @@ is admitted.
 Threat: an upstream failure, empty response, or malformed human result settles anyway.
 
 Controls: the paid branch records `failed_no_charge` before settlement on service error,
-empty result, or absent human-readable decision. Current services do not reach the paid
+empty result, non-finite/non-JSON output, or absent human-readable decision. Current services do not reach the paid
 branch because every admission is false.
 
 Residual risk: the controls have fixture coverage, not live facilitator evidence.
+
+### Cross-origin work and quota abuse
+
+Threat: a hostile browser page uses a safelisted form or `text/plain` POST to run a hire or
+probe, consume a victim's peer-address allowance, or exhaust operator recovery attempts.
+
+Controls: every mutation requires exactly one `application/json` content type before
+authentication, allowance spending, work, or state mutation. The GET-only CORS policy denies
+the preflight a browser must make for that content type. Probe accepts only the empty JSON
+object and never accepts a caller-supplied target.
+
+Residual risk: CORS is a browser boundary, not authentication for arbitrary server clients;
+public work remains protected by its peer-address limits and pinned inputs.
 
 ### Action authority expansion
 
@@ -129,9 +148,10 @@ setuptools list and names all four category packages; CI builds a wheel, install
 the checkout, asserts the import path, imports the four category packages, and POSTs the
 four routes.
 
-Residual risk: package declaration is manual, the dependency set has no lockfile, and
-data-only directories trigger setuptools ambiguity warnings even though current package
-data globs include them.
+Residual risk: package declaration is manual, and data-only directories trigger setuptools
+ambiguity warnings even though current package-data globs and isolated wheel smoke tests
+include them. `uv.lock` and hashed runtime/build requirement exports pin resolved dependencies,
+but their updates still depend on repository review.
 
 ### Secrets and operational authority
 

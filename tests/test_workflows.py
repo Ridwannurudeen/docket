@@ -16,6 +16,7 @@ looks exactly like a shell line that would work.
 
 from fnmatch import fnmatch
 from pathlib import Path
+import re
 
 import pytest
 
@@ -52,6 +53,58 @@ def test_every_step_command_survives_parsing_whole(path):
                 continue
             assert command.count('"') % 2 == 0, command
             assert command.strip(), "an empty run step does nothing but pass"
+
+
+@pytest.mark.parametrize("path", _workflow_files(), ids=lambda p: p.name)
+def test_remote_actions_are_immutable_and_workflow_permissions_are_minimal(path):
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    assert document.get("permissions") == {"contents": "read"}
+    for job in document["jobs"].values():
+        for step in job["steps"]:
+            action = step.get("uses")
+            if (
+                action is None
+                or action.startswith("./")
+                or action.startswith("docker://")
+            ):
+                continue
+            assert re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", action), (
+                f"remote action is not pinned to an immutable commit: {action}"
+            )
+
+
+def test_ci_uses_the_committed_dependency_lock_for_tests_and_wheel_smoke():
+    document = yaml.safe_load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
+    test_commands = "\n".join(
+        step["run"] for step in document["jobs"]["test"]["steps"] if "run" in step
+    )
+    package_commands = "\n".join(
+        step["run"] for step in document["jobs"]["package"]["steps"] if "run" in step
+    )
+
+    locked_bootstrap = (
+        "python -m pip install --require-hashes --only-binary=:all: "
+        "-r deploy/build-requirements.txt"
+    )
+    assert locked_bootstrap in test_commands
+    assert "uv sync --locked --extra dev" in test_commands
+    assert "--no-build" in test_commands
+    assert "--no-install-project" in test_commands
+    assert ".venv/bin/python -m pytest -q" in test_commands
+    assert locked_bootstrap in package_commands
+    assert "uv export" in package_commands
+    for flag in ("--frozen", "--no-dev", "--no-emit-project"):
+        assert flag in package_commands
+    assert "--output-file deploy/runtime-requirements.txt" in package_commands
+    assert "git diff --exit-code -- deploy/runtime-requirements.txt" in package_commands
+    assert "pip install --require-hashes" in package_commands
+    assert "--only-binary=:all:" in package_commands
+    assert "deploy/runtime-requirements.txt" in package_commands
+    assert "pip install --no-deps" in package_commands
+    assert "pip check" in package_commands
+    assert "python -m pip install uv==" not in test_commands + package_commands
+    assert "python -m pip install build==" not in test_commands + package_commands
 
 
 @pytest.mark.parametrize("path", _workflow_files(), ids=lambda p: p.name)

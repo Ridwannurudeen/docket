@@ -11,6 +11,14 @@ The application factory is `docket.api:create_app`. JSON errors have one shape:
 The root content-negotiates: a browser requesting HTML receives the landing page; a client
 requesting JSON receives the endpoint index.
 
+Every mutation accepts a JSON object and requires exactly one
+`Content-Type: application/json` header. The content-type gate runs before authentication,
+allowance spending, external work, or state mutation.
+The public CORS policy allows GET preflights only; because `application/json` is not a
+browser-safelisted request content type, a cross-origin page cannot reach a mutation after its
+preflight is denied. CLI, server-to-server, and same-origin JSON callers remain supported.
+Mutation bodies are streamed into a 1,048,576-byte application limit before JSON decoding.
+
 | Method and path | Meaning |
 |---|---|
 | `GET /health` | Process status plus the served snapshot's ID, capture time, and current age |
@@ -18,11 +26,13 @@ requesting JSON receives the endpoint index.
 | `GET /stats` | Observation counts with coverage, denominators, and the latest refresh status |
 | `GET /agents` | Paginated agents from the newest promoted complete snapshot |
 | `GET /agents/{agent_id}` | One agent, observations, coverage, and explicitly bound services |
+| `POST /agents/{agent_id}/probe` | Repeat one stored, eligible endpoint probe with no caller-supplied target |
 | `GET /categories` | Four Docket-declared jobs and service counts |
 | `GET /services` | All service cards or one typed category |
 | `GET /services/{service_id}` | Full service inputs, limitations, evidence, and identity note; HTML callers are redirected to `/service?id=...` |
 | `GET /hire` | Callable catalogue, terms, stock state, and admission booleans |
 | `POST /hire/{service_id}` | Run one service and return result plus receipt |
+| `POST /hire/{service_id}/reconcile` | Operator-only stale in-flight payment reconciliation; no external call |
 | `POST /hire/{service_id}/recover` | Recover a stored terminal result through the buyer-signed or operator-token path |
 | `GET /escrow` | ERC-8183 job template and chain terms |
 | `GET /escrow/job/{job_id}` | Read one live ERC-8183 job from chain |
@@ -73,10 +83,11 @@ route does not interpret the sequence as an outcome caused by an owner decision.
 `GET /categories` returns a `declaration` explaining that a category is Docket's statement
 about a service it runs. ERC-8004 does not supply that classification.
 
-`GET /services` exposes `agent_id` and an `identity` string. The four category services
-have no registered identity. SOLVENT alone is bound to
-`56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:136384`. A missing identity is returned as
-missing rather than inferred from owner or endpoint similarity.
+`GET /services` exposes `agent_id` and an `identity` string. Range Doctor, Grid Operator,
+Yield Router, and Health Guard are bound to BSC registry agents 311253, 311255, 311257, and
+311259 respectively; SOLVENT is bound to agent 136384. Warden remains explicitly unbound.
+A binding records identity, not endorsement, paid admission, execution, or result quality;
+an identity absent from the served snapshot has no invented `/agents` cross-link.
 
 ## Catalogue and admission
 
@@ -125,8 +136,11 @@ returns:
 }
 ```
 
-The hashes are canonical SHA-256 object identities from `docket.hire.receipts`. They bind
-the delivered request and result, not truth, endorsement, or finality.
+The hashes are SHA-256 over finite canonical JSON from `docket.hire.receipts`: sorted keys,
+compact separators, UTF-8, `ensure_ascii=False`, and `allow_nan=False`. They bind the
+delivered request and result, not truth, endorsement, or finality. A non-finite or otherwise
+non-JSON service output is rejected before receipt delivery and, on the paid branch, before
+settlement.
 
 If a public caller supplies a payment header to an unadmitted service, the service still
 runs but the receipt says `not_for_sale`, includes `stock_status`, and sets
@@ -169,7 +183,7 @@ amount/asset/recipient, and the B402 RelayerV3
 3. BSC chain, supported USDT asset, and the RelayerV3 EIP-712 domain.
 4. Signed token, exact recipient, and exact amount.
 5. Canonical seven-field authorization and 32-byte nonce.
-6. `validAfter <= now <= validBefore`.
+6. `validAfter <= now <= validBefore <= now + maxTimeoutSeconds`.
 7. Signature recovery to the declared payer.
 
 The selected `b402` adapter sends no `x402Version` to the facilitator. Its body is
@@ -183,6 +197,8 @@ RelayerV3 proxy as spender before verification can pass.
 After facilitator verification, the store atomically binds nonce, payment ID, service,
 recipient, asset, amount, resource, and input hash. The result and output hash are persisted
 before a one-way transition to `settling`. The facilitator's `/settle` call is made once.
+Every mutation body is streamed into an application-enforced 1,048,576-byte maximum before
+JSON decoding; nginx is a matching outer bound, not the only enforcement.
 
 Outcomes are intentionally terminal:
 
@@ -191,9 +207,13 @@ Outcomes are intentionally terminal:
 | `settled` | Facilitator returned success, transaction, network, and matching payer |
 | `settlement_unknown` | Call returned no usable result; Docket will not retry automatically |
 | `settlement_failed` | Facilitator refused settlement; authorization cannot be replayed |
-| `failed_no_charge` | Work failed/empty before settlement; authorization cannot be replayed |
+| `failed_no_charge` | Work failed, was empty, or was not finite JSON before settlement; authorization cannot be replayed |
 | `authorization_replay` | Nonce is bound to different work, or an exact identical authorization already settled |
 | `authorization_spent` | Prior attempt reached a terminal state |
+
+Facilitator `invalidReason` and settlement `errorReason` values are never copied into public
+responses. A settlement refusal's diagnostic remains in the private payment row; no row is
+reserved for a facilitator verification rejection because no verified payment exists yet.
 
 A `settled` receipt is evidence of the configured facilitator response. It is not an
 independent receipt lookup or chain-finality proof. No committed Docket receipt has this
@@ -222,8 +242,10 @@ Only `settled` and `settlement_unknown` rows return `200` with the standard
 `{"result": ..., "receipt": ...}` envelope. A settled row returns its stored receipt. A
 `settlement_unknown` row returns the stored result and the hash-bound receipt persisted when
 that state was recorded; the receipt does not claim a transaction ID. Repeated recoveries
-therefore return the same delivery timestamp. Recovery never calls the service, facilitator
-verification, or settlement again.
+therefore return the same delivery timestamp. Before delivery, recovery matches the receipt's
+service, input hash, output hash, status and payment fields to the row; a settled receipt must
+also carry the exact non-empty stored transaction ID and network. Recovery never calls the
+service, facilitator verification, or settlement again.
 
 Recovery attempts are limited separately to 10 per minute by `request.client.host`; exhaustion
 returns `429 recovery_rate_limited` and `Retry-After`. This protects the buyer path's signature
@@ -238,10 +260,37 @@ the expired buyer signature. This path does not change settlement state or call 
 service. A rejected bearer returns `401 operator_unauthorized`. Without that bearer, the buyer
 path and its signed-window constraint are unchanged.
 
+### Operator crash reconciliation
+
+`POST /hire/{service_id}/reconcile` is bearer-only and accepts `{"nonce":"0x..."}`. It handles
+the three durable crash gaps: `verified` after nonce reservation, `output_ready` after result
+persistence, and `settling` after the one-way settlement boundary. A row must remain unchanged
+in one of those states for at least 15 minutes, measured from its stored `updated_at`, before it
+is eligible.
+
+For `verified` and `output_ready`, the store performs a compare-and-swap requiring the observed
+state and timestamp, the age cutoff, absent transaction/network/receipt fields, and the state
+appropriate result fields. It writes terminal `failed_no_charge`. The response confirms the
+prior state and that no charge was attempted or result delivered; it is not a receipt, and an
+internally stored `output_ready` result remains unavailable through recovery.
+
+For `settling`, the store performs the existing compare-and-swap requiring the observed
+timestamp, age cutoff, and absent transaction/network fields. It writes `settlement_unknown`,
+a diagnostic, `operator_recovered_at`, and a receipt assembled from the stored service, input
+hash, output hash, result, resource and payment fields. That receipt does not claim settlement
+or a transaction. A concurrent state transition cannot be overwritten in either branch.
+
+Reconciliation never verifies or resends payment material, runs the service, calls the
+facilitator, or retries settlement. The original call may have reached the facilitator before
+the crash, so its receipt states only that no *additional* external call was made and that the
+prior outcome remains unknown. A reconciled `settling` row returns the standard stored-result
+envelope and remains recoverable; reconciled pre-settlement rows return only the terminal
+payment confirmation.
+
 An unknown nonce returns `404 payment_not_found`; malformed or locally invalid payment
 material returns `400 payment_invalid`; a different service or body returns
-`409 authorization_mismatch`; any other stored lifecycle state returns
-`409 payment_not_recoverable`.
+`409 authorization_mismatch`; any terminal or otherwise unsupported lifecycle state returns
+`409 payment_not_reconcilable`.
 
 ## ERC-8183 escrow
 
@@ -260,6 +309,7 @@ package has no artifact showing Docket created, funded, delivered, or settled a 
 
 ## Failure boundaries
 
+- Missing, duplicate, or non-JSON mutation content type: `415 unsupported_media_type`.
 - Invalid/non-object JSON: `400 invalid_json`.
 - Hire allowance exhausted without an available payment route: `429 hire_rate_limited`.
 - Hire allowance exhausted with payment available: `429 free_tier_exhausted`, with
