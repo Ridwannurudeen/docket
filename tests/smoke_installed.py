@@ -3,6 +3,8 @@
 import os
 import tempfile
 from dataclasses import replace
+from datetime import datetime, timezone
+from importlib.metadata import version
 from pathlib import Path
 
 import docket
@@ -14,12 +16,19 @@ from fastapi.testclient import TestClient
 
 from docket.api import create_app
 from docket.hire import catalogue
+from docket.identity import register
 
 WORKSPACE = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
 INSTALLED_PACKAGE = Path(docket.__file__).resolve()
 assert not INSTALLED_PACKAGE.is_relative_to(WORKSPACE), (
     f"smoke imported the checkout at {INSTALLED_PACKAGE}, not the installed wheel"
 )
+
+registration = register.build_registration_json(
+    catalogue.SERVICES["range-doctor"],
+    clock=lambda: datetime(2026, 8, 30, tzinfo=timezone.utc),
+)
+assert registration["version"] == version("docket")
 
 PAYLOADS = {
     "range-doctor": {"wallet": "0x0000000000000000000000000000000000000001"},

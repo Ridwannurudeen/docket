@@ -202,6 +202,21 @@ def test_registration_document_adds_the_minted_identity_without_changing_its_url
     ]
 
 
+def test_source_checkout_registration_version_matches_pyproject(monkeypatch):
+    def missing_distribution(_name: str):
+        raise register.PackageNotFoundError("docket")
+
+    monkeypatch.setattr(register, "version", missing_distribution)
+    with (ROOT / "pyproject.toml").open("rb") as handle:
+        project_version = tomllib.load(handle)["project"]["version"]
+
+    generated = register.build_registration_json(
+        SERVICES["range-doctor"], clock=_document_clock
+    )
+
+    assert generated["version"] == project_version
+
+
 def test_bound_service_identities_match_committed_chain_evidence():
     evidence = json.loads(IDENTITY_EVIDENCE.read_text(encoding="utf-8"))
     facts = {fact["service_id"]: fact for fact in evidence["services"]}

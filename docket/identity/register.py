@@ -7,10 +7,11 @@ and prints the transaction fields for the owner. It has no transaction-submissio
 import argparse
 import hashlib
 import json
+import tomllib
 from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import httpx
@@ -186,6 +187,17 @@ def build_registration_json(
         raise ValueError(
             "registration document clock must return a timezone-aware datetime"
         )
+    try:
+        project_version = version("docket")
+    except PackageNotFoundError:
+        with (
+            Path(__file__)
+            .resolve()
+            .parents[2]
+            .joinpath("pyproject.toml")
+            .open("rb") as handle
+        ):
+            project_version = tomllib.load(handle)["project"]["version"]
     registrations = []
     if agent_id is not None:
         bind_agent_id(service.id, agent_id)
@@ -203,7 +215,7 @@ def build_registration_json(
         "url": service_url,
         "image": REGISTRATION_IMAGE,
         "active": True,
-        "version": version("docket"),
+        "version": project_version,
         "agent_type": record.category.value,
         "categories": [record.category.value],
         "tags": [service.id, "bsc", "erc-8004"],
