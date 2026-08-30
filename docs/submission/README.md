@@ -36,17 +36,18 @@ a published §10 result—show Warden recall 4/8 (0.50) versus manual 6/8 (0.75)
 4/4 (1.00) versus 6/8 (0.75), 12/12 versus 11/12 valid scans, three Warden critical
 failures, 11/12 complete pairs, a 27.86-second median saving, and a 0.0610434 median
 agent/manual ratio. Missing rubric medians prevent a complete falsifier evaluation, so the
-report publishes neither `refuted` nor `not_refuted`. At the 2026-08-28 committed-artifact
-observation, v3-02 Yield and v3-05 Range are `locked_not_run`, with locked inputs and no
-claimed primaries; v3-01 Range and v3-03 Warden remain
-`superseded_before_input_lock`.
+report publishes neither `refuted` nor `not_refuted`. At the 2026-08-30 live-report
+observation, v3-01 Range and v3-03 Warden are `superseded_before_input_lock`; v3-02
+Yield is `abandoned_after_failed_primary`; v3-04 Warden is `complete_unscored`; v3-05
+Range is `locked_not_run`; and v3-06 assisted Yield is
+`registered_waiting_for_inputs`.
 
 The registry snapshot is refreshed unattended every six hours by the [recorded timer and pipeline](../operational-evidence.md#the-registry-snapshot-is-no-longer-stale-and-it-moved-without-a-restart), while the live [Stats page](https://docket.gudman.xyz/stats) exposes the capture timestamp and current age so a judge does not have to accept a freshness claim on faith. All 4 of 4 category cards carry a recorded run and identify its evidence modality in the [catalogue response](https://docket.gudman.xyz/services).
 
 ## Limits that remain
 
-- No service is in paid stock, so the public flow demonstrates activation and delivery but not paid settlement; all 6 of 6 catalogue entries expose `paid_stock: false` in the [live service response](https://docket.gudman.xyz/services).
-- No settlement has run; the current operational state records that limit in the [operational evidence](../operational-evidence.md).
+- No service is in paid stock, so a visitor cannot buy a public hire; all 6 of 6 catalogue entries expose `paid_stock: false` in the [live service response](https://docket.gudman.xyz/services).
+- Exactly one owner-approved Range Doctor canary settled 0.50 USDT on 2026-08-30 and rejected the identical signed request as a replay. That private bootstrap proves one payment lifecycle, not public paid inventory; the [dated operational evidence](../operational-evidence.md#collected-2026-08-30--approved-settlement-canary-and-current-state) keeps that boundary explicit.
 - Four category identities were minted on BSC on 2026-08-28 UTC: Range Doctor 311253, Grid Operator 311255, Yield Router 311257, and Health Guard 311259. At the recorded observation, all four were owned by `0xe55816904796341bf8535e25f6c8b647927fc946`; the exact blocks, transactions, and token URIs are in the [committed chain evidence](../erc8004-category-identities.json).
 - Each on-chain token URI names that service's published [Range](https://docket.gudman.xyz/registrations/range-doctor.json), [Grid](https://docket.gudman.xyz/registrations/grid-operator.json), [Yield](https://docket.gudman.xyz/registrations/yield-router.json), or [Health](https://docket.gudman.xyz/registrations/health-guard.json) document. Registration is not endorsement, evidence of paid stock, or evidence that a service produced a result; `warden-scan` remains unbound.
 - The public [LP record](https://docket.gudman.xyz/lp-record) contains 14 rows: 13 observations and the owner's 2026-08-24 `WAIT` decision. The decision links to its prior observation, and the Aug 25-27 observations link back to it. This proves record linkage, not causal improvement, realized return, or that Docket caused the choice; the [evidence schema](../controlled-lp-evidence.md) defines the link.

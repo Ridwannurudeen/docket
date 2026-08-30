@@ -137,15 +137,18 @@ Three adjacent limits are also explicit:
 
 - Every service currently reports `paid_stock: false`
   ([live services](https://docket.gudman.xyz/services)).
-- No settlement has occurred
-  ([operational evidence](../operational-evidence.md#what-this-evidence-does-not-establish-1)).
+- One owner-approved Range Doctor canary settled exactly 0.50 USDT on 2026-08-30 and
+  rejected the identical signed request as a replay. This was a private bootstrap, not
+  public paid inventory
+  ([operational evidence](../operational-evidence.md#collected-2026-08-30--approved-settlement-canary-and-current-state)).
 - `v3-04-warden-security` is `complete_unscored`: 24/24 primaries are terminal (23
   succeeded; one manual input-format failure), but seat B returned no first scoring
   response and retry or substitution is forbidden. Frozen-label formulas show manual
   recall at 0.75 versus Warden at 0.50 and three Warden critical failures. At the
-  2026-08-28 committed-artifact observation, v3-02 and v3-05 are `locked_not_run`, with
-  locked inputs and no claimed primaries; v3-01 and v3-03 remain
-  `superseded_before_input_lock`
+  2026-08-30 live-report observation, v3-01 and v3-03 are
+  `superseded_before_input_lock`, v3-02 is `abandoned_after_failed_primary`, v3-04 is
+  `complete_unscored`, v3-05 is `locked_not_run`, and v3-06 is
+  `registered_waiting_for_inputs`
   ([live v3 report](https://docket.gudman.xyz/advantage/v3.json)).
 
 ## Adoption
@@ -161,9 +164,8 @@ stock today
 
 What can be adopted now is the evidence-first marketplace contract: category discovery, explicit
 activation inputs, identity context, current observations, bounded metrics, and visible limits.
-The four identity broadcasts are complete; deploying this newer binding commit and building a
-governed provider-listing path remain separate work, and this page does not describe either as
-already deployed or complete
+The four identity broadcasts and live service bindings are complete; building a governed
+provider-listing path remains separate work, and this page does not describe it as complete
 ([joint audit BNB alignment](../deliberation/JOINT-AUDIT-2026-08-22.md#bnb-main-track--the-marketplace-itself-not-a-portfolio-of-agents)).
 
 ## Claims checklist
@@ -186,6 +188,6 @@ already deployed or complete
 | BNB-12 | The four Docket-run category services are BSC ERC-8004 agents 311253, 311255, 311257, and 311259 at mint blocks 118559596, 118559736, 118559820, and 118559871; all four had the recorded owner `0xe55816904796341bf8535e25f6c8b647927fc946`. | [Chain evidence](../erc8004-category-identities.json), [bindings](../../docket/marketplace/registry.py) |
 | BNB-13 | Each category identity's token URI names its published service document, and each committed document carries the corresponding chain-56 registration entry. | [Range](https://docket.gudman.xyz/registrations/range-doctor.json), [Grid](https://docket.gudman.xyz/registrations/grid-operator.json), [Yield](https://docket.gudman.xyz/registrations/yield-router.json), [Health](https://docket.gudman.xyz/registrations/health-guard.json), [committed files](../../docket/api/static/agents/) |
 | BNB-14 | The preparation CLI remains keyless and plan-only; the completed owner broadcasts occurred outside it. Registration is not endorsement, paid-stock evidence, or evidence of a service result, and `warden-scan` remains unbound. | [CLI source](../../docket/identity/register.py), [tests](../../tests/test_identity_register.py), [chain evidence](../erc8004-category-identities.json) |
-| BNB-15 | No service is paid stock and no settlement has occurred. `v3-04-warden-security` is `complete_unscored`: 24/24 primaries are terminal, but a missing first seat-B response leaves rubric quality permanently unscored; formula limbs include Warden recall 0.50 versus manual 0.75 and three Warden critical failures. | [Services](https://docket.gudman.xyz/services), [operational evidence](../operational-evidence.md#what-this-evidence-does-not-establish-1), [v3](https://docket.gudman.xyz/advantage/v3.json) |
+| BNB-15 | No service is paid stock. One owner-approved Range Doctor canary settled 0.50 USDT on 2026-08-30 and rejected the identical replay; it did not open public inventory. `v3-04-warden-security` is `complete_unscored`: 24/24 primaries are terminal, but a missing first seat-B response leaves rubric quality permanently unscored; formula limbs include Warden recall 0.50 versus manual 0.75 and three Warden critical failures. | [Services](https://docket.gudman.xyz/services), [canary](https://docket.gudman.xyz/canary), [v3](https://docket.gudman.xyz/advantage/v3.json) |
 | BNB-16 | The site is reachable now, while judging-window availability is still an operational obligation. | [Health](https://docket.gudman.xyz/health), [BNB gate](../deliberation/2026-08-14-BRIEFING-V2.md#11-bnb-chain--main-track-30000--adoption) |
 | BNB-17 | Category stock is committed in code and no third-party self-listing workflow exists today. | [Inventory](../../docket/marketplace/registry.py), [routes](../../docket/api/routes.py) |

@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "docs" / "claims-to-evidence.md"
+EVIDENCE_REPRODUCTION = ROOT / "docs" / "evidence-reproduction.md"
 FILE_CITATION = re.compile(
     r"\bfile `([^`\n]+)` SHA-256 `([0-9a-f]{64})`", re.IGNORECASE
 )
@@ -24,6 +25,15 @@ JUDGE_FACING_DOCUMENTS = (
     ROOT / "docket/api/static/SKILL.md",
     ROOT / "docket/api/web/advantage-v3.html",
 )
+CURRENT_SETTLEMENT_DOCUMENTS = (
+    ROOT / "README.md",
+    ROOT / "docs/api-and-payment-semantics.md",
+    ROOT / "docs/claims-to-evidence.md",
+    ROOT / "docs/deployment-runbook.md",
+    ROOT / "docs/evidence-reproduction.md",
+    ROOT / "docs/source-deploy-manifest.md",
+    *(sorted((ROOT / "docs/submission").glob("*.md"))),
+)
 
 
 def _tracked_sha256() -> dict[str, str]:
@@ -41,7 +51,9 @@ def _tracked_sha256() -> dict[str, str]:
 
 def _missing_file_citations(ledger: str, tracked: dict[str, str]) -> list[str]:
     return sorted(
-        path for path, digest in FILE_CITATION.findall(ledger) if tracked.get(path) != digest
+        path
+        for path, digest in FILE_CITATION.findall(ledger)
+        if tracked.get(path) != digest
     )
 
 
@@ -70,7 +82,9 @@ def test_file_citation_is_bound_to_its_path():
 
 
 def test_publication_blocks_ignore_fenced_reproduction_commands():
-    document = """Prose naming v3-04-warden-security.\n\n```text\ndocket.advantage.v3\n```"""
+    document = (
+        """Prose naming v3-04-warden-security.\n\n```text\ndocket.advantage.v3\n```"""
+    )
 
     assert _publication_blocks(document) == ["Prose naming v3-04-warden-security."]
 
@@ -85,6 +99,33 @@ def test_every_claimed_file_sha256_resolves_to_a_tracked_file():
         "claims-to-evidence.md cites tracked files whose SHA-256 does not match: "
         + ", ".join(missing)
     )
+
+
+def test_evidence_reproduction_lists_all_current_v3_families():
+    document = EVIDENCE_REPRODUCTION.read_text(encoding="utf-8")
+
+    assert "V3 has exactly six stage-one specifications:" in document
+    for spec_path in sorted((ROOT / "docket/advantage/v3/specs").glob("*.json")):
+        assert spec_path.stem in document
+    assert "V3-02 and v3-05 have no claimed primaries" not in document
+
+
+def test_current_claims_do_not_erase_the_approved_settlement_canary():
+    stale_claims = (
+        "No settlement has occurred",
+        "No settlement has run",
+        "never been exercised live",
+        "settlement legs remain `not_yet_exercised`",
+    )
+
+    violations = []
+    for path in CURRENT_SETTLEMENT_DOCUMENTS:
+        document = path.read_text(encoding="utf-8")
+        for claim in stale_claims:
+            if claim.lower() in document.lower():
+                violations.append(f"{path.relative_to(ROOT)}: {claim}")
+
+    assert violations == [], "\n".join(violations)
 
 
 def test_v3_04_never_cooccurs_with_a_false_agent_advantage_claim():

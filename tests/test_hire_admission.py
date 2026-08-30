@@ -54,6 +54,23 @@ def test_a_fresh_passed_canary_opens_the_cold_canary_limb():
     assert admission.passes is True
 
 
+def test_range_settlement_fact_survives_dynamic_canary_resolution():
+    service = get_service("range-doctor")
+
+    fresh = resolve_admission(service, _passed_run(NOW - timedelta(hours=1)), now=NOW)
+    stale = resolve_admission(
+        service,
+        _passed_run(NOW - timedelta(seconds=CANARY_MAX_AGE_SECONDS + 1)),
+        now=NOW,
+    )
+
+    assert service.admission.true_settlement is True
+    assert fresh == PaidStockAdmission(False, True, True, True)
+    assert stale == PaidStockAdmission(False, False, True, True)
+    assert fresh.passes is False
+    assert stale.passes is False
+
+
 def test_the_canary_is_still_fresh_at_the_exact_expiry_boundary():
     finished_at = NOW - timedelta(seconds=CANARY_MAX_AGE_SECONDS)
 

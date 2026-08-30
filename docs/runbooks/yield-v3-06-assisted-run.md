@@ -253,7 +253,10 @@ same family object served by /advantage/v3.json:
     scoring.publish_mapping(spec, bundle, root / 'docket/advantage/v3/sheets', root / 'docket/advantage/v3/mappings', repo_root=root)
     payload = report.report()
     family = next(row for row in payload['families'] if row['spec_id'] == spec.spec_id)
-    assert family['state'] == 'complete_scored'
+    expected_terminal = (
+        'refuted' if family['falsifier_result']['refuted'] else 'not_refuted'
+    )
+    assert family['state'] == expected_terminal
     print(json.dumps({
         'state': family['state'],
         'calibration': family['calibration'],
@@ -264,6 +267,9 @@ same family object served by /advantage/v3.json:
         'falsifier_result': family['falsifier_result'],
     }, indent=2, sort_keys=True))
     '@ | .\.venv\Scripts\python.exe -
+
+`refuted` is an honest completed result, not a failed closeout. `not_refuted` means only that
+the registered falsifier did not fire; it is not proof of the claim.
 
 Review the exact ledger, calibration captures, score sheets, mapping and report before
 requesting owner approval to commit or deploy them. This runbook does not authorize a push,

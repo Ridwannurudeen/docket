@@ -34,7 +34,9 @@ their hashes; a **frozen label** is a hostile/benign answer fixed before evaluat
 absent. `superseded_before_input_lock` means a later registration replaced the family before
 exact inputs were locked, so neither arm ran.
 
-- No service is in paid stock, and no settlement has run.
+- No service is in paid stock. One owner-approved Range Doctor canary settled exactly
+  0.50 USDT on 2026-08-30 and rejected the identical signed request as a replay; that
+  private bootstrap did not open public paid inventory.
 - The four category services now have BSC ERC-8004 registrations, but registration is
   not endorsement, evidence of paid stock, or evidence that a service produced a result;
   `warden-scan` remains unbound.
@@ -69,10 +71,11 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
 - **C-02.** No Docket service is paid stock today: Range Doctor is a candidate; Grid
   Operator, Yield Router, and Health Guard are previews; SOLVENT is research; and Warden
   is beta.
-- **C-03.** The exact x402 settlement path is implemented but disabled by default and,
-  according to the owner, has never been exercised live; the repository contains no
-  settled receipt or settlement transaction.
-- **C-04.** The v3 paired report has five stage-one specifications and one terminal family:
+- **C-03.** On 2026-08-30, exactly one owner-approved Range Doctor canary settled
+  0.50 USDT and the identical signed request was then rejected with
+  `409 authorization_replay`. This proves one private canary payment lifecycle, not public
+  paid stock: all six services still report `paid_stock=false`.
+- **C-04.** The v3 paired report has six families and one completed family:
   `v3-04-warden-security` is `complete_unscored` with `score_sheets_missing` after all 24
   primaries became terminal (23 succeeded; manual `w4-ho-01` failed). Seat B returned no
   first scoring response, and the registered no-retry/no-substitution rule makes rubric
@@ -80,9 +83,12 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
   (0.50) versus manual 6/8 (0.75), Warden precision 4/4 (1.00) versus manual 6/8 (0.75),
   12/12 versus 11/12 valid scans, three Warden critical failures, 11/12 complete pairs, a
   27.86-second median saving, and a 0.0610434 median agent/manual ratio. With no rubric
-  medians, no registered falsifier verdict exists. At the 2026-08-28 committed-artifact
-  observation, v3-02 Yield and v3-05 Range are `locked_not_run`, with locked inputs and no
-  claimed primaries; v3-01 Range and v3-03 Warden are `superseded_before_input_lock`.
+  medians, no registered falsifier verdict exists. At the 2026-08-30 live-report
+  observation, `v3-01-range-doctor` and `v3-03-warden-security` are
+  `superseded_before_input_lock`; `v3-02-yield-router` is
+  `abandoned_after_failed_primary`; `v3-04-warden-security` is `complete_unscored`;
+  `v3-05-range-doctor` is `locked_not_run`; and `v3-06-yield-router-assisted` is
+  `registered_waiting_for_inputs`.
 - **C-05.** SOLVENT is halted and is presented as historical research evidence, not paid
   inventory; its one ERC-8004 identity is agent 136384 on BSC.
 - **C-06.** Range Doctor's recorded v1 run covered a wallet with 14 positions, 13 closed,
@@ -204,7 +210,7 @@ the installed v3 JSON, HTML, and agent-facing documentation.
   `docket/advantage/experiments/`. Every recorded payment status is `free_tier`.
 - V2 stores its corpora, registered specifications, completed runs, null baselines, and
   computed falsifiers under `docket/advantage/v2/`.
-- V3 stores five stage-one specifications plus the claim-once runner, prompt-blinded
+- V3 stores six stage-one specifications plus the claim-once runner, prompt-blinded
   scoring, report builder, and served page under `docket/advantage/v3/`. v3-04 Warden binds
   `inputs_sha256=23b09164c6940848ac109f05db3f7342f46a0bad71c17ebc9cac53dd4f8fc4e6`.
   Both calibration seats passed on their first attempt at 8/8 decisions, 8/8 verdicts,
@@ -222,9 +228,10 @@ the installed v3 JSON, HTML, and agent-facing documentation.
   11/12 complete pairs, median saving 27.86 seconds, and median agent/manual ratio
   0.0610434. Warden missed its recall, zero-critical, complete-pair, and median-saving
   limbs. Missing rubric medians prevent a complete falsifier evaluation, so the report
-  publishes neither `refuted` nor `not_refuted`. At the 2026-08-28 committed-artifact
-  observation, v3-02 and v3-05 are `locked_not_run`, with locked inputs and no claimed
-  primaries; v3-01 and v3-03 remain `superseded_before_input_lock`.
+  publishes neither `refuted` nor `not_refuted`. At the 2026-08-30 live-report
+  observation, v3-01 and v3-03 are `superseded_before_input_lock`, v3-02 is
+  `abandoned_after_failed_primary`, v3-04 is `complete_unscored`, v3-05 is
+  `locked_not_run`, and v3-06 is `registered_waiting_for_inputs`.
 
 Do not describe the v3 Git sequence as externally preregistered. A checkable witness would
 require the exact registration commit to be anchored outside the owner's control before

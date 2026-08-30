@@ -9,18 +9,43 @@ remains unanchored.
 |---|---|
 | Package | `docket` |
 | Version | `0.1.0` |
-| Python | `>=3.11`; CI uses 3.12 |
+| Python | Source requires `>=3.11`; current production runtime is Python `3.12.3` |
 | Application factory | `docket.api:create_app` |
 | Builder base commit | `731dcb3d3fe1267546c96fd73118a3b34d58b7b3` |
-| Release source commit | `534af826575a3c316eaace03b5e41ab077d4c253` — remote-reachable from `origin/docs/deliberation-round2`, see below |
-| Release wheel digest | `b8c9a257c9ab3acab111b87d2507153b7d0a7bd54a41ef9110a2a57c88758beb` |
+| Source base observed before this update | Local `main` and `origin/main` at `3b9e03715af9fd973b85cefec891b1e97cba85a5` |
+| Current production release commit | `b8b6ed76313dc6b469a3edd1f988256a818bde3b` |
+| Current production wheel | `docket-0.1.0-py3-none-any.whl`; SHA-256 `7049542f9f87b82991eced449a20261d3f29c8f93352ac1721702fbe6767ae6a` |
+| Current production runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
 | Repository visibility | Public (verified 2026-08-28) |
-| Historical deployment record | Builder-collected as performed 2026-08-16T12:20Z to `docket.gudman.xyz`; covers no later commit |
-| Identity in that historical record | Builder-collected commit and wheel values — see "Historical deployed identity" |
-| Live settlement transaction | Missing. Settlement is built, disabled, and has never run. |
+| Current deployment record | Builder-collected 2026-08-30 from `docket.gudman.xyz`; see "Current deployed identity" |
+| Historical deployment record | Builder-collected as performed 2026-08-16T12:20Z to `docket.gudman.xyz`; preserved below and covers no later commit |
+| Approved settlement canary | Run 18 settled exactly 0.50 USDT once and rejected the identical replay; all six services remain `paid_stock=false` |
+| Recorded settlement transaction | `0x0a036066db0ccbde6eeb8d333e5747e549a61f251935fe8abceaf13b681a1258` — private canary evidence, not public paid inventory or independent finality proof |
 
 The base commit identifies the tree before the public-package change. It does not identify
 the release and must not be used as a deployment hash.
+
+## Current deployed identity — builder-collected 2026-08-30 record
+
+These values were read from the host's release identity files and interpreter. They are
+builder-collected operational evidence, not a signed or independently anchored attestation.
+
+| Field | Value |
+|---|---|
+| Host | `docket.gudman.xyz` |
+| `RELEASE-commit.txt` | `b8b6ed76313dc6b469a3edd1f988256a818bde3b` |
+| Wheel filename | `docket-0.1.0-py3-none-any.whl` |
+| Wheel SHA-256 | `7049542f9f87b82991eced449a20261d3f29c8f93352ac1721702fbe6767ae6a` |
+| Runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
+| Runtime Python | `3.12.3` |
+| Canary timer | disabled and inactive |
+
+This reviewed working tree is based on
+`3b9e03715af9fd973b85cefec891b1e97cba85a5`, which is one source-only commit after the
+deployed release. Do not describe production as running that base or this working-tree
+revision. The approved run-18 payment evidence and the boundary that public stock remains
+closed are recorded in
+[`operational-evidence.md`](operational-evidence.md#collected-2026-08-30--approved-settlement-canary-and-current-state).
 
 ## Historical deployed identity — builder-collected 2026-08-16 record
 

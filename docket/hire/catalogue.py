@@ -118,7 +118,9 @@ def _benchmark_family(service_id: str, payload: dict) -> dict | None:
             f"v3 family {spec_id} is registered for {registered_service}, not {service_id}"
         )
     if family["state"] == v3_report.SUPERSEDED_BEFORE_INPUT_LOCK:
-        raise RuntimeError(f"v3 family {spec_id} is superseded and cannot benchmark a hire")
+        raise RuntimeError(
+            f"v3 family {spec_id} is superseded and cannot benchmark a hire"
+        )
     return family
 
 
@@ -180,7 +182,9 @@ def _measured_value(service_id: str, elapsed: float) -> dict:
         if state == v3_report.REGISTERED_WAITING:
             reason = f"The v3 paired family {spec_id} has no locked inputs."
         elif state == v3_report.LOCKED_NOT_RUN:
-            reason = f"The v3 paired family {spec_id} has locked inputs but has not run."
+            reason = (
+                f"The v3 paired family {spec_id} has locked inputs but has not run."
+            )
         elif state == v3_report.RUNNING:
             reason = f"The v3 paired family {spec_id} is still running."
         elif state == v3_report.COMPLETE_UNSCORED:
@@ -193,7 +197,9 @@ def _measured_value(service_id: str, elapsed: float) -> dict:
                 f"The v3 paired family {spec_id} was abandoned after a failed primary."
             )
         else:
-            raise RuntimeError(f"v3 family {spec_id} has unknown benchmark state {state}")
+            raise RuntimeError(
+                f"v3 family {spec_id} has unknown benchmark state {state}"
+            )
         return _unavailable_measured_value(elapsed, state, reason)
     except Exception as exc:
         return _unavailable_measured_value(
@@ -226,9 +232,10 @@ class PaidStockAdmission:
 
 
 NO_PAID_ADMISSION = PaidStockAdmission(False, False, False, False)
-RANGE_ADMISSION = PaidStockAdmission(False, False, True, False)
-# Warden shares Range's position: a decision-grade presenter exists, and the other three
-# limbs are owner-gated or wait on a run that has not happened.
+# The approved 2026-08-30 canary proved one exact settlement, a complete bound result and
+# replay rejection. The paired benchmark remains false, so Range is still not paid stock.
+RANGE_ADMISSION = PaidStockAdmission(False, False, True, True)
+# Warden has a decision-grade presenter; its other three limbs remain false.
 WARDEN_ADMISSION = PaidStockAdmission(False, False, True, False)
 # Grid, Yield and Health each gained a decision-grade presenter. The limb is per service and
 # is the only one of the four they hold: none has a paired benchmark, a passing cold canary

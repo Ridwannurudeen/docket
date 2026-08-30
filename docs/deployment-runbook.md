@@ -1,8 +1,8 @@
 # Deployment and operations runbook
 
-This is a release procedure, not evidence that a deployment occurred. This build did not
-push, deploy, change repository visibility, enable settlement, broadcast a transaction, or
-write `data/agents.sqlite3`.
+This is a release procedure, not evidence that any particular source revision was deployed.
+Use the source/deploy manifest and dated operational evidence for deployment and settlement
+claims; do not infer them from the presence of a command in this runbook.
 
 ## Release gates
 
@@ -377,7 +377,7 @@ observed gas price; the facilitator bears the settlement gas. Fund the payer wit
 `0.001 BNB` as the operational floor, leaving more than six times that whole-chain comparison
 for a higher gas price, a replacement, or a second bounded approval.
 
-The full-window funding instruction is therefore exactly `15.0 USDT` plus `0.001 BNB` on
+The 2026-08-24 full-window funding plan was therefore exactly `15.0 USDT` plus `0.001 BNB` on
 BSC to `0x4821b5445f1cE8328806f83bAfBdBE7D668E6fd3`. To stage the proof first, `2.0 USDT`
 plus the same `0.001 BNB` covers four exact hires; it does not fund the 30-run window. After
 funding, refresh the nonce, gas price, and estimate if the payer has sent any transaction,
@@ -385,7 +385,21 @@ then sign and broadcast one bounded approval with owner tooling. Docket has no s
 broadcast command. Confirm balance, allowance, whitelist, pause state, bytecode, and domain
 with signature-free chain calls. The optional signed preflight above additionally confirms
 facilitator verification, but requires its own approval because it creates another live
-authorization.
+authorization. This was a funding plan, not approval to start a recurring schedule.
+
+### Approved canary executed on 2026-08-30
+
+Exactly one owner-approved Range Doctor canary was started. Run 18 settled
+`500000000000000000` atomic units, or 0.50 USDT, and the identical signed request was
+rejected with `409 authorization_replay`; all eight canary legs passed. The post-canary
+source records Range Doctor's `true_settlement` and `decision_grade_presenter` limbs as
+true, while `fresh_paired_benchmark=false` keeps `paid_stock=false`. The deployed
+`b8b6ed7` runtime predates that static admission update and still reports
+`true_settlement=false`; no deployment is scheduled before the Sep 3 capture.
+
+The canary timer is disabled and inactive. Do not run another canary, enable the timer, or
+treat the remaining allowance or balance as permission for another payment without fresh
+owner approval.
 
 The deployed signer must serialize its 65-byte EIP-712 signature with the `0x` prefix expected
 by the facilitator. A prefix-less build returns `signature_error` before the facilitator reads
@@ -477,8 +491,10 @@ The tracked deployment units are:
 - `deploy/systemd/docket-canary.timer`
 - `deploy/docket-canary.conf.example`
 
-The timer runs once daily at 04:17 UTC with up to 30 minutes of randomized delay and catches
-one missed run after downtime. A oneshot cannot overlap another activation of the same unit,
+When explicitly enabled, the timer is configured to run once daily at 04:17 UTC with up to
+30 minutes of randomized delay and catches one missed run after downtime. It is currently
+disabled and inactive after the one approved 2026-08-30 activation. A oneshot cannot overlap
+another activation of the same unit,
 does not retry, yields CPU and IO priority, and is killed after eight minutes. The runner's
 exclusive end is `2026-09-24T00:00:00Z`, so Sep 23 remains inside the monitored window.
 Before any owner-approved manual one-shot, run
@@ -488,13 +504,14 @@ Start the service exactly once and inspect its terminal status. Leave the timer 
 re-enabling it requires separate owner approval. Never launch the module directly beside the
 scheduled unit or retry a payment-bearing run.
 
-This duty cycle comes from the governing win specification. Before owner configuration, a
+This configured duty cycle comes from the governing win specification; it is not the current
+authorization state. Before owner configuration, a
 run is only a few sequential public HTTP reads. After the owner supplies a funded controlled
 LP and the payment key file, it adds at most one free controlled-position preflight plus one
 exact 0.50 USDT paid execution and its rejected replay per activation. The preflight proves the
 decision-grade result before anything is spent; the replay is refused before work repeats.
-For the payer prepared on Aug 24, the first possible daily run is Aug 25, so the inclusive
-Aug 25-Sep 23 window is 30 runs and 15.0 USDT.
+The Aug 24 funding plan counted an inclusive Aug 25-Sep 23 window as 30 possible runs and
+15.0 USDT. Only the single approved Aug 30 run has executed; the timer remains disabled.
 
 The canary and registry refresh have different scopes. The canary protects the primary paid
 service and controlled-position claims. The refresh keeps the small, feedback-filtered ERC-8004
@@ -521,10 +538,11 @@ key before changing its ownership, and installs the ACL boundary. Neither script
 are owner actions. Never put a private key value in the config or a unit.
 
 The prepared payer, bounded approval, measured gas, and funding instruction are recorded in
-the Configuration section. Funding and approval do not set `true_settlement` and do not put
-any service into paid stock. Those facts remain false until a real settlement has completed,
-the transaction has been checked, the paid result is nonempty, the identical authorization
-is refused as a replay, and the remaining admission limbs pass.
+the Configuration section. Funding and allowance alone do not set `true_settlement` and do
+not put any service into paid stock. The approved run-18 evidence established one real
+settlement, a nonempty bound result, and rejected replay, so the post-canary source records
+`true_settlement=true`. Paid stock still requires every other admission limb; Range Doctor
+remains closed because `fresh_paired_benchmark=false`, and `cold_canary` is time-bound.
 
 ## Six-hour targeted registry refresh
 

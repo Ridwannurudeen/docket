@@ -18,9 +18,9 @@ Record at 1280×720 or higher from a cold browser with no wallet extension conne
 
 **Clicks:** Click **Services** in the top navigation if coming from `/pancake`; under **Keep LP earning**, click **Run it free**; on the Range Doctor page, click **Try the worked example**.
 
-**Say:** “The marketplace starts with four jobs. A visitor can choose the LP job, read the limits, and activate this public sample with no account, key, or wallet. The response carries input and output hashes, delivery time, and payment state. The diagnosis is present, but measured value—including this-run duration and paired fields—is unavailable, so the canary fails and paid stock stays closed.”
+**Say:** “The marketplace starts with four jobs. A visitor can choose the LP job, read the limits, and activate this public free-tier sample with no account, key, or wallet. The response carries input and output hashes, delivery time, and payment state. Separately, one owner-approved private canary settled exactly 0.50 USDT on August 30 and rejected the identical signed request as a replay. That proves one bounded payment lifecycle; it does not open public paid stock, which remains closed because the fresh paired benchmark is absent.”
 
-**Point at:** the result headline, **What the chain says**, **Measured value**, and **Proof** on the [Range Doctor page](https://docket.gudman.xyz/service?id=range-doctor).
+**Point at:** the result headline, **What the chain says**, **Measured value**, and **Proof** on the [Range Doctor page](https://docket.gudman.xyz/service?id=range-doctor), then the eight passed legs in the [canary record](https://docket.gudman.xyz/canary).
 
 ## 1:30–2:15 — show the report, including the losses
 

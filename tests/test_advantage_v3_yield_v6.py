@@ -210,3 +210,40 @@ def test_v5_runbook_marks_completed_capture_and_lock_stages_historical():
 
     assert "Stages 0-3 are historical and must not be rerun" in runbook
     assert "assert_runnable(spec, repo_root=root)" in runbook
+
+
+def test_v5_runbook_closes_every_primary_and_blind_scoring_artifact():
+    runbook = RANGE_RUNBOOK_PATH.read_text(encoding="utf-8")
+
+    assert "Run the three Range Doctor agent primaries" in runbook
+    assert "not all six registered primaries are terminal" in runbook
+    assert "export_evaluation_sessions" in runbook
+    assert "docket.advantage.v3.seats.codex_cli import ask" in runbook
+    assert "docket.advantage.v3.seats.claude_cli import ask" in runbook
+    assert "import_evaluation_submission" in runbook
+    assert "publish_mapping" in runbook
+    assert "expected_terminal = (" in runbook
+    assert "'refuted' if family['falsifier_result']['refuted']" in runbook
+    assert "assert family['state'] == expected_terminal" in runbook
+    assert "complete_scored" not in runbook
+    assert runbook.index("## 4. Owner-only manual-arm handover") < runbook.index(
+        "## 5. Run the three Range Doctor agent primaries"
+    )
+    assert runbook.index(
+        "## 5. Run the three Range Doctor agent primaries"
+    ) < runbook.index("## 6. Require all six registered primaries to be terminal")
+    assert (
+        runbook.index("export_evaluation_sessions")
+        < runbook.index("import_evaluation_submission")
+        < runbook.index("publish_mapping")
+        < runbook.index("report.report")
+    )
+
+
+def test_v6_runbook_uses_the_report_apis_scored_terminal_states():
+    runbook = RUNBOOK_PATH.read_text(encoding="utf-8")
+
+    assert "complete_scored" not in runbook
+    assert "expected_terminal = (" in runbook
+    assert "'refuted' if family['falsifier_result']['refuted']" in runbook
+    assert "assert family['state'] == expected_terminal" in runbook

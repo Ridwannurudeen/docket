@@ -374,3 +374,203 @@ action, complete-frame coverage, registered limits and source identities.
 Do not prepare answers in advance and do not paste the revealed payload as the answer. A blank,
 malformed, multiline, interrupted or schema-invalid submission consumes that primary. There is
 one final submission per slot and no retry or replacement.
+
+## 5. Run the three Range Doctor agent primaries
+
+Only after all three owner-operated manual primaries are terminal, run the deployed Range
+Doctor block. Run one slot per command so the operator sees every permanent outcome before
+claiming the next slot. Do not add `--payment-header`; the harness records the receipt the
+registered endpoint actually returns.
+
+```powershell
+1..3 | ForEach-Object {
+  $agent = @(
+    & .\.venv\Scripts\python.exe -m docket.advantage.v3.orchestrator `
+      v3-05-range-doctor docket/advantage/v3/runs `
+      --repo-root . --once 2>&1
+  )
+  $agentExit = $LASTEXITCODE
+  $agent | ForEach-Object { Write-Host $_ }
+  $last = [string]@($agent)[-1]
+  if ($last -match ' blocked_service_contract$') {
+    throw 'blocked_service_contract is permanent for this run; preserve the ledger, do not retry, and do not score'
+  }
+  if ($agentExit -ne 0) {
+    throw "Range Doctor agent primary $_ refused; preserve the ledger and do not retry"
+  }
+  if ($last -notmatch ' succeeded$') {
+    Write-Warning "Range Doctor agent primary $_ is a permanent non-success; do not retry or replace it"
+  }
+}
+```
+
+HTTP 400, 402 or 422 becomes `blocked_service_contract`; scoring is unavailable and the run
+stops with its preserved record. Any timeout, transport or other HTTP error, interruption, empty
+or malformed result, invalid receipt, wrong token id/block or incomplete answer remains a
+permanent terminal in the registered denominator. Never delete, edit, replay or replace a
+claimed primary.
+
+## 6. Require all six registered primaries to be terminal
+
+Fold the ledger rather than counting only one event kind, because recovered interruptions are
+also terminal. Every non-success remains part of the record.
+
+```powershell
+@'
+from collections import Counter
+from pathlib import Path
+from docket.advantage.v3 import runner
+from docket.advantage.v3.spec import load
+
+root = Path('.').resolve()
+spec = load(root / 'docket/advantage/v3/specs/v3-05-range-doctor.json', repo_root=root)
+slots = runner.scheduled_slots(spec, repo_root=root)
+state = runner.read_state(runner.ledger_path(spec, root / 'docket/advantage/v3/runs'))
+missing = [slot.slot for slot in slots if slot.slot not in state or not state[slot.slot].is_terminated]
+if missing:
+    raise SystemExit(f'not all six registered primaries are terminal: {missing}')
+terminals = [state[slot.slot].terminal for slot in slots]
+if len(terminals) != 6:
+    raise SystemExit(f'expected six registered primaries, found {len(terminals)}')
+blocked = [row['slot'] for row in terminals if row['outcome'] == runner.BLOCKED_CONTRACT]
+print(len(terminals), Counter(row['outcome'] for row in terminals))
+if blocked:
+    raise SystemExit(f'blocked service contract leaves the family unscored; do not export evaluator sessions: {blocked}')
+'@ | .\.venv\Scripts\python.exe -
+if ($LASTEXITCODE -ne 0) { throw 'Range terminal-primary closeout failed; preserve the ledger' }
+```
+
+Do not continue until the command prints `6` and exits zero.
+
+## 7. Export two first-write blind-evaluation sessions
+
+Export only after all six primaries are terminal and no `blocked_service_contract` terminal
+exists. Session files are exclusive first writes; an existing file refuses rather than being
+overwritten.
+
+```powershell
+@'
+from pathlib import Path
+from docket.advantage.v3.runner import ExperimentHarness
+from docket.advantage.v3.spec import load
+
+root = Path('.').resolve()
+spec = load(root / 'docket/advantage/v3/specs/v3-05-range-doctor.json', repo_root=root)
+harness = ExperimentHarness(spec, root / 'docket/advantage/v3/runs', repo_root=root)
+print(*harness.export_evaluation_sessions(root / 'data/range-v5-evaluation-sessions'), sep='\n')
+'@ | .\.venv\Scripts\python.exe -
+if ($LASTEXITCODE -ne 0) { throw 'Range evaluation-session export refused; do not replace an existing session' }
+```
+
+Run seat A through the registered Codex adapter and preserve its first raw response bytes:
+
+```powershell
+@'
+import json
+from pathlib import Path
+from docket.advantage.v3.seats.codex_cli import ask
+
+sessions = Path('data/range-v5-evaluation-sessions')
+session = next(path for path in sessions.glob('*.json') if json.loads(path.read_text(encoding='utf-8'))['evaluator_id'] == 'seat-a')
+raw = ask(session.read_bytes())
+if raw is None:
+    raise SystemExit('seat-a returned no response; do not ask again or substitute another evaluator')
+out = Path('data/range-v5-seat-a.raw.json')
+with out.open('xb') as handle:
+    handle.write(raw)
+print(out)
+'@ | .\.venv\Scripts\python.exe -
+if ($LASTEXITCODE -ne 0) { throw 'seat-a first response was not preserved; stop without retry' }
+```
+
+Run seat B through the registered Claude adapter and preserve its first raw response bytes:
+
+```powershell
+@'
+import json
+from pathlib import Path
+from docket.advantage.v3.seats.claude_cli import ask
+
+sessions = Path('data/range-v5-evaluation-sessions')
+session = next(path for path in sessions.glob('*.json') if json.loads(path.read_text(encoding='utf-8'))['evaluator_id'] == 'seat-b')
+raw = ask(session.read_bytes())
+if raw is None:
+    raise SystemExit('seat-b returned no response; do not ask again or substitute another evaluator')
+out = Path('data/range-v5-seat-b.raw.json')
+with out.open('xb') as handle:
+    handle.write(raw)
+print(out)
+'@ | .\.venv\Scripts\python.exe -
+if ($LASTEXITCODE -ne 0) { throw 'seat-b first response was not preserved; stop without retry' }
+```
+
+Each response must be only the completed `score_sheet_template` object from that seat's
+session. A missing, malformed or incomplete first response leaves the family unscored. Do not
+ask again, repair the response bytes or substitute another evaluator.
+
+## 8. Import both score sheets, publish mapping and close the report
+
+Import the two preserved first responses through the claim-once API:
+
+```powershell
+@'
+from pathlib import Path
+from docket.advantage.v3.runner import ExperimentHarness
+from docket.advantage.v3.spec import load
+
+root = Path('.').resolve()
+spec = load(root / 'docket/advantage/v3/specs/v3-05-range-doctor.json', repo_root=root)
+harness = ExperimentHarness(spec, root / 'docket/advantage/v3/runs', repo_root=root)
+for seat in ('seat-a', 'seat-b'):
+    raw = (root / f'data/range-v5-{seat}.raw.json').read_bytes()
+    artifact = harness.import_evaluation_submission(raw, root / 'docket/advantage/v3/sheets')
+    print(artifact['evaluator_id'], artifact['raw_sheet_sha256'])
+'@ | .\.venv\Scripts\python.exe -
+if ($LASTEXITCODE -ne 0) { throw 'Range score-sheet import failed; preserve the first raw responses and do not retry either seat' }
+```
+
+Do not reveal the A/B assignment until both first-write imports succeed. Then publish the
+deterministic mapping and derive the same family object served by `/advantage/v3.json`:
+
+```powershell
+@'
+import json
+from pathlib import Path
+from docket.advantage.v3 import report, runner, scoring
+from docket.advantage.v3.spec import load
+
+root = Path('.').resolve()
+spec = load(root / 'docket/advantage/v3/specs/v3-05-range-doctor.json', repo_root=root)
+ledger = runner.ledger_path(spec, root / 'docket/advantage/v3/runs')
+bundle = scoring.build_blinded_bundle(spec, ledger, repo_root=root)
+scoring.publish_mapping(
+    spec,
+    bundle,
+    root / 'docket/advantage/v3/sheets',
+    root / 'docket/advantage/v3/mappings',
+    repo_root=root,
+)
+payload = report.report()
+family = next(row for row in payload['families'] if row['spec_id'] == spec.spec_id)
+expected_terminal = (
+    'refuted' if family['falsifier_result']['refuted'] else 'not_refuted'
+)
+assert family['state'] == expected_terminal
+print(json.dumps({
+    'state': family['state'],
+    'calibration': family['calibration'],
+    'run_progress': family['run_progress'],
+    'quality': family['quality'],
+    'speed': family['speed'],
+    'formula_metrics': family['formula_metrics'],
+    'falsifier_result': family['falsifier_result'],
+}, indent=2, sort_keys=True))
+'@ | .\.venv\Scripts\python.exe -
+if ($LASTEXITCODE -ne 0) { throw 'Range mapping/report closeout failed; preserve every artifact' }
+```
+
+`refuted` is an honest completed result, not a failed closeout. `not_refuted` means only that
+the registered falsifier did not fire; it is not proof of the claim. Review the exact ledger,
+two raw responses, imported score-sheet artifacts, published mapping and derived report before
+requesting owner approval for any commit or deployment. This runbook does not authorize a
+commit, push, deployment, transaction or submission.

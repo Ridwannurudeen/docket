@@ -268,3 +268,42 @@ An ERC-8004 identity is a registration, not an endorsement, evidence of paid sto
 that a service produced a result. Ownership can change after the recorded observation. This
 collection is chain evidence, not proof that the newer service bindings have been deployed.
 `warden-scan` remains unbound.
+
+---
+
+## Collected 2026-08-30 — approved settlement canary and current state
+
+The owner approved one Range Doctor payment canary. Public canary run 18 started at
+`2026-08-30T11:23:35.359953Z`, finished at `2026-08-30T11:23:45.200371Z`, and passed all
+eight legs: fresh browser surface, snapshot-age surface, free verified example, controlled
+live LP, exact 0.50 settlement, complete human result, proof binding, and rejected replay.
+
+The settlement leg records `500000000000000000` atomic units of BSC USDT, payment id
+`0xcaafa68fef0e0b0691b1afcd7d7dd8a0827d04a897e8a01fa193d67bf6338fcb`, and transaction
+`0x0a036066db0ccbde6eeb8d333e5747e549a61f251935fe8abceaf13b681a1258`. The identical
+signed request was rejected with HTTP 409 and `authorization_replay`. The 18-run public
+history contains exactly one check whose settlement observation says `settled: true` and
+exactly one check whose replay observation says `identical_request_rejected: true`.
+
+This proves one owner-operated private-canary payment lifecycle. The public record reports
+the facilitator transaction; by itself it is not an independent chain-finality proof and it
+does not open public paid inventory. The live `/services` response still reports
+`paid_stock=false` for all six services. Only Range Doctor's `cold_canary` limb is true;
+its `fresh_paired_benchmark` and `true_settlement` limbs were false in the public API
+observed from the still-deployed `b8b6ed7` runtime. The reviewed post-canary source changes
+Range Doctor's static `true_settlement` limb to true, but `fresh_paired_benchmark=false`
+still keeps paid stock closed. That source is not deployed in this record. The recurring
+`docket-canary.timer` was separately read from the host as disabled and inactive.
+
+The live v3 report contains six families: `v3-01-range-doctor` and
+`v3-03-warden-security` are `superseded_before_input_lock`;
+`v3-02-yield-router` is `abandoned_after_failed_primary`;
+`v3-04-warden-security` is `complete_unscored`; `v3-05-range-doctor` is
+`locked_not_run`; and `v3-06-yield-router-assisted` is
+`registered_waiting_for_inputs`.
+
+The deployed runtime identifies commit
+`b8b6ed76313dc6b469a3edd1f988256a818bde3b`. At collection time, local `main` and
+`origin/main` identified `3b9e03715af9fd973b85cefec891b1e97cba85a5`, the base of this
+documentation update. That source-only commit after the deployed runtime does not turn this
+builder-collected record into an independent observation.

@@ -10,13 +10,16 @@
 
 The honest answer today is mixed. Docket's v1 report alone satisfies that formal eligibility
 gate, but it contains one paired observation per task and records material losses as well as
-wins. The marketplace is not yet open for payment: 0 of 6 catalogue services are in paid stock,
-and no settlement has run. `v3-04-warden-security` is `complete_unscored`: all 24 primaries
+wins. The marketplace is not yet open for public payment: 0 of 6 catalogue services are in
+paid stock. Exactly one owner-approved Range Doctor canary settled 0.50 USDT on 2026-08-30
+and rejected its identical replay; this private bootstrap is not public paid inventory.
+`v3-04-warden-security` is `complete_unscored`: all 24 primaries
 are terminal, but seat B returned no first scoring response and substitution is forbidden.
 Frozen-label formulas show manual recall at 0.75 versus Warden at 0.50 and three Warden
-critical failures. At the 2026-08-28 committed-artifact observation, v3-02 and v3-05 are
-`locked_not_run`, with locked inputs and no claimed primaries; v3-01 and v3-03 remain
-`superseded_before_input_lock`.
+critical failures. At the 2026-08-30 live-report observation, v3-01 and v3-03 are
+`superseded_before_input_lock`, v3-02 is `abandoned_after_failed_primary`, v3-04 is
+`complete_unscored`, v3-05 is `locked_not_run`, and v3-06 is
+`registered_waiting_for_inputs`.
 [Sources: [v1](https://docket.gudman.xyz/advantage.json),
 [catalogue](https://docket.gudman.xyz/hire),
 [canary history](https://docket.gudman.xyz/canary),
@@ -26,14 +29,15 @@ critical failures. At the 2026-08-28 committed-artifact observation, v3-02 and v
 
 TermiX can run the current free paths and inspect the returned evidence, but it cannot buy a
 service today. The catalogue displays `0.50 $U` as the post-admission price for all 6 of 6
-services while every row says `paid_stock: false`; every published canary settlement leg says
-`not_yet_exercised` with `exercised: false`.
+services while every row says `paid_stock: false`. Public canary run 18 records one exact
+0.50 USDT settlement, a complete bound result, and a rejected replay; it is the sole settled
+private-canary record, not a public purchase.
 [Sources: [live catalogue](https://docket.gudman.xyz/hire),
 [live canary](https://docket.gudman.xyz/canary)]
 
 | Service | What a current free run actually returns | Evidence boundary |
 |---|---|---|
-| [Range Doctor](https://docket.gudman.xyz/service?id=range-doctor) | PancakeSwap v3 position state, current tick against the position's range, gross and protocol-adjusted fee arithmetic, and conditional wait or recenter paths. | The public canary records a live BSC decision for the controlled position, but the run fails its measured-value requirement because its mapped `v3-05-range-doctor` family has no scored paired result. [Canary](https://docket.gudman.xyz/canary) |
+| [Range Doctor](https://docket.gudman.xyz/service?id=range-doctor) | PancakeSwap v3 position state, current tick against the position's range, gross and protocol-adjusted fee arithmetic, and conditional wait or recenter paths. | The public canary records a live BSC decision and one owner-approved settled private run whose eight legs passed, including proof binding and replay rejection. The mapped `v3-05-range-doctor` family still has no paired result, so public paid stock remains closed. [Canary](https://docket.gudman.xyz/canary) |
 | [Yield Router](https://docket.gudman.xyz/service?id=yield-router) | A bounded PancakeSwap v3 pool comparison with the observed window, protocol-adjusted rates, declared switching cost, and break-even arithmetic. | Its current comparison row says no paired run against a person exists, so it makes no time-saving claim. [Comparison](https://docket.gudman.xyz/compare) |
 | [Grid Operator](https://docket.gudman.xyz/service?id=grid-operator) | A read-only PancakeSwap v2 grid preview with live quotes, bounded levels, and calldata hashes. | Its current comparison row says no paired run against a person exists; its v2 replay bought at 0 of 5 registered levels and the registered claim was refuted. [Comparison](https://docket.gudman.xyz/compare) · [v2 output](https://docket.gudman.xyz/advantage/v2.json) |
 | [Venus Health Guard](https://docket.gudman.xyz/service?id=health-guard) | A read-only Venus Core Pool account report with market balances, stated formulas, and bounded draft protective actions when the input condition is met. | Its current comparison row says no paired run against a person exists, so it makes no time-saving claim. [Comparison](https://docket.gudman.xyz/compare) |
@@ -90,9 +94,10 @@ Warden and 6/8 (0.75) manually; precision of 4/4 (1.00) and 6/8 (0.75); valid sc
 zero-critical, complete-pair, and 30-second saving limbs; its precision, comparative
 precision, all-agent-scans, and ratio limbs passed. Missing rubric medians prevent the
 machinery from evaluating the complete registered falsifier, so the report publishes neither
-`refuted` nor `not_refuted`. At the 2026-08-28 committed-artifact observation, v3-05 Range
-and v3-02 Yield are `locked_not_run`, with locked inputs and no claimed primaries; v3-01
-Range and v3-03 Warden remain `superseded_before_input_lock`.
+`refuted` nor `not_refuted`. At the 2026-08-30 live-report observation, v3-01 Range and
+v3-03 Warden are `superseded_before_input_lock`, v3-02 Yield is
+`abandoned_after_failed_primary`, v3-04 Warden is `complete_unscored`, v3-05 Range is
+`locked_not_run`, and v3-06 assisted Yield is `registered_waiting_for_inputs`.
 [Sources: [live v3 state](https://docket.gudman.xyz/advantage/v3.json),
 [Range protocol](../../docket/advantage/v3/specs/v3-05-range-doctor.json),
 [Yield protocol](../../docket/advantage/v3/specs/v3-02-yield-router.json),
@@ -100,7 +105,9 @@ Range and v3-03 Warden remain `superseded_before_input_lock`.
 
 Yield and Range captured their registered source bytes on their first scheduled attempts on
 2026-08-26, at 12:00Z and 12:10Z respectively. Those two captures are inputs, not results.
-Both associated inputs are now locked, but neither family has a claimed primary.
+Yield v3-02 later recorded a failed manual primary and is now
+`abandoned_after_failed_primary`; Range v3-05 remains `locked_not_run` with no claimed
+primary.
 [Sources: [registered Yield protocol](../../docket/advantage/v3/specs/v3-02-yield-router.json),
 [registered Range protocol](../../docket/advantage/v3/specs/v3-05-range-doctor.json),
 [host rehearsal record](../operational-evidence.md#the-capture-rehearsal-on-this-host-with-the-installed-code)]
@@ -141,9 +148,9 @@ A cold judge can test the intended path in this order:
    [v2](https://docket.gudman.xyz/advantage/v2.json), and
    [v3](https://docket.gudman.xyz/advantage/v3.json) evidence rather than relying on card copy.
 
-The payment path remains the dead end a TermiX judge must know before starting: the current
-marketplace can demonstrate free work, but it cannot demonstrate paid value until a service has
-a fresh paired benchmark, a passing cold canary, a decision-grade presenter, and an exercised
-settlement path.
+The public payment path remains the dead end a TermiX judge must know before starting: the
+current marketplace offers free work but no public paid hire. One owner-approved private
+canary has demonstrated settlement, a complete bound result, and replay rejection; public
+stock still requires every admission limb, including a fresh paired benchmark.
 [Sources: [catalogue admission state](https://docket.gudman.xyz/hire),
 [canary admission state](https://docket.gudman.xyz/canary)]

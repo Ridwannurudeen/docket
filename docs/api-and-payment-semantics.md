@@ -44,11 +44,11 @@ Mutation bodies are streamed into a 1,048,576-byte application limit before JSON
 
 V3's states are `registered_waiting_for_inputs`, `superseded_before_input_lock`,
 `locked_not_run`, `running`, `complete_unscored`, `refuted`, and `not_refuted`. At the
-committed-artifact observation on 2026-08-28, `v3-04-warden-security` is
-`complete_unscored`; `v3-02-yield-router` is `abandoned_after_failed_primary`;
-`v3-05-range-doctor` is `locked_not_run`;
-and `v3-01-range-doctor` and `v3-03-warden-security` are
-`superseded_before_input_lock`. V3-02 and v3-05 have locked inputs and no claimed primaries.
+live-report observation on 2026-08-30, `v3-01-range-doctor` and
+`v3-03-warden-security` are `superseded_before_input_lock`; `v3-02-yield-router` is
+`abandoned_after_failed_primary`; `v3-04-warden-security` is `complete_unscored`;
+`v3-05-range-doctor` is `locked_not_run`; and `v3-06-yield-router-assisted` is
+`registered_waiting_for_inputs`.
 V3-04 has all 24 primaries terminal (23 succeeded; one manual failed), but its missing
 second score sheet leaves rubric quality unscored and `falsifier_result` null. No scored
 family result exists. The application builds one v3 report object at startup and renders
@@ -112,6 +112,14 @@ Every durable run names its target, start and finish time, verdict, and structur
 each check records the leg, what was checked, its status, what was observed, and the
 evidence for the status. Closing the gate removes Pay and hire but leaves the free
 verified example and free preview available.
+The 2026-08-30 owner-approved Range Doctor canary is run 18. All eight legs passed,
+including one exact 0.50 USDT settlement, proof binding, and rejection of the identical
+signed request with `409 authorization_replay`. The post-canary source records
+`true_settlement=true` and `decision_grade_presenter=true`; the durable run makes
+`cold_canary=true` only while it remains fresh. `fresh_paired_benchmark` remains false, so
+Range Doctor and the other five services remain `paid_stock=false`. Production remains on
+the pre-update `b8b6ed7` runtime and therefore still serves its earlier
+`true_settlement=false` static limb until a later reviewed deployment.
 The shared catalogue term is 0.50 USDT, represented as
 `500000000000000000` atomic units of token
 `0x55d398326f99059fF775485246999027B3197955`; the token reports 18 decimals on BSC
@@ -216,8 +224,10 @@ responses. A settlement refusal's diagnostic remains in the private payment row;
 reserved for a facilitator verification rejection because no verified payment exists yet.
 
 A `settled` receipt is evidence of the configured facilitator response. It is not an
-independent receipt lookup or chain-finality proof. No committed Docket receipt has this
-status and no live settlement transaction is recorded in the repository.
+independent receipt lookup or chain-finality proof. No committed v1 evidence artifact has
+this status. The durable production record does contain the one owner-approved 2026-08-30
+canary settlement described above; that private bootstrap is not evidence that public paid
+inventory is open.
 
 Run `python -m docket.hire.x402 preflight` with the deployment payment environment before
 spending. It reads the payer's USDT balance and Relayer allowance, the token whitelist,

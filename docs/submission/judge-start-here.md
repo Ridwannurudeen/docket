@@ -8,7 +8,7 @@ Open the [Docket marketplace](https://docket.gudman.xyz/).
 
 This proves the marketplace journey: four job cards, service descriptions, comparison fields, recorded-run figures, and a free activation path. Pick **Keep LP earning** → **Run it free** → **Try the worked example** to receive a fresh Range Doctor result on the [service page](https://docket.gudman.xyz/service?id=range-doctor).
 
-Read the limit on that same page: Range Doctor is not in paid stock and the sample records no settlement. Its BSC ERC-8004 identity is agent 311253, but that registration is not an endorsement, paid-stock evidence, or evidence that the sample produced a result. The [raw catalogue](https://docket.gudman.xyz/services) exposes the corresponding stock and identity fields for every service.
+Read the limit on that same page: Range Doctor is not in paid stock and this public sample is a free-tier run. Separately, one owner-approved private canary settled 0.50 USDT on 2026-08-30 and rejected its identical replay; that does not open public paid inventory. Its BSC ERC-8004 identity is agent 311253, but that registration is not an endorsement, paid-stock evidence, or evidence that the sample produced a result. The [raw catalogue](https://docket.gudman.xyz/services) exposes the corresponding stock and identity fields for every service, and the [canary record](https://docket.gudman.xyz/canary) exposes the bounded payment proof.
 
 ## 2. Inspect the PancakeSwap case
 
