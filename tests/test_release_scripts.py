@@ -268,6 +268,9 @@ if [[ "${1:-}" == show && "$*" == "show --property=LoadState --value ${name}" ]]
     exit 0
 fi
 if [[ "$*" == "is-enabled --quiet ${name}" && "${name}" == *.timer ]]; then
+    if [[ "${name}" == "${FAKE_DISABLED_TIMER:-}" ]]; then
+        exit 1
+    fi
     (( ! timer_missing ))
     exit
 fi
@@ -278,6 +281,9 @@ if [[ "$*" == "is-active --quiet docket-canary.service" && "${FAKE_CANARY_ACTIVE
     exit 0
 fi
 if [[ "$*" == "is-active --quiet ${name}" && "${name}" == *.timer ]]; then
+    if [[ "${name}" == "${FAKE_DISABLED_TIMER:-}" ]]; then
+        exit 1
+    fi
     (( ! timer_missing ))
     exit
 fi
@@ -1038,7 +1044,8 @@ def test_release_requires_the_existing_canary_files(tmp_path, filename, message)
 def test_release_pins_canary_ownership_and_quiesces_all_timer_workers_before_the_app():
     script = (DEPLOY / "release.sh").read_text(encoding="utf-8")
 
-    assert script.count("640:root:docket") == 2
+    assert script.count("640:root:docket-canary") == 2
+    assert script.count("640:root:docket") == 3
     mutation_boundary = script.index("Release manifest reverified before mutation.")
     snapshot_timers = script.index(
         'for name in "${TIMER_NAMES[@]}"; do', mutation_boundary
@@ -1066,6 +1073,41 @@ def test_release_pins_canary_ownership_and_quiesces_all_timer_workers_before_the
         < mark_stopped
         < move_live
     )
+
+
+def test_release_revalidates_the_signer_identity_acl_and_access_boundary():
+    script = (DEPLOY / "release.sh").read_text(encoding="utf-8")
+
+    for required in (
+        "validate_canary_identity",
+        '"${canary_groups}" == docket-canary',
+        '-z "${group_members}"',
+        "! -e /nonexistent && ! -L /nonexistent",
+        "docket must not be a member of docket-canary",
+        "canary payment recipient must match the public web settlement recipient",
+        "require_exact_acl",
+        "ACL contains missing or unexpected entries",
+        "canary configuration",
+        "canary payment key",
+        "user:docket-canary:--x",
+        "user:docket-canary:r--",
+        "user:docket-canary:rw-",
+        "default:user:docket-canary:rwx",
+        "default:user:docket:rwx",
+        "default:other::---",
+        "canary signer cannot read its configuration",
+        "canary signer cannot read and write the live database",
+        "docket web user can read canary configuration",
+        "docket web user can read canary payment key",
+        '"${RUNUSER_COMMAND}" -u docket-canary -g docket-canary -- test',
+    ):
+        assert required in script
+    assert "-G docket" not in script
+
+    identity_check = script.index("\n    validate_canary_identity\n")
+    acl_check = script.index("data_acl=$(getfacl", identity_check)
+    mutation_boundary = script.index("Release manifest reverified before mutation.")
+    assert identity_check < acl_check < mutation_boundary
 
 
 def test_application_unit_safely_runs_a_module_after_relocating_the_venv(tmp_path):
@@ -1165,6 +1207,9 @@ def test_the_tracked_application_unit_matches_the_verified_runtime():
         "ProtectKernelLogs": "true",
         "ProtectKernelModules": "true",
         "ReadWritePaths": "/var/lib/docket",
+        "InaccessiblePaths": (
+            "-/etc/docket/docket-canary.conf -/etc/docket/docket-canary-payment.key"
+        ),
         "ProtectKernelTunables": "true",
         "ProtectControlGroups": "true",
         "ProtectProc": "invisible",
@@ -1704,6 +1749,32 @@ def test_release_retires_the_aug21_timer_and_enables_all_six_timers(tmp_path):
         "docket-v3-yield-v6-capture.timer",
     ):
         assert (units / name).read_bytes() == (DEPLOY / "systemd" / name).read_bytes()
+
+
+def test_release_keeps_an_intentionally_disabled_canary_timer_disabled(tmp_path):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+    manifest = _write_release_manifest(wheel, digest)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        manifest.as_posix(),
+        environment=_environment(
+            root,
+            fake_bin,
+            FAKE_DISABLED_TIMER="docket-canary.timer",
+            DOCKET_RELEASE_SYSTEMCTL=(fake_bin / "systemctl").as_posix(),
+        ),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "systemctl disable --now docket-canary.timer" in result.stdout
+    assert "systemctl enable --now docket-canary.timer" not in result.stdout
+    assert "systemctl enable --now docket-refresh.timer" in result.stdout
 
 
 def test_release_copies_only_changed_unit_files_and_prints_the_diff(tmp_path):

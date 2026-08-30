@@ -78,6 +78,7 @@ class CanaryConfig:
     facilitator_kind: str | None
     facilitator_url: str | None
     payment_token: str | None
+    pay_to: str | None
     relayer_contract: str | None
     paid_error: str | None
 
@@ -100,6 +101,7 @@ class CanaryConfig:
             and self.facilitator_kind is not None
             and self.facilitator_url is not None
             and self.payment_token is not None
+            and self.pay_to is not None
             and self.relayer_contract is not None
         )
 
@@ -237,6 +239,7 @@ def _configuration(environment: Mapping[str, str]) -> CanaryConfig:
     facilitator_kind = _text(environment, "DOCKET_FACILITATOR_KIND")
     facilitator_url = _text(environment, "DOCKET_FACILITATOR_URL")
     payment_token = _text(environment, "DOCKET_PAYMENT_TOKEN")
+    pay_to = _text(environment, "DOCKET_PAY_TO")
     relayer_contract = _text(environment, "DOCKET_B402_RELAYER_CONTRACT")
     paid_error = None
     if private_key_file is not None:
@@ -247,6 +250,7 @@ def _configuration(environment: Mapping[str, str]) -> CanaryConfig:
                 "DOCKET_FACILITATOR_KIND": facilitator_kind,
                 "DOCKET_FACILITATOR_URL": facilitator_url,
                 "DOCKET_PAYMENT_TOKEN": payment_token,
+                "DOCKET_PAY_TO": pay_to,
                 "DOCKET_B402_RELAYER_CONTRACT": relayer_contract,
             }
             missing = [name for name, value in public_settings.items() if value is None]
@@ -256,6 +260,8 @@ def _configuration(environment: Mapping[str, str]) -> CanaryConfig:
                 paid_error = f"DOCKET_FACILITATOR_KIND must be {B402_FACILITATOR}"
             elif str(payment_token).lower() != USDT_TOKEN.lower():
                 paid_error = f"DOCKET_PAYMENT_TOKEN must be {USDT_TOKEN}"
+            elif _ADDRESS.fullmatch(str(pay_to)) is None:
+                paid_error = "DOCKET_PAY_TO must be a 20-byte 0x address"
             elif str(relayer_contract).lower() != B402_RELAYER.lower():
                 paid_error = f"DOCKET_B402_RELAYER_CONTRACT must be {B402_RELAYER}"
             else:
@@ -290,6 +296,7 @@ def _configuration(environment: Mapping[str, str]) -> CanaryConfig:
         facilitator_kind=facilitator_kind,
         facilitator_url=facilitator_url,
         payment_token=payment_token,
+        pay_to=pay_to,
         relayer_contract=relayer_contract,
         paid_error=paid_error,
     )
@@ -971,6 +978,7 @@ def _challenge_offer(
         and str(offer.get("asset", "")).lower() == str(config.payment_token).lower()
         and isinstance(offer.get("payTo"), str)
         and _ADDRESS.fullmatch(offer["payTo"]) is not None
+        and offer["payTo"].lower() == str(config.pay_to).lower()
         and offer.get("maxTimeoutSeconds") == MAX_TIMEOUT_SECONDS
         and extra == expected_extra
     )

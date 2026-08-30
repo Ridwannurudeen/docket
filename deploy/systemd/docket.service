@@ -24,6 +24,7 @@ ProtectHostname=true
 ProtectKernelLogs=true
 ProtectKernelModules=true
 ReadWritePaths=/var/lib/docket
+InaccessiblePaths=-/etc/docket/docket-canary.conf -/etc/docket/docket-canary-payment.key
 ProtectKernelTunables=true
 ProtectControlGroups=true
 ProtectProc=invisible

@@ -222,9 +222,12 @@ status and no live settlement transaction is recorded in the repository.
 Run `python -m docket.hire.x402 preflight` with the deployment payment environment before
 spending. It reads the payer's USDT balance and Relayer allowance, the token whitelist,
 Relayer pause state, bytecode and EIP-712 domain, then submits one signed authorization to
-`/verify`. It never calls `/settle`, sends a transaction, or prints the signature or key.
-Its `checks` object and `missing` list distinguish balance, allowance, whitelist, domain,
-and facilitator rejection.
+`/verify`. That is a live authorization valid for up to 300 seconds, not a read-only probe.
+The command never calls `/settle`, sends a transaction, or prints the signature or key. Its
+`checks` object and `missing` list distinguish balance, allowance, whitelist, domain, and
+facilitator rejection. Treat it as a separate possible charge; an approval limited to one
+payment should use signature-free chain checks and reserve the live authorization for the
+single canary activation.
 
 An exact identical settled request at the hire route returns `409 authorization_replay`; it
 cannot repeat either the service work or settlement.

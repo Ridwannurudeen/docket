@@ -428,7 +428,7 @@ def payment_preflight(
     web3=None,
     facilitator=None,
 ) -> dict:
-    """Read prerequisites and verify one signed authorization without settling it."""
+    """Read prerequisites and send one live 300-second authorization to ``/verify``."""
     names = (
         "DOCKET_CANARY_PRIVATE_KEY_FILE",
         "DOCKET_BSC_RPC_URL",
@@ -600,7 +600,7 @@ def payment_preflight(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the owner-facing read-only payment preflight."""
+    """Run the owner-facing non-settling preflight with a live authorization."""
     arguments = sys.argv[1:] if argv is None else argv
     if arguments != ["preflight"]:
         print("usage: python -m docket.hire.x402 preflight")

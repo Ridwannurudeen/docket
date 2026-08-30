@@ -35,6 +35,7 @@ def _environment(tmp_path, *, controlled_lp=False, paid=False):
         "DOCKET_FACILITATOR_KIND": "b402",
         "DOCKET_FACILITATOR_URL": FACILITATOR_URL,
         "DOCKET_PAYMENT_TOKEN": USDT_TOKEN,
+        "DOCKET_PAY_TO": PAY_TO,
         "DOCKET_B402_RELAYER_CONTRACT": B402_RELAYER,
     }
     if controlled_lp:
@@ -193,7 +194,7 @@ def _decision_grade_result():
     }
 
 
-def _b402_challenge(request, *, asset=USDT_TOKEN, extra_overrides=None):
+def _b402_challenge(request, *, asset=USDT_TOKEN, pay_to=PAY_TO, extra_overrides=None):
     extra = {
         "assetTransferMethod": "b402-relayer",
         **EIP712_DOMAINS[USDT_TOKEN.lower()],
@@ -215,7 +216,7 @@ def _b402_challenge(request, *, asset=USDT_TOKEN, extra_overrides=None):
                     "network": "eip155:56",
                     "amount": str(HIRE_PRICE_ATOMIC),
                     "asset": asset,
-                    "payTo": PAY_TO,
+                    "payTo": pay_to,
                     "maxTimeoutSeconds": 300,
                     "extra": extra,
                 }
@@ -667,6 +668,51 @@ def test_a_paid_canary_refuses_a_challenge_outside_the_configured_b402_boundary(
             asset=tampered_asset,
             extra_overrides=extra_overrides,
         )
+
+    outcome = run_from_environment(
+        environment,
+        now=NOW,
+        transport=httpx.MockTransport(handler),
+        store=store,
+    )
+
+    assert outcome.verdict == "failed"
+    settlement = outcome.checks[4]
+    assert settlement["status"] == "failed"
+    assert settlement["evidence"]["error_code"] == "payment_invalid"
+    assert settlement["evidence"].get("error_type") is None
+    assert signed is False
+
+
+def test_a_paid_canary_refuses_a_challenge_for_another_recipient_before_signing(
+    tmp_path, monkeypatch
+):
+    environment = _environment(tmp_path, controlled_lp=True, paid=True)
+    store = Store(environment["DOCKET_DB"])
+    signed = False
+
+    def refuse_signing(*_args, **_kwargs):
+        nonlocal signed
+        signed = True
+        raise AssertionError("a challenge for another recipient must not be signed")
+
+    monkeypatch.setattr("docket.canary.build_signed_payment", refuse_signing)
+
+    def handler(request):
+        if request.url.path != "/hire/range-doctor":
+            return _public_response(request, store)
+        payment_header = request.headers.get("x-payment")
+        if payment_header is None:
+            return httpx.Response(
+                200,
+                json={
+                    "result": _decision_grade_result(),
+                    "receipt": {"payment": {"status": "free_tier"}},
+                },
+                request=request,
+            )
+        assert payment_header == "invalid"
+        return _b402_challenge(request, pay_to="0x" + "22" * 20)
 
     outcome = run_from_environment(
         environment,

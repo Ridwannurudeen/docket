@@ -171,6 +171,10 @@ readonly JOURNALD_ROOT="$(root_path /etc/systemd/journald.conf.d)"
 readonly JOURNALD_TARGET="${JOURNALD_ROOT}/docket.conf"
 readonly CANARY_CONFIG="$(root_path /etc/docket/docket-canary.conf)"
 readonly CANARY_TOKEN="$(root_path /etc/docket/docket-canary.token)"
+readonly CANARY_KEY="$(root_path /etc/docket/docket-canary-payment.key)"
+readonly CONFIG_DIRECTORY="$(root_path /etc/docket)"
+readonly STATE_DIRECTORY="$(root_path /var/lib/docket)"
+readonly DATA_DIRECTORY="$(root_path /var/lib/docket/data)"
 readonly DATABASE_PATH="$(root_path /var/lib/docket/data/agents.sqlite3)"
 readonly DATABASE_BACKUP_ROOT="$(root_path /var/backups/docket)"
 if (( DRY_RUN )); then
@@ -194,6 +198,50 @@ else
 fi
 readonly JSON_PYTHON BACKUP_PYTHON FSYNC_PYTHON COPY_COMMAND CURL_COMMAND JOURNALCTL_COMMAND
 readonly RUNUSER_COMMAND SYSTEMCTL_COMMAND
+
+validate_canary_identity() {
+    local group_record user_record
+    local group_name group_password group_id group_members
+    local user_name user_password user_id user_group_id user_gecos user_home user_shell
+    local uid_min gid_min canary_groups
+    group_record=$(getent group docket-canary) || fatal \
+        'docket-canary system group is missing'
+    user_record=$(getent passwd docket-canary) || fatal \
+        'docket-canary system user is missing'
+    IFS=: read -r group_name group_password group_id group_members <<<"${group_record}"
+    IFS=: read -r user_name user_password user_id user_group_id user_gecos user_home user_shell \
+        <<<"${user_record}"
+    uid_min=$(awk '$1 == "UID_MIN" { print $2; exit }' /etc/login.defs)
+    gid_min=$(awk '$1 == "GID_MIN" { print $2; exit }' /etc/login.defs)
+    canary_groups=$(id -nG docket-canary)
+    [[ "${group_name}" == docket-canary && "${group_id}" =~ ^[0-9]+$ && \
+        -z "${group_members}" && "${canary_groups}" == docket-canary && \
+        "${user_name}" == docket-canary && "${user_id}" =~ ^[0-9]+$ && \
+        "${user_group_id}" == "${group_id}" && "${user_home}" == /nonexistent && \
+        ! -e /nonexistent && ! -L /nonexistent && \
+        "${user_shell}" == /usr/sbin/nologin && "${uid_min}" =~ ^[0-9]+$ && \
+        "${gid_min}" =~ ^[0-9]+$ && "${user_id}" -lt "${uid_min}" && \
+        "${group_id}" -lt "${gid_min}" ]] || fatal \
+        'docket-canary must be a nologin, no-home system user with its matching system group'
+    if id -nG docket | tr ' ' '\n' | grep -Fxq docket-canary; then
+        fatal 'docket must not be a member of docket-canary'
+    fi
+}
+
+require_exact_acl() {
+    local acl=$1
+    local target=$2
+    shift 2
+    local actual expected
+    actual=$(sed '/^[[:space:]]*$/d' <<<"${acl}" | sort)
+    expected=$(printf '%s\n' "$@" | sort)
+    [[ "${actual}" == "${expected}" ]] || fatal \
+        "${target} ACL contains missing or unexpected entries"
+}
+
+run_canary_test() {
+    "${RUNUSER_COMMAND}" -u docket-canary -g docket-canary -- test "$@"
+}
 
 run_fs install -d -m 0755 "${OPT_ROOT}" "${VENV_ROOT}"
 BUILDING_VENV=0
@@ -444,13 +492,108 @@ for name in "${UNIT_NAMES[@]}"; do
 done
 [[ -f "${SCRIPT_DIR}/journald-docket.conf" ]] || fatal \
     "missing release asset: ${SCRIPT_DIR}/journald-docket.conf"
-[[ -f "${CANARY_CONFIG}" ]] || fatal "canary config is missing: ${CANARY_CONFIG}"
-[[ -f "${CANARY_TOKEN}" ]] || fatal "canary token is missing: ${CANARY_TOKEN}"
+[[ -f "${CANARY_CONFIG}" && ! -L "${CANARY_CONFIG}" ]] || fatal \
+    "canary config is missing or unsafe: ${CANARY_CONFIG}"
+[[ -f "${CANARY_TOKEN}" && ! -L "${CANARY_TOKEN}" ]] || fatal \
+    "canary token is missing or unsafe: ${CANARY_TOKEN}"
 if (( ! DRY_RUN )); then
-    [[ "$(stat -c '%a:%U:%G' "${CANARY_CONFIG}")" == '640:root:docket' ]] || fatal \
-        "canary config must be mode 0640 and owned by root:docket"
+    validate_canary_identity
+    [[ "$(stat -c '%a:%U:%G' "${CANARY_CONFIG}")" == '640:root:docket-canary' ]] || fatal \
+        "canary config must be mode 0640 and owned by root:docket-canary"
     [[ "$(stat -c '%a:%U:%G' "${CANARY_TOKEN}")" == '640:root:docket' ]] || fatal \
         "canary token must be mode 0640 and owned by root:docket"
+    [[ "$(stat -c '%a:%U:%G' "${CONFIG_DIRECTORY}")" == '750:root:docket' ]] || fatal \
+        'Docket configuration directory must be mode 0750 and owned by root:docket'
+    [[ "$(stat -c '%a:%U:%G' "${STATE_DIRECTORY}")" == '750:docket:docket' ]] || fatal \
+        'Docket state directory must be mode 0750 and owned by docket:docket'
+    [[ "$(stat -c '%a:%U:%G' "${DATA_DIRECTORY}")" == '770:docket:docket' ]] || fatal \
+        'Docket data directory must have effective mode 0770 and owner docket:docket'
+    [[ "$(stat -c '%a:%U:%G' "${DATABASE_PATH}")" == '660:docket:docket' ]] || fatal \
+        'live database must have effective mode 0660 and owner docket:docket'
+
+    mapfile -t canary_recipient_settings < <(
+        sed -n 's/^[[:space:]]*DOCKET_PAY_TO=//p' "${CANARY_CONFIG}"
+    )
+    (( ${#canary_recipient_settings[@]} == 1 )) || fatal \
+        'canary config must name exactly one payment recipient'
+    [[ "${canary_recipient_settings[0],,}" == \
+        0xe55816904796341bf8535e25f6c8b647927fc946 ]] || fatal \
+        'canary payment recipient must match the public web settlement recipient'
+
+    mapfile -t canary_key_settings < <(
+        sed -n 's/^[[:space:]]*DOCKET_CANARY_PRIVATE_KEY_FILE=//p' "${CANARY_CONFIG}"
+    )
+    (( ${#canary_key_settings[@]} <= 1 )) || fatal \
+        'canary config must name at most one payment key'
+    canary_key_configured=0
+    if (( ${#canary_key_settings[@]} == 1 )); then
+        [[ "${canary_key_settings[0]}" == /etc/docket/docket-canary-payment.key ]] || \
+            fatal 'canary payment key must use /etc/docket/docket-canary-payment.key'
+        [[ -f "${CANARY_KEY}" && ! -L "${CANARY_KEY}" ]] || fatal \
+            'canary payment key must be a regular non-symlink file'
+        [[ "$(stat -c '%a:%U:%G' "${CANARY_KEY}")" == '640:root:docket-canary' ]] || \
+            fatal 'canary payment key must be mode 0640 and owned by root:docket-canary'
+        canary_key_configured=1
+    fi
+
+    [[ -d "${DATA_DIRECTORY}" && ! -L "${DATA_DIRECTORY}" && \
+        -f "${DATABASE_PATH}" && ! -L "${DATABASE_PATH}" ]] || fatal \
+        'live database paths must be regular non-symlink targets'
+    config_directory_acl=$(getfacl -cp -- "${CONFIG_DIRECTORY}") || fatal \
+        'could not read the Docket configuration directory ACL'
+    config_acl=$(getfacl -cp -- "${CANARY_CONFIG}") || fatal \
+        'could not read the canary configuration ACL'
+    state_directory_acl=$(getfacl -cp -- "${STATE_DIRECTORY}") || fatal \
+        'could not read the Docket state directory ACL'
+    token_acl=$(getfacl -cp -- "${CANARY_TOKEN}") || fatal \
+        'could not read the shared canary token ACL'
+    data_acl=$(getfacl -cp -- "${DATA_DIRECTORY}") || fatal \
+        'could not read the live data directory ACL'
+    database_acl=$(getfacl -cp -- "${DATABASE_PATH}") || fatal \
+        'could not read the live database ACL'
+    require_exact_acl "${config_directory_acl}" 'Docket configuration directory' \
+        'user::rwx' 'user:docket-canary:--x' 'group::r-x' 'mask::r-x' 'other::---'
+    require_exact_acl "${config_acl}" 'canary configuration' \
+        'user::rw-' 'group::r--' 'other::---'
+    require_exact_acl "${state_directory_acl}" 'Docket state directory' \
+        'user::rwx' 'user:docket-canary:--x' 'group::r-x' 'mask::r-x' 'other::---'
+    require_exact_acl "${token_acl}" 'shared canary token' \
+        'user::rw-' 'user:docket-canary:r--' 'group::r--' 'mask::r--' 'other::---'
+    require_exact_acl "${data_acl}" 'live data directory' \
+        'user::rwx' 'user:docket:rwx' 'user:docket-canary:rwx' 'group::r-x' \
+        'mask::rwx' 'other::---' 'default:user::rwx' 'default:user:docket:rwx' \
+        'default:user:docket-canary:rwx' 'default:group::r-x' 'default:mask::rwx' \
+        'default:other::---'
+    require_exact_acl "${database_acl}" 'live database' \
+        'user::rw-' 'user:docket:rw-' 'user:docket-canary:rw-' 'group::r--' \
+        'mask::rw-' 'other::---'
+
+    run_canary_test -r "${CANARY_CONFIG}" || fatal \
+        'canary signer cannot read its configuration'
+    run_canary_test -r "${CANARY_TOKEN}" || fatal \
+        'canary signer cannot read the shared token'
+    if ! run_canary_test -x "${CONFIG_DIRECTORY}" || \
+        ! run_canary_test -x "${STATE_DIRECTORY}" || \
+        ! run_canary_test -r "${DATABASE_PATH}" || \
+        ! run_canary_test -w "${DATABASE_PATH}" || \
+        ! run_canary_test -w "${DATA_DIRECTORY}" || \
+        ! run_canary_test -x "${DATA_DIRECTORY}"; then
+        fatal 'canary signer cannot read and write the live database'
+    fi
+    if "${RUNUSER_COMMAND}" -u docket -- test -r "${CANARY_CONFIG}"; then
+        fatal 'docket web user can read canary configuration'
+    fi
+    if (( canary_key_configured )); then
+        key_acl=$(getfacl -cp -- "${CANARY_KEY}") || fatal \
+            'could not read the canary payment key ACL'
+        require_exact_acl "${key_acl}" 'canary payment key' \
+            'user::rw-' 'group::r--' 'other::---'
+        run_canary_test -r "${CANARY_KEY}" || fatal \
+            'canary signer cannot read its payment key'
+        if "${RUNUSER_COMMAND}" -u docket -- test -r "${CANARY_KEY}"; then
+            fatal 'docket web user can read canary payment key'
+        fi
+    fi
 fi
 if [[ -e "${JOURNALD_TARGET}" ]] && \
     { [[ ! -f "${JOURNALD_TARGET}" ]] || \
@@ -987,7 +1130,12 @@ fi
 refuse_range_capture_window
 refuse_yield_v6_capture_window
 for name in "${TIMER_NAMES[@]}"; do
-    run_host systemctl enable --now "${name}"
+    if [[ "${name}" == docket-canary.timer && \
+        "${TIMER_WAS_ENABLED[${name}]:-0}" != 1 ]]; then
+        run_host systemctl disable --now "${name}"
+    else
+        run_host systemctl enable --now "${name}"
+    fi
 done
 
 RELEASE_OK=1

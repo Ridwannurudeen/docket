@@ -5,8 +5,8 @@ After=network-online.target docket.service
 
 [Service]
 Type=oneshot
-User=docket
-Group=docket
+User=docket-canary
+Group=docket-canary
 WorkingDirectory=/var/lib/docket
 EnvironmentFile=/etc/docket/docket-canary.conf
 Environment=DOCKET_DB=/var/lib/docket/data/agents.sqlite3

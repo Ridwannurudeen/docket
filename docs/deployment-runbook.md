@@ -104,6 +104,20 @@ under `/opt`, verifies all thirteen tracked units with `systemd-analyze verify`,
 current journal disk use. It never edits or reloads nginx. The tracked rate-limit example is
 still an owner-reviewed, separately applied nginx change.
 
+On an existing host, migrate the signer boundary before the release:
+
+```bash
+ssh <deploy-user>@<host> \
+  "bash '$remote_bundle/deploy/install-canary.sh' && ! systemctl is-enabled --quiet docket-canary.timer && ! systemctl is-active --quiet docket-canary.timer && ! systemctl is-active --quiet docket-canary.service"
+```
+
+The installer shares the release lock, disables the timer before changing identity, ownership,
+ACLs, units, or the public web drop-in, and refuses an active canary worker. It leaves the timer
+disabled. Existing config, token, key, data, and database targets are prevalidated before file
+replacement; an interrupted migration remains quiescent and can be rerun under the same lock.
+A successful release preserves that disabled state; enabling it requires separate owner
+approval.
+
 `--no-same-owner` is required because extraction runs as root: it makes every copied artifact
 root-owned instead of preserving the workstation's numeric owner. The private mode-`0700`
 bundle directory prevents another user from replacing verified artifacts.
@@ -163,8 +177,9 @@ and a failed copy removes its partial stage. The old release is retained as
 The `.venv` link is flipped with a temporary symlink and `mv -T`. Unit files are installed
 only when their bytes differ, with a unified diff printed before each replacement. The old
 Aug-21 capture timer is retired and the Aug-26 pre-arm timer replaces it. The release reloads
-systemd, then enables and starts the tracked `docket.service`. It enables these six timers only
-after health, inventory, v3-state, homepage, and static-asset gates all pass:
+systemd, then enables and starts the tracked `docket.service`. Only after health, inventory,
+v3-state, homepage, and static-asset gates all pass does it enable these timers; an intentionally
+disabled `docket-canary.timer` remains disabled:
 
 - `docket-canary.timer`
 - `docket-lp-record.timer`
@@ -183,6 +198,16 @@ All six scheduled Python worker units use the same `python -P -m` boundary.
 Host-specific archive and canary-token environment files remain separate systemd drop-ins;
 they are not folded into the tracked base unit. The database and LP journal remain under
 `/var/lib/docket`; neither is copied into `/opt`.
+
+The governing canary instead runs as the dedicated `docket-canary` system user and group,
+with named ACLs that grant only directory traversal, the shared recovery token, and the live
+SQLite paths it needs. Its account has `/nonexistent` as its home and `/usr/sbin/nologin` as its shell; the
+`docket` web user must never belong to the `docket-canary` group. The web unit also makes the
+canary config and payment-key paths inaccessible with `InaccessiblePaths`, independently of
+their discretionary permissions. The installer grants named `docket` and `docket-canary`
+access ACLs on the live database and access/default ACLs on its directory, with no access for
+other users, so SQLite journal and WAL sidecars inherit both writers without sharing signer
+files.
 
 Every tracked Python service applies the runtime-tested systemd 255 containment set:
 `UMask=0027`, an empty `CapabilityBoundingSet=`, `PrivateDevices=true`,
@@ -274,11 +299,11 @@ The API settlement path is owner-gated by:
 - `DOCKET_FACILITATOR_URL=https://facilitatorv3.b402.ai/api/v1`
 - `DOCKET_PAY_TO`
 
-The canary and verify-only preflight also require the pinned public terms and an RPC:
+The canary and non-settling payment preflight also require the pinned public terms and an RPC:
 
 - `DOCKET_PAYMENT_TOKEN=0x55d398326f99059fF775485246999027B3197955`
 - `DOCKET_B402_RELAYER_CONTRACT=0xE1Af7DaEa624bA3B5073f24A6Ea5531434D82d88`
-- `DOCKET_BSC_RPC_URL` for the read-only owner preflight
+- `DOCKET_BSC_RPC_URL` for the owner payment preflight
 
 `DOCKET_FACILITATOR_URL` includes `/api/v1`: the facilitator's bare documented `/verify`
 path returned 404 on 2026-08-23, while `/api/v1/verify` reached its signature check. The
@@ -286,25 +311,32 @@ configured Relayer is the live proxy with code and the `B402`/`1` EIP-712 domain
 published `0xE91b...5171` address is its owner/submitting EOA and has no code. Do not sign
 against or approve that EOA.
 
-Before any settlement attempt, load the same environment as the canary and run:
+With separate approval for the additional live authorization, load the same environment as
+the canary and optionally run:
 
 ```bash
 set -a
 . /etc/docket/docket-canary.conf
 set +a
-/opt/docket/.venv/bin/python -m docket.hire.x402 preflight
+/opt/docket/.venv/bin/python -P -m docket.hire.x402 preflight
 ```
 
-The command performs read-only chain calls and one facilitator `/verify`; it never calls
-`/settle` or broadcasts a transaction. Require `ready: true`, an empty `missing` list, and
+The chain calls are read-only, but the facilitator `/verify` receives a live signed
+authorization valid for up to 300 seconds. The command never calls `/settle` or broadcasts a
+transaction. Require `ready: true`, an empty `missing` list, and
 `settlement_attempted: false`. A `balance` or `allowance` entry is a funding boundary, not
 permission to submit a transaction. Configuration alone does not change `paid_stock`; the
 service admission must also pass.
 
+Treat that signed verification as a separate possible `0.50 USDT` exposure. If approval covers
+only one charge, skip the command: perform the balance, allowance, whitelist, pause, bytecode,
+and EIP-712 checks with signature-free chain calls, then let the single approved canary
+activation exercise `/verify` and `/settle`.
+
 ### Canary payer prepared on 2026-08-24
 
 The canary payer is `0x4821b5445f1cE8328806f83bAfBdBE7D668E6fd3`. Its key exists only at
-`/etc/docket/docket-canary-payment.key`, owned by `root:docket` at mode `0640`. The canary
+`/etc/docket/docket-canary-payment.key`, owned by `root:docket-canary` at mode `0640`. The canary
 configuration names that path and the decided payment recipient:
 
 ```text
@@ -348,8 +380,10 @@ BSC to `0x4821b5445f1cE8328806f83bAfBdBE7D668E6fd3`. To stage the proof first, `
 plus the same `0.001 BNB` covers four exact hires; it does not fund the 30-run window. After
 funding, refresh the nonce, gas price, and estimate if the payer has sent any transaction,
 then sign and broadcast one bounded approval with owner tooling. Docket has no signing or
-broadcast command. Run the preflight block above afterward; that is the one command that
-confirms setup, and it must return `ready: true` before any settlement attempt.
+broadcast command. Confirm balance, allowance, whitelist, pause state, bytecode, and domain
+with signature-free chain calls. The optional signed preflight above additionally confirms
+facilitator verification, but requires its own approval because it creates another live
+authorization.
 
 The deployed signer must serialize its 65-byte EIP-712 signature with the `0x` prefix expected
 by the facilitator. A prefix-less build returns `signature_error` before the facilitator reads
@@ -445,11 +479,17 @@ The timer runs once daily at 04:17 UTC with up to 30 minutes of randomized delay
 one missed run after downtime. A oneshot cannot overlap another activation of the same unit,
 does not retry, yields CPU and IO priority, and is killed after eight minutes. The runner's
 exclusive end is `2026-09-24T00:00:00Z`, so Sep 23 remains inside the monitored window.
+Before any owner-approved manual one-shot, run
+`systemctl disable --now docket-canary.timer`; require the timer to be both inactive and
+disabled, and require `systemctl is-active --quiet docket-canary.service` to report inactive.
+Start the service exactly once and inspect its terminal status. Leave the timer disabled;
+re-enabling it requires separate owner approval. Never launch the module directly beside the
+scheduled unit or retry a payment-bearing run.
 
 This duty cycle comes from the governing win specification. Before owner configuration, a
 run is only a few sequential public HTTP reads. After the owner supplies a funded controlled
 LP and the payment key file, it adds at most one free controlled-position preflight plus one
-exact 0.50 USDT paid execution and its rejected replay per day. The preflight proves the
+exact 0.50 USDT paid execution and its rejected replay per activation. The preflight proves the
 decision-grade result before anything is spent; the replay is refused before work repeats.
 For the payer prepared on Aug 24, the first possible daily run is Aug 25, so the inclusive
 Aug 25-Sep 23 window is 30 runs and 15.0 USDT.
@@ -465,14 +505,18 @@ economics, or private-key file are absent, the LP and paid legs remain in that s
 paid admission gate remains closed. A failed or stale governing run removes paid admission;
 the free verified example and free preview remain available.
 
-The release requires the existing non-secret config at `/etc/docket/docket-canary.conf` and
-the existing shared token at `/etc/docket/docket-canary.token`, both `root:docket` mode
-`0640`; it never prints, replaces, or copies either one. `deploy/install-canary.sh` remains
-the one-time bootstrap for a new host, not a release step. Neither script creates
+The release requires the existing config at `/etc/docket/docket-canary.conf` as
+`root:docket-canary` mode `0640` and the shared token at
+`/etc/docket/docket-canary.token` as `root:docket` mode `0640`; it never prints, replaces, or
+copies either one. For a paid deployment it also requires the configured payment key to be a
+regular non-symlink file at `/etc/docket/docket-canary-payment.key`, owned by
+`root:docket-canary` at mode `0640`. Before runtime mutation, it validates the dedicated
+nologin/no-home system identity, exact named/default database ACLs, signer read/write access,
+and denial of config/key reads to the web user. `deploy/install-canary.sh` remains the one-time
+bootstrap for a new host: it creates or strictly validates that identity, backs up an existing
+key before changing its ownership, and installs the ACL boundary. Neither script creates
 `/etc/docket/docket-canary-payment.key`, funds an LP, or populates controlled-LP values. Those
-are owner actions. The owner-supplied key file must be readable by `docket` without being
-public (for example, `root:docket` mode `0640`). Never put a private key value in the config
-or a unit.
+are owner actions. Never put a private key value in the config or a unit.
 
 The prepared payer, bounded approval, measured gas, and funding instruction are recorded in
 the Configuration section. Funding and approval do not set `true_settlement` and do not put
