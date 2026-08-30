@@ -319,6 +319,20 @@ def test_bad_query_value_returns_the_structured_error_shape(client):
     assert "error" in resp.json() and "code" in resp.json()["error"]
 
 
+def test_structured_method_error_preserves_the_router_allow_header(client):
+    options = client.options("/health")
+    head = client.head("/health")
+
+    assert options.status_code == 405
+    assert options.json()["error"] == {
+        "code": "method_not_allowed",
+        "message": "Method Not Allowed",
+    }
+    for response in (options, head):
+        assert response.status_code == 405
+        assert response.headers["allow"] == "GET"
+
+
 def test_openapi_is_served_so_an_agent_need_not_guess(client):
     spec = client.get("/openapi.json").json()
     assert "/agents" in spec["paths"] and "/stats" in spec["paths"]

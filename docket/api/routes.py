@@ -24,6 +24,7 @@ import logging
 import os
 import time
 from collections import OrderedDict
+from collections.abc import Mapping
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -310,9 +311,146 @@ def _jsonable(value):
     return value
 
 
-def _error(status_code: int, code: str, message: str) -> JSONResponse:
+def _error(
+    status_code: int,
+    code: str,
+    message: str,
+    headers: Mapping[str, str] | None = None,
+) -> JSONResponse:
     return JSONResponse(
-        status_code=status_code, content={"error": {"code": code, "message": message}}
+        status_code=status_code,
+        content={"error": {"code": code, "message": message}},
+        headers=headers,
+    )
+
+
+def _split_quoted(value: str, separator: str) -> list[str]:
+    parts = []
+    start = 0
+    quoted = False
+    escaped = False
+    for index, character in enumerate(value):
+        if escaped:
+            escaped = False
+        elif quoted and character == "\\":
+            escaped = True
+        elif character == '"':
+            quoted = not quoted
+        elif character == separator and not quoted:
+            parts.append(value[start:index])
+            start = index + 1
+    parts.append(value[start:])
+    return parts
+
+
+def _qvalue(value: str) -> float | None:
+    value = value.strip()
+    whole, point, fraction = value.partition(".")
+    if whole not in {"0", "1"}:
+        return None
+    if point and (
+        len(fraction) > 3
+        or (fraction and (not fraction.isascii() or not fraction.isdecimal()))
+    ):
+        return None
+    if whole == "1" and any(digit != "0" for digit in fraction):
+        return None
+    return float(value)
+
+
+def _is_token(value: str) -> bool:
+    punctuation = "!#$%&'*+-.^_`|~"
+    return (
+        bool(value)
+        and value.isascii()
+        and all(character.isalnum() or character in punctuation for character in value)
+    )
+
+
+def _parameter_value(raw_value: str) -> str | None:
+    value = raw_value.strip()
+    if _is_token(value):
+        return value.casefold()
+    if len(value) < 2 or value[0] != '"' or value[-1] != '"':
+        return None
+    unquoted = []
+    escaped = False
+    for character in value[1:-1]:
+        if escaped:
+            unquoted.append(character)
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character == '"':
+            return None
+        else:
+            unquoted.append(character)
+    if escaped:
+        return None
+    return "".join(unquoted).casefold()
+
+
+def _media_quality(
+    accept: str,
+    offered: str,
+    offered_parameters: Mapping[str, str] | None = None,
+) -> float:
+    offered_type, offered_subtype = offered.split("/", 1)
+    normalized_offered_parameters = {
+        name.casefold(): value.casefold()
+        for name, value in (offered_parameters or {}).items()
+    }
+    best_specificity = (-1, -1)
+    best_quality = 0.0
+    for raw_range in _split_quoted(accept, ","):
+        fields = _split_quoted(raw_range, ";")
+        media_range = fields[0].strip().lower()
+        media_type, slash, media_subtype = media_range.partition("/")
+        if slash != "/" or media_type not in {"*", offered_type}:
+            continue
+        if media_subtype not in {"*", offered_subtype}:
+            continue
+        if media_type == "*" and media_subtype != "*":
+            continue
+        range_parameters = {}
+        quality = 1.0
+        valid = True
+        for raw_parameter in fields[1:]:
+            name, equals, value = raw_parameter.strip().partition("=")
+            name = name.strip().casefold()
+            if equals != "=" or not _is_token(name):
+                valid = False
+                break
+            if name == "q":
+                parsed_quality = _qvalue(value)
+                quality = 0.0 if parsed_quality is None else parsed_quality
+                break
+            normalized_value = _parameter_value(value)
+            if normalized_value is None or name in range_parameters:
+                valid = False
+                break
+            range_parameters[name] = normalized_value
+        if not valid or any(
+            normalized_offered_parameters.get(name) != value
+            for name, value in range_parameters.items()
+        ):
+            continue
+        specificity = (
+            int(media_type != "*") + int(media_subtype != "*"),
+            len(range_parameters),
+        )
+        if specificity > best_specificity or (
+            specificity == best_specificity and quality > best_quality
+        ):
+            best_specificity = specificity
+            best_quality = quality
+    return best_quality
+
+
+def _prefers_html(request: Request) -> bool:
+    accept = ",".join(request.headers.getlist("accept"))
+    return _media_quality(accept, "text/html", {"charset": "utf-8"}) > _media_quality(
+        accept, "application/json"
     )
 
 
@@ -394,9 +532,14 @@ async def _http_error(request: Request, exc: StarletteHTTPException) -> JSONResp
     # Registered on Starlette's class, not FastAPI's subclass, so the router's own 404 on an
     # unknown path emits the contract shape too.
     if isinstance(exc.detail, dict):
-        return _error(exc.status_code, exc.detail["code"], exc.detail["message"])
+        return _error(
+            exc.status_code,
+            exc.detail["code"],
+            exc.detail["message"],
+            headers=exc.headers,
+        )
     code = _STATUS_CODES.get(exc.status_code, f"http_{exc.status_code}")
-    return _error(exc.status_code, code, str(exc.detail))
+    return _error(exc.status_code, code, str(exc.detail), headers=exc.headers)
 
 
 async def _validation_error(
@@ -765,12 +908,13 @@ def create_app(
         )
 
     @app.get("/")
-    def root(request: Request):
+    def root(request: Request, response: Response):
         """One URL, two audiences. A browser says it wants HTML and gets the page; anything
         asking for JSON — or asking for nothing in particular — gets the service index
         unchanged, so the machine contract is untouched by the human one."""
-        if "text/html" in request.headers.get("accept", ""):
-            return FileResponse(WEB_DIR / "index.html")
+        response.headers["Vary"] = "Accept"
+        if _prefers_html(request):
+            return FileResponse(WEB_DIR / "index.html", headers={"Vary": "Accept"})
         return {
             "service": "docket",
             "description": (
@@ -800,7 +944,7 @@ def create_app(
     @app.get("/pancake", response_model=None)
     def pancake(request: Request) -> FileResponse | JSONResponse:
         """The controlled PancakeSwap position for humans and its source routes for agents."""
-        if "text/html" in request.headers.get("accept", ""):
+        if _prefers_html(request):
             page = pancake_initial(
                 (WEB_DIR / "pancake.html").read_text(encoding="utf-8"),
                 get_record("range-doctor"),
@@ -1063,14 +1207,14 @@ def create_app(
         return HTMLResponse(v3_family_page(advantage_v3_shell, family))
 
     @app.get("/stats", response_model=StatsResponse)
-    def stats(request: Request) -> StatsResponse | HTMLResponse:
+    def stats(request: Request, response: Response) -> StatsResponse | HTMLResponse:
         report = coverage_report(Store(db_path), _serving())
         refresh_status = (
             json.loads(refresh_status_path.read_text(encoding="utf-8"))
             if refresh_status_path.exists()
             else None
         )
-        response = StatsResponse(
+        payload = StatsResponse(
             coverage=_coverage(report),
             refresh_status=refresh_status,
             registry_total=report["registry_total"],
@@ -1088,11 +1232,12 @@ def create_app(
             top_name_families=report["top_name_families"],
             probe_method=PROBE_METHOD,
         )
-        if "text/html" in request.headers.get("accept", ""):
+        response.headers["Vary"] = "Accept"
+        if _prefers_html(request):
             return HTMLResponse(
-                stats_page(stats_shell, response), headers={"Vary": "Accept"}
+                stats_page(stats_shell, payload), headers={"Vary": "Accept"}
             )
-        return response
+        return payload
 
     @app.get("/agents", response_model=ListResponse)
     def list_agents(
@@ -1386,7 +1531,7 @@ def create_app(
 
     @app.get("/services/{service_id}", response_model=ServiceDetail)
     def get_service_detail(
-        service_id: str, request: Request
+        service_id: str, request: Request, response: Response
     ) -> ServiceDetail | RedirectResponse:
         """One service in full: what arrives, what to send, what it costs, what has been
         observed of it, what it cannot do, and where its identity can be read."""
@@ -1402,9 +1547,12 @@ def create_app(
                     ),
                 },
             )
-        if "text/html" in request.headers.get("accept", ""):
+        response.headers["Vary"] = "Accept"
+        if _prefers_html(request):
             return RedirectResponse(
-                f"/service?id={quote(service_id, safe='')}", status_code=302
+                f"/service?id={quote(service_id, safe='')}",
+                status_code=302,
+                headers={"Vary": "Accept"},
             )
         agent_path, identity_note = _identity_link(record)
         return ServiceDetail(

@@ -16,6 +16,12 @@ BANNED = (
     "endorsed",
 )
 WEB_DIR = Path(__file__).resolve().parents[1] / "docket" / "api" / "web"
+NEGOTIATED_PATHS = (
+    ("/", 200),
+    ("/pancake", 200),
+    ("/stats", 200),
+    ("/services/range-doctor", 302),
+)
 
 
 @pytest.fixture
@@ -56,6 +62,131 @@ def test_non_browser_still_gets_the_json_service_index(client):
 def test_default_accept_keeps_json_so_the_api_contract_holds(client):
     body = client.get("/").json()
     assert "openapi" in body
+
+
+@pytest.mark.parametrize(("path", "html_status"), NEGOTIATED_PATHS)
+def test_every_negotiated_response_varies_on_accept(client, path, html_status):
+    machine = client.get(
+        path, headers={"accept": "application/json"}, follow_redirects=False
+    )
+    human = client.get(path, headers={"accept": "text/html"}, follow_redirects=False)
+
+    assert machine.status_code == 200
+    assert machine.headers["content-type"].startswith("application/json")
+    assert machine.headers["vary"] == "Accept"
+    assert human.status_code == html_status
+    assert human.headers["vary"] == "Accept"
+    if html_status == 302:
+        assert human.headers["location"] == "/service?id=range-doctor"
+    else:
+        assert human.headers["content-type"].startswith("text/html")
+
+
+@pytest.mark.parametrize("path", [path for path, _ in NEGOTIATED_PATHS])
+def test_accept_quality_can_prefer_the_machine_representation(client, path):
+    response = client.get(
+        path,
+        headers={"accept": "application/json;q=1,text/html;q=0"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+
+
+@pytest.mark.parametrize(("path", "html_status"), NEGOTIATED_PATHS)
+def test_accept_quality_can_prefer_the_human_representation(client, path, html_status):
+    response = client.get(
+        path,
+        headers={"accept": "application/json;q=0.2,text/html;q=0.8"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == html_status
+    if html_status == 302:
+        assert response.headers["location"] == "/service?id=range-doctor"
+    else:
+        assert response.headers["content-type"].startswith("text/html")
+
+
+@pytest.mark.parametrize("path", [path for path, _ in NEGOTIATED_PATHS])
+def test_default_and_wildcard_accept_keep_the_machine_contract(client, path):
+    for headers in ({}, {"accept": "*/*"}):
+        response = client.get(path, headers=headers, follow_redirects=False)
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/json")
+
+
+@pytest.mark.parametrize("path", [path for path, _ in NEGOTIATED_PATHS])
+def test_specific_html_exclusion_overrides_a_more_permissive_wildcard(client, path):
+    response = client.get(
+        path,
+        headers={"accept": "*/*;q=1,text/html;q=0"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+
+
+@pytest.mark.parametrize("path", [path for path, _ in NEGOTIATED_PATHS])
+@pytest.mark.parametrize(
+    "accept",
+    (
+        "text/html;charset=iso-8859-1;q=1,application/json;q=0.5",
+        "text/html;level=1;q=1,application/json;q=0.5",
+        "text/html;charset=utf-8;q=0,text/html;q=1,application/json;q=0.5",
+    ),
+)
+def test_accept_parameters_must_match_the_utf8_html_representation(
+    client, path, accept
+):
+    response = client.get(path, headers={"accept": accept}, follow_redirects=False)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+
+
+@pytest.mark.parametrize(("path", "html_status"), NEGOTIATED_PATHS)
+def test_matching_quoted_utf8_parameter_keeps_html_acceptable(
+    client, path, html_status
+):
+    response = client.get(
+        path,
+        headers={"accept": 'text/html;charset="UTF-8";q=1,application/json;q=0.5'},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == html_status
+    if html_status == 302:
+        assert response.headers["location"] == "/service?id=range-doctor"
+    else:
+        assert response.headers["content-type"].startswith("text/html")
+
+
+@pytest.mark.parametrize("path", [path for path, _ in NEGOTIATED_PATHS])
+def test_malformed_accept_quality_does_not_select_html(client, path):
+    response = client.get(
+        path,
+        headers={"accept": "text/html;q,application/json;q=0.5"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+
+
+@pytest.mark.parametrize("path", [path for path, _ in NEGOTIATED_PATHS])
+def test_equal_html_and_json_quality_keeps_the_machine_contract(client, path):
+    response = client.get(
+        path,
+        headers={"accept": "text/html;q=0.5,application/json;q=0.5"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
 
 
 def test_static_assets_are_served(client):
