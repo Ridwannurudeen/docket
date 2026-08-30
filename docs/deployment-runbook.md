@@ -209,11 +209,8 @@ access ACLs on the live database and access/default ACLs on its directory, with 
 other users, so SQLite journal and WAL sidecars inherit both writers without sharing signer
 files.
 
-The API, refresh, and canary units use `UMask=0007` so files created under the database
-directory retain writable named ACL entries for both SQLite identities; its default ACL still
-denies every other user. The four non-database Python workers retain `UMask=0027`.
-Every tracked Python service otherwise applies the runtime-tested systemd 255 containment set: an
-empty `CapabilityBoundingSet=`, `PrivateDevices=true`,
+Every tracked Python service applies the runtime-tested systemd 255 containment set:
+`UMask=0027`, an empty `CapabilityBoundingSet=`, `PrivateDevices=true`,
 `ProtectClock=true`, `ProtectHostname=true`, `ProtectKernelLogs=true`,
 `ProtectKernelModules=true`, `ProtectKernelTunables=true`,
 `ProtectControlGroups=true`, `ProtectProc=invisible`, `ProcSubset=pid`,

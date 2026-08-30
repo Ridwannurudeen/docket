@@ -19,7 +19,7 @@ Nice=10
 IOSchedulingClass=idle
 TimeoutStartSec=8min
 Restart=no
-UMask=0007
+UMask=0027
 CapabilityBoundingSet=
 
 NoNewPrivileges=true
