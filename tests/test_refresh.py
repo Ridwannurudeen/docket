@@ -241,7 +241,7 @@ def test_refresh_systemd_units_run_the_pipeline_every_six_hours():
     assert "User=docket" in service
     assert "Environment=DOCKET_DB=/var/lib/docket/data/agents.sqlite3" in service
     assert "EnvironmentFile=-/etc/docket/docket-refresh.conf" in service
-    assert "ExecStart=/opt/docket/.venv/bin/python -m docket.refresh" in service
+    assert "ExecStart=/opt/docket/.venv/bin/python -P -m docket.refresh" in service
     assert "ReadWritePaths=/var/lib/docket" in service
     assert "OnCalendar=*-*-* 01,07,13,19:41:00 UTC" in timer
     assert "Persistent=true" in timer

@@ -14,7 +14,7 @@ Environment=DOCKET_DB=/var/lib/docket/data/agents.sqlite3
 # Optional until the owner registers the Docket identities. The file contains public agent ids,
 # comma-separated in DOCKET_OWNED_AGENT_IDS; a malformed or missing identity fails the run.
 EnvironmentFile=-/etc/docket/docket-refresh.conf
-ExecStart=/opt/docket/.venv/bin/python -m docket.refresh
+ExecStart=/opt/docket/.venv/bin/python -P -m docket.refresh
 
 # This is network-bound background work on a shared host and has no deadline inside the hour.
 Nice=10

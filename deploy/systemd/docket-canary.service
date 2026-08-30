@@ -12,7 +12,7 @@ EnvironmentFile=/etc/docket/docket-canary.conf
 Environment=DOCKET_DB=/var/lib/docket/data/agents.sqlite3
 Environment=DOCKET_CANARY_END_AT=2026-09-24T00:00:00Z
 Environment=DOCKET_CANARY_TOKEN_FILE=/etc/docket/docket-canary.token
-ExecStart=/opt/docket/.venv/bin/python -m docket.canary
+ExecStart=/opt/docket/.venv/bin/python -P -m docket.canary
 
 # The shared host is already busy. This job is network-bound and yields both CPU and disk IO.
 Nice=10

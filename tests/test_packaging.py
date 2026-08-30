@@ -444,6 +444,7 @@ def test_the_range_capture_timer_names_its_registered_family_and_output():
     ].split()
     assert exec_start == [
         "/opt/docket/.venv/bin/python",
+        "-P",
         "-m",
         "docket.advantage.v3.capture",
         "v3-05-range-doctor",
@@ -475,7 +476,8 @@ def test_the_range_runbook_verifies_the_released_units_and_armed_state():
         'cmp -s "$timer" /opt/docket/deploy/systemd/docket-v3-range-capture.timer',
         '(timer, "OnCalendar", "2026-08-26 12:03:00 UTC")',
         '(timer, "Unit", "docket-v3-range-capture.service")',
-        "docket.advantage.v3.capture v3-05-range-doctor /var/lib/docket/v3-capture/range",
+        "/opt/docket/.venv/bin/python -P -m docket.advantage.v3.capture "
+        "v3-05-range-doctor /var/lib/docket/v3-capture/range",
         "systemctl is-active docket-v3-range-capture.service && test -f",
         "Range arm check failed; only if the timer missed 12:03Z",
     ):

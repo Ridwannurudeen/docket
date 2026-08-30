@@ -1068,6 +1068,66 @@ def test_release_pins_canary_ownership_and_quiesces_all_timer_workers_before_the
     )
 
 
+def test_application_unit_safely_runs_a_module_after_relocating_the_venv(tmp_path):
+    partial = tmp_path / "commit.partial"
+    partial_bin = partial / "bin"
+    partial_bin.mkdir(parents=True)
+    (partial_bin / "python").write_text("", encoding="ascii")
+    (partial_bin / "uvicorn").write_text(
+        f"#!{(partial_bin / 'python').as_posix()}\n", encoding="ascii"
+    )
+
+    published = tmp_path / "commit"
+    partial.rename(published)
+
+    shebang = (published / "bin" / "uvicorn").read_text(encoding="ascii").strip()
+    assert not Path(shebang.removeprefix("#!")).exists()
+    assert (published / "bin" / "python").is_file()
+
+    writable_cwd = tmp_path / "writable-cwd"
+    installed_modules = tmp_path / "installed-modules"
+    writable_cwd.mkdir()
+    installed_modules.mkdir()
+    (writable_cwd / "uvicorn.py").write_text(
+        "print('writable cwd')\n", encoding="ascii"
+    )
+    (installed_modules / "uvicorn.py").write_text(
+        "print('installed module')\n", encoding="ascii"
+    )
+    environment = os.environ.copy()
+    environment.pop("PYTHONSAFEPATH", None)
+    environment["PYTHONPATH"] = str(installed_modules)
+    unsafe = subprocess.run(
+        [sys.executable, "-m", "uvicorn"],
+        cwd=writable_cwd,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    safe = subprocess.run(
+        [sys.executable, "-P", "-m", "uvicorn"],
+        cwd=writable_cwd,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert unsafe.stdout.strip() == "writable cwd"
+    assert safe.stdout.strip() == "installed module"
+
+    service = (DEPLOY / "systemd" / "docket.service").read_text(encoding="utf-8")
+    exec_start = next(
+        line.removeprefix("ExecStart=")
+        for line in service.splitlines()
+        if line.startswith("ExecStart=")
+    )
+    assert exec_start == (
+        "/opt/docket/.venv/bin/python -P -m uvicorn --factory docket.api:create_app "
+        "--host 127.0.0.1 --port 8090"
+    )
+
+
 def test_the_tracked_application_unit_matches_the_verified_runtime():
     service = (DEPLOY / "systemd" / "docket.service").read_text(encoding="utf-8")
     directives = {}
@@ -1088,7 +1148,7 @@ def test_the_tracked_application_unit_matches_the_verified_runtime():
         "WorkingDirectory": "/var/lib/docket",
         "Environment": "DOCKET_DB=/var/lib/docket/data/agents.sqlite3",
         "ExecStart": (
-            "/opt/docket/.venv/bin/uvicorn --factory docket.api:create_app "
+            "/opt/docket/.venv/bin/python -P -m uvicorn --factory docket.api:create_app "
             "--host 127.0.0.1 --port 8090"
         ),
         "Restart": "on-failure",
@@ -1152,7 +1212,7 @@ def test_the_tracked_application_unit_matches_the_verified_runtime():
     assert "do not set `PrivateNetwork` or `IPAddressDeny`" in " ".join(runbook.split())
 
 
-def test_every_tracked_python_service_uses_the_verified_containment_set():
+def test_every_tracked_python_service_uses_safe_execution_and_containment():
     expected = {
         "UMask": "0027",
         "CapabilityBoundingSet": "",
@@ -1176,20 +1236,39 @@ def test_every_tracked_python_service_uses_the_verified_containment_set():
         "SystemCallFilter": "@system-service",
         "SystemCallErrorNumber": "EPERM",
     }
+    expected_exec_starts = {
+        "docket-canary.service": ("/opt/docket/.venv/bin/python -P -m docket.canary"),
+        "docket-lp-record.service": (
+            "/opt/docket/.venv/bin/python -P -m docket.agents.pancake.lp_record "
+            "0xe55816904796341bf8535e25f6c8b647927fc946 7141050 "
+            "/var/lib/docket/lp-record/controlled.jsonl --declared-value-usd 50.55 "
+            "--recenter-cost-usd 1.00 --horizon-days 30"
+        ),
+        "docket-refresh.service": ("/opt/docket/.venv/bin/python -P -m docket.refresh"),
+        "docket-v3-capture.service": (
+            "/opt/docket/.venv/bin/python -P -m docket.advantage.v3.capture "
+            "v3-02-yield-router /var/lib/docket/v3-capture/yield"
+        ),
+        "docket-v3-range-capture.service": (
+            "/opt/docket/.venv/bin/python -P -m docket.advantage.v3.capture "
+            "v3-05-range-doctor /var/lib/docket/v3-capture/range"
+        ),
+        "docket-v3-yield-v6-capture.service": (
+            "/opt/docket/.venv/bin/python -P -m docket.advantage.v3.capture "
+            "v3-06-yield-router-assisted /var/lib/docket/v3-capture/yield-v3-06"
+        ),
+        "docket.service": (
+            "/opt/docket/.venv/bin/python -P -m uvicorn --factory "
+            "docket.api:create_app --host 127.0.0.1 --port 8090"
+        ),
+    }
     services = sorted((DEPLOY / "systemd").glob("*.service"))
 
-    assert [service.name for service in services] == [
-        "docket-canary.service",
-        "docket-lp-record.service",
-        "docket-refresh.service",
-        "docket-v3-capture.service",
-        "docket-v3-range-capture.service",
-        "docket-v3-yield-v6-capture.service",
-        "docket.service",
-    ]
+    assert {service.name for service in services} == set(expected_exec_starts)
     for service in services:
         directives = {}
-        for line in service.read_text(encoding="utf-8").splitlines():
+        service_text = service.read_text(encoding="utf-8").replace("\\\n", " ")
+        for line in service_text.splitlines():
             line = line.strip()
             if not line or line.startswith(("#", "[")) or "=" not in line:
                 continue
@@ -1198,6 +1277,10 @@ def test_every_tracked_python_service_uses_the_verified_containment_set():
 
         for key, value in expected.items():
             assert directives.get(key) == [value], f"{service.name}: {key}"
+        assert directives.get("WorkingDirectory") == ["/var/lib/docket"]
+        assert [
+            " ".join(value.split()) for value in directives.get("ExecStart", [])
+        ] == [expected_exec_starts[service.name]]
         assert "PrivateNetwork" not in directives
         assert "IPAddressDeny" not in directives
 

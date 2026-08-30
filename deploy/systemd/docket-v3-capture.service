@@ -15,7 +15,7 @@ WorkingDirectory=/var/lib/docket
 # The family id, not a path. The deployed venv lives at /opt/docket-venvs/<commit> while
 # /opt/docket/docket is the PREVIOUS release's source tree — a path there would still exist,
 # still parse, and would capture against a registration that is not the deployed one.
-ExecStart=/opt/docket/.venv/bin/python -m docket.advantage.v3.capture \
+ExecStart=/opt/docket/.venv/bin/python -P -m docket.advantage.v3.capture \
   v3-02-yield-router /var/lib/docket/v3-capture/yield
 
 # Unlike the canary, this is not a background job: it pre-arms before a one-minute window and

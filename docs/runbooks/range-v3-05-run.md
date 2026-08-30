@@ -159,7 +159,7 @@ service, timer = sys.argv[1:]
 expected = (
     (timer, "OnCalendar", "2026-08-26 12:03:00 UTC"),
     (timer, "Unit", "docket-v3-range-capture.service"),
-    (service, "ExecStart", "/opt/docket/.venv/bin/python -m docket.advantage.v3.capture v3-05-range-doctor /var/lib/docket/v3-capture/range"),
+    (service, "ExecStart", "/opt/docket/.venv/bin/python -P -m docket.advantage.v3.capture v3-05-range-doctor /var/lib/docket/v3-capture/range"),
 )
 for path, name, wanted in expected:
     actual = values(path, name)

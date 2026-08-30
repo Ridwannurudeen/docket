@@ -16,7 +16,7 @@ def test_the_oneshot_uses_the_live_database_and_yields_on_the_shared_host():
         "Group=docket",
         "WorkingDirectory=/var/lib/docket",
         "Environment=DOCKET_DB=/var/lib/docket/data/agents.sqlite3",
-        "ExecStart=/opt/docket/.venv/bin/python -m docket.canary",
+        "ExecStart=/opt/docket/.venv/bin/python -P -m docket.canary",
         "Nice=10",
         "IOSchedulingClass=idle",
         "TimeoutStartSec=8min",

@@ -10,7 +10,7 @@ Type=oneshot
 User=docket
 Group=docket
 WorkingDirectory=/var/lib/docket
-ExecStart=/opt/docket/.venv/bin/python -m docket.advantage.v3.capture \
+ExecStart=/opt/docket/.venv/bin/python -P -m docket.advantage.v3.capture \
   v3-06-yield-router-assisted /var/lib/docket/v3-capture/yield-v3-06
 Nice=-5
 TimeoutStartSec=15min

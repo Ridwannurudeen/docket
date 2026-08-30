@@ -175,7 +175,11 @@ after health, inventory, v3-state, homepage, and static-asset gates all pass:
 
 The tracked application unit uses `User=docket`, `Group=docket`,
 `WorkingDirectory=/var/lib/docket`, `DOCKET_DB=/var/lib/docket/data/agents.sqlite3`, and
-`/opt/docket/.venv/bin/uvicorn --factory docket.api:create_app --host 127.0.0.1 --port 8090`.
+`/opt/docket/.venv/bin/python -P -m uvicorn --factory docket.api:create_app --host 127.0.0.1 --port 8090`.
+The interpreter-module form is intentional: console-script shebangs record the temporary
+`.partial` environment path before that environment is atomically published under its commit;
+`-P` also keeps the docket-writable working directory off the module search path.
+All six scheduled Python worker units use the same `python -P -m` boundary.
 Host-specific archive and canary-token environment files remain separate systemd drop-ins;
 they are not folded into the tracked base unit. The database and LP journal remain under
 `/var/lib/docket`; neither is copied into `/opt`.

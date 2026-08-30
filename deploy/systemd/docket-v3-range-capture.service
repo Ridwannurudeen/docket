@@ -15,7 +15,7 @@ User=docket
 Group=docket
 WorkingDirectory=/var/lib/docket
 # The family id makes the running installed package supply the registered specification.
-ExecStart=/opt/docket/.venv/bin/python -m docket.advantage.v3.capture \
+ExecStart=/opt/docket/.venv/bin/python -P -m docket.advantage.v3.capture \
   v3-05-range-doctor /var/lib/docket/v3-capture/range
 
 # This pre-arms before a one-minute window and cannot be repeated, so it does not yield CPU

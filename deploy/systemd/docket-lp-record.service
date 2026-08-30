@@ -19,7 +19,7 @@ WorkingDirectory=/var/lib/docket
 # spot; the recenter cost is measured gas for two legs priced at 1 gwei rather than the
 # 0.05 gwei that happened to prevail, because understating a cost flatters the break-even
 # it feeds and overstating one cannot.
-ExecStart=/opt/docket/.venv/bin/python -m docket.agents.pancake.lp_record \
+ExecStart=/opt/docket/.venv/bin/python -P -m docket.agents.pancake.lp_record \
   0xe55816904796341bf8535e25f6c8b647927fc946 7141050 \
   /var/lib/docket/lp-record/controlled.jsonl \
   --declared-value-usd 50.55 --recenter-cost-usd 1.00 --horizon-days 30
