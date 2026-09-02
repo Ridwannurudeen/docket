@@ -82,7 +82,7 @@ nondeterministic.
 The VPS release is a copied tree under `/opt/docket`, not a Git checkout. Build the release
 bundle outside the checkout, then run the following from Git Bash. The tar stream carries the
 generated manifest and wheel plus the complete `deploy/` directory, including the hashed
-runtime lock and all thirteen tracked unit files.
+runtime lock and all fifteen tracked unit files.
 
 ```bash
 bundle=$(realpath /path/outside/checkout/docket-release)
@@ -100,7 +100,7 @@ ssh <deploy-user>@<host> \
 `preflight.sh` requires `nginx -t` to exit successfully, print `test is successful`, and
 emit exactly the operator-supplied number of lines containing the fixed `[warn]` token, whether
 nginx uses timestamped error-log or `nginx: [warn]` form. It also requires at least 2 GiB free
-under `/opt`, verifies all thirteen tracked units with `systemd-analyze verify`, and prints the
+under `/opt`, verifies all fifteen tracked units with `systemd-analyze verify`, and prints the
 current journal disk use. It never edits or reloads nginx. The tracked rate-limit example is
 still an owner-reviewed, separately applied nginx change.
 
@@ -393,9 +393,11 @@ Exactly one owner-approved Range Doctor canary was started. Run 18 settled
 `500000000000000000` atomic units, or 0.50 USDT, and the identical signed request was
 rejected with `409 authorization_replay`; all eight canary legs passed. The post-canary
 source records Range Doctor's `true_settlement` and `decision_grade_presenter` limbs as
-true, while `fresh_paired_benchmark=false` keeps `paid_stock=false`. The deployed
-`b8b6ed7` runtime predates that static admission update and still reports
-`true_settlement=false`; no deployment is scheduled before the Sep 3 capture.
+true, while `fresh_paired_benchmark=false` keeps `paid_stock=false`. That source was
+released to production on 2026-09-02 as `4a632c0`, which now reports
+`true_settlement=true`; `fresh_paired_benchmark=false` and a disabled canary timer keep
+`paid_stock=false`. `release.sh` refuses any further release between
+`2026-09-03T11:49:54Z` and `2026-09-03T12:03:06Z`, the v3-06 capture activation window.
 
 The canary timer is disabled and inactive. Do not run another canary, enable the timer, or
 treat the remaining allowance or balance as permission for another payment without fresh

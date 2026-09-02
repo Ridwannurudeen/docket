@@ -115,7 +115,7 @@ primary.
 ## 3. High-stakes categories and track record — 20%
 
 Warden is the current security record, and all three published windows need to travel with the
-figures:
+figures. The trading record follows it, in the same shape:
 
 | Window and method | Result | Limitation |
 |---|---|---|
@@ -123,12 +123,57 @@ figures:
 | The unchanged 47-payload corpus scanned 3 times each, observed 2026-08-10 | The live detector then in service flagged 14 of 31 attacks; 14 of 15 flagged payloads were attacks. The keyword null flagged 12 of 31; flag-everything flagged 31 of 31 with precision 31 of 47; flag-nothing flagged 0 of 31. | The exact source revision and deploy date were not recorded; it predates `0583853ed7fca7d03c98a5cc4c2383cc6b149248`, deployed 2026-08-24. Nine of 141 logical scans failed, every payload was scored, and registration ordering is `self_attested`. The run remains unmodified. [V2 security record](https://docket.gudman.xyz/advantage/v2.json) · [Committed run](../../docket/advantage/v2/runs/03-security-corpus.json) |
 | The same unchanged 47-payload corpus scanned 3 times each, observed 2026-08-24 | Revision `0583853ed7fca7d03c98a5cc4c2383cc6b149248`, deployed 2026-08-24, flagged 15 of 30 scored attacks; 15 of 16 flagged payloads were attacks. The keyword null flagged 12 of 30; flag-everything flagged 30 of 30 with precision 30 of 46; flag-nothing flagged 0 of 30. | Sixteen of 141 logical scans failed on HTTP 429. One hostile payload was unscored and left every numerator and denominator. Registration ordering is `git_provable`. Recall 50.00% misses the 90% v3-04 limb even though precision 93.75% clears its limb; this v2 run cannot qualify the held-out gate, so Warden remains `beta`. [V2 security record](https://docket.gudman.xyz/advantage/v2.json) · [Committed run](../../docket/advantage/v2/runs/05-security-corpus-postfix.json) |
 
-Docket has no trading-performance record that supplies a win rate together with its window and
-risk taken. SOLVENT's v1 task dates a historical claim rather than testing whether the call was
-right or profitable, while Grid's v2 replay bought at 0 of 5 levels and published its registered
-claim as refuted.
+### The trading record, with its window and its denominators
+
+Two registered v2 experiments read the same closed historical window and they are the only
+trading records in this package. `06-solvent-record` reads the whole published receipt chain of
+SOLVENT, the trading agent this marketplace lists, and establishes what that chain does and does
+not carry. `07-solvent-deposit-adjusted` reads the same account's funding from BSC and publishes
+the return `06` declined to compute — a loss. `07` adds to `06` and refutes nothing in it.
+
+| Window and method | Result | Limitation |
+|---|---|---|
+| All 384 receipts SOLVENT published, `2026-06-18T17:46:37Z` to `2026-06-29T01:01:04Z` — eleven days, frozen once at `?limit=500` and hashed into the registration | The chain verifies end to end: 384 of 384 published hashes are the canonical digest of the body they sit beside, 383 of 383 `prev_hash` links hold, and the hash at seq 381 is the value BSC transaction `0xa21529…fb59a9` carried in a block mined 2026-06-28, as Docket's own v1 task read it on 2026-08-08. | Two receipts sit past that anchor and nothing on chain fixes when they were written. The recipe that verifies the chain differs from Docket's own receipt digest in one argument; the two agree on 327 of 384 receipts and part on the 57 carrying a non-ASCII character. [Registered record](../../docket/advantage/v2/runs/06-solvent-record.json) |
+| The 51 execution seals in that chain, against the 55 pre-trade commitments they answer | 27 of 51 seals reach an execution the chain reports as confirmed on BSC — 27 of the 55 commitments, under half. 22 seals were left `unresolved`, 1 `failed`, and 1 records no outcome. 37 of 51 carry a transaction hash, so 10 name a transaction the chain never confirms. Counting every seal as a trade, which is the free reading, gives 51 of 51 and overstates by 24. | `unresolved` is neither a success nor a failure and keeps its place in every denominator; it is not re-read as either. The confirmations land on the small trades: 15 of the 18 `qualify` micro-rotations confirmed against 5 of the 19 `exit` seals. [Registered record](../../docket/advantage/v2/runs/06-solvent-record.json) |
+| Risk taken, as the chain records it: intended notional per trade | The 27 confirmed executions carry a median intended notional of 2.00 USD, a largest of 99.33 USD and 1,012.98 USD in total. The largest notional any intent in the chain records is 99.75 USD. The regime call is `risk-off` on 383 of the 384 receipts. | Notional is what the agent intended to move, not what the swap returned, and it is not a position-risk measure. No drawdown is computed. [Registered record](../../docket/advantage/v2/runs/06-solvent-record.json) |
+| The commitment behind each execution | Every one of the 51 seals names, by hash, a `pre_trade_commit` receipt earlier in the same chain carrying the identical intent key, and 4 commitments were never sealed. | That binding is inside a file the agent controls. Only 1 of the 51 seals carries a `pre_trade_anchor_tx_hash`, so **this record is not pre-committed on chain** and is not described as one; 26 of the 27 confirmed executions rest on SOLVENT's own word for when the intention behind them was written. [Registered record](../../docket/advantage/v2/runs/06-solvent-record.json) |
+
+**No win rate and no drawdown is published from that chain, and no return is computed from
+its `equity_usd` series.** Every receipt carries `equity_usd` and no receipt carries any field
+recording money moving into or out of the account, so in that series a deposit and a profit are
+the same arithmetic. Three steps in it are larger than the largest notional the chain records —
+`+201.74` at seq 134, `+100.09` at seq 225 and `+997.87` at seq 363 — and one receipt reads
+`0.0` between two readings of `45.85`, a failed balance read that is disclosed and excluded
+rather than treated as a wipeout. So the series is contaminated by an amount the chain does not
+state, dividing its last reading by its first would publish a figure it does not support in
+either direction, and a smaller deposit or withdrawal would be indistinguishable from trading
+by construction. The account's transfer history has since been reconstructed from BSC, and the
+deposit-adjusted figure is registered separately as `07-solvent-deposit-adjusted` below, with
+its own corpus, its own method and its own denominators. It is a loss. It refutes nothing in
+`06`: `06`'s funding limb is about the fields inside `06`'s own corpus, a wallet's transactions
+on BSC are outside it, and `06`'s claim and falsifier are unchanged.
+
+### The deposit-adjusted result, read from BSC: a loss
+
+Registered v2 experiment `07-solvent-deposit-adjusted` supplies the term `06` said was missing.
+It is an adverse result and it is published as it came out.
+
+| Window and method | Result | Limitation |
+|---|---|---|
+| Ten pinned BSC blocks across the same `2026-06-18T17:46:37Z` → `2026-06-29T01:01:04Z` window, read once from a public archive node and frozen with the endpoint, the fetch time and a digest over the node's own answers | Exactly two external deposits reached the wallet: `202.23708931` USDT at block 105868833 and `1001.08620000` USDT at block 106851265, both bare `transfer()` calls of Binance-Peg BSC-USD sent by externally owned accounts, totalling `1203.323289` USD, and nothing was transferred out. Each deposit is rechecked on twelve properties, including that its `Transfer` log equals the wallet's balance delta across its own block. | An external deposit is fixed by one registered rule — `tx.from != wallet` — so no leg of a trade the account made can enter the set. That the set is *complete* rests on a full `eth_getLogs` sweep this repository does not reproduce: a public endpoint caps a log range far below the 1,976,904 blocks the window spans and no explorer key is configured here. The deposit set is owner-attested and the record says so wherever a figure computed from it appears. [Registered record](../../docket/advantage/v2/runs/07-solvent-deposit-adjusted.json) |
+| The account's dollar-pegged balance at the two window blocks, minus what was paid in | The balance rose from `45.474198` to `1224.612900` USD — a change of `+1179.138701` against `1203.323289` paid in. **The deposit-adjusted result is a loss of `24.184588` USD**: **−11.10%** of the `217.88` USD of capital weighted by how long the account held it (Modified Dietz, weights in block seconds) and **−1.94%** of the `1248.80` USD the account opened with and received together. Doing nothing with the same contributions returns exactly `0.00` and sends no transaction. | Both boundary baskets are USDT and USDC alone, valued at a dollar each, so neither figure needs a price mark. Reading the balance change as the result gives `+1179.14` USD and is wrong by exactly what was paid in; that quotient is never served in any form. [Registered record](../../docket/advantage/v2/runs/07-solvent-deposit-adjusted.json) |
+| Attribution, as the wallet and the chain each state it | **The loss is the wallet's and is not provably the agent's.** The wallet's transaction count advanced from 12 to 125 over the window — 113 transactions — while the receipt chain names 37 distinct transaction hashes, so at least 76 are named nowhere in the published record. | Chain data cannot distinguish a trade the agent's engine signed from one an operator signed with the same key, and no arithmetic here closes that gap. A separate owner sweep, not reproduced here, found 16 of 44 value-moving transactions absent from the chain's `executions`, including the two largest — `0x07f88b70…` (951.40 USDT → 0.60125 ETH) and `0xe4fd127c…` (0.72807 ETH → 1145.46 USDT); neither appears among the 37 hashes the chain names, which this record checks. [Registered record](../../docket/advantage/v2/runs/07-solvent-deposit-adjusted.json) |
+| Gas | **Excluded, and the exclusion runs one way.** `compute_equity` in SOLVENT's engine sums only pinned BEP-20 balances, so the native coin the fees were paid in never entered the equity series either. 113 transactions were paid for and this record holds none of their hashes — the two it carries are the deposits, which other addresses sent — while the receipt chain names 37 of the 113 and carries no fee for any of them. | Every one of those fees made the account smaller, so `−24.18` is a floor and not an estimate. The chain separately records 980 data purchases costing `5.00` USDC; had all of that settled from this wallet the result would be `−19.18` instead, which the owner's sweep contradicts and this record does not resolve. It is a loss under either reading. [Registered record](../../docket/advantage/v2/runs/07-solvent-deposit-adjusted.json) |
+| A time-weighted return | **Not published as a figure.** At the second deposit `0.12682051` ETH is most of the account's value and no `balanceOf` prices it. Over a registered grid of ETH marks from 1400 to 1800 USD the chain-linked return runs from **−15.31% to +1.19%** — wider than the figure, and it does not settle the sign. | This record observed no price source, so no row of that table is offered as the answer and a reader with a mark can read their own. The dollar result and the Modified Dietz return need no mark, which is why those two are figures. [Registered record](../../docket/advantage/v2/runs/07-solvent-deposit-adjusted.json) |
+
+Grid's v2 replay bought at 0 of 5 levels and published its registered claim as refuted, and
+that remains the only other trading-shaped record here.
 [Sources: [SOLVENT paired task](https://docket.gudman.xyz/advantage#02-trading),
-[Grid v2 result](https://docket.gudman.xyz/advantage/v2.json)]
+[registered specification 06](../../docket/advantage/v2/specs/06-solvent-record.json),
+[frozen chain](../../docket/advantage/v2/corpus/trading/solvent-receipts.json),
+[registered specification 07](../../docket/advantage/v2/specs/07-solvent-deposit-adjusted.json),
+[frozen on-chain readings](../../docket/advantage/v2/corpus/trading/solvent-wallet-flows.json),
+[v2 report](https://docket.gudman.xyz/advantage/v2.json)]
 
 ## 4. Marketplace quality — 20%
 

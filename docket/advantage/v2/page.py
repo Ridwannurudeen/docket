@@ -125,6 +125,8 @@ def _null_figure(figure: dict) -> str:
         return _rate(figure["rate"])
     if "distribution" in figure:
         return _distribution(figure["distribution"])
+    if "usd" in figure:
+        return f"{figure['usd']:,.6f} US dollars"
     return str(figure.get("value"))
 
 
@@ -334,6 +336,237 @@ def _replay_rows(run: dict) -> str:
     return fired + arms
 
 
+def _seal_rows(experiment: dict) -> str:
+    """Every execution seal in the chain, confirmed or not, in the order it was written."""
+    measurement = experiment["measurement"]
+    execution = measurement["execution"]
+    rows = [
+        _row(
+            (
+                _esc(seal["ts"]),
+                _esc(seal["kind"]),
+                f"{_esc(seal['from_asset'])} &rarr; {_esc(seal['to_asset'])}",
+                f"{seal['notional_usd']:,.2f}",
+                _esc(seal["outcome"] or "no outcome recorded"),
+                "confirmed" if seal["confirmed_execution"] else "not confirmed",
+                f'<span class="mono">{_esc(seal["tx_hash"])}</span>'
+                if seal["tx_hash"]
+                else "none",
+                f'<span class="mono">{_esc(seal["pre_trade_anchor_tx_hash"])}</span>'
+                if seal["pre_trade_anchor_tx_hash"]
+                else "none",
+                _esc(seal["commitment_seq"]),
+            ),
+            header=_esc(seal["seq"]),
+        )
+        for seal in measurement["seals"]
+    ]
+    seals = _table(
+        f"All {len(rows)} execution seals, of which "
+        f"{execution['confirmed_over_seals']['numerator']} reach a confirmed execution. A seal "
+        "the agent left unresolved is shown where it happened and keeps its place in the "
+        "denominator; it is never re-read as either a success or a failure. A tx_hash is what "
+        "the receipt asserts, not a block read here.",
+        (
+            "Seq",
+            "Written at",
+            "Kind",
+            "Pair",
+            "Notional (USD)",
+            "Outcome",
+            "Confirmed",
+            "Transaction",
+            "Pre-trade anchor",
+            "Commitment seq",
+        ),
+        rows,
+    )
+    steps = _table(
+        f"The {measurement['equity']['n_largest_steps_shown']} largest steps in the equity "
+        f"series, over the {measurement['equity']['n_steps_considered']} steps considered. "
+        f"{len(measurement['equity']['steps_no_recorded_trade_explains'])} exceed "
+        f"{measurement['equity']['notional_bound_usd']:,.2f} US dollars, the largest notional "
+        "any intent in the chain records, so no single trade here explains them. Some of them "
+        "sit a few receipts from a step of the opposite sign and almost the same size, which "
+        "is what a failed balance read looks like and is not what a deposit looks like — and "
+        "the chain says which it was for none of them.",
+        ("From seq", "To seq", "Written at", "From (USD)", "To (USD)", "Step (USD)"),
+        [
+            _row(
+                (
+                    _esc(step["to_seq"]),
+                    _esc(step["ts"]),
+                    f"{step['from_equity_usd']:,.2f}",
+                    f"{step['to_equity_usd']:,.2f}",
+                    f"{step['step_usd']:+,.2f}",
+                ),
+                header=_esc(step["from_seq"]),
+            )
+            for step in measurement["equity"]["largest_steps"]
+        ],
+    )
+    return seals + steps
+
+
+def _solvent_chain(experiment: dict) -> str:
+    """The two integrity limbs, and the one check the chain cannot make for itself."""
+    chain = experiment["measurement"]["chain"]
+    cross = chain["anchor_cross_check"]
+    return (
+        '<div class="panel"><h3>The chain, recomputed</h3><dl class="deflist">'
+        f"<dt>Published hashes recomputed</dt><dd>{_rate(chain['content_hashes_recomputed'])}"
+        f' under <span class="mono">{_esc(chain["recipe"])}</span></dd>'
+        f"<dt>prev_hash links</dt><dd>{_rate(chain['linkage_recomputed'])}, genesis prev_hash "
+        f"{_esc(chain['genesis_prev_hash'])}</dd>"
+        "<dt>Where the recipe was decided</dt><dd>"
+        f"{_rate(chain['ascii_insensitive_recipe_agrees'])} of the receipts hash the same way "
+        "under this repository's own receipt digest, which differs in one argument. The "
+        f"{_esc(chain['receipts_the_two_recipes_disagree_on'])} that carry a non-ASCII "
+        "character are the only place the two can disagree, and they are where a verifier "
+        "that guessed wrong would report a chain that verifies almost everywhere.</dd>"
+        f'<dt>Head</dt><dd><span class="mono">{_esc(chain["head_hash"])}</span> at seq '
+        f"{_esc(chain['head_seq'])}</dd>"
+        f"<dt>Against an on-chain anchor</dt><dd>{_esc(cross['statement'])}</dd>"
+        "</dl></div>"
+    )
+
+
+def _solvent_no_return(experiment: dict) -> str:
+    """Why no return figure is served, with the readings that decided it."""
+    no_return = experiment["no_return"]
+    funding = no_return["funding_fields"]
+    readings = "".join(
+        f'<dt><span class="mono">{_esc(path)}</span></dt><dd>{_esc(reading)}</dd>'
+        for path, reading in funding["readings"].items()
+    )
+    failures = "".join(
+        f"<dt>seq {_esc(failure['seq'])}</dt><dd>{_esc(failure['ts'])} reads "
+        f"{failure['equity_usd']:,.2f} between two readings of "
+        f"{failure['previous_equity_usd']:,.2f}. It is a failed read of the balance rather "
+        "than an account that emptied and refilled, and it is excluded from the step series "
+        "with the exclusion stated here.</dd>"
+        for failure in no_return["read_failures"]
+    )
+    return (
+        '<div class="panel"><h3>No return figure is served, and this is why</h3>'
+        f"<p>{_esc(no_return['statement'])}</p>"
+        f'<dl class="deflist">{failures}'
+        "<dt>Fields that would record funding</dt><dd>"
+        f"{len(funding['candidates'])} of the "
+        f"{len(experiment['measurement']['equity']['key_paths'])} key paths in the chain carry "
+        f"one of the {len(funding['words_searched'])} searched words, and "
+        f"{len(funding['fields_recording_money_into_or_out_of_the_account'])} record money "
+        "moving into or out of the account. Each candidate is read out below; the whole key "
+        "path list is served in the JSON so a reader can apply a different definition to "
+        "it.</dd>"
+        f"{readings}</dl></div>"
+    )
+
+
+def _deposit_rows(experiment: dict) -> str:
+    """Every reading the deposit-adjusted result was subtracted from, and the two deposits."""
+    measurement = experiment["measurement"]
+    balances = _table(
+        "Every balance the account was read at, as an archive node answered at that block. "
+        "The two window blocks are the seconds the receipt chain's own first and last receipt "
+        "record; the other four are each deposit's block and the block before it, which is the "
+        "pair a balance delta has to be read across. ETH is read at each of them and valued at "
+        "none of them: it is zero at the opening and dust at the close, which is why the dollar "
+        "result needs no price.",
+        (
+            "Block",
+            "Reading",
+            "USDT",
+            "USDC",
+            "ETH",
+            "Dollar-pegged (USD)",
+            "Transactions sent by then",
+        ),
+        [
+            _row(
+                (
+                    _esc(reading["label"].replace("_", " ")),
+                    f"{reading['usdt']:,.6f}",
+                    f"{reading['usdc']:,.6f}",
+                    f"{reading['eth']:.10g}",
+                    f"{reading['stables_usd']:,.6f}",
+                    _esc(reading["transaction_count"]),
+                ),
+                header=_esc(reading["block_number"]),
+            )
+            for reading in measurement["evidence"]["balance_readings"]
+        ],
+    )
+    checks = _table(
+        "Both external deposits, and every property rechecked on each of them from the frozen "
+        "transaction and its receipt. An external deposit is a transfer of value into the "
+        "wallet that some other address sent, so no leg of a trade the account made can be one "
+        "however much it moved.",
+        (
+            "Deposit",
+            "Block",
+            "Sender",
+            "Amount (USD)",
+            "Balance delta (USD)",
+            "Properties held",
+        ),
+        [
+            _row(
+                (
+                    _esc(deposit["block_number"]),
+                    f'<span class="mono">{_esc(deposit["sender"])}</span>',
+                    f"{deposit['amount_usd']:,.6f}",
+                    f"{deposit['balance_delta_usd']:,.6f}",
+                    f"{sum(deposit['checks'].values())} of {len(deposit['checks'])}",
+                ),
+                header=f'<span class="mono">{_esc(deposit["tx_hash"])}</span>',
+            )
+            for deposit in measurement["flows"]["deposits"]
+        ],
+    )
+    grid = measurement["time_weighted"]
+    marks = _table(
+        "The time-weighted return at each registered ETH mark, published as a table because "
+        "the second deposit lands while most of the account's value sits in a token this "
+        f"record did not price. Over the marks it runs from {grid['spread']['lowest'] * 100:.2f}"
+        f"% to {grid['spread']['highest'] * 100:.2f}%, which is wider than the figure would be "
+        "and does not settle the sign. No row is the answer.",
+        ("ETH mark (USD)", "Sub-period returns", "Time-weighted return"),
+        [
+            _row(
+                (
+                    ", ".join(
+                        f"{period['sub_period_return'] * 100:+.2f}%"
+                        for period in row["sub_periods"]
+                    ),
+                    f"{row['time_weighted_return'] * 100:+.2f}%",
+                ),
+                header=f"{row['eth_mark_usd']:,}",
+            )
+            for row in grid["rows"]
+        ],
+    )
+    return balances + checks + marks
+
+
+def _deposit_disclosures(experiment: dict) -> str:
+    """The three sentences the headline is dishonest without, beside the headline itself."""
+    adjusted = experiment["deposit_adjusted"]
+    return (
+        '<div class="panel"><h3>What this figure is not</h3>'
+        f"<dl class=\"deflist\"><dt>It is the wallet's return, not provably the agent's</dt>"
+        f"<dd>{_esc(adjusted['attribution'])}</dd>"
+        f"<dt>Gas is excluded, so the loss is a floor</dt><dd>{_esc(adjusted['gas'])}</dd>"
+        "<dt>The deposit set is owner-attested, not swept here</dt>"
+        f"<dd>{_esc(adjusted['completeness'])}</dd>"
+        "<dt>No time-weighted return is published as a figure</dt>"
+        f"<dd>{_esc(adjusted['time_weighted'])}</dd>"
+        "<dt>It adds to 06 and refutes nothing in it</dt>"
+        f"<dd>{_esc(adjusted['cross_reference']['statement'])}</dd>"
+        "</dl></div>"
+    )
+
+
 def _runs(experiment: dict) -> str:
     """Every observation behind this experiment's figures, in the shape its data takes."""
     experiment_id = experiment["experiment_id"]
@@ -341,6 +574,10 @@ def _runs(experiment: dict) -> str:
         return _pool_rows(experiment["run"])
     if experiment_id in ("03-security-corpus", "05-security-corpus-postfix"):
         return _minimal_pair(experiment) + _payload_rows(experiment)
+    if experiment_id == "06-solvent-record":
+        return _seal_rows(experiment)
+    if experiment_id == "07-solvent-deposit-adjusted":
+        return _deposit_rows(experiment)
     return _replay_rows(experiment["run"])
 
 
@@ -372,6 +609,17 @@ def _experiment(experiment: dict) -> str:
         if ship_gate
         else ""
     )
+    chain_html = (
+        _solvent_chain(experiment) if experiment_id == "06-solvent-record" else ""
+    )
+    no_return_html = (
+        _solvent_no_return(experiment) if experiment.get("no_return") else ""
+    )
+    disclosures_html = (
+        _deposit_disclosures(experiment)
+        if experiment_id == "07-solvent-deposit-adjusted"
+        else ""
+    )
     return (
         f'<section id="{_esc(experiment_id)}" aria-labelledby="{_esc(experiment_id)}-h">'
         f'<h2 id="{_esc(experiment_id)}-h">{_esc(experiment_id)}</h2>'
@@ -379,7 +627,10 @@ def _experiment(experiment: dict) -> str:
         + run_status_html
         + detector_html
         + ship_gate_html
+        + chain_html
+        + no_return_html
         + _headline(experiment["headline"])
+        + disclosures_html
         + "<h3>The falsifier, evaluated</h3>"
         + _falsifier(experiment["falsifier_result"])
         + '<div class="evidence-record">'

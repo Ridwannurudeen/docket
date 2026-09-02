@@ -35,7 +35,7 @@ from .spec import (
     _validate_inputs,
     _yield_first_failed_gate,
     _yield_number,
-    is_range_family,
+    is_range_successor_family,
     is_warden_family,
     lock_inputs,
     range_selected_positions,
@@ -121,7 +121,7 @@ def assemble_range_envelope(
     evaluator_calibration: list[dict],
 ) -> dict:
     """Build successor Range inputs from a complete enumerable frame and pool truth."""
-    if not is_range_family(spec) or "frame_definition" not in spec.case_selection:
+    if not is_range_successor_family(spec):
         raise AssemblyRefused("lock-range accepts only enumerable Range successors")
     try:
         wallets, positions, conflicts, frame = _range_successor_source_frame(

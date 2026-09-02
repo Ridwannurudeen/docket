@@ -55,6 +55,8 @@ EXPERIMENT_IDS = (
     "03-security-corpus",
     "05-security-corpus-postfix",
     "04-grid-replay",
+    "06-solvent-record",
+    "07-solvent-deposit-adjusted",
 )
 # The same four words v1's page is held to. They are re-stated rather than imported, because
 # the ban has to survive v1's test file being read, moved or retired.
@@ -148,7 +150,22 @@ def test_registration_provenance_is_served_per_experiment_and_visible_on_the_pag
         "03-security-corpus": "self_attested",
         "05-security-corpus-postfix": "git_provable",
         "04-grid-replay": "git_provable",
+        "06-solvent-record": "uncommitted",
+        "07-solvent-deposit-adjusted": "uncommitted",
     }
+    assert provenance["06-solvent-record"]["spec_commit"] is None
+    assert provenance["06-solvent-record"]["run_commit"] is None
+    assert provenance["06-solvent-record"]["committed_run_producer"] == {
+        "present": True,
+        "path": "docket/advantage/v2/solvent.py",
+    }
+    assert provenance["07-solvent-deposit-adjusted"]["spec_commit"] is None
+    assert provenance["07-solvent-deposit-adjusted"]["run_commit"] is None
+    assert provenance["07-solvent-deposit-adjusted"]["committed_run_producer"] == {
+        "present": True,
+        "path": "docket/advantage/v2/deposits.py",
+    }
+    assert "uncommitted" in page
     assert provenance["01-liquidity-arithmetic"]["spec_commit"] == "b9578b8"
     assert provenance["01-liquidity-arithmetic"]["run_commit"] == "b9578b8"
     assert provenance["03-security-corpus"]["spec_commit"] == "9042e72"
@@ -186,7 +203,16 @@ def test_registration_history_commits_exist_and_04_spec_precedes_run():
     if not (ROOT / ".git").exists():
         pytest.skip("git metadata is absent from this installed copy")
 
-    for history in report.REGISTRATION_HISTORY.values():
+    for experiment_id, history in report.REGISTRATION_HISTORY.items():
+        if history["spec_commit"] is None:
+            # A registration with no commits claims nothing from history, and it has to say
+            # so rather than being quietly skipped: an entry that lost its hashes would
+            # otherwise pass here by looking like this one.
+            assert history["run_commit"] is None, experiment_id
+            assert (
+                report.registration_provenance(experiment_id)["state"] == "uncommitted"
+            ), experiment_id
+            continue
         for field in ("spec_commit", "run_commit"):
             subprocess.run(
                 ["git", "cat-file", "-e", history[field]], cwd=ROOT, check=True
@@ -491,8 +517,9 @@ def test_every_falsifier_result_is_computed_and_one_of_them_fired(body):
 
 
 def test_landing_does_not_repeat_the_inconsistent_survivor_count(landing):
-    assert "1 of 4 registered claims was refuted" in landing
+    assert "1 of 6 registered claims was refuted" in landing
     assert "beside the two that survived" not in landing
+    assert "beside the three that" not in landing
 
 
 def test_the_replay_is_stated_as_a_replay_everywhere_a_reader_can_land(body, page):
@@ -560,8 +587,17 @@ def test_the_page_shows_every_run_including_the_ones_that_failed(page, body):
     """Aggregates alone are what this report exists not to be. Every pool row, every payload
     and every trigger is on the page, and both runs' failed scans are shown where they
     happened rather than filtered into a footnote."""
-    liquidity, security, postfix, replay = body["experiments"]
+    experiments = {
+        experiment["experiment_id"]: experiment for experiment in body["experiments"]
+    }
+    liquidity = experiments["01-liquidity-arithmetic"]
+    security = experiments["03-security-corpus"]
+    postfix = experiments["05-security-corpus-postfix"]
+    replay = experiments["04-grid-replay"]
+    solvent_record = experiments["06-solvent-record"]
 
+    for seal in solvent_record["measurement"]["seals"]:
+        assert str(seal["ts"]) in page, seal["seq"]
     for pool in liquidity["run"]["pools"]:
         assert pool["pair"] in page, pool["pool"]
     for entry in security["run"]["payloads"]:

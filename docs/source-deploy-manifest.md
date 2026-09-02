@@ -12,20 +12,20 @@ remains unanchored.
 | Python | Source requires `>=3.11`; current production runtime is Python `3.12.3` |
 | Application factory | `docket.api:create_app` |
 | Builder base commit | `731dcb3d3fe1267546c96fd73118a3b34d58b7b3` |
-| Source base observed before this update | Local `main` and `origin/main` at `3b9e03715af9fd973b85cefec891b1e97cba85a5` |
-| Current production release commit | `b8b6ed76313dc6b469a3edd1f988256a818bde3b` |
-| Current production wheel | `docket-0.1.0-py3-none-any.whl`; SHA-256 `7049542f9f87b82991eced449a20261d3f29c8f93352ac1721702fbe6767ae6a` |
+| Source base observed before this update | Local `main` and `origin/main` at `4a632c01ebcfdccaed36e642cec2e74adbb69381` |
+| Current production release commit | `4a632c01ebcfdccaed36e642cec2e74adbb69381` |
+| Current production wheel | `docket-0.1.0-py3-none-any.whl`; SHA-256 `923d410953e11bd98cec7dc9d26ef371ccd6e5c73bb8f11d3ce964c32b3769b6` |
 | Current production runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
-| Repository visibility | Public (verified 2026-08-28) |
-| Current deployment record | Builder-collected 2026-08-30 from `docket.gudman.xyz`; see "Current deployed identity" |
-| Historical deployment record | Builder-collected as performed 2026-08-16T12:20Z to `docket.gudman.xyz`; preserved below and covers no later commit |
+| Repository visibility | Public (verified 2026-09-02) |
+| Current deployment record | Builder-collected 2026-09-02 from `docket.gudman.xyz`; see "Current deployed identity" |
+| Historical deployment record | Builder-collected as performed 2026-08-16T12:20Z and 2026-08-30 to `docket.gudman.xyz`; preserved below and covers no later commit |
 | Approved settlement canary | Run 18 settled exactly 0.50 USDT once and rejected the identical replay; all six services remain `paid_stock=false` |
 | Recorded settlement transaction | `0x0a036066db0ccbde6eeb8d333e5747e549a61f251935fe8abceaf13b681a1258` — private canary evidence, not public paid inventory or independent finality proof |
 
 The base commit identifies the tree before the public-package change. It does not identify
 the release and must not be used as a deployment hash.
 
-## Current deployed identity — builder-collected 2026-08-30 record
+## Current deployed identity — builder-collected 2026-09-02 record
 
 These values were read from the host's release identity files and interpreter. They are
 builder-collected operational evidence, not a signed or independently anchored attestation.
@@ -33,19 +33,22 @@ builder-collected operational evidence, not a signed or independently anchored a
 | Field | Value |
 |---|---|
 | Host | `docket.gudman.xyz` |
-| `RELEASE-commit.txt` | `b8b6ed76313dc6b469a3edd1f988256a818bde3b` |
+| `RELEASE-commit.txt` | `4a632c01ebcfdccaed36e642cec2e74adbb69381` |
 | Wheel filename | `docket-0.1.0-py3-none-any.whl` |
-| Wheel SHA-256 | `7049542f9f87b82991eced449a20261d3f29c8f93352ac1721702fbe6767ae6a` |
+| Wheel SHA-256 | `923d410953e11bd98cec7dc9d26ef371ccd6e5c73bb8f11d3ce964c32b3769b6` |
 | Runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
 | Runtime Python | `3.12.3` |
+| `.venv` target | `/opt/docket-venvs/4a632c01ebcf` |
 | Canary timer | disabled and inactive |
 
-This reviewed working tree is based on
-`3b9e03715af9fd973b85cefec891b1e97cba85a5`, which is one source-only commit after the
-deployed release. Do not describe production as running that base or this working-tree
-revision. The approved run-18 payment evidence and the boundary that public stock remains
-closed are recorded in
-[`operational-evidence.md`](operational-evidence.md#collected-2026-08-30--approved-settlement-canary-and-current-state).
+The runtime-lock digest is unchanged from the previous release, so this release moved no
+dependency. Production, local `main`, and `origin/main` all identify
+`4a632c01ebcfdccaed36e642cec2e74adbb69381`; a reader may describe production as running
+that commit until the next source commit lands. The approved run-18 payment evidence and
+the boundary that public stock remains closed are recorded in
+[`operational-evidence.md`](operational-evidence.md#collected-2026-08-30--approved-settlement-canary-and-current-state),
+and this release is recorded in
+[`operational-evidence.md`](operational-evidence.md#collected-2026-09-02--release-of-4a632c0).
 
 ## Historical deployed identity — builder-collected 2026-08-16 record
 
@@ -168,10 +171,12 @@ artifact. The warning remains a backend-maintenance risk; this build does not hi
 | `docket/advantage/v3/specs/v3-04-warden-security.json` | `7c8b964f26bbdf120d7ac717c062cb27d92392c78a044babf715a94d7bd14b7c` |
 | `docket/advantage/v3/specs/v3-05-range-doctor.json` | `23208479f4f96ee0e8ec878fb49bf08c6918849e2cce022e57fe971ae5f123fe` |
 | `docket/advantage/v3/specs/v3-06-yield-router-assisted.json` | `2ac836e15989710aec91ce9c2ebeb8fac49e32962c595cebfdbf09e5aad766d5` |
+| `docket/advantage/v3/specs/v3-07-range-doctor.json` | `7423d660bcaa7f05fd99d4b5bf049f5ffde7e8016a04e934b0d3105065b2fe44` |
 | `docket/advantage/v3/sources/range-v5-calibration-set.json` | `df2e7247f712247462689b7718ee978e6bbb7596ebf05998754ec8bb540b77c6` |
 | `docket/advantage/v3/sources/range-v5-enumerable-frame.json` | `ea41a6391e2d40f15c394224d9c7b0699b3eeca4968a2de9f75c43df32469761` |
 | `docket/advantage/v3/sources/range-v5-evaluator-calibration.json` | `08e39929d39a9042cb24d18911257233ed3e77bc6951184554bb1f0d7ca27f55` |
 | `docket/advantage/v3/sources/range-v5-pool-truth.json` | `da230d53de248dba9f9241e090a3a1a6b1b8cb6c5e6962db99ac00db5cce147f` |
+| `docket/advantage/v3/sources/range-v7-calibration-set.json` | `c5bae93a3e93552fd2777e6fcc76b1610bcc45ad2dafb7165908213e8ff45287` |
 | `docket/advantage/v3/sources/warden-calibration-set.json` | `63d2c6d750127e3ab874b02b87d1921a6685cf3ae1b79c3727ef7c05829a3fcf` |
 | `docket/advantage/v3/sources/warden-heldout-cases.json` | `3ae8fb89f81ef9fb8147a8f6e2d8b921457c1ec9a31596b76f2055245ead12d4` |
 | `docket/advantage/v3/sources/warden-reason-codes.html` | `918243ffe946df74b6307eadbb23398ba53c1bcea070cdb328877e3b65e31e63` |

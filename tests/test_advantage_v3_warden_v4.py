@@ -369,7 +369,7 @@ def test_report_marks_the_unlocked_predecessor_superseded_and_v4_complete_unscor
     payload = report.report()
     by_id = {family["spec_id"]: family for family in payload["families"]}
 
-    assert payload["summary"]["n_families"] == 6
+    assert payload["summary"]["n_families"] == 7
     assert by_id["v3-03-warden-security"]["state"] == (
         report.SUPERSEDED_BEFORE_INPUT_LOCK
     )

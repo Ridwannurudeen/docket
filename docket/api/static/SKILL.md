@@ -347,7 +347,8 @@ comparison against a person lives — performed by hand, once, n=1. v2 measures 
 against null baselines that are computed rather than asserted, over repeated trials,
 against a metric and a falsifier in a hashed specification that every run record cites.
 Git establishes 04 and 05's specification-before-run ordering; 01 and 03 are
-self-attested because each specification and completed run first entered git together.
+self-attested because each specification and completed run first entered git together;
+06 and 07 are uncommitted and claim nothing from history.
 The provenance object also discloses 03's post-run claim and question re-registrations.
 `summary` names the claim that was refuted before any experiment is described.
 
@@ -357,6 +358,8 @@ The provenance object also discloses 03's post-run claim and question re-registr
 | `03-security-corpus` | Survived by two payloads | The live detector observed 2026-08-10, whose exact source revision and deploy date were not recorded, flagged 14 of 31 labelled attacks against 12 of the same 31 for the stated keyword list. Precision was 14 of 15 against a corpus base rate of 31 of 47. Nine of 141 scans failed; the run is retained unmodified. |
 | `05-security-corpus-postfix` | Survived by three payloads | Warden revision `0583853ed7fca7d03c98a5cc4c2383cc6b149248`, deployed 2026-08-24, flagged 15 of 30 scored attacks against 12 of the same 30 for the stated keyword list. Precision was 15 of 16 against a scored-subset base rate of 30 of 46. Sixteen of 141 scans failed and one hostile payload was unscored, leaving every numerator and denominator. This v2 result misses the 90% recall limb, so it does not qualify v3-04 and Warden remains beta. |
 | `04-grid-replay` | **Refuted** | No transaction was sent; this is a replay, not a trading record. Over 744 recorded candles, 0 of 5 buy levels fired, so there is no average buy price to compare and the record says the comparison is empty. |
+| `06-solvent-record` | Survived — and the claim it survives says the record is thin | The whole 384-receipt chain SOLVENT published between 2026-06-18 and 2026-06-29 verifies end to end: 384 of 384 published hashes are the canonical digest of the body they sit beside and 383 of 383 prev_hash links hold, with the hash at seq 381 matching the value the BSC anchor transaction carried. 27 of 51 execution seals reach an execution the chain reports as confirmed on chain — 27 of the 55 pre-trade commitments they answer. 22 were left unresolved and keep their place in the denominator; 10 of the 37 seals carrying a transaction hash name a transaction the chain never confirms; 1 of 51 carries a pre-trade anchor, so the record is not pre-committed on chain. Counting every seal as a trade gives 51 of 51 and overstates by 24. No return, win rate or drawdown is published: no receipt carries a funding field, three equity steps exceed the largest notional the chain records, and one receipt reads 0.0 between two readings of 45.85. Registration ordering is `uncommitted`. |
+| `07-solvent-deposit-adjusted` | Survived — and the claim it survives is a **loss** | Read from BSC rather than from the agent's file, over the same closed window: exactly two external deposits reached SOLVENT's wallet, 202.23708931 and 1001.08620000 USDT, both bare `transfer()` calls from externally owned accounts, totalling 1203.323289 USD, and the owner's sweep found nothing transferred out. The dollar-pegged balance rose from 45.474198 to 1224.612900 USD, so the deposit-adjusted result is a **loss of 24.184588 USD** — -11.10% of the 217.88 USD of time-weighted capital (Modified Dietz, block-second weights) and -1.94% of the 1248.80 USD the account opened with and received together. Doing nothing with the same contributions returns exactly 0.00 USD; reading the balance change as the result gives +1179.14 USD and is wrong by exactly what was paid in. **It is the wallet's return, not provably the agent's**: the wallet sent 113 transactions and the chain names 37 distinct hashes, so at least 76 are named nowhere in it, and chain data cannot separate an agent-engine trade from an operator trade signed with the same key. **Gas is excluded**, so the loss is a floor. **No time-weighted return is published as a figure** — over marks of 1400 to 1800 USD it runs from -15.31% to +1.19% and does not settle the sign. It adds to 06 and refutes nothing in it. Registration ordering is `uncommitted`. |
 
 Every failed security scan in both dated runs was an HTTP 429 rate limit. The older
 experiment remains readable beside the post-deploy run; neither is a substitute for the
@@ -396,9 +399,10 @@ Warden and 6/8 (0.75) manually; precision of 4/4 (1.00) and 6/8 (0.75); valid sc
 zero-critical, complete-pair, and median-saving limbs. Missing rubric medians prevent the
 complete registered falsifier from being evaluated, so the report publishes neither
 `refuted` nor `not_refuted`. At the committed-artifact observation on 2026-08-29, the
-committed v3 artifacts contain 6 families: `v3-02-yield-router` is
+committed v3 artifacts contain 7 families: `v3-02-yield-router` is
 `abandoned_after_failed_primary`; `v3-04-warden-security` is `complete_unscored`;
-`v3-05-range-doctor` is `locked_not_run`; `v3-06-yield-router-assisted` is
+`v3-05-range-doctor` is `locked_not_run`; `v3-06-yield-router-assisted` and
+`v3-07-range-doctor` are
 `registered_waiting_for_inputs`; `v3-01-range-doctor` and `v3-03-warden-security` are
 `superseded_before_input_lock`. V3-06 is a distinct successor with a future capture,
 fresh input lock and Codex-assisted baseline. It is not a retry or relabeling of v3-02.

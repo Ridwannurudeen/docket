@@ -465,6 +465,10 @@ def main(argv: list[str] | None = None, *, client=None, stdin=None) -> int:
         "--payment-header",
         help="value of the X-PAYMENT header sent with agent hires",
     )
+    parser.add_argument(
+        "--canary-header",
+        help="value of the X-Docket-Canary header sent with agent hires",
+    )
     args = parser.parse_args(argv)
 
     repo_root = Path(args.repo_root) if args.repo_root else REPO_ROOT
@@ -483,7 +487,17 @@ def main(argv: list[str] | None = None, *, client=None, stdin=None) -> int:
         return 2
 
     runs_dir = Path(args.runs_dir)
-    headers = {"X-PAYMENT": args.payment_header} if args.payment_header else None
+    # A service whose paid stock is closed still admits a settled hire on the
+    # owner-operated canary authorization, so a family that registers a paid agent
+    # arm needs both headers or its payment is ignored and the hire runs free.
+    headers = {
+        name: value
+        for name, value in (
+            ("X-PAYMENT", args.payment_header),
+            ("X-Docket-Canary", args.canary_header),
+        )
+        if value
+    } or None
     input_stream = sys.stdin if stdin is None else stdin
 
     try:

@@ -1,0 +1,467 @@
+{
+  "arms": {
+    "count_the_balance_change_as_the_result": "the balance change alone, taking no view on where the money came from",
+    "hold_the_stables": "the same contributions at the same moments, never traded and sending no transaction",
+    "registered": "closing stables minus opening stables minus the external deposits, over the same closed window"
+  },
+  "attribution": {
+    "distinct_tx_hashes_the_chain_names": 37,
+    "owner_sweep": {
+      "absent_from_the_chains_executions": 16,
+      "method": "A full eth_getLogs sweep of the window's blocks whose per-token net flows were reconciled against the archive balanceOf deltas, run by the repository owner before this corpus was frozen. A public endpoint caps a getLogs range far below the span this window covers and no block-explorer key is configured in this repository, so the sweep is cited here and its reconciliation table is not restated as a measurement.",
+      "reproduced_by_this_module": false,
+      "value_moving_transactions_found": 44
+    },
+    "provably_the_agents": false,
+    "statement": "This is the wallet's return and it is not provably the agent's. The wallet's transaction count advanced from 12 at the opening block to 125 at the closing block, so 113 transactions were sent from the key over the window, while the frozen receipt chain names 37 distinct transaction hashes in total — so at least 76 of the 113 appear nowhere in the record the agent published. That is a floor rather than an exact count, because a hash the chain asserts need not be one the wallet sent: 06 records that 10 of those 37 name a transaction the chain never confirms. A separate eth_getLogs sweep, run by the repository owner and not reproduced by this module, identified 44 wallet-initiated value-moving transactions of which 16 are absent from the chain's executions, including the two largest: 0x07f88b70..., which moved 951.40 USDT into 0.60125 ETH, 0xe4fd127c..., which moved 0.72807 ETH into 1145.46 USDT. This module confirms from the registered chain that neither prefix matches any hash the chain asserts. Chain data cannot distinguish a trade the agent's engine signed from a trade an operator signed with the same key, so no arithmetic available here attributes this loss to the agent, and it is not described as the agent's anywhere in this record.",
+    "the_two_largest_absent_transactions": [
+      {
+        "matches_a_hash_the_chain_names": [],
+        "moved": "951.40 USDT into 0.60125 ETH",
+        "prefix": "0x07f88b70"
+      },
+      {
+        "matches_a_hash_the_chain_names": [],
+        "moved": "0.72807 ETH into 1145.46 USDT",
+        "prefix": "0xe4fd127c"
+      }
+    ],
+    "transaction_count_at_the_closing_block": 125,
+    "transaction_count_at_the_opening_block": 12,
+    "transactions_the_wallet_sent": 113,
+    "wallet_transactions_the_chain_names_no_hash_for": {
+      "denominator": 113,
+      "numerator": 76,
+      "value": 0.672566371681416
+    }
+  },
+  "corpus_id": "solvent-wallet-flows-2026-06-18-to-2026-06-29",
+  "cross_reference": {
+    "experiment_id": "06-solvent-record",
+    "refutes_06": false,
+    "statement": "06 registered that no receipt in its corpus carries a field recording money moving into or out of the account, and that limb is about the fields inside that corpus. This evidence is outside it: it is a wallet's transactions on BSC, not a field on a receipt. So 06 is not refuted, its claim and its falsifier are unchanged and were not edited for this, and this record is an addition beside it rather than a correction of it. What it supplies is the term 06 said was missing, and 06's own record points at this one for it."
+  },
+  "dataset_ref": "docket/advantage/v2/corpus/trading/solvent-wallet-flows.json",
+  "dataset_sha256": "da784f083b660925e4b35f47ddd4f4f01786e5d466fa99f997285ace101ef2d9",
+  "endpoint": "https://bsc-mainnet.public.blastapi.io",
+  "evidence": {
+    "adjacent_block_readings": [
+      {
+        "block_number": 104992550,
+        "block_timestamp": 1781804796,
+        "stables_usd": 45.4741981332
+      },
+      {
+        "block_number": 104992552,
+        "block_timestamp": 1781804797,
+        "stables_usd": 45.4741981332
+      },
+      {
+        "block_number": 106969454,
+        "block_timestamp": 1782694863,
+        "stables_usd": 1224.6128995729
+      },
+      {
+        "block_number": 106969456,
+        "block_timestamp": 1782694864,
+        "stables_usd": 1224.6128995729
+      }
+    ],
+    "balance_readings": [
+      {
+        "block_number": 104992551,
+        "block_timestamp": 1781804797,
+        "eth": 0.0,
+        "label": "window_open",
+        "stables_usd": 45.4741981332,
+        "transaction_count": 12,
+        "usdc": 2.4920520953,
+        "usdt": 42.9821460379
+      },
+      {
+        "block_number": 105868832,
+        "block_timestamp": 1782199433,
+        "eth": 0.0,
+        "label": "before_first_deposit",
+        "stables_usd": 45.4513344547,
+        "transaction_count": 38,
+        "usdc": 12.4802976353,
+        "usdt": 32.9710368194
+      },
+      {
+        "block_number": 105868833,
+        "block_timestamp": 1782199433,
+        "eth": 0.0,
+        "label": "at_first_deposit",
+        "stables_usd": 247.6884237647,
+        "transaction_count": 38,
+        "usdc": 12.4802976353,
+        "usdt": 235.2081261294
+      },
+      {
+        "block_number": 106851264,
+        "block_timestamp": 1782641663,
+        "eth": 0.1268205116,
+        "label": "before_second_deposit",
+        "stables_usd": 29.4977460878,
+        "transaction_count": 114,
+        "usdc": 28.4416194449,
+        "usdt": 1.0561266429
+      },
+      {
+        "block_number": 106851265,
+        "block_timestamp": 1782641663,
+        "eth": 0.1268205116,
+        "label": "at_second_deposit",
+        "stables_usd": 1030.5839460878,
+        "transaction_count": 114,
+        "usdc": 28.4416194449,
+        "usdt": 1002.1423266429
+      },
+      {
+        "block_number": 106969455,
+        "block_timestamp": 1782694864,
+        "eth": 2.282e-07,
+        "label": "window_close",
+        "stables_usd": 1224.6128995729,
+        "transaction_count": 125,
+        "usdc": 34.4218421572,
+        "usdt": 1190.1910574156
+      }
+    ],
+    "block_choice": "The two window blocks are not chosen: block 104992551 carries timestamp 0x6a342efd, which is 2026-06-18T17:46:37Z, the second the first receipt of the frozen chain records, and block 106969455 carries 0x6a41c3d0, which is 2026-06-29T01:01:04Z, the second the last receipt records. BSC produces more than one block per second in this range, so a timestamp does not name a single block, and adjacent_block_readings carries the block either side of each: the wallet's USDT and USDC balances are identical across all three at both ends, so the two figures this corpus is read for do not depend on which of them is picked. The four deposit blocks are the block containing each deposit transaction and the block before it, which is the pair a balance delta has to be read across.",
+    "boundary_blocks_are_insensitive_to_the_neighbouring_block": true,
+    "endpoint": "https://bsc-mainnet.public.blastapi.io",
+    "fetched_at": "2026-09-02T17:02:27+00:00",
+    "readings_sha256": "e3cb188bece32cf8970f44abdb71e14ccd2696ce37f316afde133f62c2cb4f58",
+    "token_decimals": {
+      "ETH": 18,
+      "USDC": 18,
+      "USDT": 18
+    },
+    "wallet_is_an_externally_owned_account": true
+  },
+  "fetched_at": "2026-09-02T17:02:27+00:00",
+  "finding": "Over the same closed window the registered 06 record covers, 2 external deposits reached SOLVENT's wallet on BSC, totalling 1,203.323289 US dollars, and the sweep behind this record found nothing transferred out. The account's stable balance rose from 45.474198 to 1,224.612900 US dollars, a change of 1,179.138701 — so once the deposits are subtracted the result is a LOSS of 24.184588 US dollars. That is -11.10% of the 217.88 US dollars of capital the account held weighted by how long it held it, and -1.94% of the 1,248.80 US dollars the account opened with and received together. Doing nothing with the same contributions returns exactly 0.00, so the whole of the loss is the distance from leaving the money alone; reading the balance change as the result gives 1,179.14 US dollars and is wrong by exactly what was paid in. Two things this figure is not. It is the wallet's return and not provably the agent's: the wallet sent 113 transactions over the window while the chain names 37 distinct hashes, so at least 76 of them appear nowhere in the published record, and chain data cannot separate a trade the agent's engine signed from one an operator signed with the same key. And it excludes gas: those transactions were paid for in a native coin the agent's own equity function never counts, this record holds none of their hashes — the two it carries are the deposits, which other addresses sent — and every one of those fees made the account smaller, so the loss is a floor. No time-weighted return is published as a figure: across the registered marks it runs from -15.31% to 1.19%, a spread wider than the figure, because the second deposit lands while the account is mostly in a token this record did not price.",
+  "finished_at": "2026-09-02T17:35:39+00:00",
+  "flows": {
+    "completeness": "The deposit set is owner-attested and this module does not reproduce the sweep behind it. That exactly two external deposits reached the account and that nothing left it rests on that sweep, whose method is recorded beside this sentence. What this module does check is the part that needs no sweep: each deposit's own Transfer log equals the wallet's balance delta across the block containing it, which fixes those two amounts exactly and says nothing about whether a third exists. A third deposit or any withdrawal would move every figure here, and the falsifier's second limb is where it would show.",
+    "deposits": [
+      {
+        "amount_usd": 202.23708931,
+        "balance_delta_usd": 202.23708931,
+        "block_number": 105868833,
+        "checks": {
+          "amount_equals_the_balance_delta_across_its_block": true,
+          "block_number_agrees_with_the_receipt": true,
+          "calldata_is_a_bare_transfer": true,
+          "called_the_token_contract": true,
+          "emitted_exactly_one_log": true,
+          "log_came_from_the_transaction_sender": true,
+          "log_credited_the_wallet": true,
+          "log_is_a_canonical_transfer": true,
+          "sender_is_an_externally_owned_account": true,
+          "sender_is_not_the_wallet": true,
+          "sent_no_native_value": true,
+          "succeeded": true
+        },
+        "is_a_bare_external_deposit": true,
+        "position": "first",
+        "sender": "0x161ba15a5f335c9f06bb5bbb0a9ce14076fbb645",
+        "token": "USDT",
+        "token_address": "0x55d398326f99059fF775485246999027B3197955",
+        "tx_hash": "0x1062270d196910eaaa00ddfc5df6984c331646cedba218bb5c52644bbe50f9b0"
+      },
+      {
+        "amount_usd": 1001.0862,
+        "balance_delta_usd": 1001.0862,
+        "block_number": 106851265,
+        "checks": {
+          "amount_equals_the_balance_delta_across_its_block": true,
+          "block_number_agrees_with_the_receipt": true,
+          "calldata_is_a_bare_transfer": true,
+          "called_the_token_contract": true,
+          "emitted_exactly_one_log": true,
+          "log_came_from_the_transaction_sender": true,
+          "log_credited_the_wallet": true,
+          "log_is_a_canonical_transfer": true,
+          "sender_is_an_externally_owned_account": true,
+          "sender_is_not_the_wallet": true,
+          "sent_no_native_value": true,
+          "succeeded": true
+        },
+        "is_a_bare_external_deposit": true,
+        "position": "second",
+        "sender": "0xbd612a3f30dca67bf60a39fd0d35e39b7ab80774",
+        "token": "USDT",
+        "token_address": "0x55d398326f99059fF775485246999027B3197955",
+        "tx_hash": "0x6ffed93f10fa7f44d2d40e737eeba70dabf295fd0f3a9db35020203c8686fd77"
+      }
+    ],
+    "every_deposit_is_a_bare_external_transfer": true,
+    "external_deposits_usd": 1203.32328931,
+    "external_withdrawals_usd": 0.0,
+    "n_deposits": 2,
+    "what_counts_as_an_external_deposit": "A transfer of value into the wallet whose transaction some other address sent: tx.from != the wallet. Both legs of every trade the account made are transactions the wallet itself sent, so no swap can enter this set however much value it moved. The rule was registered before any of these figures were computed, and it is a rule about who sent the transaction rather than a judgement about which of the wallet's own transactions looked like funding."
+  },
+  "gas": {
+    "key_paths_matching": [],
+    "recorded_data_purchase_cost_usdc": 5.0,
+    "recorded_data_purchases": 980,
+    "result_if_every_recorded_purchase_left_this_wallet_usd": -19.1845878704,
+    "statement": "Gas is excluded and the true economic loss is larger by an amount this record cannot compute. SOLVENT's own compute_equity sums the balances of pinned BEP-20 tokens and skips every symbol absent from that pinned list, and the native coin the fees are paid in is not on it, so gas never entered the equity series either. 113 transactions were sent from the wallet over the window and this record holds none of their hashes: the two transactions it does carry are the deposits, which other addresses sent, so they are not among those 113 and their fees were not paid by this account. The receipt chain names 37 of the 113 and the owner's sweep identified 44 value-moving ones, and neither set travels with the fee each transaction paid — so the total is neither in the agent's series nor computable from this corpus. The omission runs one way: every one of those fees made the account smaller, so the deposit-adjusted loss is a floor and not an estimate. Separately, the chain records 980 data purchases costing 5.0 USDC in total. If any of that settled from this wallet on BSC it was an external transfer out, and the deposit-adjusted result would be smaller by that much — -19.1845878704 US dollars rather than -24.1845878704 if the whole of it left this account. The owner's sweep reports no external transfer out and this module does not reproduce that sweep, so the tension is published rather than resolved. The result is a loss under either reading.",
+    "the_chain_could_have_carried_the_fees": false,
+    "transactions_the_wallet_sent": 113,
+    "wallet_transaction_hashes_on_this_record": 0,
+    "wallet_transaction_hashes_the_chain_names": 37,
+    "words_searched": [
+      "gas",
+      "bnb",
+      "native"
+    ]
+  },
+  "method": "A deposit-adjusted result for one wallet on BSC over the same closed eleven-day window the registered 06 record covers, computed from archive balance readings and the two external deposits that reached the account. The result is a loss. It is the wallet's loss and not provably the agent's, and it excludes the gas of every transaction the wallet sent. It adds a figure beside 06 and refutes nothing in it: 06's funding limb is about the fields inside its own corpus, and this evidence is outside that corpus. Every figure is recomputed from the two registered corpora and from nothing else: the chain readings were fetched once at the recorded fetched_at, the digest over the node's own answers is on this record, and no network call and no chain read was made while these figures were computed. Nothing was signed and no transaction of any kind was made at any point. An external deposit is fixed by the registered rule — a transfer of value into the wallet sent by some other address — so both legs of every trade the account made are excluded by construction rather than by judgement, and every property that rule implies is rechecked per deposit against the frozen transaction rather than read off it. Both boundary baskets are dollar-pegged tokens, so the dollar result and the Modified Dietz return need no price mark; the time-weighted return does, because the second deposit lands while the account is mostly in ETH, and it is published as a table over a registered grid of marks rather than as a figure. The naive quotient of the last equity reading over the first is never computed here and 06 holds the reason. Two things this record states rather than measures, both of them limits on it: the deposit set is owner-attested from a log sweep this module does not reproduce, and the split between agent-signed and operator-signed transactions cannot be made from chain data at all.",
+  "n_planned": 10,
+  "notice": "A deposit-adjusted result for one wallet on BSC over the same closed eleven-day window the registered 06 record covers, computed from archive balance readings and the two external deposits that reached the account. The result is a loss. It is the wallet's loss and not provably the agent's, and it excludes the gas of every transaction the wallet sent. It adds a figure beside 06 and refutes nothing in it: 06's funding limb is about the fields inside its own corpus, and this evidence is outside that corpus.",
+  "nulls": {
+    "count_the_balance_change_as_the_result": {
+      "closing_stables_usd": 1224.6128995729,
+      "opening_stables_usd": 45.4741981332,
+      "result_usd": 1179.1387014396
+    },
+    "hold_the_stables": {
+      "closing_stables_usd": 1248.7974874432,
+      "result_usd": 0.0,
+      "transactions_sent": 0
+    }
+  },
+  "readings_sha256": "e3cb188bece32cf8970f44abdb71e14ccd2696ce37f316afde133f62c2cb4f58",
+  "receipt_chain_ref": "docket/advantage/v2/corpus/trading/solvent-receipts.json",
+  "result": {
+    "balance_change_usd": 1179.1387014396,
+    "closing_stables_usd": 1224.6128995729,
+    "deposit_adjusted_pnl_usd": -24.1845878704,
+    "external_deposits_usd": 1203.32328931,
+    "is_a_loss": true,
+    "method": "Closing stables minus opening stables minus the external deposits, every term read from an archive balanceOf at a pinned block and every token valued at the dollar it is pegged to. Two percentages follow from that one numerator and they answer different questions, so both are published: Modified Dietz divides by the capital weighted by how long the account held it, which is what a reader asking how the money did means, and the second divides by the opening balance and every dollar paid into it together, which is what a reader asking how much of the money the account ever held came back means. The first is the larger loss because most of the money arrived on the window's second-to-last day.",
+    "modified_dietz": {
+      "average_capital_usd": 217.880669017,
+      "convention": "Weights are (closing block timestamp - flow block timestamp) / (closing block timestamp - opening block timestamp), in the seconds the blocks themselves carry. Calendar-day weights would move the denominator by under a dollar and the return by under a tenth of a percentage point; this record uses block seconds and says which rather than publishing a figure whose convention has to be guessed.",
+      "return": {
+        "denominator": 217.880669017,
+        "numerator": -24.1845878704,
+        "value": -0.11099923632285623
+      },
+      "weighted_flows": [
+        {
+          "amount_usd": 202.23708931,
+          "block_timestamp": 1782199433,
+          "weight": 0.5566221419,
+          "weighted_usd": 112.5696418291
+        },
+        {
+          "amount_usd": 1001.0862,
+          "block_timestamp": 1782641663,
+          "weight": 0.0597719048,
+          "weighted_usd": 59.8368290547
+        }
+      ],
+      "window_seconds": 890067
+    },
+    "opening_stables_usd": 45.4741981332,
+    "over_the_opening_balance_and_the_deposits": {
+      "denominator": 1248.7974874432,
+      "numerator": -24.1845878704,
+      "value": -0.01936630087230217
+    },
+    "units": "US dollars, each dollar-pegged token valued at the dollar it is pegged to"
+  },
+  "spec_hash": "0x078d44571b95f087f8f4e9ff17c969ad49e2a79a3d58c59b45be72d6f4dbd11d",
+  "spec_id": "07-solvent-deposit-adjusted",
+  "started_at": "2026-09-02T17:35:39+00:00",
+  "time_weighted": {
+    "eth_marks_usd": [
+      1400,
+      1500,
+      1600,
+      1700,
+      1800
+    ],
+    "published_as_a_point_figure": false,
+    "rows": [
+      {
+        "eth_mark_usd": 1400,
+        "sub_periods": [
+          {
+            "closing_eth": 0.0,
+            "closing_value_usd": 45.4513344547,
+            "name": "the opening to the first deposit",
+            "opening_eth": 0.0,
+            "opening_value_usd": 45.4741981332,
+            "sub_period_return": -0.0005027835
+          },
+          {
+            "closing_eth": 0.1268205116,
+            "closing_value_usd": 207.0464623398,
+            "name": "the first deposit to the second",
+            "opening_eth": 0.0,
+            "opening_value_usd": 247.6884237647,
+            "sub_period_return": -0.1640850259
+          },
+          {
+            "closing_eth": 2.282e-07,
+            "closing_value_usd": 1224.6132191211,
+            "name": "the second deposit to the close",
+            "opening_eth": 0.1268205116,
+            "opening_value_usd": 1208.1326623398,
+            "sub_period_return": 0.0136413469
+          }
+        ],
+        "time_weighted_return": -0.1531080373
+      },
+      {
+        "eth_mark_usd": 1500,
+        "sub_periods": [
+          {
+            "closing_eth": 0.0,
+            "closing_value_usd": 45.4513344547,
+            "name": "the opening to the first deposit",
+            "opening_eth": 0.0,
+            "opening_value_usd": 45.4741981332,
+            "sub_period_return": -0.0005027835
+          },
+          {
+            "closing_eth": 0.1268205116,
+            "closing_value_usd": 219.7285135007,
+            "name": "the first deposit to the second",
+            "opening_eth": 0.0,
+            "opening_value_usd": 247.6884237647,
+            "sub_period_return": -0.1128833954
+          },
+          {
+            "closing_eth": 2.282e-07,
+            "closing_value_usd": 1224.613241946,
+            "name": "the second deposit to the close",
+            "opening_eth": 0.1268205116,
+            "opening_value_usd": 1220.8147135007,
+            "sub_period_return": 0.0031114701
+          }
+        ],
+        "time_weighted_return": -0.110570574
+      },
+      {
+        "eth_mark_usd": 1600,
+        "sub_periods": [
+          {
+            "closing_eth": 0.0,
+            "closing_value_usd": 45.4513344547,
+            "name": "the opening to the first deposit",
+            "opening_eth": 0.0,
+            "opening_value_usd": 45.4741981332,
+            "sub_period_return": -0.0005027835
+          },
+          {
+            "closing_eth": 0.1268205116,
+            "closing_value_usd": 232.4105646616,
+            "name": "the first deposit to the second",
+            "opening_eth": 0.0,
+            "opening_value_usd": 247.6884237647,
+            "sub_period_return": -0.0616817648
+          },
+          {
+            "closing_eth": 2.282e-07,
+            "closing_value_usd": 1224.6132647709,
+            "name": "the second deposit to the close",
+            "opening_eth": 0.1268205116,
+            "opening_value_usd": 1233.4967646616,
+            "sub_period_return": -0.0072018834
+          }
+        ],
+        "time_weighted_return": -0.0689077967
+      },
+      {
+        "eth_mark_usd": 1700,
+        "sub_periods": [
+          {
+            "closing_eth": 0.0,
+            "closing_value_usd": 45.4513344547,
+            "name": "the opening to the first deposit",
+            "opening_eth": 0.0,
+            "opening_value_usd": 45.4741981332,
+            "sub_period_return": -0.0005027835
+          },
+          {
+            "closing_eth": 0.1268205116,
+            "closing_value_usd": 245.0926158224,
+            "name": "the first deposit to the second",
+            "opening_eth": 0.0,
+            "opening_value_usd": 247.6884237647,
+            "sub_period_return": -0.0104801343
+          },
+          {
+            "closing_eth": 2.282e-07,
+            "closing_value_usd": 1224.6132875958,
+            "name": "the second deposit to the close",
+            "opening_eth": 0.1268205116,
+            "opening_value_usd": 1246.1788158224,
+            "sub_period_return": -0.017305324
+          }
+        ],
+        "time_weighted_return": -0.0280930009
+      },
+      {
+        "eth_mark_usd": 1800,
+        "sub_periods": [
+          {
+            "closing_eth": 0.0,
+            "closing_value_usd": 45.4513344547,
+            "name": "the opening to the first deposit",
+            "opening_eth": 0.0,
+            "opening_value_usd": 45.4741981332,
+            "sub_period_return": -0.0005027835
+          },
+          {
+            "closing_eth": 0.1268205116,
+            "closing_value_usd": 257.7746669833,
+            "name": "the first deposit to the second",
+            "opening_eth": 0.0,
+            "opening_value_usd": 247.6884237647,
+            "sub_period_return": 0.0407214962
+          },
+          {
+            "closing_eth": 2.282e-07,
+            "closing_value_usd": 1224.6133104206,
+            "name": "the second deposit to the close",
+            "opening_eth": 0.1268205116,
+            "opening_value_usd": 1258.8608669833,
+            "sub_period_return": -0.027205196
+          }
+        ],
+        "time_weighted_return": 0.0118994417
+      }
+    ],
+    "spread": {
+      "crosses_zero": true,
+      "highest": 0.0118994417,
+      "lowest": -0.1531080373,
+      "marks_span_usd": [
+        1400,
+        1800
+      ]
+    },
+    "statement": "No time-weighted return is published as a figure, and the reason is measured rather than asserted. Chain-linking needs the account valued at every flow, and at the second deposit most of the account's value sat in ETH — a token no balanceOf can price. This record observed no price source, so the time-weighted return is published as a function of that mark over a registered grid instead, and the grid's own spread is why: it is wider than the figure and it does not settle the sign. The deposit-adjusted dollar result and the Modified Dietz return need no mark at all, which is why those two are figures and this one is a table. A reader who has a mark can read the row; this record does not pick one for them."
+  },
+  "window": {
+    "close_block": 106969455,
+    "closing_block_is_the_last_receipts_own_second": true,
+    "closing_block_timestamp": 1782694864,
+    "first_receipt_ts": "2026-06-18T17:46:37.789542+00:00",
+    "last_receipt_ts": "2026-06-29T01:01:04.491927+00:00",
+    "n_blocks_spanned": 1976904,
+    "note": "The same closed eleven-day window the registered 06 record covers, stated here as the two BSC blocks whose timestamps are the first and last receipt's own ts. It is what exists; no honest work makes it longer.",
+    "open_block": 104992551,
+    "opening_block_is_the_first_receipts_own_second": true,
+    "opening_block_timestamp": 1781804797,
+    "receipt_chain_ref": "docket/advantage/v2/corpus/trading/solvent-receipts.json"
+  }
+}

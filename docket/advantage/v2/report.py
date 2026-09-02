@@ -10,10 +10,10 @@ can quietly stop being checkable.
 
 **The falsifier's result.** Every spec registered the result that would refute its claim, and
 until now nothing evaluated whether any of them fired. Each is evaluated clause by clause
-against the measured figures, in one shape across all four experiments, and one of the four
+against the measured figures, in one shape across all six experiments, and one of the six
 claims is refuted — the grid replay's, which never bought at a single level. That result is on
 the record it belongs to and it is also in the summary above the experiments, because a reader
-who has to go looking for a refutation is a reader who will quote the two that held.
+who has to go looking for a refutation is a reader who will quote the ones that held.
 
 **The headline's margin.** A rate served without the distance between it and its null is a
 figure a reader cannot weigh. The detector observed 2026-08-10 flags 14 of 31 labelled
@@ -39,17 +39,22 @@ import hashlib
 import json
 from pathlib import Path
 
-from . import scoring
+from . import deposits, scoring, solvent
 from .spec import load
 
 V2_DIR = Path(__file__).parent
 SPECS_DIR = V2_DIR / "specs"
 RUNS_DIR = V2_DIR / "runs"
 CORPUS_PATH = V2_DIR / "corpus" / "security" / "payloads.json"
+SOLVENT_CORPUS_PATH = V2_DIR / "corpus" / "trading" / "solvent-receipts.json"
+SOLVENT_FLOWS_PATH = V2_DIR / "corpus" / "trading" / "solvent-wallet-flows.json"
+V1_TRADING_PATH = V2_DIR.parent / "experiments" / "02-trading.json"
 
-# In the order a reader meets them. 02 has no v2 experiment: v1's trading task measured a
-# relay of somebody else's dated read, and there is nothing in this build to run repeatedly
-# against it. An absent experiment is said here rather than implied by a gap in the numbering.
+# In the order a reader meets them. 02 has no v2 experiment of its own: v1's trading task
+# timed a relay of somebody else's dated read, and a relay is not a thing to run repeatedly.
+# 06 reads the same agent's chain and is a different question — not what the relay cost, but
+# what the record behind it establishes — so it is a new registration and not a repeat of 02,
+# and v1's task keeps its route, its figures and its own account of what it measured.
 SECURITY_EXPERIMENT_IDS = (
     "03-security-corpus",
     "05-security-corpus-postfix",
@@ -58,6 +63,8 @@ EXPERIMENT_IDS = (
     "01-liquidity-arithmetic",
     *SECURITY_EXPERIMENT_IDS,
     "04-grid-replay",
+    "06-solvent-record",
+    "07-solvent-deposit-adjusted",
 )
 POSTFIX_REVISION = "0583853ed7fca7d03c98a5cc4c2383cc6b149248"
 POSTFIX_DEPLOYED_AT = "2026-08-24"
@@ -94,6 +101,27 @@ REGISTRATION_HISTORY = {
         "committed_run_producer": {
             "present": True,
             "path": "docket/advantage/v2/replay.py",
+        },
+    },
+    # Neither file is in history yet. That is a weaker footing than the two self-attested
+    # registrations above, not a stronger one, and it is stated rather than left for a reader
+    # to work out from the absence of a hash.
+    "06-solvent-record": {
+        "spec_commit": None,
+        "run_commit": None,
+        "spec_precedes_run": False,
+        "committed_run_producer": {
+            "present": True,
+            "path": "docket/advantage/v2/solvent.py",
+        },
+    },
+    "07-solvent-deposit-adjusted": {
+        "spec_commit": None,
+        "run_commit": None,
+        "spec_precedes_run": False,
+        "committed_run_producer": {
+            "present": True,
+            "path": "docket/advantage/v2/deposits.py",
         },
     },
 }
@@ -148,7 +176,8 @@ METHOD = (
     "runs, stopping rule and falsifier, and every run record cites that hash. Registration "
     "provenance is stated per experiment: git establishes that 04 and 05's specifications "
     "predate their runs, while 01 and 03 are self-attested because each specification and "
-    "completed run entered history together. Every trial is published, including the ones "
+    "completed run entered history together, and 06's and 07's specifications and runs are "
+    "working-tree files that git records nothing about yet. Every trial is published, including the ones "
     "that failed — a failed "
     "trial keeps its place in the denominator and is never re-run until it passes — and every "
     "rate carries the two counts it was computed from. Where a rate has no observations behind "
@@ -158,8 +187,11 @@ METHOD = (
     "baselines are computed rather than asserted, and they are served beside the agent figure "
     "they qualify rather than in a section "
     "a reader has to find. The falsifier of each experiment is evaluated against the measured "
-    "figures and its result is served: one of the four claims is refuted, and which one is "
-    "stated in the summary below before any experiment is described. Nothing here is a "
+    "figures and its result is served: one of the six claims is refuted, and which one is "
+    "stated in the summary below before any experiment is described. 07 reads the same agent's "
+    "wallet on the chain it traded on and publishes an adverse result - a loss, once the "
+    "money paid into the account is subtracted - and it neither refutes nor amends 06, whose "
+    "claim and falsifier are about the fields inside 06's own corpus. Nothing here is a "
     "comparison against a human: v1 holds the only human arm in this build and it is n=1."
 )
 
@@ -171,6 +203,22 @@ def registration_provenance(experiment_id: str) -> dict:
     git_provable = (
         history["spec_precedes_run"] and history["spec_commit"] != history["run_commit"]
     )
+    if history["spec_commit"] is None:
+        return {
+            "state": "uncommitted",
+            "statement": (
+                "The specification and the run are working-tree files and neither is in git "
+                "history, so history establishes nothing about their order and this record "
+                "claims nothing from it. Their ordering rests on the embedded timestamps and "
+                "on the account the specification's own stopping rule gives, which states "
+                "that the corpus was frozen before the registration was written and that the "
+                "headline counts were already recorded in a planning document before it. When "
+                "the two are committed together this becomes a self-attested registration "
+                "like 01 and 03, and not a git-provable one."
+            ),
+            "post_run_re_registrations": post_run_re_registrations,
+            **history,
+        }
     if git_provable:
         statement = (
             f"Git establishes that the specification existed at {history['spec_commit']} in an "
@@ -600,11 +648,298 @@ def _replay(record: dict) -> dict:
     }
 
 
+def _solvent(record: dict) -> dict:
+    """06's falsifier and headline, computed from the frozen chain rather than read.
+
+    Read rather than recomputed, "the chain verifies" would be a sentence about a check
+    somebody once ran, and the whole point of publishing a hash chain is that a reader does
+    not have to take that on trust. So both integrity limbs, every count and both nulls are
+    recomputed here from the same 384 receipts the registration hashed, on every call.
+    """
+    measured = solvent.measure(
+        solvent.load_corpus(SOLVENT_CORPUS_PATH),
+        json.loads(V1_TRADING_PATH.read_text(encoding="utf-8")),
+    )
+    chain = measured["chain"]
+    execution = measured["execution"]
+    equity = measured["equity"]
+    loose = measured["nulls"]["count_every_seal_as_a_trade"]
+    strict = measured["nulls"]["count_only_anchored_seals"]
+    confirmed = execution["confirmed_over_seals"]
+    commitments = execution["confirmed_over_commitments"]
+    anchored = execution["seals_with_a_pre_trade_anchor"]
+    funding = equity["funding_fields"][
+        "fields_recording_money_into_or_out_of_the_account"
+    ]
+    checks = [
+        _check(
+            "hash_chain_does_not_verify",
+            not chain["verifies"],
+            f"{chain['content_hashes_recomputed']['numerator']} of "
+            f"{chain['content_hashes_recomputed']['denominator']} published hashes are the "
+            "digest of the body they are published beside, "
+            f"{chain['linkage_recomputed']['numerator']} of "
+            f"{chain['linkage_recomputed']['denominator']} prev_hash links hold, and the "
+            f"genesis prev_hash is the zero word: {chain['genesis_prev_hash_is_the_zero_word']}"
+            f". Receipts failing the content limb: {chain['content_failures']}. Receipts "
+            f"failing the linkage limb: {chain['linkage_failures']}.",
+        ),
+        _check(
+            "confirmed_executions_reach_half_the_commitments",
+            commitments["value"] >= 0.5,
+            f"{commitments['numerator']} of {commitments['denominator']} pre-trade "
+            f"commitments reach a confirmed execution, which is "
+            f"{commitments['value'] * 100:.2f}% of them.",
+        ),
+        _check(
+            "anchored_seals_reach_a_tenth_of_the_seals",
+            anchored["value"] >= 0.1,
+            f"{anchored['numerator']} of {anchored['denominator']} execution seals carry a "
+            f"pre_trade_anchor_tx_hash, which is {anchored['value'] * 100:.2f}% of them.",
+        ),
+        _check(
+            "a_receipt_carries_a_funding_field",
+            bool(funding),
+            f"{len(equity['key_paths'])} distinct key paths appear across the 384 receipts. "
+            f"{len(equity['funding_fields']['candidates'])} carry one of the "
+            f"{len(equity['funding_fields']['words_searched'])} searched words and each is "
+            f"read out on the record; {len(funding)} record money moving into or out of the "
+            "account.",
+        ),
+    ]
+    overstatement = loose["numerator"] - confirmed["numerator"]
+    return {
+        "measurement": measured,
+        "headline": {
+            "statement": (
+                f"Over the {measured['phases']['n_receipts']} receipts of a closed "
+                f"{measured['window']['first_receipt_ts'][:10]} to "
+                f"{measured['window']['last_receipt_ts'][:10]} window, the chain verifies end "
+                f"to end and {confirmed['numerator']} of {confirmed['denominator']} execution "
+                "seals reach a confirmed execution — just over half of the seals, and "
+                f"{commitments['numerator']} of the {commitments['denominator']} pre-trade "
+                "commitments those seals answer, which is under half of those. "
+                f"{execution['outcomes'].get('unresolved', 0)} seals were left unresolved and "
+                "keep their place in the denominator; "
+                f"{execution['seals_with_a_tx_hash_and_no_confirmation']['numerator']} name a "
+                "transaction the chain never confirms; a pre-trade anchor appears on "
+                f"{anchored['numerator']} of {anchored['denominator']} seals, so the record "
+                "is not pre-committed on chain. No return, win rate or drawdown is computed from the "
+                "equity series, and the reason is served with the figures rather than left as "
+                "an omission."
+            ),
+            "figure": {"name": "confirmed_execution_share", "rate": confirmed},
+            "nulls": [
+                {
+                    "name": "count_every_seal_as_a_trade",
+                    "figure": {"name": "seals_counted_as_trades", "rate": loose},
+                },
+                {
+                    "name": "count_only_anchored_seals",
+                    "figure": {"name": "seals_with_a_pre_trade_anchor", "rate": strict},
+                },
+            ],
+            "margin": {
+                "value": overstatement,
+                "unit": f"seals of the same {confirmed['denominator']}",
+                "statement": (
+                    f"{overstatement} seals. Counting every seal as a trade gives "
+                    f"{loose['numerator']} of {loose['denominator']}, where "
+                    f"{confirmed['numerator']} of the same {confirmed['denominator']} reach a "
+                    f"confirmed execution — so the free reading overstates by {overstatement}. "
+                    "In the other direction, counting only the seals whose commitment was "
+                    "itself put on chain first gives "
+                    f"{strict['numerator']} of {strict['denominator']}, so "
+                    f"{confirmed['numerator'] - strict['numerator']} of the "
+                    f"{confirmed['numerator']} confirmed executions rest on SOLVENT's own "
+                    "word for when the intention behind them was written."
+                ),
+            },
+        },
+        "no_return": {
+            "published": False,
+            "first_equity_reading": equity["first"],
+            "last_equity_reading": equity["last"],
+            "read_failures": equity["read_failures"],
+            "steps_no_recorded_trade_explains": equity[
+                "steps_no_recorded_trade_explains"
+            ],
+            "notional_bound_usd": equity["notional_bound_usd"],
+            "funding_fields": equity["funding_fields"],
+            "statement": equity["no_return_published"],
+        },
+        "falsifier_result": _result(checks),
+    }
+
+
+def _deposit_adjusted(record: dict) -> dict:
+    """07's falsifier and headline, recomputed from the two frozen corpora rather than read.
+
+    Read rather than recomputed, "the account lost money" would be a sentence about a
+    subtraction somebody once did. Every term of it is a hex string a public archive node
+    returned, and all of them are here, so the subtraction is redone on every call and so is
+    each of the twelve properties that make one of those transactions a deposit rather than a
+    transfer the account made to itself.
+    """
+    measured = deposits.measure(
+        deposits.load_corpus(SOLVENT_FLOWS_PATH),
+        deposits.load_corpus(SOLVENT_CORPUS_PATH),
+    )
+    result = measured["result"]
+    window = measured["window"]
+    evidence = measured["evidence"]
+    flows = measured["flows"]
+    attributed = measured["attribution"]
+    gas = measured["gas"]
+    spread = measured["time_weighted"]["spread"]
+    dietz = result["modified_dietz"]["return"]
+    contributed = result["over_the_opening_balance_and_the_deposits"]
+    balance_change = measured["nulls"]["count_the_balance_change_as_the_result"]
+    doing_nothing = measured["nulls"]["hold_the_stables"]
+    failing = [
+        {
+            "tx_hash": deposit["tx_hash"],
+            "failed": sorted(
+                name for name, held in deposit["checks"].items() if not held
+            ),
+        }
+        for deposit in flows["deposits"]
+        if not deposit["is_a_bare_external_deposit"]
+    ]
+    checks = [
+        _check(
+            "the_evidence_does_not_recompute",
+            bool(failing)
+            or not window["opening_block_is_the_first_receipts_own_second"]
+            or not window["closing_block_is_the_last_receipts_own_second"]
+            or not evidence["wallet_is_an_externally_owned_account"],
+            f"Both deposits were rechecked against the frozen transaction and receipt on "
+            f"{len(flows['deposits'][0]['checks'])} properties each and "
+            f"{len(failing)} deposits failed any of them: {failing}. The opening block's "
+            "timestamp is the first receipt's own second: "
+            f"{window['opening_block_is_the_first_receipts_own_second']}; the closing block's "
+            f"is the last receipt's: {window['closing_block_is_the_last_receipts_own_second']}. "
+            "The wallet returns 0x from eth_getCode: "
+            f"{evidence['wallet_is_an_externally_owned_account']}.",
+        ),
+        _check(
+            "the_deposit_adjusted_result_is_not_a_loss",
+            result["deposit_adjusted_pnl_usd"] >= 0,
+            f"{result['closing_stables_usd']:,.6f} closing minus "
+            f"{result['opening_stables_usd']:,.6f} opening minus "
+            f"{result['external_deposits_usd']:,.6f} of external deposits is "
+            f"{result['deposit_adjusted_pnl_usd']:,.6f} US dollars.",
+        ),
+        _check(
+            "the_chain_names_every_transaction_the_wallet_sent",
+            attributed["distinct_tx_hashes_the_chain_names"]
+            >= attributed["transactions_the_wallet_sent"],
+            f"The wallet sent {attributed['transactions_the_wallet_sent']} transactions over "
+            f"the window and the chain names "
+            f"{attributed['distinct_tx_hashes_the_chain_names']} distinct hashes, so at least "
+            f"{attributed['wallet_transactions_the_chain_names_no_hash_for']['numerator']} of "
+            f"{attributed['wallet_transactions_the_chain_names_no_hash_for']['denominator']} "
+            "are named nowhere in it.",
+        ),
+        _check(
+            "a_receipt_carries_the_native_coin_or_its_fee",
+            gas["the_chain_could_have_carried_the_fees"],
+            f"{len(gas['key_paths_matching'])} of the receipt chain's key paths carry one of "
+            f"the {len(gas['words_searched'])} searched words: {gas['key_paths_matching']}. "
+            f"The {gas['transactions_the_wallet_sent']} transactions the wallet sent were paid "
+            "for outside the series, and this record holds "
+            f"{gas['wallet_transaction_hashes_on_this_record']} of their hashes against the "
+            f"{gas['wallet_transaction_hashes_the_chain_names']} the chain names.",
+        ),
+    ]
+    return {
+        "measurement": measured,
+        "headline": {
+            "statement": (
+                f"Over the same closed window 06 covers, {flows['n_deposits']} external "
+                f"deposits totalling {flows['external_deposits_usd']:,.6f} US dollars reached "
+                f"SOLVENT's wallet and nothing was transferred out of it, so the account's "
+                f"{result['balance_change_usd']:,.6f} balance change is a deposit-adjusted "
+                f"LOSS of {abs(result['deposit_adjusted_pnl_usd']):,.6f} US dollars — "
+                f"{dietz['value'] * 100:.2f}% of the capital it held weighted by how long it "
+                f"held it, and {contributed['value'] * 100:.2f}% of the opening balance and "
+                "the deposits together. That loss is the wallet's and is not provably the "
+                f"agent's: the wallet sent {attributed['transactions_the_wallet_sent']} "
+                f"transactions and the chain names "
+                f"{attributed['distinct_tx_hashes_the_chain_names']} hashes, and chain data "
+                "cannot separate a trade the agent's engine signed from one an operator "
+                "signed with the same key. It also excludes the gas of every one of those "
+                "transactions, so it is a floor. No time-weighted return is published as a "
+                f"figure: over the registered marks it runs from {spread['lowest'] * 100:.2f}% "
+                f"to {spread['highest'] * 100:.2f}% and does not settle the sign."
+            ),
+            "figure": {
+                "name": "deposit_adjusted_pnl_usd",
+                "usd": result["deposit_adjusted_pnl_usd"],
+                "modified_dietz": dietz,
+                "over_the_opening_balance_and_the_deposits": contributed,
+            },
+            "nulls": [
+                {
+                    "name": "count_the_balance_change_as_the_result",
+                    "figure": {
+                        "name": "balance_change_usd",
+                        "usd": balance_change["result_usd"],
+                    },
+                },
+                {
+                    "name": "hold_the_stables",
+                    "figure": {
+                        "name": "deposit_adjusted_pnl_usd_of_doing_nothing",
+                        "usd": doing_nothing["result_usd"],
+                    },
+                },
+            ],
+            "margin": {
+                "value": result["deposit_adjusted_pnl_usd"]
+                - doing_nothing["result_usd"],
+                "unit": "US dollars against the same contributions",
+                "statement": (
+                    f"{result['deposit_adjusted_pnl_usd']:,.6f} US dollars. Doing nothing with "
+                    f"the same opening balance and the same two contributions returns exactly "
+                    f"{doing_nothing['result_usd']:,.2f} and sends "
+                    f"{doing_nothing['transactions_sent']} transactions, so the whole of the "
+                    "loss is the distance from leaving the money alone and the gas that arm "
+                    "did not pay is on top of it. In the other direction, reading the balance "
+                    f"change as the result gives {balance_change['result_usd']:,.6f} US "
+                    f"dollars — the free reading, and wrong by the "
+                    f"{flows['external_deposits_usd']:,.6f} that was paid in."
+                ),
+            },
+        },
+        "deposit_adjusted": {
+            "published": True,
+            "is_a_loss": result["is_a_loss"],
+            "opening_stables_usd": result["opening_stables_usd"],
+            "closing_stables_usd": result["closing_stables_usd"],
+            "external_deposits_usd": result["external_deposits_usd"],
+            "external_withdrawals_usd": flows["external_withdrawals_usd"],
+            "deposit_adjusted_pnl_usd": result["deposit_adjusted_pnl_usd"],
+            "modified_dietz": dietz,
+            "over_the_opening_balance_and_the_deposits": contributed,
+            "method": result["method"],
+            "attribution": attributed["statement"],
+            "gas": gas["statement"],
+            "completeness": flows["completeness"],
+            "time_weighted": measured["time_weighted"]["statement"],
+            "cross_reference": record["cross_reference"],
+        },
+        "falsifier_result": _result(checks),
+    }
+
+
 COMPUTED = {
     "01-liquidity-arithmetic": _liquidity,
     "03-security-corpus": _security,
     "05-security-corpus-postfix": _security,
     "04-grid-replay": _replay,
+    "06-solvent-record": _solvent,
+    "07-solvent-deposit-adjusted": _deposit_adjusted,
 }
 
 
@@ -651,9 +986,9 @@ def report() -> dict:
             "statement": (
                 f"{len(refuted)} of {len(built)} registered claims was refuted by its own "
                 f"falsifier: {', '.join(refuted)}. The refutation is published as it came out, "
-                "and the experiment that produced it is served here in full beside the two that "
-                "survived. Every claim's falsifier result is computed from the measured figures "
-                "rather than restated."
+                "and the experiment that produced it is served here in full beside the "
+                f"{len(built) - len(refuted)} that survived. Every claim's falsifier result is "
+                "computed from the measured figures rather than restated."
                 if refuted
                 else f"None of the {len(built)} registered claims was refuted by its own "
                 "falsifier."

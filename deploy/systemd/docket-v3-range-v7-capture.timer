@@ -1,0 +1,11 @@
+[Unit]
+Description=Arm the Docket v3-07 Range pool-truth capture before its registered moment
+
+[Timer]
+OnCalendar=2026-09-05 11:50:00 UTC
+AccuracySec=1s
+Persistent=true
+Unit=docket-v3-range-v7-capture.service
+
+[Install]
+WantedBy=timers.target
