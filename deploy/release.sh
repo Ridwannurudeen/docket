@@ -507,6 +507,8 @@ readonly -a UNIT_NAMES=(
     docket-v3-range-capture.timer
     docket-v3-yield-v6-capture.service
     docket-v3-yield-v6-capture.timer
+    docket-v3-range-v7-capture.service
+    docket-v3-range-v7-capture.timer
 )
 readonly -a TIMER_NAMES=(
     docket-canary.timer
@@ -515,6 +517,7 @@ readonly -a TIMER_NAMES=(
     docket-v3-capture.timer
     docket-v3-range-capture.timer
     docket-v3-yield-v6-capture.timer
+    docket-v3-range-v7-capture.timer
 )
 for name in "${UNIT_NAMES[@]}"; do
     [[ -f "${SCRIPT_DIR}/systemd/${name}" ]] || fatal \
@@ -887,8 +890,19 @@ refuse_yield_v6_capture_window() {
     fi
 }
 
+refuse_range_v7_capture_window() {
+    local now_utc=${DOCKET_RELEASE_NOW_UTC:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
+    [[ "${now_utc}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || \
+        fatal 'release UTC clock must use YYYY-MM-DDTHH:MM:SSZ'
+    if [[ "${now_utc}" > '2026-09-05T11:49:54Z' && \
+        "${now_utc}" < '2026-09-05T12:03:06Z' ]]; then
+        fatal 'Range v3-07 capture activation window is closed to releases through 2026-09-05T12:03:05Z'
+    fi
+}
+
 refuse_range_capture_window
 refuse_yield_v6_capture_window
+refuse_range_v7_capture_window
 trace_command python3 "${SCRIPT_DIR}/release_bundle.py" verify "${MANIFEST}" \
     "${SCRIPT_DIR}" "${VERIFY_SECURITY_ARGS[@]}"
 set +e
@@ -1127,6 +1141,7 @@ expected = {
     "v3-04-warden-security": "complete_unscored",
     "v3-05-range-doctor": "locked_not_run",
     "v3-06-yield-router-assisted": "registered_waiting_for_inputs",
+    "v3-07-range-doctor": "registered_waiting_for_inputs",
 }
 observed = (
     {row.get("spec_id"): row.get("state") for row in families}
@@ -1159,6 +1174,7 @@ fi
 
 refuse_range_capture_window
 refuse_yield_v6_capture_window
+refuse_range_v7_capture_window
 for name in "${TIMER_NAMES[@]}"; do
     if [[ "${name}" == docket-canary.timer && \
         "${TIMER_WAS_ENABLED[${name}]:-0}" != 1 ]]; then

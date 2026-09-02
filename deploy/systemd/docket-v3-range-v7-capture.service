@@ -1,0 +1,45 @@
+[Unit]
+Description=Docket v3-07 Range pool-truth capture, the registered 2026-09-05T12:00:00Z observation
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=15min
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+User=docket
+Group=docket
+WorkingDirectory=/var/lib/docket
+ExecStart=/opt/docket/.venv/bin/python -P -m docket.advantage.v3.capture \
+  v3-07-range-doctor /var/lib/docket/v3-capture/range-v3-07
+Nice=-5
+TimeoutStartSec=15min
+Restart=on-failure
+RestartSec=30s
+RestartPreventExitStatus=2 3
+UMask=0027
+CapabilityBoundingSet=
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ReadWritePaths=/var/lib/docket
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

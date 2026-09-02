@@ -673,6 +673,7 @@ def test_each_family_stage_one_refuses_a_generic_envelope_without_its_truth_sche
         "v3-04-warden-security": "vendor_snapshot",
         "v3-05-range-doctor": "selection_manifest",
         "v3-06-yield-router-assisted": "Yield calibration input",
+        "v3-07-range-doctor": "selection_manifest",
     }
     for path in REGISTERED:
         spec = replace(load(path), inputs_sha256="")
@@ -1243,10 +1244,10 @@ def test_save_and_load_round_trip_to_the_same_two_digests(tmp_path):
     assert restored.spec_hash == spec.spec_hash
 
 
-# ------------------------------------------------- the six registered families
+# ----------------------------------------------- the seven registered families
 
 
-def test_all_six_families_have_their_registered_lock_state():
+def test_all_seven_families_have_their_registered_lock_state():
     """Every family carries its stable protocol identity and exact registered lock state."""
     assert [p.stem for p in REGISTERED] == [
         "v3-01-range-doctor",
@@ -1255,6 +1256,7 @@ def test_all_six_families_have_their_registered_lock_state():
         "v3-04-warden-security",
         "v3-05-range-doctor",
         "v3-06-yield-router-assisted",
+        "v3-07-range-doctor",
     ]
     specs = [load(p) for p in REGISTERED]
     assert any(spec.category == "security" for spec in specs)
@@ -1265,6 +1267,7 @@ def test_all_six_families_have_their_registered_lock_state():
         "v3-04-warden-security": 12,
         "v3-05-range-doctor": 3,
         "v3-06-yield-router-assisted": 5,
+        "v3-07-range-doctor": 3,
     }
     assert {spec.spec_id for spec in specs if spec.runnable} == {
         "v3-02-yield-router",
@@ -1374,6 +1377,13 @@ def test_each_family_records_a_legible_pre_lock_correction():
     }
     for spec in map(load, REGISTERED):
         correction = spec.protocol_correction
+        if spec.spec_id == "v3-07-range-doctor":
+            # A distinct successor to a published, locked family. Its provenance
+            # link is asserted in test_advantage_v3_range_v7.py against the
+            # predecessor's own record rather than a copied literal here.
+            assert correction is None
+            assert spec.successor_provenance is not None
+            continue
         if spec.spec_id == "v3-06-yield-router-assisted":
             assert correction is None
             assert spec.successor_provenance == {

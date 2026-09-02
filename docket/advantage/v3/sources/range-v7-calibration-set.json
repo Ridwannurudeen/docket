@@ -1,0 +1,182 @@
+{
+  "authored_at": "2026-09-02",
+  "cases": [
+    {
+      "case_id": "r7-cal-01",
+      "expected": {
+        "annual_gross_usd": 292.0,
+        "annual_net_usd": 243.333333333333,
+        "annual_overstatement_usd": 48.666666666667,
+        "cost_only_break_even_days": 30.0,
+        "gross_apr": 0.0365,
+        "net_apr": 0.030416666667,
+        "range_status": "below_range"
+      },
+      "input": {
+        "current_tick": -400,
+        "declared_position_value_usd": 8000,
+        "estimated_recenter_cost_usd": 20,
+        "fee_usd_24h": 96,
+        "protocol_fee_usd_24h": 16,
+        "tick_lower": -150,
+        "tick_upper": 150,
+        "tvl_usd": 960000
+      }
+    },
+    {
+      "case_id": "r7-cal-02",
+      "expected": {
+        "annual_gross_usd": 365.0,
+        "annual_net_usd": 292.0,
+        "annual_overstatement_usd": 73.0,
+        "cost_only_break_even_days": 31.25,
+        "gross_apr": 0.0365,
+        "net_apr": 0.0292,
+        "range_status": "in_range"
+      },
+      "input": {
+        "current_tick": 30,
+        "declared_position_value_usd": 10000,
+        "estimated_recenter_cost_usd": 25,
+        "fee_usd_24h": 125,
+        "protocol_fee_usd_24h": 25,
+        "tick_lower": -200,
+        "tick_upper": 200,
+        "tvl_usd": 1250000
+      }
+    },
+    {
+      "case_id": "r7-cal-03",
+      "expected": {
+        "annual_gross_usd": 456.25,
+        "annual_net_usd": 410.625,
+        "annual_overstatement_usd": 45.625,
+        "cost_only_break_even_days": 26.666666666667,
+        "gross_apr": 0.0365,
+        "net_apr": 0.03285,
+        "range_status": "above_range"
+      },
+      "input": {
+        "current_tick": 250,
+        "declared_position_value_usd": 12500,
+        "estimated_recenter_cost_usd": 30,
+        "fee_usd_24h": 110,
+        "protocol_fee_usd_24h": 11,
+        "tick_lower": -250,
+        "tick_upper": 250,
+        "tvl_usd": 1100000
+      }
+    },
+    {
+      "case_id": "r7-cal-04",
+      "expected": {
+        "annual_gross_usd": 584.0,
+        "annual_net_usd": 556.190476190476,
+        "annual_overstatement_usd": 27.809523809524,
+        "cost_only_break_even_days": 0.0,
+        "gross_apr": 0.0365,
+        "net_apr": 0.034761904762,
+        "range_status": "in_range"
+      },
+      "input": {
+        "current_tick": -10,
+        "declared_position_value_usd": 16000,
+        "estimated_recenter_cost_usd": 0,
+        "fee_usd_24h": 84,
+        "protocol_fee_usd_24h": 4,
+        "tick_lower": -60,
+        "tick_upper": 60,
+        "tvl_usd": 840000
+      }
+    },
+    {
+      "case_id": "r7-cal-05",
+      "expected": {
+        "annual_gross_usd": 273.75,
+        "annual_net_usd": 246.375,
+        "annual_overstatement_usd": 27.375,
+        "cost_only_break_even_days": 26.666666666667,
+        "gross_apr": 0.0365,
+        "net_apr": 0.03285,
+        "range_status": "below_range"
+      },
+      "input": {
+        "current_tick": -5000,
+        "declared_position_value_usd": 7500,
+        "estimated_recenter_cost_usd": 18,
+        "fee_usd_24h": 140,
+        "protocol_fee_usd_24h": 14,
+        "tick_lower": -300,
+        "tick_upper": 300,
+        "tvl_usd": 1400000
+      }
+    },
+    {
+      "case_id": "r7-cal-06",
+      "expected": {
+        "annual_gross_usd": 365.0,
+        "annual_net_usd": -136.875,
+        "annual_overstatement_usd": 501.875,
+        "cost_only_break_even_days": null,
+        "gross_apr": 0.0365,
+        "net_apr": -0.0136875,
+        "range_status": "in_range"
+      },
+      "input": {
+        "current_tick": 20,
+        "declared_position_value_usd": 10000,
+        "estimated_recenter_cost_usd": 25,
+        "fee_usd_24h": 48,
+        "protocol_fee_usd_24h": 66,
+        "tick_lower": -90,
+        "tick_upper": 90,
+        "tvl_usd": 480000
+      }
+    },
+    {
+      "case_id": "r7-cal-07",
+      "expected": {
+        "annual_gross_usd": 474.5,
+        "annual_net_usd": 415.1875,
+        "annual_overstatement_usd": 59.3125,
+        "cost_only_break_even_days": 22.857142857143,
+        "gross_apr": 0.0365,
+        "net_apr": 0.0319375,
+        "range_status": "in_range"
+      },
+      "input": {
+        "current_tick": -80,
+        "declared_position_value_usd": 13000,
+        "estimated_recenter_cost_usd": 26,
+        "fee_usd_24h": 72,
+        "protocol_fee_usd_24h": 9,
+        "tick_lower": -80,
+        "tick_upper": 80,
+        "tvl_usd": 720000
+      }
+    },
+    {
+      "case_id": "r7-cal-08",
+      "expected": {
+        "annual_gross_usd": 912.5,
+        "annual_net_usd": 821.25,
+        "annual_overstatement_usd": 91.25,
+        "cost_only_break_even_days": 22.222222222222,
+        "gross_apr": 0.0365,
+        "net_apr": 0.03285,
+        "range_status": "in_range"
+      },
+      "input": {
+        "current_tick": 5,
+        "declared_position_value_usd": 25000,
+        "estimated_recenter_cost_usd": 50,
+        "fee_usd_24h": 210,
+        "protocol_fee_usd_24h": 21,
+        "tick_lower": -30,
+        "tick_upper": 30,
+        "tvl_usd": 2100000
+      }
+    }
+  ],
+  "spec_id": "v3-07-range-doctor"
+}

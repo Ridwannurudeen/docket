@@ -1,0 +1,211 @@
+{
+  "agent": {
+    "erc8004_agent_id": "136384",
+    "name": "SOLVENT",
+    "wallet": "0xE4fe23FB57dbb9AC2f685ea29B6b9A1409A0d359"
+  },
+  "block_choice": "The two window blocks are not chosen: block 104992551 carries timestamp 0x6a342efd, which is 2026-06-18T17:46:37Z, the second the first receipt of the frozen chain records, and block 106969455 carries 0x6a41c3d0, which is 2026-06-29T01:01:04Z, the second the last receipt records. BSC produces more than one block per second in this range, so a timestamp does not name a single block, and adjacent_block_readings carries the block either side of each: the wallet's USDT and USDC balances are identical across all three at both ends, so the two figures this corpus is read for do not depend on which of them is picked. The four deposit blocks are the block containing each deposit transaction and the block before it, which is the pair a balance delta has to be read across.",
+  "chain_id": 56,
+  "completeness": "What this corpus fixes is six balance-and-nonce readings, four adjacent-block readings, two deposit transactions with their receipts, three code reads and three decimals reads. What it does not establish for itself is that those two deposits are the only external transfers into the account over the window and that nothing was transferred out. That completeness rests on a full eth_getLogs sweep of blocks 104992551 to 106969455 whose per-token net flows were reconciled against the archive balanceOf deltas, run by the repository owner before this corpus was frozen and NOT reproduced here: a public endpoint caps a getLogs range far below the 1,976,904 blocks this window spans, and no block-explorer API key is configured in this repository. So the deposit set is owner-attested, this record says so wherever a figure computed from it appears, and the reconciliation table behind it is not restated here as a measurement. A third deposit or any withdrawal would move every figure computed from this corpus, and the falsifier's second limb is where that would show.",
+  "corpus_id": "solvent-wallet-flows-2026-06-18-to-2026-06-29",
+  "endpoint": "https://bsc-mainnet.public.blastapi.io",
+  "fetched_at": "2026-09-02T17:02:27+00:00",
+  "provenance": "Read-only JSON-RPC against the endpoint above, taken at fetched_at and stored here verbatim as the hex strings the node returned. Nothing was signed and no transaction of any kind was sent. Every value under results is a raw response: eth_call of balanceOf(the wallet) at a pinned block for each of the three pinned tokens, eth_getBlockByNumber for that block's timestamp, eth_getTransactionCount for the wallet's transaction count at that block, eth_getTransactionByHash and eth_getTransactionReceipt for the two deposit transactions, eth_getCode for the wallet and both senders, and eth_call of decimals() on each token so the scaling is read from the token rather than assumed. readings_sha256 is over the canonical JSON of the results object exactly as stored, so the digest fixes what the node answered and not this file's formatting. The endpoint is a public archive node and the window is closed and entirely in the past, so the same calls return the same bytes to anybody who repeats them: this corpus is re-fetchable rather than only citable. It answers at about one call a second and only to a browser user-agent, and neither of those changes what it returns.",
+  "readings_sha256": "e3cb188bece32cf8970f44abdb71e14ccd2696ce37f316afde133f62c2cb4f58",
+  "results": {
+    "adjacent_block_readings": [
+      {
+        "balance_of": {
+          "USDC": "0x00000000000000000000000000000000000000000000000022958c2d5caf04dc",
+          "USDT": "0x000000000000000000000000000000000000000000000002547f4217a3f659df"
+        },
+        "block_number": 104992550,
+        "block_timestamp": "0x6a342efc"
+      },
+      {
+        "balance_of": {
+          "USDC": "0x00000000000000000000000000000000000000000000000022958c2d5caf04dc",
+          "USDT": "0x000000000000000000000000000000000000000000000002547f4217a3f659df"
+        },
+        "block_number": 104992552,
+        "block_timestamp": "0x6a342efd"
+      },
+      {
+        "balance_of": {
+          "USDC": "0x000000000000000000000000000000000000000000000001ddb2f31137c9738f",
+          "USDT": "0x00000000000000000000000000000000000000000000004085380cd12a45324e"
+        },
+        "block_number": 106969454,
+        "block_timestamp": "0x6a41c3cf"
+      },
+      {
+        "balance_of": {
+          "USDC": "0x000000000000000000000000000000000000000000000001ddb2f31137c9738f",
+          "USDT": "0x00000000000000000000000000000000000000000000004085380cd12a45324e"
+        },
+        "block_number": 106969456,
+        "block_timestamp": "0x6a41c3d0"
+      }
+    ],
+    "balance_and_nonce_readings": [
+      {
+        "balance_of": {
+          "ETH": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "USDC": "0x00000000000000000000000000000000000000000000000022958c2d5caf04dc",
+          "USDT": "0x000000000000000000000000000000000000000000000002547f4217a3f659df"
+        },
+        "block_number": 104992551,
+        "block_timestamp": "0x6a342efd",
+        "label": "window_open",
+        "transaction_count": "0xc"
+      },
+      {
+        "balance_of": {
+          "ETH": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "USDC": "0x000000000000000000000000000000000000000000000000ad32ec936d4f8585",
+          "USDT": "0x000000000000000000000000000000000000000000000001c990a74c96026a74"
+        },
+        "block_number": 105868832,
+        "block_timestamp": "0x6a3a3489",
+        "label": "before_first_deposit",
+        "transaction_count": "0x26"
+      },
+      {
+        "balance_of": {
+          "ETH": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "USDC": "0x000000000000000000000000000000000000000000000000ad32ec936d4f8585",
+          "USDT": "0x00000000000000000000000000000000000000000000000cc02b208751821674"
+        },
+        "block_number": 105868833,
+        "block_timestamp": "0x6a3a3489",
+        "label": "at_first_deposit",
+        "transaction_count": "0x26"
+      },
+      {
+        "balance_of": {
+          "ETH": "0x00000000000000000000000000000000000000000000000001c28e9558aa1cec",
+          "USDC": "0x0000000000000000000000000000000000000000000000018ab4ee31e7829131",
+          "USDT": "0x0000000000000000000000000000000000000000000000000ea81d960cff9e45"
+        },
+        "block_number": 106851264,
+        "block_timestamp": "0x6a40f3ff",
+        "label": "before_second_deposit",
+        "transaction_count": "0x72"
+      },
+      {
+        "balance_of": {
+          "ETH": "0x00000000000000000000000000000000000000000000000001c28e9558aa1cec",
+          "USDC": "0x0000000000000000000000000000000000000000000000018ab4ee31e7829131",
+          "USDT": "0x0000000000000000000000000000000000000000000000365384c0810ea71e45"
+        },
+        "block_number": 106851265,
+        "block_timestamp": "0x6a40f3ff",
+        "label": "at_second_deposit",
+        "transaction_count": "0x72"
+      },
+      {
+        "balance_of": {
+          "ETH": "0x0000000000000000000000000000000000000000000000000000003524afbd4c",
+          "USDC": "0x000000000000000000000000000000000000000000000001ddb2f31137c9738f",
+          "USDT": "0x00000000000000000000000000000000000000000000004085380cd12a45324e"
+        },
+        "block_number": 106969455,
+        "block_timestamp": "0x6a41c3d0",
+        "label": "window_close",
+        "transaction_count": "0x7d"
+      }
+    ],
+    "code_at_address": {
+      "0x161ba15a5f335c9f06bb5bbb0a9ce14076fbb645": "0x",
+      "0xE4fe23FB57dbb9AC2f685ea29B6b9A1409A0d359": "0x",
+      "0xbd612a3f30dca67bf60a39fd0d35e39b7ab80774": "0x"
+    },
+    "deposit_transactions": [
+      {
+        "receipt": {
+          "blockNumber": "0x64f6e21",
+          "gasUsed": "0x86df",
+          "logs": [
+            {
+              "address": "0x55d398326f99059ff775485246999027b3197955",
+              "data": "0x00000000000000000000000000000000000000000000000af69a793abb7fac00",
+              "topics": [
+                "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                "0x000000000000000000000000161ba15a5f335c9f06bb5bbb0a9ce14076fbb645",
+                "0x000000000000000000000000e4fe23fb57dbb9ac2f685ea29b6b9a1409a0d359"
+              ]
+            }
+          ],
+          "status": "0x1"
+        },
+        "transaction": {
+          "blockNumber": "0x64f6e21",
+          "from": "0x161ba15a5f335c9f06bb5bbb0a9ce14076fbb645",
+          "input": "0xa9059cbb000000000000000000000000e4fe23fb57dbb9ac2f685ea29b6b9a1409a0d35900000000000000000000000000000000000000000000000af69a793abb7fac00",
+          "nonce": "0x1bf0533",
+          "to": "0x55d398326f99059ff775485246999027b3197955",
+          "value": "0x0"
+        },
+        "tx_hash": "0x1062270d196910eaaa00ddfc5df6984c331646cedba218bb5c52644bbe50f9b0"
+      },
+      {
+        "receipt": {
+          "blockNumber": "0x65e6bc1",
+          "gasUsed": "0x86df",
+          "logs": [
+            {
+              "address": "0x55d398326f99059ff775485246999027b3197955",
+              "data": "0x00000000000000000000000000000000000000000000003644dca2eb01a78000",
+              "topics": [
+                "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                "0x000000000000000000000000bd612a3f30dca67bf60a39fd0d35e39b7ab80774",
+                "0x000000000000000000000000e4fe23fb57dbb9ac2f685ea29b6b9a1409a0d359"
+              ]
+            }
+          ],
+          "status": "0x1"
+        },
+        "transaction": {
+          "blockNumber": "0x65e6bc1",
+          "from": "0xbd612a3f30dca67bf60a39fd0d35e39b7ab80774",
+          "input": "0xa9059cbb000000000000000000000000e4fe23fb57dbb9ac2f685ea29b6b9a1409a0d35900000000000000000000000000000000000000000000003644dca2eb01a78000",
+          "nonce": "0x1af3100",
+          "to": "0x55d398326f99059ff775485246999027b3197955",
+          "value": "0x0"
+        },
+        "tx_hash": "0x6ffed93f10fa7f44d2d40e737eeba70dabf295fd0f3a9db35020203c8686fd77"
+      }
+    ],
+    "token_decimals": {
+      "ETH": "0x0000000000000000000000000000000000000000000000000000000000000012",
+      "USDC": "0x0000000000000000000000000000000000000000000000000000000000000012",
+      "USDT": "0x0000000000000000000000000000000000000000000000000000000000000012"
+    }
+  },
+  "tokens": {
+    "ETH": {
+      "address": "0x2170Ed0880ac9A755fd29B2688956BD959F933F8",
+      "dollar_pegged": false,
+      "name": "Binance-Peg Ethereum Token"
+    },
+    "USDC": {
+      "address": "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+      "dollar_pegged": true,
+      "name": "Binance-Peg USD Coin"
+    },
+    "USDT": {
+      "address": "0x55d398326f99059fF775485246999027B3197955",
+      "dollar_pegged": true,
+      "name": "Binance-Peg BSC-USD"
+    }
+  },
+  "window": {
+    "close_block": 106969455,
+    "first_receipt_ts": "2026-06-18T17:46:37.789542+00:00",
+    "last_receipt_ts": "2026-06-29T01:01:04.491927+00:00",
+    "n_blocks_spanned": 1976904,
+    "note": "The same closed eleven-day window the registered 06 record covers, stated here as the two BSC blocks whose timestamps are the first and last receipt's own ts. It is what exists; no honest work makes it longer.",
+    "open_block": 104992551,
+    "receipt_chain_ref": "docket/advantage/v2/corpus/trading/solvent-receipts.json"
+  }
+}

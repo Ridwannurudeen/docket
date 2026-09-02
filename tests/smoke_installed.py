@@ -68,6 +68,7 @@ with tempfile.TemporaryDirectory(prefix="docket-installed-smoke-") as scratch:
         "v3-04-warden-security",
         "v3-05-range-doctor",
         "v3-06-yield-router-assisted",
+        "v3-07-range-doctor",
     ]
     assert {family["state"] for family in families} == {
         "complete_unscored",

@@ -86,12 +86,13 @@ def test_the_committed_families_preserve_the_failed_primary_and_name_its_success
         report.COMPLETE_UNSCORED,
         report.LOCKED_NOT_RUN,
         report.REGISTERED_WAITING,
+        report.REGISTERED_WAITING,
     ]
     assert payload["summary"]["states"] == {
         report.COMPLETE_UNSCORED: 1,
         report.ABANDONED_AFTER_FAILED_PRIMARY: 1,
         report.LOCKED_NOT_RUN: 1,
-        report.REGISTERED_WAITING: 1,
+        report.REGISTERED_WAITING: 2,
         report.SUPERSEDED_BEFORE_INPUT_LOCK: 2,
     }
     assert "proved" not in json.dumps(payload).lower()

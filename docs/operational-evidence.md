@@ -307,3 +307,75 @@ The deployed runtime identifies commit
 `origin/main` identified `3b9e03715af9fd973b85cefec891b1e97cba85a5`, the base of this
 documentation update. That source-only commit after the deployed runtime does not turn this
 builder-collected record into an independent observation.
+
+---
+
+## Collected 2026-09-02 — release of 4a632c0
+
+The owner approved one release. `4a632c0` was built from a clean worktree, shipped, and
+released to `docket.gudman.xyz`; the prior tree is retained at
+`/opt/docket.bak-20260902T144652Z`.
+
+Release gates. GitHub Actions was already green on this exact commit for `test (3.11)`,
+`test (3.12)`, and `package` — the CI `test` job runs `pytest -q` and the `package` job
+reproduces the runtime lock, builds the clean-HEAD bundle, installs the wheel into a venv
+outside the checkout, and runs `smoke_installed.py`. Those Linux results, not a Windows
+run, are what this release rests on. The builder additionally reproduced locally:
+`node --check docket/api/web/app.js`; `uv export` against `uv==0.11.16` with no diff to
+`deploy/runtime-requirements.txt`; the bundle build and its own `verify`; a fresh
+out-of-checkout venv install with `pip check` clean; and `smoke_installed.py` exit 0.
+`preflight.sh 22` passed — the operand is the host's live `nginx -t` `[warn]` count, which
+was independently measured at 22 before the run, with 888,959,812 KiB free under `/opt`
+and all thirteen tracked units verified. `install-canary.sh` ran first and backed up its
+prior targets to `/var/backups/docket-canary/20260902T144452Z`, leaving the payment-bearing
+timer disabled and inactive.
+
+Deployed identity, read back from the host after the release:
+
+| Field | Value |
+|---|---|
+| `RELEASE-commit.txt` | `4a632c01ebcfdccaed36e642cec2e74adbb69381` |
+| `.venv` target | `/opt/docket-venvs/4a632c01ebcf` |
+| Wheel SHA-256 | `923d410953e11bd98cec7dc9d26ef371ccd6e5c73bb8f11d3ce964c32b3769b6` |
+| Runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
+| `docket.service` | active |
+
+The runtime-lock digest is identical to the previous release, so no dependency moved. The
+six timers were restored to their captured states: `docket-lp-record`, `docket-refresh`,
+`docket-v3-capture`, `docket-v3-range-capture`, and `docket-v3-yield-v6-capture` are each
+`enabled` and `active`; `docket-canary.timer` remains `disabled` and `inactive`.
+`docket-v3-yield-v6-capture.timer` still reports
+`NextElapseUSecRealtime=Thu 2026-09-03 13:50:00 CEST`, unchanged by the release.
+
+Observed from outside the host after the release, eight public routes returned 200: `/`,
+`/stats`, `/advantage`, `/services`, `/service?id=range-doctor`, `/hire`, `/lp-record`,
+and `/canary`.
+
+The six v3 family states are unchanged by this release: `v3-01-range-doctor` and
+`v3-03-warden-security` `superseded_before_input_lock`; `v3-02-yield-router`
+`abandoned_after_failed_primary`; `v3-04-warden-security` `complete_unscored`;
+`v3-05-range-doctor` `locked_not_run`; `v3-06-yield-router-assisted`
+`registered_waiting_for_inputs`.
+
+`/services` reports `paid_stock=false` for all six services. Range Doctor's admission limbs
+are `fresh_paired_benchmark=false`, `cold_canary=false`, `decision_grade_presenter=true`,
+`true_settlement=true` — the single behavioural change a reader can observe from this
+release. `cold_canary` is false because the canary timer is disabled and run 18 is older
+than the 36-hour freshness limit, not because run 18 failed.
+
+At this observation the public repository, `origin/main`, and the deployed runtime all
+identify `4a632c01ebcfdccaed36e642cec2e74adbb69381`.
+
+Repository settings completed the same day, closing steps 11, 13 and 14 of
+[`publication-checklist.md`](publication-checklist.md), which had not been performed after
+the visibility conversion: the repository website is set to `https://docket.gudman.xyz/`
+with a description; a `main` branch ruleset named `main protection` is active, blocking
+deletion and non-fast-forward pushes and requiring `test (3.11)`, `test (3.12)` and
+`package`; secret scanning and push protection are enabled.
+
+### What this record does not establish
+
+Every figure above was collected by the builder from the host it deployed to. It is
+consistent with the tree and the running process, which is the property a reader can test;
+it is not independent. CI is the one part of this record produced by a system the builder
+does not control.

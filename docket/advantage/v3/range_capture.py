@@ -1,4 +1,4 @@
-"""Capture the registered v3-05 enumerable Range frame from one archive RPC.
+"""Capture a registered enumerable Range frame from one archive RPC.
 
 The collector has one endpoint, one attempt per JSON-RPC request and no fallback. Every
 contract read is an ``eth_call`` at the registered observation block. It writes only after
@@ -48,7 +48,10 @@ DATA = re.compile(r"0x(?:[0-9a-fA-F]{2})+")
 HASH = re.compile(r"0x[0-9a-fA-F]{64}")
 QUANTITY = re.compile(r"0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)")
 RPC_TIMEOUT_SECONDS = 30.0
-SPEC_ID = "v3-05-range-doctor"
+# Each registered enumerable family derives its own 1,024 indices from its own
+# stage-one protocol hash, so a frame collected for one family can never validate
+# against another. Naming them here keeps the collector refusing anything else.
+SPEC_IDS = ("v3-05-range-doctor", "v3-07-range-doctor")
 
 ENUMERABLE_ABI = [
     {
@@ -255,8 +258,10 @@ def _header(
 
 def collect_frame(spec: PairedSpec, rpc: JsonRpcClient) -> dict:
     """Read and return the complete registered enumerable frame."""
-    if spec.spec_id != SPEC_ID:
-        raise RangeCaptureRefused(f"only {SPEC_ID} can use this collector")
+    if spec.spec_id not in SPEC_IDS:
+        raise RangeCaptureRefused(
+            f"only {' or '.join(SPEC_IDS)} can use this collector"
+        )
     frame_definition = _range_successor_frame(spec)
     conflict_wallets, conflict_token_ids = _range_conflict_exclusion(spec)
     accounting = {
@@ -482,9 +487,11 @@ def main(
     client: httpx.Client | None = None,
 ) -> int:
     parser = argparse.ArgumentParser(
-        description="Capture the registered v3-05 enumerable Range frame."
+        description="Capture a registered enumerable Range frame."
     )
-    parser.add_argument("spec", help="v3-05-range-doctor or its specification path")
+    parser.add_argument(
+        "spec", help="an enumerable Range family id or its specification path"
+    )
     parser.add_argument("out", help="first-write enumerable frame JSON path")
     args = parser.parse_args(argv)
     output = Path(args.out)

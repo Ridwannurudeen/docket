@@ -107,7 +107,7 @@ report summary states that rather than discarding it.
 
 ## V3
 
-V3 has exactly six stage-one specifications:
+V3 has exactly seven stage-one specifications:
 
 | Spec | Stage-one protocol hash | Current spec hash |
 |---|---|---|
@@ -117,6 +117,7 @@ V3 has exactly six stage-one specifications:
 | `v3-04-warden-security`, complete unscored | `0x9e2206f6c9293e8f41528893aa1b526bfd917a099a5ae7dbe826c486d8a6b62e` | `0x08ad28caac2d76da2c2d6844341b7930f9338383ee7e82b4e712d426f7791d49` |
 | `v3-05-range-doctor`, locked not run | `0x2a83c1a331d579e5cef461d52c539711b4fa2bba6dd397aaad1bf38b6b47f9ab` | `0x2a15b50e88b164ff57a7256aa9e35bdfb539cb02549e9c1374641fef92b4a43a` |
 | `v3-06-yield-router-assisted`, waiting for inputs | `0x3dffb6610ac22f5e7b86d4f27e200a6168ad7ab4f91eb9a8c14d5d7ef4267350` | `0xa7cfadfe301f4b81d4142aa902635e72e7b38a27bff31a849fe7eef56d0ace64` |
+| `v3-07-range-doctor`, waiting for inputs | `0x3305b8b3dd15ba3933dedc6b50ef94c4d2ea1f1a6cb26666ba84dd4ec45e67f5` | `0x90e1460ef5764d80c6b120d2552db3481d01b22b1f04edc6ac3098a64779b9da` |
 
 At the source-artifact observation on 2026-08-30, three families have locked inputs:
 v3-02 digest `55d419a1b70910f76f334be417188901bfaa3d35adf795f1048c223e38719181`,
@@ -127,6 +128,12 @@ Their input locks remain valid. V3-02 recorded one failed manual primary and is
 primary and is `locked_not_run`. V3-01 and v3-03 remain superseded with empty input digests.
 V3-06 is `registered_waiting_for_inputs` with an empty input digest until its scheduled
 2026-09-03 capture.
+V3-07 is a distinct successor to v3-05 registered against a separate archive-pinned
+frame at BSC block 119531513. Its 1,024 enumerable indices derive from its own
+stage-one protocol hash, so it draws a different sample and cannot reuse v3-05's
+committed frame. It is `registered_waiting_for_inputs` with an empty input digest
+until its scheduled 2026-09-05 capture. It does not replace, retry or relabel v3-05,
+whose registration, locked input and ledger remain separate and unchanged.
 
 Do not call `lock_inputs`, alter an input, or run an arm as part of reproduction. Those are
 operator actions, not read-only verification.

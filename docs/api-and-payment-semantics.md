@@ -117,9 +117,11 @@ including one exact 0.50 USDT settlement, proof binding, and rejection of the id
 signed request with `409 authorization_replay`. The post-canary source records
 `true_settlement=true` and `decision_grade_presenter=true`; the durable run makes
 `cold_canary=true` only while it remains fresh. `fresh_paired_benchmark` remains false, so
-Range Doctor and the other five services remain `paid_stock=false`. Production remains on
-the pre-update `b8b6ed7` runtime and therefore still serves its earlier
-`true_settlement=false` static limb until a later reviewed deployment.
+Range Doctor and the other five services remain `paid_stock=false`. That source was
+deployed on 2026-09-02 as release `4a632c0`, so production now serves Range Doctor's
+`true_settlement=true` limb. The canary timer remains disabled, so no run is fresh and
+`cold_canary=false`; with `fresh_paired_benchmark=false` as well, paid stock stays closed
+for all six services.
 The shared catalogue term is 0.50 USDT, represented as
 `500000000000000000` atomic units of token
 `0x55d398326f99059fF775485246999027B3197955`; the token reports 18 decimals on BSC

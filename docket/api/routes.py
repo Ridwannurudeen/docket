@@ -1128,15 +1128,18 @@ def create_app(
         experiment, every run behind them, and each registered falsifier evaluated against
         what was measured. Git establishes 04 and 05's specification-before-run ordering;
         01 and 03 are self-attested because each specification and completed run first
-        entered git together.
+        entered git together; 06's specification and run are working-tree files that git
+        records nothing about yet.
 
         Additive. `/advantage.json` above is untouched and stays the prior version rather
         than a superseded one, and this document links back to it in `prior_version`. What
         is new here is the shape rather than the subject: a hashed specification cited by its
         run, null baselines computed and served beside every agent figure, every trial
         including the ones that failed, and — the thing nothing served until now — the
-        result of each falsifier, computed. One of the four claims is refuted, and `summary`
-        says which before the experiments begin.
+        result of each falsifier, computed. One of the five claims is refuted, and `summary`
+        says which before the experiments begin. 06 is the trading record: a frozen 384-receipt
+        chain, both integrity limbs recomputed on every serve, and no return or win-rate figure
+        at all, with the reason on the record rather than left as an omission.
         """
         return advantage_v2
 

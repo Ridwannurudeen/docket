@@ -29,6 +29,7 @@ from .spec import (
     PairedSpec,
     assert_runnable,
     is_range_family,
+    is_range_successor_family,
     is_warden_family,
     is_yield_family,
 )
@@ -123,6 +124,15 @@ FAMILY_PROTOCOLS = {
         "fields": YIELD_FIELDS,
         "family_salt": "yield-v6-assisted-blinding",
         "service_literals": ("Yield Router", "yield-router", "yield_router"),
+    },
+    "v3-07-range-doctor": {
+        "normalisation_version": (
+            "range.v2: position, observation, range, pool_evidence, rates, dollars, "
+            "action, coverage, limitations, sources"
+        ),
+        "fields": RANGE_FIELDS,
+        "family_salt": "range-v7-blinding",
+        "service_literals": ("Range Doctor", "range-doctor", "range_doctor"),
     },
 }
 
@@ -671,7 +681,7 @@ def _valid_completed_output(
             != case.get("observation_time")
             or projection.get("sources") != _range_source_summaries(case, repo_root)
             or (spec.spec_id == "v3-01-range-doctor" and not isinstance(coverage, dict))
-            or (spec.spec_id == "v3-05-range-doctor" and not isinstance(coverage, dict))
+            or (is_range_successor_family(spec) and not isinstance(coverage, dict))
             or (
                 spec.spec_id == "v3-01-range-doctor"
                 and any(
@@ -685,7 +695,7 @@ def _valid_completed_output(
                 )
             )
             or (
-                spec.spec_id == "v3-05-range-doctor"
+                is_range_successor_family(spec)
                 and any(
                     coverage.get(name) != truth.get(name)
                     for name in (

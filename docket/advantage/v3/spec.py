@@ -147,6 +147,63 @@ YIELD_SUCCESSOR_REASON = (
     "source captures and a disclosed Codex-assisted baseline; it does not replace, "
     "retry or relabel that failed primary."
 )
+RANGE_PRIOR_STAGE_ONE_PROTOCOL_HASH = (
+    "0x2a83c1a331d579e5cef461d52c539711b4fa2bba6dd397aaad1bf38b6b47f9ab"
+)
+RANGE_PRIOR_SPEC_HASH = (
+    "0x2a15b50e88b164ff57a7256aa9e35bdfb539cb02549e9c1374641fef92b4a43a"
+)
+RANGE_PRIOR_LEDGER_REF = "docket/advantage/v3/runs/v3-05-range-doctor.jsonl"
+RANGE_SUCCESSOR_REASON = (
+    "The v3-05 official ledger remains separate and unchanged. As recorded there, "
+    "manual primary "
+    "v3-05-range-doctor::range-passing_gate_in_range-5223058::manual::primary "
+    "terminated as interrupted with no recorded elapsed time, which fires v3-05's "
+    "any_pair_is_incomplete check and leaves refuted as its only terminal state. That "
+    "ledger is operator-held evidence outside the tracked tree at this registration: a "
+    "reader who cannot see it should treat this motivation as unverified and judge this "
+    "family on its own registered protocol instead. This is a distinct successor with a "
+    "new archive-pinned frame, a new future pool-truth capture and a paid agent arm; it "
+    "does not replace, retry or relabel that primary, and it does not relabel v3-05's "
+    "published state."
+)
+# Cases whose frozen reveal the operator has already seen. Token 5223058 was revealed in
+# full during the interrupted v3-05 slot on 2026-08-30; the other two are v3-05's remaining
+# registered cases, published in its committed input envelope. Excluding all three costs the
+# successor nothing and removes the only positions an operator could answer from memory.
+# Equality, not a floor, for the same reason as RANGE_CONTROLLED_TOKEN_IDS: a list free to
+# grow could delete an honest third party's position from the draw on an unfalsifiable claim.
+RANGE_PRIOR_EXPOSURE_TOKEN_IDS = frozenset({1056809, 1653348, 5223058})
+RANGE_PRIOR_EXPOSURE_REASON = "operator_saw_this_case_in_the_predecessor"
+RANGE_PRIOR_EXPOSURE_SPEC_ID = "v3-05-range-doctor"
+# Who each arm actually is. v3-06 registers that its baseline is not a human; this family
+# registers the opposite for its manual arm and, for the agent arm, that the hire is settled
+# rather than served from the free allowance. Both are claims a reader would otherwise have
+# to take on trust, and both change what the comparison means.
+RANGE_SUCCESSOR_ARM_IDENTITIES = {
+    "agent": {
+        "arm": "agent",
+        "authorization": "canary_authorized_x402_exact",
+        "display_name": "Deployed Range Doctor, settled hire",
+        "free_tier": False,
+        "human": False,
+        "independent": False,
+        "kind": "settled_public_hire",
+    },
+    "manual": {
+        "arm": "manual",
+        "display_name": "Human operator",
+        "human": True,
+        "independent": False,
+        "kind": "human_operator",
+        "operator": "owner",
+    },
+}
+# A distinct successor answers a published predecessor rather than correcting an unlocked
+# registration, so it carries successor_provenance instead of protocol_correction.
+DISTINCT_SUCCESSOR_SPEC_IDS = frozenset(
+    {"v3-06-yield-router-assisted", "v3-07-range-doctor"}
+)
 WARDEN_AUTHORABLE_CLASSES = frozenset(
     {
         "DRAIN_ADDRESS",
@@ -177,6 +234,11 @@ def is_warden_family(spec: "PairedSpec") -> bool:
 def is_range_family(spec: "PairedSpec") -> bool:
     """Whether a registered family uses the Range Doctor service protocol."""
     return spec.execution_protocol.get("agent_service_id") == "range-doctor"
+
+
+def is_range_successor_family(spec: "PairedSpec") -> bool:
+    """Whether a Range family draws its cases from an enumerable archive-pinned frame."""
+    return is_range_family(spec) and "frame_definition" in spec.case_selection
 
 
 def is_yield_family(spec: "PairedSpec") -> bool:
@@ -528,14 +590,14 @@ class PairedSpec:
                 raise ValueError(f"spec: measures.{measure} is blank")
 
         if (
-            self.spec_id == "v3-06-yield-router-assisted"
+            self.spec_id in DISTINCT_SUCCESSOR_SPEC_IDS
             and self.protocol_correction is not None
         ):
             raise ValueError(
                 "spec: a distinct successor cannot be a protocol correction"
             )
         if (
-            self.spec_id != "v3-06-yield-router-assisted"
+            self.spec_id not in DISTINCT_SUCCESSOR_SPEC_IDS
             and self.protocol_correction is None
         ):
             raise ValueError("spec: protocol_correction is required for this family")
@@ -562,7 +624,7 @@ class PairedSpec:
                 )
         if is_warden_family(self):
             _validate_warden_policy(self)
-        if is_range_family(self) and "frame_definition" in self.case_selection:
+        if is_range_successor_family(self):
             _validate_range_successor_registration(self)
         if self.spec_id == "v3-06-yield-router-assisted":
             _validate_yield_successor_registration(self)
@@ -889,9 +951,98 @@ def _range_successor_frame(spec: PairedSpec) -> dict:
     return frame
 
 
+def _range_prior_exposure(spec: PairedSpec) -> set[int]:
+    """The cases this operator has already seen revealed, checked against the constants."""
+    exposure = spec.case_selection.get("prior_exposure_exclusion")
+    if not isinstance(exposure, dict) or set(exposure) != {
+        "token_ids",
+        "excluded_reason",
+        "prior_spec_id",
+        "disclosure",
+    }:
+        raise ValueError(
+            "spec: Range distinct successor needs a prior_exposure_exclusion with "
+            "exactly token_ids, excluded_reason, prior_spec_id and disclosure"
+        )
+    token_ids = exposure["token_ids"]
+    if (
+        not isinstance(token_ids, list)
+        or not all(
+            isinstance(token_id, int)
+            and not isinstance(token_id, bool)
+            and token_id >= 0
+            for token_id in token_ids
+        )
+        or token_ids != sorted(set(token_ids))
+        or set(token_ids) != RANGE_PRIOR_EXPOSURE_TOKEN_IDS
+    ):
+        raise ValueError(
+            "spec: Range prior-exposure token ids do not match the cases this build "
+            "knows the operator has already seen revealed"
+        )
+    if (
+        exposure["excluded_reason"] != RANGE_PRIOR_EXPOSURE_REASON
+        or exposure["prior_spec_id"] != RANGE_PRIOR_EXPOSURE_SPEC_ID
+        or not str(exposure["disclosure"]).strip()
+    ):
+        raise ValueError("spec: Range prior-exposure exclusion is not disclosed")
+    return set(token_ids)
+
+
+def _validate_range_distinct_successor(spec: PairedSpec) -> None:
+    """A Range family that answers a published predecessor rather than correcting a draft."""
+    if spec.pilot_provenance is not None or spec.protocol_correction is not None:
+        raise ValueError(
+            "spec: a Range distinct successor carries successor provenance alone"
+        )
+    if spec.inputs_ref != "docket/advantage/v3/inputs/range-v7-positions.json":
+        raise ValueError("spec: Range distinct successor inputs_ref is invalid")
+    frame = _range_successor_frame(spec)
+    observed = _utc_timestamp(
+        frame["observation_time"], "Range successor observation time"
+    )
+    captures = [
+        _utc_timestamp(value, "Range successor pool capture")
+        for value in frame["pool_truth_capture_attempts"]
+    ]
+    if captures[0] <= observed:
+        # The whole point of the successor is register, then capture in the future. A pool
+        # truth registered at or before the pinned block would be an artifact that already
+        # existed when the protocol was fixed.
+        raise ValueError(
+            "spec: Range distinct successor pool truth must be captured after the pinned "
+            "observation block"
+        )
+    _range_prior_exposure(spec)
+    lowered = spec.claim.lower()
+    if "human operator" not in lowered or "settled" not in lowered:
+        raise ValueError(
+            "spec: a Range distinct successor claim must say the manual arm is a human "
+            "operator and that the agent arm was settled"
+        )
+    identities = spec.execution_protocol.get("arm_identities")
+    if identities != RANGE_SUCCESSOR_ARM_IDENTITIES:
+        raise ValueError("spec: Range distinct successor arm identities are invalid")
+    provenance = spec.successor_provenance
+    if not isinstance(provenance, dict) or set(provenance) != SUCCESSOR_FIELDS:
+        raise ValueError("spec: Range distinct successor provenance is incomplete")
+    if provenance != {
+        "status": "distinct_successor_after_terminal_incomplete_pair",
+        "prior_spec_id": RANGE_PRIOR_EXPOSURE_SPEC_ID,
+        "prior_stage_one_protocol_hash": RANGE_PRIOR_STAGE_ONE_PROTOCOL_HASH,
+        "prior_spec_hash": RANGE_PRIOR_SPEC_HASH,
+        "prior_ledger_ref": RANGE_PRIOR_LEDGER_REF,
+        "reason": RANGE_SUCCESSOR_REASON,
+    }:
+        raise ValueError("spec: Range distinct successor provenance is invalid")
+
+
 def _validate_range_successor_registration(spec: PairedSpec) -> None:
     _range_conflict_exclusion(spec)
     _range_successor_frame(spec)
+    if spec.successor_provenance is not None:
+        _validate_range_distinct_successor(spec)
+        return
     provenance = spec.pilot_provenance
     if not isinstance(provenance, dict):
         raise ValueError("spec: Range successor needs pilot provenance")
@@ -2208,10 +2359,21 @@ def _range_successor_stratum(position: dict) -> str | None:
 def range_selected_positions(spec: PairedSpec, positions: list[dict]) -> list[dict]:
     """Select the registered lowest-hash position from each successor stratum."""
     strata = [row["name"] for row in _range_successor_frame(spec)["strata"]]
+    # A family that registers prior exposure removes those token ids from selection only.
+    # They stay in the published eligible manifest, so the exclusion is visible rather than
+    # silently shrinking the population it was drawn from.
+    exposed = (
+        _range_prior_exposure(spec)
+        if spec.case_selection.get("prior_exposure_exclusion") is not None
+        else set()
+    )
     selected = []
     for stratum in strata:
         candidates = [
-            row for row in positions if _range_successor_stratum(row) == stratum
+            row
+            for row in positions
+            if _range_successor_stratum(row) == stratum
+            and row["token_id"] not in exposed
         ]
         if not candidates:
             raise ValueError(f"spec: Range successor stratum {stratum!r} is empty")
@@ -2389,7 +2551,8 @@ def _computed_calibration_truth(spec: PairedSpec | str, inputs: dict) -> dict | 
     range_family = (
         is_range_family(spec)
         if isinstance(spec, PairedSpec)
-        else spec_id in {"v3-01-range-doctor", "v3-05-range-doctor"}
+        else spec_id
+        in {"v3-01-range-doctor", "v3-05-range-doctor", "v3-07-range-doctor"}
     )
     if range_family:
         if not isinstance(inputs, dict):
@@ -3727,6 +3890,7 @@ INPUT_VALIDATORS = {
     "v3-04-warden-security": _validate_warden_inputs,
     "v3-05-range-doctor": _validate_range_successor_inputs,
     "v3-06-yield-router-assisted": _validate_yield_inputs,
+    "v3-07-range-doctor": _validate_range_successor_inputs,
 }
 
 

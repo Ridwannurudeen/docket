@@ -168,7 +168,7 @@ case "${url}" in
             if [[ "${FAKE_INVALID_ENDPOINT:-}" == v3-states ]]; then
                 final_state=locked_not_run
             fi
-            printf '{"families":[{"spec_id":"v3-01-range-doctor","state":"superseded_before_input_lock"},{"spec_id":"v3-02-yield-router","state":"abandoned_after_failed_primary"},{"spec_id":"v3-03-warden-security","state":"superseded_before_input_lock"},{"spec_id":"v3-04-warden-security","state":"complete_unscored"},{"spec_id":"v3-05-range-doctor","state":"locked_not_run"},{"spec_id":"v3-06-yield-router-assisted","state":"%s"}],"summary":{"n_families":6}}\n' "${final_state}"
+            printf '{"families":[{"spec_id":"v3-01-range-doctor","state":"superseded_before_input_lock"},{"spec_id":"v3-02-yield-router","state":"abandoned_after_failed_primary"},{"spec_id":"v3-03-warden-security","state":"superseded_before_input_lock"},{"spec_id":"v3-04-warden-security","state":"complete_unscored"},{"spec_id":"v3-05-range-doctor","state":"locked_not_run"},{"spec_id":"v3-06-yield-router-assisted","state":"registered_waiting_for_inputs"},{"spec_id":"v3-07-range-doctor","state":"%s"}],"summary":{"n_families":7}}\n' "${final_state}"
         fi
         ;;
     */static/style.css)
@@ -374,7 +374,7 @@ def test_every_deployment_script_has_valid_bash_syntax(script: str):
 
 def test_release_and_preflight_track_every_systemd_unit_and_document_the_count():
     expected = {path.name for path in (DEPLOY / "systemd").iterdir() if path.is_file()}
-    assert len(expected) == 13
+    assert len(expected) == 15
 
     for script_name in ("preflight.sh", "release.sh"):
         script = (DEPLOY / script_name).read_text(encoding="utf-8")
@@ -386,9 +386,10 @@ def test_release_and_preflight_track_every_systemd_unit_and_document_the_count()
         assert declared == expected
 
     runbook = (ROOT / "docs/deployment-runbook.md").read_text(encoding="utf-8")
-    assert runbook.count("all thirteen tracked unit") == 2
+    assert runbook.count("all fifteen tracked unit") == 2
     assert "all ten tracked units" not in runbook
     assert "all twelve unit files" not in runbook
+    assert "all thirteen tracked unit" not in runbook
 
 
 def test_release_refuses_a_held_process_lock_before_artifact_or_runtime_mutation(
@@ -1327,6 +1328,10 @@ def test_every_tracked_python_service_uses_safe_execution_and_containment():
             "/opt/docket/.venv/bin/python -P -m docket.advantage.v3.capture "
             "v3-06-yield-router-assisted /var/lib/docket/v3-capture/yield-v3-06"
         ),
+        "docket-v3-range-v7-capture.service": (
+            "/opt/docket/.venv/bin/python -P -m docket.advantage.v3.capture "
+            "v3-07-range-doctor /var/lib/docket/v3-capture/range-v3-07"
+        ),
         "docket.service": (
             "/opt/docket/.venv/bin/python -P -m uvicorn --factory "
             "docket.api:create_app --host 127.0.0.1 --port 8090"
@@ -1644,6 +1649,33 @@ def test_release_refuses_the_yield_v6_capture_window_before_stopping_units(
     assert (root / "opt" / "docket" / "old-release.txt").is_file()
 
 
+@pytest.mark.parametrize("now_utc", ["2026-09-05T11:55:00Z", "2026-09-05T12:02:30Z"])
+def test_release_refuses_the_range_v7_capture_window_before_stopping_units(
+    tmp_path, now_utc
+):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        _write_release_manifest(wheel, digest).as_posix(),
+        environment=_environment(
+            root,
+            fake_bin,
+            DOCKET_RELEASE_NOW_UTC=now_utc,
+        ),
+    )
+
+    assert result.returncode != 0
+    assert "Range v3-07 capture activation window" in result.stderr
+    assert "systemctl stop docket-canary.timer" not in result.stdout
+    assert (root / "opt" / "docket" / "old-release.txt").is_file()
+
+
 def test_release_tooling_never_changes_or_reloads_nginx():
     release = (DEPLOY / "release.sh").read_text(encoding="utf-8")
     preflight = (DEPLOY / "preflight.sh").read_text(encoding="utf-8")
@@ -1714,7 +1746,7 @@ def test_release_refuses_a_health_response_without_ok_status(tmp_path):
     assert (root / "opt" / "docket" / "old-release.txt").is_file()
 
 
-def test_release_retires_the_aug21_timer_and_enables_all_six_timers(tmp_path):
+def test_release_retires_the_aug21_timer_and_enables_every_timer(tmp_path):
     root = tmp_path / "root"
     _prepare_live_release(root)
     units = root / "etc" / "systemd" / "system"
