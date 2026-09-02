@@ -580,17 +580,19 @@ def test_the_committed_record_says_what_the_report_recomputes(experiment):
     )
 
 
-def test_the_registration_is_served_as_uncommitted_until_it_is_in_history(experiment):
-    """Weaker than the self-attested registrations beside it, and stated as such. When the
-    specification and the run are committed together this becomes self-attested; until then
-    git records nothing about their order and this record claims nothing from it."""
+def test_the_registration_is_served_as_self_attested_once_it_is_in_history(experiment):
+    """The specification and the completed run first entered git together at b2411b3, so this is self-attested like 01 and 03 and not git-provable: git records
+    that both existed at that commit, and nothing about their order. The producer is
+    committed, so the run can be regenerated from the spec and the frozen corpus."""
     provenance = experiment["registration_provenance"]
 
-    assert provenance["state"] == "uncommitted"
-    assert provenance["spec_commit"] is None
-    assert provenance["run_commit"] is None
+    assert provenance["state"] == "self_attested"
+    assert provenance["spec_commit"] == "b2411b3"
+    assert provenance["run_commit"] == "b2411b3"
+    assert provenance["spec_precedes_run"] is False
     assert provenance["committed_run_producer"] == {
         "present": True,
         "path": "docket/advantage/v2/deposits.py",
     }
-    assert "neither is in git history" in provenance["statement"]
+    assert f"first entered git together at b2411b3" in provenance["statement"]
+    assert "not on independent git history" in provenance["statement"]

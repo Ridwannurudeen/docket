@@ -150,22 +150,22 @@ def test_registration_provenance_is_served_per_experiment_and_visible_on_the_pag
         "03-security-corpus": "self_attested",
         "05-security-corpus-postfix": "git_provable",
         "04-grid-replay": "git_provable",
-        "06-solvent-record": "uncommitted",
-        "07-solvent-deposit-adjusted": "uncommitted",
+        "06-solvent-record": "self_attested",
+        "07-solvent-deposit-adjusted": "self_attested",
     }
-    assert provenance["06-solvent-record"]["spec_commit"] is None
-    assert provenance["06-solvent-record"]["run_commit"] is None
+    assert provenance["06-solvent-record"]["spec_commit"] == "b2411b3"
+    assert provenance["06-solvent-record"]["run_commit"] == "b2411b3"
     assert provenance["06-solvent-record"]["committed_run_producer"] == {
         "present": True,
         "path": "docket/advantage/v2/solvent.py",
     }
-    assert provenance["07-solvent-deposit-adjusted"]["spec_commit"] is None
-    assert provenance["07-solvent-deposit-adjusted"]["run_commit"] is None
+    assert provenance["07-solvent-deposit-adjusted"]["spec_commit"] == "b2411b3"
+    assert provenance["07-solvent-deposit-adjusted"]["run_commit"] == "b2411b3"
     assert provenance["07-solvent-deposit-adjusted"]["committed_run_producer"] == {
         "present": True,
         "path": "docket/advantage/v2/deposits.py",
     }
-    assert "uncommitted" in page
+    assert "uncommitted" not in page
     assert provenance["01-liquidity-arithmetic"]["spec_commit"] == "b9578b8"
     assert provenance["01-liquidity-arithmetic"]["run_commit"] == "b9578b8"
     assert provenance["03-security-corpus"]["spec_commit"] == "9042e72"

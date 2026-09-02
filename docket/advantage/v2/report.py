@@ -103,12 +103,12 @@ REGISTRATION_HISTORY = {
             "path": "docket/advantage/v2/replay.py",
         },
     },
-    # Neither file is in history yet. That is a weaker footing than the two self-attested
-    # registrations above, not a stronger one, and it is stated rather than left for a reader
-    # to work out from the absence of a hash.
+    # Both specs and both run records landed together in b2411b3, so spec and run share a commit
+    # and neither ordering is git-provable: self_attested, like 01 and 03. The producers are
+    # committed, so a reader can regenerate the run from the spec and the frozen corpus.
     "06-solvent-record": {
-        "spec_commit": None,
-        "run_commit": None,
+        "spec_commit": "b2411b3",
+        "run_commit": "b2411b3",
         "spec_precedes_run": False,
         "committed_run_producer": {
             "present": True,
@@ -116,8 +116,8 @@ REGISTRATION_HISTORY = {
         },
     },
     "07-solvent-deposit-adjusted": {
-        "spec_commit": None,
-        "run_commit": None,
+        "spec_commit": "b2411b3",
+        "run_commit": "b2411b3",
         "spec_precedes_run": False,
         "committed_run_producer": {
             "present": True,
