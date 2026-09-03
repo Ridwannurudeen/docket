@@ -612,20 +612,39 @@ readings:
 - `db` — whether the store could be read, its SQLite journal mode, and the database file and
   its directory. Docket requires DELETE journal mode; `wal` here means the application will
   refuse the database on its next connection.
-- `latest_refresh` — the newest snapshot's observation time, its age in seconds, and whether
-  the sweep reached the end of its population. Out of tolerance when the sweep is incomplete
-  or older than 43,200s, which is two `docket-refresh.timer` windows.
-- `latest_canary` — the newest recorded canary verdict and when it finished. Only `failed`
-  counts against the deployment: `not_yet_exercised` is what the canary records when its paid
-  limbs are unconfigured, and the timer is deliberately disabled between exercises.
-- `rpc` — one `eth_blockNumber`, one attempt, against the first endpoint in
+- `latest_refresh` — the newest **complete** snapshot, the one actually being served: its
+  `finished_at`, its age in seconds, and `complete`. Out of tolerance when no complete sweep
+  exists or the served one is older than 43,200s, which is two `docket-refresh.timer` windows.
+  Read against the newest row rather than the newest complete one, this would sit degraded for
+  the whole of every two-hour sweep, which is how a status page teaches an operator to ignore
+  it. A sweep that finished partial is not promoted, so the previous snapshot stays in service
+  and stays correct; a run of partial sweeps surfaces here as staleness.
+- `refresh_in_progress` — `{started_at, age_seconds}` while a sweep is running, else `null`.
+  Out of tolerance only past 7,200s, the `TimeoutStartSec` systemd starts the refresh with: a
+  sweep still running past its own deadline is one systemd has killed or is about to.
+- `latest_canary` — the newest recorded verdict, when it finished, its age, and `exercised`.
+  Two things count against the deployment: a `failed` verdict, and a `running` row older than
+  480s, the canary unit's `TimeoutStartSec` — a run whose result nobody will ever receive.
+  `not_yet_exercised` does not: it is what the canary records when its paid limbs are
+  unconfigured, and the timer is deliberately disabled between exercises. `exercised` is false
+  for both of those, which is why **`ok` never means the paid path works** — the page's lede
+  says so and names when it was last exercised.
+- `rpc` — one `eth_blockNumber`, **one connection, no retry**, against the first endpoint in
   `docket/escrow/constants.py`, capped at 5s, with `reason` naming what happened when it did
-  not answer. Deliberately no failover: `escrow/chain.py::Rpc` walks four endpoints twice each
-  because a job that cannot read the chain cannot proceed, whereas a status reading that could
-  not read the chain has read something true. A BSC outage therefore costs one 5s wait per
-  60s window, not eight connections per request.
+  not answer. Two things are switched off here, not one. There is no failover:
+  `escrow/chain.py::Rpc` walks four endpoints twice each because a job that cannot read the
+  chain cannot proceed, whereas a status reading that could not read the chain has read
+  something true. And the provider's own retry is disabled with
+  `exception_retry_configuration=None`: web3 7.16.0 defaults to retrying `ConnectionError`,
+  `HTTPError` and `Timeout` five times with exponential backoff, and `eth_blockNumber` is on
+  its retry allowlist, so `request_kwargs={"timeout": 5}` bounds one connection while the
+  provider quietly makes five. Measured against a socket that accepts and never answers, the
+  default cost 5 connections and ~27s inside the lock a reading is built under. A BSC outage
+  now costs one 5s wait per 60s window.
 - `probes` — how many `docket-probe.service` runs passed and failed in the last 24 hours,
-  and when the newest one started. Any failure in the window is out of tolerance.
+  when the newest started, and `recent_ok` of `recent_considered`. **The verdict is the last
+  3 runs, not the window**: a transient failure is reported in the 24h counts but does not
+  hold the page red for the rest of the day, while a run of failures does.
 
 `deployed_commit` is read from `/opt/docket/.venv/RELEASE-commit.txt`, which `release.sh`
 writes at the root of the environment it publishes. `release.sh` also refuses to finish unless
@@ -659,9 +678,10 @@ reaches the application over loopback with no forwarded-for header, so it spends
 | Row out of tolerance | What to do |
 | --- | --- |
 | Snapshot refresh | `systemctl status docket-refresh.service`, `journalctl -u docket-refresh.service`, and `/var/lib/docket/data/last-refresh.json`. A refused or failed refresh keeps the previous promoted snapshot online, so the site is serving stale but valid observations. |
-| Service canary | `journalctl -u docket-canary.service` and `GET /canary`. A `failed` verdict names the leg that failed in `checks`. |
+| Sweep in flight | Only ever out of tolerance past 7,200s. `systemctl status docket-refresh.service` — systemd kills the unit at that deadline, so this row going red means the sweep did not finish and no new snapshot will be promoted from it. |
+| Service canary | `journalctl -u docket-canary.service` and `GET /canary`. A `failed` verdict names the leg that failed in `checks`; a `running` row older than 480s is a run the unit's own deadline killed, and the next timer firing clears it. |
 | BSC read | Compare against another node before touching the deployment; every endpoint in the failover list refusing at once is usually the road, not this host. |
-| Synthetic probes | `journalctl -u docket-probe.service`. The failing run's row in `probe_runs` names the step, its status code, its latency and what it found; step 5 failing alone is a chain or position-read fault rather than a serving fault. |
+| Synthetic probes | `journalctl -u docket-probe.service` — the readings are printed before the row is written, so a probe that could not reach its database still journalled what it found. The failing run's row in `probe_runs` names the step, its status code, its latency and what it found; step 5 failing alone is a chain or position-read fault rather than a serving fault. |
 
 `down` means only one thing: the runtime database could not be read. Every other reading is
 taken out of it, so treat the readings on a `down` page as absent rather than as zero, and go

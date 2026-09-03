@@ -46,7 +46,7 @@ from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware
 
 from ..escrow import constants as escrow_constants
-from ..store import COMPLETE_STOP_REASON, PROBE_WINDOW_HOURS, Store
+from ..store import PROBE_WINDOW_HOURS, Store
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 STATUS_CONTENT_MARKER = "<!-- status-content -->"
@@ -67,12 +67,23 @@ MAX_ALLOWANCE_CLIENTS = 10_000
 # an operator has to act on.
 REFRESH_MAX_AGE_SECONDS = 12 * 3600
 REFRESH_INTERVAL_SECONDS = 6 * 3600
+# `docket-refresh.service` carries TimeoutStartSec=2h, so a sweep still running past that is
+# one systemd has killed or is about to. Below it, a sweep in flight is a sweep working.
+REFRESH_SWEEP_TIMEOUT_S = 2 * 3600
 DB_TIMEOUT_S = 5
 GIT_TIMEOUT_S = 5
-# The verdict that means the canary ran and something it checked was wrong. The other two
-# terminal verdicts describe a canary that did not exercise a limb, which is a configuration
-# state rather than a fault.
+# The verdict that means the canary ran and something it checked was wrong. `not_yet_exercised`
+# describes a canary that reached no limb, which is a configuration state rather than a fault.
 CANARY_FAILED_VERDICT = "failed"
+CANARY_RUNNING_VERDICT = "running"
+# The verdicts that mean the paid path was actually put through its paces.
+EXERCISED_CANARY_VERDICTS = frozenset({"passed", "failed"})
+# `docket-canary.service` carries TimeoutStartSec=8min; a `running` row older than that is a
+# run whose result nobody will ever receive.
+CANARY_RUN_TIMEOUT_S = 8 * 60
+# How many of the newest probe runs decide the verdict. The window counts stay at 24 hours;
+# one transient failure should not hold the page red for the rest of the day.
+PROBE_VERDICT_RUNS = 3
 
 
 def _utc_now() -> datetime:
@@ -150,47 +161,89 @@ def _journal_mode(path: Path) -> str | None:
 
 
 def _latest_refresh(store: Store, now: datetime) -> dict:
-    snapshot_id = store.latest_snapshot_id()
+    """The newest sweep a reader is actually served.
+
+    `latest_complete_snapshot_id` and not `latest_snapshot_id`: a refresh takes up to two
+    hours, and for every minute of it the newest row has a null `finished_at`. Judging that
+    row would paint the page degraded for the whole of a sweep that is working — a status
+    surface that goes red while the thing it watches succeeds is one an operator learns to
+    ignore. The sweep in flight is reported separately, below, where it can be judged on the
+    only thing wrong with it: taking too long.
+    """
+    snapshot_id = store.latest_complete_snapshot_id()
     row = store.snapshot(snapshot_id) if snapshot_id is not None else {}
-    at = row.get("finished_at") or row.get("started_at")
-    sampled = row.get("sampled")
-    expected = row.get("expected")
-    # The predicate `promote_snapshot` uses, recomputed rather than read off `promoted_at`:
-    # this page reports on the newest sweep, and a newest sweep that is still running has no
-    # promotion to read.
-    complete = bool(
-        row.get("finished_at")
-        and sampled is not None
-        and expected is not None
-        and sampled == expected
-        and sampled > 0
-        and row.get("stop_reason") in (None, COMPLETE_STOP_REASON)
-    )
-    return {"at": at, "age_seconds": _age_seconds(at, now), "complete": complete}
+    at = row.get("finished_at")
+    return {
+        "at": at,
+        "age_seconds": _age_seconds(at, now),
+        "complete": snapshot_id is not None,
+    }
+
+
+def _refresh_in_progress(store: Store, now: datetime) -> dict | None:
+    """The sweep that has begun and not finished, when there is one newer than the served
+    snapshot. `None` is the ordinary state between runs, not an absence of information."""
+    newest = store.latest_snapshot_id()
+    if newest is None or newest == store.latest_complete_snapshot_id():
+        return None
+    row = store.snapshot(newest)
+    if row.get("finished_at"):
+        # Finished and not promotable: a page-bounded or non-advancing sweep. It is not in
+        # flight, and `latest_refresh` already reports the older snapshot still being served.
+        return None
+    started_at = row.get("started_at")
+    return {"started_at": started_at, "age_seconds": _age_seconds(started_at, now)}
 
 
 def _latest_canary(store: Store, service_id: str, now: datetime) -> dict:
+    """`exercised` says whether the paid path was ever actually put through its paces, which
+    neither the verdict nor the timestamp says on its own: `not_yet_exercised` is a recorded
+    run that exercised nothing, and it reads like a result."""
     run = store.latest_canary_run(service_id)
+    verdict = run.get("verdict")
     finished_at = run.get("finished_at")
+    started_at = run.get("started_at")
+    at = finished_at or started_at
     return {
-        "verdict": run.get("verdict"),
+        "verdict": verdict,
+        "exercised": verdict in EXERCISED_CANARY_VERDICTS,
         "finished_at": finished_at,
-        "age_seconds": _age_seconds(finished_at, now),
+        "age_seconds": _age_seconds(at, now),
     }
 
 
 def _probes(store: Store, now: datetime) -> dict:
+    """Two figures with two jobs. `ok_count`/`fail_count` describe the whole window, which is
+    what a reader wants to know. The verdict is taken from the last few runs only: one
+    transient failure is not a reason to show a red page for the next twenty-four hours, and
+    a run of them is."""
     runs = store.latest_probe_runs(PROBE_WINDOW_HOURS, now=now)
+    recent = runs[:PROBE_VERDICT_RUNS]
     return {
         "last_run_at": runs[0]["started_at"] if runs else None,
         "ok_count": sum(1 for run in runs if run["ok"]),
         "fail_count": sum(1 for run in runs if not run["ok"]),
         "window_hours": PROBE_WINDOW_HOURS,
+        "recent_ok": sum(1 for run in recent if run["ok"]),
+        "recent_considered": len(recent),
     }
 
 
 def _session(url: str) -> Web3:
-    w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": RPC_TIMEOUT_S}))
+    # `exception_retry_configuration=None` is the whole of "one attempt". web3 7.16.0's
+    # HTTPProvider defaults to retrying ConnectionError, HTTPError and Timeout five times
+    # with an exponential backoff, and `eth_blockNumber` is on its retry allowlist — so the
+    # timeout below bounds one connection while the provider quietly makes five. Measured
+    # against a socket that accepts and never answers: 5 connections and 5 x timeout plus
+    # 1.875s of backoff, which at RPC_TIMEOUT_S=5 is ~27s inside a lock this application
+    # holds while it builds a reading.
+    w3 = Web3(
+        Web3.HTTPProvider(
+            url,
+            request_kwargs={"timeout": RPC_TIMEOUT_S},
+            exception_retry_configuration=None,
+        )
+    )
     # BSC is PoA: 280-byte extraData, which a block read rejects without this.
     w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
     return w3
@@ -291,6 +344,31 @@ def refresh_out_of_tolerance(refresh: dict) -> bool:
     return not refresh["complete"] or age is None or age > REFRESH_MAX_AGE_SECONDS
 
 
+def sweep_out_of_tolerance(in_progress: dict | None) -> bool:
+    """A sweep in flight is fine until it outlives the deadline systemd would kill it at."""
+    if in_progress is None:
+        return False
+    age = in_progress["age_seconds"]
+    return age is None or age > REFRESH_SWEEP_TIMEOUT_S
+
+
+def canary_out_of_tolerance(canary: dict) -> bool:
+    """A recorded failure is a fault, and so is a run that started and never reported: the
+    unit is killed at its own timeout, so a `running` row older than that is a canary whose
+    result nobody will ever get."""
+    if canary["verdict"] == CANARY_FAILED_VERDICT:
+        return True
+    if canary["verdict"] != CANARY_RUNNING_VERDICT:
+        return False
+    age = canary["age_seconds"]
+    return age is None or age > CANARY_RUN_TIMEOUT_S
+
+
+def probes_out_of_tolerance(probes: dict) -> bool:
+    considered = probes["recent_considered"]
+    return considered > 0 and probes["recent_ok"] < considered
+
+
 def status_report(
     store: Store,
     *,
@@ -298,10 +376,16 @@ def status_report(
     now: datetime,
     rpc_probe,
     canary_service_id: str = "range-doctor",
+    commit: str | None = None,
 ) -> dict:
+    """`commit` is the already-resolved deployment identity. `router` resolves it once, at
+    process start, and passes it here: `RELEASE-commit.txt` is reached through `sys.prefix`,
+    a release flips the symlink under that path, and a process that outlived the flip would
+    otherwise read the incoming release's commit and report it as the code it is running."""
     reachable = True
     try:
         refresh = _latest_refresh(store, now)
+        in_progress = _refresh_in_progress(store, now)
         canary = _latest_canary(store, canary_service_id, now)
         probes = _probes(store, now)
     # The store refuses a database whose journal mode is not DELETE with a RuntimeError, and
@@ -310,12 +394,20 @@ def status_report(
     except (sqlite3.Error, RuntimeError, OSError):
         reachable = False
         refresh = {"at": None, "age_seconds": None, "complete": False}
-        canary = {"verdict": None, "finished_at": None, "age_seconds": None}
+        in_progress = None
+        canary = {
+            "verdict": None,
+            "exercised": False,
+            "finished_at": None,
+            "age_seconds": None,
+        }
         probes = {
             "last_run_at": None,
             "ok_count": 0,
             "fail_count": 0,
             "window_hours": PROBE_WINDOW_HOURS,
+            "recent_ok": 0,
+            "recent_considered": 0,
         }
     rpc = rpc_probe()
 
@@ -323,9 +415,10 @@ def status_report(
         status = "down"
     elif (
         refresh_out_of_tolerance(refresh)
-        or canary["verdict"] == CANARY_FAILED_VERDICT
+        or sweep_out_of_tolerance(in_progress)
+        or canary_out_of_tolerance(canary)
         or not rpc["ok"]
-        or probes["fail_count"] > 0
+        or probes_out_of_tolerance(probes)
     ):
         status = "degraded"
     else:
@@ -333,13 +426,16 @@ def status_report(
 
     return {
         "status": status,
-        "deployed_commit": deployed_commit(release_commit_path),
+        "deployed_commit": (
+            commit if commit is not None else deployed_commit(release_commit_path)
+        ),
         "db": {
             "reachable": reachable,
             "journal_mode": _journal_mode(Path(store.path)),
             "path_redacted": _redacted(Path(store.path)),
         },
         "latest_refresh": refresh,
+        "refresh_in_progress": in_progress,
         "latest_canary": canary,
         "rpc": rpc,
         "probes": probes,
@@ -355,6 +451,21 @@ def _display(value) -> str:
     return "not recorded" if value in (None, "") else _esc(value)
 
 
+def _canary_state(canary: dict) -> str:
+    """What the canary row means, rather than what it stores. `not_yet_exercised` is a
+    recorded run that reached no limb, and printed raw it reads like a result."""
+    verdict = canary["verdict"]
+    if not canary["exercised"]:
+        return "not exercised" if verdict != CANARY_RUNNING_VERDICT else "unfinished"
+    return _display(verdict)
+
+
+def _canary_exercised_at(canary: dict) -> str:
+    if not canary["exercised"] or not canary["finished_at"]:
+        return "never"
+    return _esc(canary["finished_at"])
+
+
 def _aged(label: str, age: int | None) -> str:
     """A reading with no observation behind it has no age either, and appending one anyway
     is how "not recorded, not recorded old" reaches a page."""
@@ -366,6 +477,7 @@ def status_page(shell: str, report: dict) -> str:
     from, and the tolerance it is judged against, so a reader can check the verdict rather
     than take it."""
     refresh = report["latest_refresh"]
+    in_progress = report["refresh_in_progress"]
     canary = report["latest_canary"]
     rpc = report["rpc"]
     probes = report["probes"]
@@ -376,40 +488,56 @@ def status_page(shell: str, report: dict) -> str:
         (
             "Snapshot refresh",
             _aged(
-                "complete" if refresh["complete"] else "not complete",
+                "complete" if refresh["complete"] else "none served",
                 refresh["age_seconds"],
             ),
             _display(refresh["at"]),
-            f"complete and under {REFRESH_MAX_AGE_SECONDS:,}s "
+            f"a complete sweep under {REFRESH_MAX_AGE_SECONDS:,}s old "
             f"(two {REFRESH_INTERVAL_SECONDS:,}s refresh windows)",
             refresh_out_of_tolerance(refresh),
         ),
         (
+            "Sweep in flight",
+            (
+                "none running"
+                if in_progress is None
+                else _aged("running", in_progress["age_seconds"])
+            ),
+            _display(None if in_progress is None else in_progress["started_at"]),
+            f"none, or one under {REFRESH_SWEEP_TIMEOUT_S:,}s old — the deadline systemd "
+            "starts the refresh with. A sweep in flight is not a missing sweep",
+            sweep_out_of_tolerance(in_progress),
+        ),
+        (
             "Service canary",
-            _aged(_display(canary["verdict"]), canary["age_seconds"]),
+            _aged(_canary_state(canary), canary["age_seconds"]),
             _display(canary["finished_at"]),
-            f"any verdict other than {CANARY_FAILED_VERDICT}; a canary that has not run is "
+            f"not {CANARY_FAILED_VERDICT}, and not left unfinished for more than "
+            f"{CANARY_RUN_TIMEOUT_S:,}s. A canary that has not exercised the paid path is "
             "not counted against this deployment",
-            canary["verdict"] == CANARY_FAILED_VERDICT,
+            canary_out_of_tolerance(canary),
         ),
         (
             "BSC read",
             (
                 f"block {rpc['block_number']:,} in {rpc['latency_ms']:,}ms"
                 if rpc["ok"]
-                else f"no endpoint answered in {rpc['latency_ms']:,}ms"
+                else f"no answer in {rpc['latency_ms']:,}ms — {_esc(rpc['reason'])}"
             ),
             _display(rpc["endpoint_host"]),
             f"one eth_blockNumber against {_esc(urlsplit(RPC_ENDPOINT).hostname)}, "
-            f"one attempt, {RPC_TIMEOUT_S}s",
+            f"one connection, no retry, {RPC_TIMEOUT_S}s",
             not rpc["ok"],
         ),
         (
             "Synthetic probes",
-            f"{probes['ok_count']} of {runs} runs passed",
+            f"{probes['ok_count']} of {runs} runs passed in {probes['window_hours']}h; "
+            f"{probes['recent_ok']} of the last {probes['recent_considered']} passed",
             _display(probes["last_run_at"]),
-            f"0 failed runs in the last {probes['window_hours']} hours",
-            probes["fail_count"] > 0,
+            f"the last {PROBE_VERDICT_RUNS} runs all passed. The {probes['window_hours']}h "
+            "counts are reported but not judged: one transient failure is not a day-long "
+            "fault",
+            probes_out_of_tolerance(probes),
         ),
     )
     reading_rows = "".join(
@@ -433,7 +561,10 @@ def status_page(shell: str, report: dict) -> str:
         f'<p class="lede"><strong>{_esc(report["status"])}</strong> — read at '
         f'<span class="mono">{_esc(report["generated_at"])}</span>. '
         "Every reading below carries the observation it was taken from and the tolerance it "
-        "is judged against.</p></section>"
+        "is judged against.</p>"
+        f'<p class="section-note">{_esc(report["status"])} covers serving, the snapshot '
+        "refresh, the chain read and the synthetic probes. It does not cover the paid path: "
+        f"that was last exercised {_canary_exercised_at(canary)}.</p></section>"
         '<section aria-labelledby="identity-heading">'
         '<h2 id="identity-heading">What is running here</h2>'
         '<div class="table-wrap"><table class="stats-table">'
@@ -490,6 +621,11 @@ def router(
     """
     if release_commit_path is None:
         release_commit_path = default_release_commit_path()
+    # Resolved here and not per reading. `RELEASE-commit.txt` is reached through `sys.prefix`,
+    # a release flips the symlink under that path while this process is still serving, and a
+    # process that read it afterwards would report the incoming release's commit as the code
+    # it is running — the one number on this page that must describe this process.
+    commit = deployed_commit(release_commit_path)
     shell = (WEB_DIR / "status.html").read_text(encoding="utf-8")
     # Ordered by window start, which keeps expired-window eviction bounded to the expired
     # prefix — the same structure and the same reason as `create_app`'s hire allowances.
@@ -503,6 +639,7 @@ def router(
             now=_utc_now(),
             rpc_probe=rpc_probe or bounded_rpc_probe,
             canary_service_id=canary_service_id,
+            commit=commit,
         )
 
     reading = _ReportCache(_build, ttl_s=ttl_s, clock=clock)

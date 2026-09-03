@@ -203,3 +203,39 @@ def test_the_probe_window_bounds_the_rows_a_reader_is_given(tmp_path):
     assert len(store.latest_probe_runs(48)) == 2
     with pytest.raises(ValueError, match="between 1 and"):
         store.latest_probe_runs(0)
+
+
+def test_a_run_that_cannot_be_recorded_still_journals_its_readings(
+    tmp_path, monkeypatch, capsys
+):
+    """The run happened whether or not it could be written down. Printing after the write
+    took the findings down with the database, at the moment they were most worth having."""
+    database = tmp_path / "probe.sqlite3"
+    Store(database)
+    database.write_bytes(b"this is not a database")
+    monkeypatch.setenv("DOCKET_DB", str(database))
+    monkeypatch.setattr(
+        probe,
+        "run",
+        lambda base_url, **_: [
+            {
+                "name": name,
+                "ok": True,
+                "status_code": 200,
+                "latency_ms": 5,
+                "detail": "as served",
+            }
+            for name in STEP_NAMES
+        ],
+    )
+
+    code = probe.main([])
+    printed = capsys.readouterr().out
+
+    assert code == 1
+    assert "Docket probe: not recorded" in printed
+    for name in STEP_NAMES:
+        assert f"Docket probe: {name} ok" in printed
+    # The run passed; only the recording failed, and the exit status says so without
+    # claiming the deployment is broken.
+    assert "Docket probe: passed" not in printed

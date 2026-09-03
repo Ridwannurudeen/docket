@@ -84,7 +84,23 @@ trace_command "${GIT_COMMAND}" -C "${SCRIPT_DIR}/.." cat-file -e "${COMMIT}^{com
 trace_command "${GIT_COMMAND}" -C "${SCRIPT_DIR}/.." tag --list "${TAG_NAME}"
 existing_tag="$("${GIT_COMMAND}" -C "${SCRIPT_DIR}/.." tag --list "${TAG_NAME}")"
 [[ -z "${existing_tag}" ]] || fatal \
-    "${TAG_NAME} already exists; delete it deliberately before retagging"
+    "${TAG_NAME} already exists locally; delete it deliberately before retagging"
+
+# A local checkout that has never fetched tags knows nothing about what origin carries, and
+# a tag that already exists there is one someone has already published under this name.
+trace_command "${GIT_COMMAND}" -C "${SCRIPT_DIR}/.." ls-remote --tags origin \
+    "refs/tags/${TAG_NAME}"
+if ! remote_tag="$("${GIT_COMMAND}" -C "${SCRIPT_DIR}/.." ls-remote --tags origin \
+    "refs/tags/${TAG_NAME}")"; then
+    fatal "could not ask origin whether ${TAG_NAME} already exists"
+fi
+[[ -z "${remote_tag}" ]] || fatal \
+    "origin already carries ${TAG_NAME}; delete it deliberately before retagging"
+
+trace_command "${GH_COMMAND}" release view "${TAG_NAME}"
+if "${GH_COMMAND}" release view "${TAG_NAME}" >/dev/null 2>&1; then
+    fatal "a GitHub release named ${TAG_NAME} already exists"
+fi
 
 # --- CI concluded success for exactly this commit --------------------------------------
 trace_command "${GH_COMMAND}" run list --commit "${COMMIT}" --json \
@@ -182,10 +198,18 @@ Rebuild with \`python deploy/release_bundle.py build <dir>\` at this commit and 
 EOF
 )"
 
-run_mutation "${GIT_COMMAND}" -C "${SCRIPT_DIR}/.." tag -a "${TAG_NAME}" "${COMMIT}" -m \
-    "Docket ${TAG_NAME}: deployed commit ${COMMIT}, wheel ${host_wheel}"
+# The release is created first, and it creates the tag on origin at --target in the same
+# call. Tagging locally first and releasing second is the ordering that leaves a half-done
+# state: the tag exists, the release does not, and the pre-checks above then refuse the retry
+# that would finish the job. One call cannot half-succeed.
 run_mutation "${GH_COMMAND}" release create "${TAG_NAME}" --target "${COMMIT}" \
     --title "Docket ${TAG_NAME}" --notes "${NOTES}"
 
-printf 'Tagged %s at %s. Push the tag deliberately: git push origin %s\n' \
-    "${TAG_NAME}" "${COMMIT}" "${TAG_NAME}"
+# Local annotation, after the fact and deliberately not guarded: origin already carries the
+# tag and the release, so this is a convenience for the operator's own checkout. If it fails,
+# nothing published is wrong and `git fetch --tags` recovers it.
+run_mutation "${GIT_COMMAND}" -C "${SCRIPT_DIR}/.." tag -a "${TAG_NAME}" "${COMMIT}" -m \
+    "Docket ${TAG_NAME}: deployed commit ${COMMIT}, wheel ${host_wheel}"
+
+printf 'Released %s at %s on origin, and annotated it in this checkout.\n' \
+    "${TAG_NAME}" "${COMMIT}"

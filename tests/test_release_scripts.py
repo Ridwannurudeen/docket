@@ -2231,6 +2231,9 @@ if [[ "${1:-}" == run ]]; then
     printf '%s\n' "${FAKE_GH_RUNS}"
     exit 0
 fi
+if [[ "${1:-}" == release && "${2:-}" == view ]]; then
+    exit "${FAKE_GH_RELEASE_EXISTS:-1}"
+fi
 exit 0
 """,
     )
@@ -2262,6 +2265,9 @@ set -euo pipefail
 case "$*" in
     *"cat-file -e"*)
         exit "${FAKE_GIT_MISSING_COMMIT:-0}"
+        ;;
+    *"ls-remote"*)
+        printf '%s' "${FAKE_GIT_REMOTE_TAG:-}"
         ;;
     *"tag --list"*)
         printf '%s' "${FAKE_GIT_EXISTING_TAG:-}"
@@ -2300,9 +2306,11 @@ def test_tag_release_verifies_ci_and_the_host_before_it_tags_anything(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     ci = result.stdout.index("run list --commit")
     host = result.stdout.index("RELEASE-commit.txt")
-    tag = result.stdout.index("tag -a v1.0.0-hackathon")
     release = result.stdout.index("release create v1.0.0-hackathon")
-    assert ci < host < tag < release
+    tag = result.stdout.index("tag -a v1.0.0-hackathon")
+    # The release is created first and creates the tag on origin with it, so there is no
+    # ordering in which the tag exists and the release does not.
+    assert ci < host < release < tag
     assert f"CI verified for {TAG_COMMIT}" in result.stdout
     assert f"Host docket.example verified at commit {TAG_COMMIT}" in result.stdout
     # The digests in the notes are the host's, so a tag cannot claim an environment that
@@ -2330,7 +2338,9 @@ def test_tag_release_verifies_ci_and_the_host_before_it_tags_anything(tmp_path):
         ({"FAKE_HOST_COMMIT": OLD_COMMIT}, "is running"),
         ({"FAKE_HOST_WHEEL": "not-a-digest"}, "unreadable wheel digest"),
         ({"FAKE_GIT_MISSING_COMMIT": "1"}, "has no commit"),
-        ({"FAKE_GIT_EXISTING_TAG": "v1.0.0-hackathon"}, "already exists"),
+        ({"FAKE_GIT_EXISTING_TAG": "v1.0.0-hackathon"}, "already exists locally"),
+        ({"FAKE_GIT_REMOTE_TAG": "abc\trefs/tags/v1.0.0-hackathon"}, "origin already carries"),
+        ({"FAKE_GH_RELEASE_EXISTS": "0"}, "release named v1.0.0-hackathon already exists"),
     ],
 )
 def test_tag_release_refuses_every_unverified_claim(tmp_path, overrides, message):

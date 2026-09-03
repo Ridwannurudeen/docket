@@ -183,21 +183,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     steps = run(args.base_url.rstrip("/"))
     finished_at = datetime.now(UTC).isoformat()
     ok = all(step["ok"] for step in steps)
-    try:
-        Store(database).record_probe_run(
-            started_at=started_at, finished_at=finished_at, ok=ok, steps=steps
-        )
-    except Exception as exc:
-        # The run happened whether or not it could be written down, and an operator reading
-        # the exit status needs to know both facts rather than the more convenient one.
-        print(f"Docket probe: not recorded ({type(exc).__name__}: {exc})")
-        return 1
+    # Printed before the write, deliberately. The run happened whether or not it could be
+    # recorded, and a probe that failed to reach its database used to take its own findings
+    # with it — leaving the journal saying only that something went wrong, at the moment the
+    # readings were most worth having.
     for step in steps:
         print(
             f"Docket probe: {step['name']} "
             f"{'ok' if step['ok'] else 'FAILED'} "
             f"({step['status_code']}, {step['latency_ms']}ms) — {step['detail']}"
         )
+    try:
+        Store(database).record_probe_run(
+            started_at=started_at, finished_at=finished_at, ok=ok, steps=steps
+        )
+    except Exception as exc:
+        print(f"Docket probe: not recorded ({type(exc).__name__}: {exc})")
+        return 1
     print(f"Docket probe: {'passed' if ok else 'failed'}")
     return 0 if ok else 1
 
