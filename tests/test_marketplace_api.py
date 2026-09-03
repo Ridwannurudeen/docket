@@ -76,8 +76,14 @@ class _FakeRegistry:
     def search_agents(
         self, chain_id, *, query=None, owner_address=None, limit=100, offset=0
     ):
+        """A search page, faithfully: 8004scan publishes `services` only on the per-agent
+        card, so a row from here carries no endpoints at all."""
         type(self).queries.append(query)
-        return list(type(self).rows), len(type(self).rows)
+        rows = [
+            {key: value for key, value in row.items() if key != "services"}
+            for row in type(self).rows
+        ]
+        return rows, len(rows)
 
     def get_agent(self, chain_id, token_id):
         type(self).fetched.append(token_id)
@@ -118,6 +124,25 @@ def _http(endpoint, *, now):
     }
 
 
+def _app(db, *, rpc=_rpc, http=_http, search=_FakeRegistry, spend_probe=None):
+    app = FastAPI()
+    app.include_router(
+        marketplace_router(
+            MarketplaceContext(
+                db_path=db,
+                spend_probe=spend_probe or (lambda peer: None),
+                probe_attempts=20,
+                probe_window_seconds=3600,
+                seed_path=None,
+                search_client=search,
+                rpc=rpc,
+                http=http,
+            )
+        )
+    )
+    return app
+
+
 @pytest.fixture
 def client(tmp_path):
     _FakeRegistry.queries = []
@@ -126,22 +151,7 @@ def client(tmp_path):
     db = tmp_path / "d.sqlite3"
     store = Store(db)
     store.upsert_external_listing(listing_from_registry(HEYANON).to_json())
-    app = FastAPI()
-    app.include_router(
-        marketplace_router(
-            MarketplaceContext(
-                db_path=db,
-                spend_probe=lambda peer: None,
-                probe_attempts=20,
-                probe_window_seconds=3600,
-                seed_path=None,
-                search_client=_FakeRegistry,
-                rpc=_rpc,
-                http=_http,
-            )
-        )
-    )
-    return TestClient(app)
+    return TestClient(_app(db))
 
 
 def test_create_app_registers_all_six_marketplace_paths(tmp_path):
@@ -405,6 +415,107 @@ def test_a_listing_with_nothing_observed_serves_the_boolean_with_no_row_behind_i
     assert listing["payment_tested_evidence"] is None
 
 
+def test_an_outage_never_serves_a_held_level_over_evidence_that_all_failed(tmp_path):
+    """The blocker this test exists for. `verify_listing` holds the level through an
+    outage, and writing that run onto the listing published `docket_tested`,
+    `hireable: true`, over six `ok: false` rows, stamped with a fresh `verified_at` — the
+    strongest claim in the vocabulary over the weakest evidence in it, dated now."""
+    db = tmp_path / "outage.sqlite3"
+    Store(db).upsert_external_listing(listing_from_registry(HEYANON).to_json())
+    working = TestClient(_app(db, rpc=_rpc, http=_http))
+    good = working.post(f"/api/agents/{AGENT}/verify", json={}).json()
+    assert good["level"] == "docket_tested"
+    earned_at = good["listing"]["verification"]["verified_at"]
+    earned_evidence = good["listing"]["verification"]["evidence"]
+
+    def down(agent_id):
+        return {**_rpc(agent_id), "outcome": "rpc_unavailable", "owner": None}
+
+    dark = TestClient(_app(db, rpc=down, http=_http))
+    response = dark.post(f"/api/agents/{AGENT}/verify", json={}).json()
+
+    assert response["chain_read_failed"] is True
+    assert all(row["ok"] is False for row in response["evidence"])
+
+    served = dark.get(f"/api/agents/{AGENT}").json()["listing"]
+    assert served["verification"]["level"] == "docket_tested"
+    assert served["hireable"] is True
+    assert served["verification"]["evidence"] == earned_evidence
+    assert served["verification"]["verified_at"] == earned_at
+    assert served["verification"]["held_from_outage"] is True
+    assert served["verification"]["held_at"] > earned_at
+    # The attempt is not lost — it is where an attempt belongs.
+    runs = dark.get(f"/api/agents/{AGENT}/verification").json()["runs"]
+    assert any(run["level"] == "registered" and not run["ok"] for run in runs), (
+        "the outage attempt must be recorded as a run"
+    )
+
+
+def test_a_listing_found_on_a_search_page_has_its_card_read_before_it_is_verified(
+    client,
+):
+    """A search page carries no endpoints. Verifying such a row would fail
+    endpoint_detected for a reason about Docket's cache rather than about the agent."""
+    hydrated = client.get("/api/agents?q=grid").json()["items"][0]
+    assert hydrated["source"] == "registry_index_list"
+    assert hydrated["endpoints"] == []
+
+    verified = client.post(f"/api/agents/{hydrated['agent_id']}/verify", json={}).json()
+
+    assert _FakeRegistry.fetched == ["999"], "exactly one card read"
+    assert verified["listing"]["source"] == "registry_index"
+    assert [row["kind"] for row in verified["listing"]["endpoints"]] == ["a2a"]
+    assert verified["level"] == "live"
+
+
+def test_a_verified_listing_outranks_one_docket_merely_found_in_an_index(client):
+    """Level names do not sort into their own order — 'live' sorts before 'registered' —
+    so ordering on the column put weaker listings above stronger ones."""
+    client.post(f"/api/agents/{AGENT}/verify", json={})
+    client.get("/api/agents?q=grid")
+
+    items = client.get("/api/agents?limit=100").json()["items"]
+    levels = [item["verification"]["level"] for item in items]
+
+    assert levels[0] == "docket_tested"
+    assert levels[-1] is None, "an unobserved listing sorts last, never first"
+
+
+def test_the_verify_route_refuses_a_loopback_endpoint_without_connecting(
+    tmp_path, monkeypatch
+):
+    """The guard, exercised through the real sender rather than a fake. A registry anyone
+    can write to can name 127.0.0.1, and the refusal has to happen before a socket."""
+    from docket.marketplace import verification as verification_module
+
+    connections: list = []
+
+    def refuse(*args, **kwargs):
+        connections.append(args)
+        raise AssertionError("a connection was opened to a blocked address")
+
+    monkeypatch.setattr("httpx.Client.stream", refuse)
+
+    db = tmp_path / "loopback.sqlite3"
+    Store(db).upsert_external_listing(
+        listing_from_registry(
+            _card("777", "Local", "Grid agent.", "http://127.0.0.1:1/a2a", kind="a2a")
+        ).to_json()
+    )
+    client = TestClient(
+        _app(db, rpc=_rpc, http=verification_module.send, search=_FakeRegistry)
+    )
+
+    body = client.post(f"/api/agents/56:{REGISTRY}:777/verify", json={}).json()
+    live = next(row for row in body["evidence"] if row["level"] == "live")
+
+    assert body["level"] == "endpoint_detected"
+    assert live["ok"] is False
+    assert live["detail"]["attempts"][0]["outcome"] == "blocked"
+    assert "loopback" in live["detail"]["attempts"][0]["detail"]
+    assert connections == [], "the guard must refuse before any connection is opened"
+
+
 def test_verify_refuses_a_body_that_is_not_an_empty_object(client):
     refused = client.post(f"/api/agents/{AGENT}/verify", json={"force": True})
 
@@ -422,22 +533,9 @@ def test_verify_refuses_an_agent_docket_holds_no_listing_for(client):
 def test_verify_spends_the_shared_probe_allowance(tmp_path):
     db = tmp_path / "d.sqlite3"
     Store(db).upsert_external_listing(listing_from_registry(HEYANON).to_json())
-    app = FastAPI()
-    app.include_router(
-        marketplace_router(
-            MarketplaceContext(
-                db_path=db,
-                spend_probe=lambda peer: 42,
-                probe_attempts=20,
-                probe_window_seconds=3600,
-                seed_path=None,
-                search_client=_FakeRegistry,
-                rpc=_rpc,
-                http=_http,
-            )
-        )
+    refused = TestClient(_app(db, spend_probe=lambda peer: 42)).post(
+        f"/api/agents/{AGENT}/verify", json={}
     )
-    refused = TestClient(app).post(f"/api/agents/{AGENT}/verify", json={})
 
     assert refused.status_code == 429
     assert refused.json()["error_code"] == "verify_rate_limited"

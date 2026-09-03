@@ -75,7 +75,6 @@ from ..hire.x402 import (
     verify_payment,
 )
 from ..liveness import probe_one
-from .marketplace_api import MarketplaceContext, marketplace_router
 from ..marketplace.models import CATEGORIES, Category, ServiceRecord
 from ..marketplace.registry import (
     CATEGORY_DECLARATION,
@@ -88,6 +87,7 @@ from ..refresh import LAST_REFRESH_FILENAME
 from ..signals import signals_for
 from ..store import Store
 from .advantage_pages import v1_page, v3_family_page, v3_landing, v3_topic_page
+from .marketplace_api import MarketplaceContext, marketplace_router
 from .models import (
     AgentDetail,
     AgentSummary,

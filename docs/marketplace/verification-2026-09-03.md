@@ -191,14 +191,21 @@ level is computed and recorded as unreached rather than skipped, so the day a fa
 registered for an external agent the ladder already runs the check.
 
 **Only one agent reached `docket_tested`, and the reason is structural rather than a
-shortfall of effort.** 25 of the 26 declare A2A and none declares a sample input. Docket has
-exactly one default sample and it is the MCP `tools/list` capability query. There is no
-equivalent default for A2A that is both free of side effects and a result rather than a
-description: the only zero-cost A2A read is the agent card, and a card describes an agent
-rather than being something the agent produced. Handing out `docket_tested` for serving a
-card would be the exact inflation the ladder exists to prevent. Two routes raise this number
-honestly, and neither is available to a read-only census: an A2A operator declares a
-`sample_input` through `POST /api/providers/listings`, or more MCP agents register.
+shortfall of effort.** 25 of the 26 declare A2A. `docket_tested` — and therefore `hireable`
+— can only be reached by a sample Docket itself defined, and Docket has exactly one: the MCP
+`tools/list` capability query. There is no equivalent default for A2A that is both free of
+side effects and a result rather than a description: the only zero-cost A2A read is the
+agent card, and a card describes an agent rather than being something the agent produced.
+Handing out `docket_tested` for serving a card would be the exact inflation the ladder
+exists to prevent.
+
+A provider-supplied sample cannot raise the level either, however well it validates. A
+seller who supplies both the input and the schema it is checked against is a seller
+certifying themselves, so such a sample is sent, checked and published under the evidence
+row `provider_sample_ok`, which sits outside the level vocabulary and carries
+`raises_level: false`. The two honest routes to a higher number are therefore a
+Docket-defined per-category request for A2A, which does not exist yet, or more MCP agents
+registering. Neither was available to this read-only census.
 
 **Six endpoints are registered as unexpanded templates.** Agents 302610, 293054, 292939,
 292058, 315721 and 171927 all register an A2A endpoint containing the literal characters

@@ -533,7 +533,7 @@ prefix, not on the status code.
 | `endpoint_detected` | The registration names an `a2a` or `mcp` endpoint. A `web` homepage does not count |
 | `live` | That endpoint answered a guarded request at any status. A 404 counts as live; read the status code before quoting it |
 | `payment_tested` | The endpoint answered 402 with a parseable x402 challenge. Read-only: Docket never presents a payment |
-| `docket_tested` | One sample invocation returned a schema-valid structured result — **and nothing else.** It does not mean a payment was tested. Evidence carries the request, the result SHA-256, and the schema checked |
+| `docket_tested` | One **Docket-defined** sample invocation returned a schema-valid structured result — **and nothing else.** It does not mean a payment was tested. Evidence carries the request, the result SHA-256, and the schema checked |
 | `docket_verified` | `docket_tested` plus a registered paired-benchmark family. **Nothing reaches this level today** |
 
 `verification.level` is `null` until Docket has observed something — a listing Docket
@@ -556,10 +556,21 @@ A chain outage never demotes a listing. `ownerOf` failing on every RPC is record
 `rpc_unavailable`, the listing keeps the level it held, and the response says
 `chain_read_failed: true`.
 
-Docket's one default sample is the MCP `tools/list` capability query, which is read-only
-and calls no listed tool. A provider who declares a `sample_input` is invoked with theirs
-instead. An A2A endpoint with no declared sample stops at `live`: fetching an agent card
-describes an agent, it is not a result the agent produced.
+**Only a Docket-defined sample can reach `docket_tested`.** Docket has one today: the MCP
+`tools/list` capability query, read-only, calling no listed tool. A provider may declare a
+`sample_input` and an `output_schema`, and Docket sends that sample and publishes the
+result — as an evidence row named `provider_sample_ok`, outside the level vocabulary, with
+`raises_level: false` in its detail. A seller supplying both the input and the schema it is
+checked against is a seller certifying themselves, so it grades nothing. Report it as "the
+seller's own example worked", never as a level.
+
+An A2A endpoint therefore stops at `live` until a Docket-defined request exists for its
+category: fetching an agent card describes an agent, it is not a result the agent produced.
+
+**A chain outage is visible on the listing.** When `ownerOf` could not be read and the
+previous level was held, the served block keeps the evidence and `verified_at` that earned
+it and adds `held_from_outage: true` with `held_at`. Say that the level is held and when
+Docket last failed to look; the failed attempt is in `runs`, not in the listing.
 
 ### Where a category on a marketplace listing comes from
 
@@ -582,7 +593,9 @@ report any category as something Docket measured.
 
 The nonce is single-use and expires in 900 seconds. Endpoints are never read from the
 submission — they come from the ERC-8004 registration, so changing the listed endpoint
-means changing the registration on chain. `chain_unavailable` is not a refusal: it means
+means changing the registration on chain. A declared `sample_input`/`output_schema` is run
+and published under `provider_sample_ok` and cannot make the listing hireable — only step 4
+can, and only through Docket's own sample. `chain_unavailable` is not a refusal: it means
 Docket could not read the chain and the claim is neither accepted nor rejected.
 
 ## What Docket will not give you

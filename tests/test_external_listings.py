@@ -407,6 +407,69 @@ def test_the_census_document_states_the_same_thing_about_its_one_tested_agent():
     assert "payment_tested: false" in doc
 
 
+CENSUS = (
+    Path(__file__).resolve().parents[1]
+    / "docs"
+    / "marketplace"
+    / "census-2026-09-03.json"
+)
+DOC = (
+    Path(__file__).resolve().parents[1]
+    / "docs"
+    / "marketplace"
+    / "verification-2026-09-03.md"
+)
+
+
+def test_the_census_document_quotes_the_figures_its_own_json_recorded():
+    """Every figure in the document is a count the runner wrote. Hand-transcribed numbers
+    rot silently and this table is the one a reader checks, so the two are held together
+    rather than reviewed apart."""
+    counts = json.loads(CENSUS.read_text(encoding="utf-8"))["counts"]
+    doc = DOC.read_text(encoding="utf-8")
+
+    for figure in (
+        f"{counts['registry_total_when_the_pass_ran']:,}",
+        str(counts["matched_by_search"]),
+        str(counts["declaring_a2a_or_mcp"]),
+        str(counts["selected_by_classification"]),
+        str(counts["verified"]),
+        str(counts["live_answering_2xx"]),
+        str(counts["declaring_x402_support"]),
+    ):
+        assert figure in doc, figure
+    assert counts["by_level"]["docket_tested"] == 1
+    assert counts["by_level"].get("payment_tested", 0) == 0
+    for category, count in counts["by_category"].items():
+        assert f"{category} {count}" in doc, category
+
+
+def test_every_agent_the_census_verified_is_named_in_the_document():
+    census = json.loads(CENSUS.read_text(encoding="utf-8"))
+    doc = DOC.read_text(encoding="utf-8")
+
+    for row in census["results"]:
+        assert f"| {row['token_id']} |" in doc, row["token_id"]
+    assert len(census["results"]) == census["counts"]["verified"]
+
+
+def test_the_seed_holds_exactly_what_the_census_verified():
+    census = json.loads(CENSUS.read_text(encoding="utf-8"))
+    seeded = {listing.agent_id for listing in load_seed(SEED)}
+
+    assert seeded == {
+        row["agent_id"] for row in census["results"] if row.get("agent_id")
+    }
+
+
+def test_the_stores_level_ordering_matches_the_level_vocabulary():
+    """The rank lives in store.py because that module imports nothing from the domain, so
+    the two definitions are bound here instead of by an import."""
+    from docket.store import EXTERNAL_LEVELS
+
+    assert EXTERNAL_LEVELS == LEVELS
+
+
 def test_the_seed_loads_into_an_empty_store_and_is_queryable_by_category(tmp_path):
     store = Store(tmp_path / "d.sqlite3")
     for listing in load_seed(SEED):

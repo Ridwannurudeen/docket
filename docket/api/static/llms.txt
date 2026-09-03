@@ -916,16 +916,20 @@ saying whether the check passed, when, and what was read.
                      challenge. READ ONLY. Docket reads the challenge and never presents a
                      payment, so this level says a price exists and says nothing about
                      whether paying it works.
-  docket_tested      one sample invocation came back as a schema-valid structured result,
-                     and NOTHING ELSE. It does not mean a payment was tested, it does not
-                     mean one was not, and it is not a statement about price, safety or
-                     fitness. Evidence: the request sent, the SHA-256 of the result, and
-                     the schema it was checked against. Docket has exactly one default
-                     sample and it is the MCP tools/list capability query, which is
-                     read-only and calls no listed tool. A listing whose provider declares
-                     its own sample_input is invoked with that instead. An A2A endpoint
-                     with no declared sample cannot reach this level: fetching an agent
-                     card is a description of an agent, not a result it produced.
+  docket_tested      one DOCKET-DEFINED sample invocation came back as a schema-valid
+                     structured result, and NOTHING ELSE. It does not mean a payment was
+                     tested, it does not mean one was not, and it is not a statement about
+                     price, safety or fitness. Evidence: the request sent, the SHA-256 of
+                     the result, and the schema it was checked against.
+
+                     Only a request Docket itself defined can reach this level. Docket has
+                     exactly one today and it is the MCP tools/list capability query, which
+                     is read-only and calls no listed tool. A sample the listing's own
+                     owner supplied CANNOT raise it, however well it validates: a seller
+                     who supplies both the input and the schema it is checked against is a
+                     seller certifying themselves. An A2A endpoint therefore stops at live
+                     until a Docket-defined request exists for its category — fetching an
+                     agent card is a description of an agent, not a result it produced.
   docket_verified    docket_tested plus a registered paired-benchmark family for this
                      listing. Nothing reaches this level today: Docket's v3 families are
                      registered against Docket's own service ids, so no external listing
@@ -951,8 +955,20 @@ schema-valid result, and read no x402 challenge from that endpoint. Quote the bo
 never the level, when the question is about payment.
 
 hireable is a third separate boolean and it is false until docket_tested. Being in the
-registry, being claimed by its owner, and quoting a price are none of them evidence that
-the agent does anything.
+registry, being claimed by its owner, quoting a price, and shipping a sample that passes
+the owner's own schema are none of them evidence that the agent does anything.
+
+A provider MAY declare a sample_input and an output_schema, and Docket does send that
+sample and does publish the result — as an evidence row named provider_sample_ok, which
+is outside the level vocabulary and raises nothing. Its detail carries raises_level: false.
+Read it as "the seller's own example worked", never as a level.
+
+A chain outage that leaves a listing standing is visible on the listing. When ownerOf
+could not be read and the previous level was held, the served block keeps the evidence and
+verified_at that earned the level and adds held_from_outage: true with held_at, the moment
+Docket last tried and could not look. The failed attempt is in the runs, not in the
+listing: the alternative was publishing the strongest level in the vocabulary over six
+failed checks, dated now.
 
 ### Endpoints
 
@@ -980,9 +996,11 @@ GET /api/agents/{agent_id}
     curl -s "$DOCKET/api/agents/56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:43129"
 
 GET /api/agents/{agent_id}/verification
-    The listing's current verification block, its hireable flag, and the newest recorded
-    runs — every level attempt, passed or failed, with what it read. Nothing here is
-    fetched from the network.
+    The listing's current verification block, its hireable flag, and the newest runs THIS
+    DEPLOYMENT recorded — every level attempt it made, passed or failed, with what it read.
+    A listing seeded from the committed census arrives with that census's evidence in
+    verification.evidence and no runs here at all until somebody verifies it against this
+    instance; runs_note says so on every response. Nothing here is fetched from the network.
 
     curl -s "$DOCKET/api/agents/56:0x8004.../43129/verification"
 
@@ -1022,11 +1040,16 @@ POST /api/providers/listings
       -d '{"agent_id":"...","nonce":"...","signature":"0x...","capabilities":"..."}' \
       "$DOCKET/api/providers/listings"
 
-Refusal codes on these routes: invalid_category, invalid_level, invalid_json,
-invalid_agent_id, invalid_claim, invalid_signature, invalid_capabilities,
-invalid_payment_method, invalid_sample_input, invalid_output_schema, listing_not_found,
-lookup_rate_limited, verify_rate_limited, registry_unavailable, stale_nonce,
+Refusal codes on these routes: invalid_category, invalid_level, invalid_query,
+invalid_limit, invalid_offset, invalid_json, invalid_agent_id, invalid_claim,
+invalid_signature, invalid_capabilities, invalid_payment_method, invalid_price,
+invalid_sample_input, invalid_output_schema, listing_not_found, lookup_rate_limited,
+claim_rate_limited, verify_rate_limited, registry_unavailable, stale_nonce,
 bad_signature, not_owner, not_registered, chain_unavailable.
+
+An agent id is a token id or its full chain:registry:token form on chain 56, at most 80
+characters, and anything else is invalid_agent_id (422) on every route that takes one.
+Both spellings resolve to the same listing.
 
 chain_unavailable is not a refusal of the claim. It means Docket could not read the chain,
 so the claim is neither accepted nor rejected; retry it.
