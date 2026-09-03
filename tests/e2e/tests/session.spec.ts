@@ -26,9 +26,24 @@ const FUND_ME = activation({
   next_action: {
     kind: "fund_session",
     detail: {
-      address: SESSION,
-      required_atomic: { [USDT]: "10000000000000000000" },
+      session_address: SESSION,
       gas_allowance_wei: "5000000000000000",
+      requirements: [
+        {
+          kind: "token_transfer",
+          token: USDT,
+          amount_atomic: "10000000000000000000",
+          satisfied: false,
+          tx_hash: null,
+        },
+        {
+          kind: "gas",
+          token: null,
+          amount_atomic: "5000000000000000",
+          satisfied: true,
+          tx_hash: "0x" + "7".repeat(64),
+        },
+      ],
     },
   },
 });
@@ -65,6 +80,8 @@ test("a continuous session asks to be funded and binds the transaction the reade
 
   await page.goto("/activate?service=range-doctor");
   await page.getByRole("radio", { name: /Continuously/ }).check();
+  /* The allowlists are fetched before anything can be agreed to. */
+  await expect(page.getByText("What this session may touch")).toBeVisible();
   await page.getByRole("button", { name: /Activate and pay/ }).click();
 
   /* No payment is signed for a persistent session: it is funded, not bought. */
@@ -73,8 +90,17 @@ test("a continuous session asks to be funded and binds the transaction the reade
   ).toBeVisible();
   const fund = page.locator('[data-region="next-action"]');
   await expect(fund.getByText(SESSION)).toBeVisible();
-  await expect(fund.getByText("10000000000000000000")).toBeVisible();
-  await expect(fund.getByText("5000000000000000", { exact: true })).toBeVisible();
+  /* Each requirement says whether it has been met, so a reader who has already sent one of
+     two transfers can see which one is still owed. */
+  await expect(fund.locator('[data-requirement="token_transfer"]')).toContainText(
+    "10000000000000000000",
+  );
+  await expect(
+    fund.locator('[data-requirement="token_transfer"][data-satisfied="no"]'),
+  ).toContainText("still owed");
+  await expect(
+    fund.locator('[data-requirement="gas"][data-satisfied="yes"]'),
+  ).toContainText("received");
   await expect(
     page.locator('[data-region="progress"] li', {
       hasText: "Send the session its funding to start it.",

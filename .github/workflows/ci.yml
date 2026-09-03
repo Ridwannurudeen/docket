@@ -59,6 +59,17 @@ jobs:
         working-directory: tests/e2e
         env:
           DOCKET_PYTHON: ${{ github.workspace }}/.venv/bin/python
+      # A browser failure is a screenshot, a trace and a DOM snapshot, none of which
+      # survive the runner. Without them a red e2e job says only which assertion failed,
+      # which is the least useful half of what the suite already recorded.
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        if: failure()
+        with:
+          name: playwright-failure
+          path: |
+            tests/e2e/playwright-report/
+            tests/e2e/test-results/
+          retention-days: 7
 
   package:
     runs-on: ubuntu-latest

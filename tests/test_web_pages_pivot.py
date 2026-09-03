@@ -333,11 +333,53 @@ def test_every_mutating_control_signs_the_message_the_server_issues():
 
     api = _read("api.js")
     assert "return `Docket activation ${activationId} ${action} ${nonce}`;" in api
-    assert 'if (typeof activation.auth_message === "string"' in api
-    assert "return activation.auth_message;" in api
+    # The message is composed here and checked before it reaches a wallet. A field on the
+    # response is not trusted for it: a response is attacker-reachable the moment anything
+    # between the browser and Docket is, and `personal_sign` over a server-supplied string
+    # is a signature over whatever that string turned out to say.
+    assert "auth_message" not in api
+    assert "if (!message.startsWith(prefix))" in api
+    assert '"unsafe_message"' in api
     # A create has no counterpart here on purpose: `/api/activations/nonce` issues that
     # message and the browser signs it verbatim, which is stricter than rebuilding it.
     assert "activation create" not in api
+
+
+def test_the_replay_panel_offers_no_way_to_buy_the_same_work_twice():
+    """A replay refusal proves the authorization reached Docket and was spent, so the work
+    is bought. A fresh-payment button there is one click from a second purchase, offered to
+    a reader who has just been told something went wrong."""
+    source = _read("activation.js")
+    replay = source[source.index("authorization_replay: {") :]
+    replay = replay[: replay.index("},")]
+    assert "retry-payment" not in replay
+    assert "second payment for it." in replay
+    # The one safe recovery is resending the same bytes, and it is bounded by the
+    # authorization's own window.
+    assert "resend-payment" in source
+    assert "pending.validBefore" in source
+
+
+def test_the_session_policy_allowlists_are_fetched_and_never_invented():
+    """The browser cannot know a category's allowlists, and an empty one is not a safe
+    default in either direction: it either forbids the work or reads as permission."""
+    source = _read("activation.js")
+    assert "api.policyDefaults(state.record.service_id)" in source
+    assert "What this session may touch" in source
+    assert "policy_defaults_missing" in source
+    assert "contract_allowlist: defaults.contract_allowlist || []" in source
+    assert "policyDefaults" in _read("api.js")
+
+
+def test_the_terms_signed_are_the_terms_the_page_printed():
+    source = _read("activation.js")
+    assert "assertTermsMatchTheQuote" in source
+    assert '"quote_changed"' in source
+    # And an approval is read back rather than believed.
+    payment = _read("payment.js")
+    assert '"allowance_not_applied"' in payment
+    assert "challengeIsStale" in payment
+    assert "clock_offset_seconds" in payment
 
 
 def test_the_payment_is_bound_by_its_id_rather_than_by_a_spent_authorization():

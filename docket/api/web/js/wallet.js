@@ -66,9 +66,22 @@ const PROVIDER_CODES = {
   ],
 };
 
+/* Wallets nest the code they mean. MetaMask wraps a provider rejection in a -32603
+   "internal error" whose real cause is at `data.originalError.code`, and some wrappers nest
+   that again; reading only the top level turns "this chain is not configured" into an
+   unexplained internal error, and `ensureBsc` never offers to add the chain. */
+function providerCode(cause, depth = 0) {
+  if (!cause || depth > 4) return null;
+  const code = cause.code;
+  if (code !== undefined && code !== null && code !== -32603) return code;
+  const nested =
+    (cause.data && (cause.data.originalError || cause.data)) || cause.originalError;
+  return providerCode(nested, depth + 1) ?? (code ?? null);
+}
+
 function asWalletError(cause, fallbackCode, fallbackMessage) {
   if (cause instanceof WalletError) return cause;
-  const raw = cause && cause.code !== undefined ? cause.code : null;
+  const raw = providerCode(cause);
   const known =
     raw !== null && Object.prototype.hasOwnProperty.call(PROVIDER_CODES, raw)
       ? PROVIDER_CODES[raw]

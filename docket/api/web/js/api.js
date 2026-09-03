@@ -118,18 +118,32 @@ export function actionMessage(activationId, action, nonce) {
   return `Docket activation ${activationId} ${action} ${nonce}`;
 }
 
-/** What to sign for one action on one activation.
+/** What to sign for one action on one activation, composed here and checked before it is
+    put in front of a wallet.
 
-    The server's own sentence wins whenever it serves one: an activation carrying an
-    `auth_message` is stating exactly what its current nonce must be signed against, and
-    signing that verbatim cannot drift from what the server verifies — including when the
-    server starts binding the body into the message. The composed form above is the
-    fallback for a server that serves only `auth_nonce`. */
+    Deliberately not read from a field on the activation. A response is attacker-reachable
+    the moment anything between the browser and Docket is: a server-supplied string handed
+    straight to `personal_sign` is a signature over whatever that string turned out to say,
+    and the reader would be approving text nobody in this codebase wrote. So the browser
+    builds the sentence from the activation id, the action and the nonce, and refuses
+    anything that does not start with the prefix those three imply. A server that begins
+    binding the request body into the message appends to that prefix; this check passes it
+    and still refuses a substitution. */
 export function authMessage(activation, action) {
-  if (typeof activation.auth_message === "string" && activation.auth_message) {
-    return activation.auth_message;
+  const prefix = `Docket activation ${activation.activation_id} ${action} `;
+  const message = actionMessage(
+    activation.activation_id,
+    action,
+    activation.auth_nonce,
+  );
+  if (!message.startsWith(prefix)) {
+    throw new ApiError(
+      "unsafe_message",
+      `Docket will not sign ${JSON.stringify(message)}: it is not the sentence this ` +
+        `activation's ${action} is supposed to authorise.`,
+    );
   }
-  return actionMessage(activation.activation_id, action, activation.auth_nonce);
+  return message;
 }
 
 /** A single-use nonce and the exact message to sign for a create.
@@ -173,6 +187,19 @@ export function getActivation(activationId) {
 
 export function listActivations(owner) {
   return send(`/api/activations${query({ owner })}`);
+}
+
+/** The SessionPolicy skeleton for one service: the contract, function and token
+    allowlists its category declares, and the caps Docket defaults to.
+
+    The browser cannot know a category's allowlists — they belong to the executor — and a
+    page that sent an empty list would be asking for a session permitted to call nothing.
+    So it asks, shows the reader what the session may touch, and sends the lists back
+    unchanged with only the caps the reader actually chose. */
+export function policyDefaults(serviceId) {
+  return send(
+    `/api/activations/policy-defaults${query({ service_id: serviceId })}`,
+  );
 }
 
 /** What the browser has to sign or send next, already simulated by the server. */

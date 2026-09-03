@@ -144,6 +144,15 @@ function evidenceList(verification) {
     .join("")}</ul>`;
 }
 
+/* The endpoint another agent could actually call. A `web` link is a homepage: naming it as
+   the way to hire something would send a reader to a marketing page. */
+function invocableEndpoint(listing) {
+  const row = (listing.endpoints || []).find((item) =>
+    ["a2a", "mcp"].includes(String(item.kind || "").toLowerCase()),
+  );
+  return row ? row.url : null;
+}
+
 function capabilitySource(listing) {
   return (
     CAPABILITY_SOURCES[listing.capability_source] ||
@@ -173,7 +182,10 @@ function listingRow(listing) {
         <a class="btn" href="${escapeHTML(href)}">Read what Docket observed</a>
         ${
           isHireable(listing)
-            ? ""
+            ? `<span class="dim">Hireable through its own endpoint, not through Docket:
+                 <span class="mono wrap-anywhere">${escapeHTML(invocableEndpoint(listing) || "no invocable endpoint declared")}</span>.
+                 Docket has run it and says so; it does not sell it, take payment for it, or
+                 stand behind it.</span>`
             : '<span class="dim">Docket does not offer this, so it is not hireable from this site.</span>'
         }
       </p>

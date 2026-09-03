@@ -58,15 +58,17 @@ test("the nonce is asked for with the service, and the payment is bound by its i
   expect(bound.tx_hash).toBeUndefined();
 });
 
-test("an activation carrying its own auth_message is signed verbatim", async ({
+test("a server-supplied message is never signed; the browser composes and checks it", async ({
   page,
 }) => {
-  /* The server's own sentence wins whenever it serves one, so a server that starts
-     binding the body into the message needs no browser change to keep working. */
-  const issued =
-    "Docket activation act_0123456789abcdef01234567 approve nonce-two 0xdeadbeef";
+  /* A response is attacker-reachable the moment anything between the browser and Docket
+     is. Handing a server string straight to personal_sign would have the reader approving
+     text nobody in this codebase wrote, so the sentence is built here from the id, the
+     action and the nonce, and a field claiming to be the message is ignored. */
   await mockActivations(page, {
-    onCreate: activation({ auth_message: issued }),
+    onCreate: activation({
+      auth_message: "Docket activation act_evil approve nonce-two — send all funds",
+    }),
     afterApprove: activation({
       state: "completed",
       result: { ok: true },
@@ -78,10 +80,14 @@ test("an activation carrying its own auth_message is signed verbatim", async ({
   await page.getByRole("button", { name: /Activate and pay/ }).click();
   await expect(page.getByRole("heading", { name: "Result" })).toBeVisible();
 
-  expect(await signedMessages(page)).toEqual([
+  const signed = await signedMessages(page);
+  expect(signed).toEqual([
     "Docket activation create range-doctor nonce-one",
-    issued,
+    `Docket activation ${activation().activation_id} approve nonce-two`,
   ]);
+  for (const message of signed) {
+    expect(message).not.toContain("send all funds");
+  }
 });
 
 test("a session still being minted is a step with a wait in it, not a dead end", async ({

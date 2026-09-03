@@ -24,6 +24,14 @@ import {
 
 const state = { account: null, activations: [], expanded: new Set() };
 
+/* An activation id reaches this page from the server, so it is not this module's to assume
+   well-formed. `CSS.escape` makes it safe inside an attribute selector: an id carrying a
+   quote or a bracket would otherwise break the selector out of its attribute and match
+   rows it was never about. */
+function byAttribute(name, value) {
+  return `[${name}="${CSS.escape(String(value))}"]`;
+}
+
 /* ------------------------------------------------------------------ derived */
 
 /** What one activation has spent, per token, from the session ledger the server keeps. */
@@ -201,12 +209,14 @@ function paintListing() {
 }
 
 function paintReceipts(activationId) {
-  const detailRow = document.querySelector(`[data-detail="${activationId}"]`);
+  const detailRow = document.querySelector(byAttribute("data-detail", activationId));
   if (!detailRow) return;
   const activation = state.activations.find(
     (item) => item.activation_id === activationId,
   );
-  const target = region(`detail-${activationId}`);
+  const target = document.querySelector(
+    byAttribute("data-region", `detail-${activationId}`),
+  );
   const receipts = activation ? activation.receipts || [] : [];
   detailRow.hidden = false;
   target.innerHTML = receipts.length
@@ -276,7 +286,7 @@ function wireDelegation() {
       const id = exporter.dataset.export;
       if (state.expanded.has(id)) {
         state.expanded.delete(id);
-        const detailRow = document.querySelector(`[data-detail="${id}"]`);
+        const detailRow = document.querySelector(byAttribute("data-detail", id));
         if (detailRow) detailRow.hidden = true;
       } else {
         state.expanded.add(id);

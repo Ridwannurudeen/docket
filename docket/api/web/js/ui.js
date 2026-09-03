@@ -197,10 +197,14 @@ export function verificationBadge(verification) {
 
     `actions` are `{label, action}` pairs rendered as buttons the caller wires up, or
     `{label, href}` pairs rendered as links. A caller that passes none gets the panel with
-    no controls, which is the right shape for a state the reader cannot act on. */
+    no controls, which is the right shape for a state the reader cannot act on.
+
+    `level` is the heading level. It defaults to 3 because this panel usually replaces one
+    region of a page that has its own `h1`; a failure that *is* the page passes 1, so the
+    document is not served without a top-level heading. */
 export function failurePanel(
   err,
-  { heading = "", actions = [], note = "" } = {},
+  { heading = "", actions = [], note = "", level = 3 } = {},
 ) {
   const code =
     err && (err.code || err.error_code)
@@ -215,7 +219,7 @@ export function failurePanel(
     )
     .join("");
   return `<div class="panel panel-error" role="alert">
-      ${heading ? `<h3 tabindex="-1">${escapeHTML(heading)}</h3>` : ""}
+      ${heading ? `<h${level} tabindex="-1">${escapeHTML(heading)}</h${level}>` : ""}
       <p class="error-code">${escapeHTML(code)}</p>
       <p>${escapeHTML(message)}</p>
       ${note ? `<p class="dim">${escapeHTML(note)}</p>` : ""}

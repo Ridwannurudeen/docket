@@ -32,10 +32,16 @@ import {
   wireReceiptBlocks,
 } from "./ui.js?v=13";
 
-const POLL_INTERVAL_MS = 3000;
+/* Three seconds while something is plausibly about to happen, then ten once it clearly is
+   not. A run that has been queued for a minute is waiting on a runner rather than on the
+   next tick, and hammering the API twenty times a minute to learn that again is load
+   Docket is paying for and the reader gains nothing from. */
+const POLL_FAST_MS = 3000;
+const POLL_SLOW_MS = 10000;
+const POLL_SLOW_AFTER_MS = 60000;
 /* Long enough for a queued run to reach a runner and finish, short enough that the page
    stops claiming to be watching something it has given up on. */
-const POLL_ATTEMPTS = 200;
+const POLL_BUDGET_MS = 600000;
 
 const state = {
   record: null,
@@ -43,7 +49,10 @@ const state = {
   account: null,
   activation: null,
   poller: null,
-  polls: 0,
+  polling: false,
+  pollingSince: 0,
+  policyDefaults: null,
+  pending: null,
 };
 
 /* --------------------------------------------------------------- unit maths */
@@ -206,27 +215,97 @@ function sampleForm(record) {
    fields set here are sent: the contract and function allowlists belong to the executor
    for this category, and a browser that guessed at them would either forbid the work or
    permit more than the reader agreed to. */
-function limitsForm(record) {
+/** A whole-token amount rendered from atomic units, for prefilling a cap the server
+    proposed. Falls back to the supplied default when the units cannot be derived. */
+function fromAtomic(record, atomic, fallback) {
+  const units = unitsPerToken(record);
+  if (units === null || atomic === undefined || atomic === null)
+    return fallback;
+  try {
+    return String(Number((BigInt(String(atomic)) * 1000000n) / units) / 1e6);
+  } catch (cause) {
+    return fallback;
+  }
+}
+
+function firstAmount(map) {
+  const rows = Object.values(map || {});
+  return rows.length ? rows[0] : null;
+}
+
+/* What the session may touch, exactly as the server declared it and not editable here.
+
+   These lists belong to the category's executor. The browser has no standing to widen them
+   and no way to know what belongs in them, so it shows them and sends them back unchanged.
+   Showing them is the point: a reader agreeing to a bounded session should be able to see
+   what the bound actually is, rather than agreeing to the word "bounded". */
+function allowlistPanel(defaults) {
+  const rows = [
+    ["Contracts it may call", defaults.contract_allowlist],
+    ["Functions it may call", defaults.function_allowlist],
+    ["Tokens it may move", defaults.token_allowlist],
+  ];
+  return `<div class="panel">
+      <h4>What this session may touch</h4>
+      <p class="dim">Set by the category this service stands in, not by you and not by this
+        page. Anything outside these lists is refused before it is sent.</p>
+      <dl class="deflist">
+        ${rows
+          .map(
+            ([label, list]) =>
+              `<dt>${escapeHTML(label)}</dt><dd class="mono wrap-anywhere">${
+                (list || []).length
+                  ? (list || []).map((item) => escapeHTML(item)).join(", ")
+                  : "none declared"
+              }</dd>`,
+          )
+          .join("")}
+      </dl>
+    </div>`;
+}
+
+function limitsForm(record, defaults) {
   const symbol = assetSymbol(record);
-  return `<form class="activate limits-form" data-limits-form novalidate>
+  const total = fromAtomic(
+    record,
+    firstAmount(defaults.total_cap_atomic),
+    "10",
+  );
+  const perAction = fromAtomic(
+    record,
+    firstAmount(defaults.per_action_limit_atomic),
+    "1",
+  );
+  const slippage =
+    defaults.max_slippage_bps === undefined ||
+    defaults.max_slippage_bps === null
+      ? "50"
+      : String(defaults.max_slippage_bps);
+  const gasGwei = defaults.max_gas_price_wei
+    ? String(
+        Number(BigInt(String(defaults.max_gas_price_wei)) / 1000000n) / 1000,
+      )
+    : "5";
+  return `${allowlistPanel(defaults)}
+    <form class="activate limits-form" data-limits-form novalidate>
       <div class="field">
         <label for="limit-total">Total cap (${escapeHTML(symbol)})</label>
-        <input id="limit-total" name="total_cap" type="number" step="any" min="0" value="10" required />
+        <input id="limit-total" name="total_cap" type="number" step="any" min="0" value="${escapeHTML(total)}" required />
         <p class="dim">The most this session may spend in total before it stops.</p>
       </div>
       <div class="field">
         <label for="limit-action">Per-action limit (${escapeHTML(symbol)})</label>
-        <input id="limit-action" name="per_action_limit" type="number" step="any" min="0" value="1" required />
+        <input id="limit-action" name="per_action_limit" type="number" step="any" min="0" value="${escapeHTML(perAction)}" required />
         <p class="dim">The most any single transaction it sends may move.</p>
       </div>
       <div class="field">
         <label for="limit-slippage">Maximum slippage (basis points)</label>
-        <input id="limit-slippage" name="max_slippage_bps" type="number" step="1" min="0" max="10000" value="50" required />
+        <input id="limit-slippage" name="max_slippage_bps" type="number" step="1" min="0" max="10000" value="${escapeHTML(slippage)}" required />
         <p class="dim">50 is 0.50%. A swap that would cost more than this is not sent.</p>
       </div>
       <div class="field">
         <label for="limit-gas">Maximum gas price (gwei)</label>
-        <input id="limit-gas" name="max_gas_price_gwei" type="number" step="any" min="0" value="5" required />
+        <input id="limit-gas" name="max_gas_price_gwei" type="number" step="any" min="0" value="${escapeHTML(gasGwei)}" required />
         <p class="dim">Nothing is sent while the network costs more than this.</p>
       </div>
       <div class="field">
@@ -240,11 +319,18 @@ function limitsForm(record) {
 function readPolicy() {
   const form = document.querySelector("[data-limits-form]");
   if (!form || state.kind !== "persistent") return null;
+  if (!state.policyDefaults) {
+    throw new api.ApiError(
+      "policy_defaults_missing",
+      "Docket has not said what this session would be allowed to touch, so there is " +
+        "nothing here to agree to yet.",
+    );
+  }
   const record = state.record;
   const number = (name) => Number(form.elements.namedItem(name).value);
   const total = toAtomic(record, number("total_cap"));
   const perAction = toAtomic(record, number("per_action_limit"));
-  if (total === null || perAction === null) {
+  if (total === null || perAction === null || total <= 0n || perAction <= 0n) {
     throw new api.ApiError(
       "invalid_limits",
       "The caps must be positive amounts written in decimal.",
@@ -260,8 +346,13 @@ function readPolicy() {
   const expiresAt = new Date(Date.now() + days * 86400000)
     .toISOString()
     .replace(/\.\d{3}Z$/, "Z");
+  const defaults = state.policyDefaults;
+  /* The allowlists travel back exactly as they arrived. Only the caps below are the
+     reader's, and they are the only fields this form is permitted to write. */
   return {
-    token_allowlist: [record.asset],
+    contract_allowlist: defaults.contract_allowlist || [],
+    function_allowlist: defaults.function_allowlist || [],
+    token_allowlist: defaults.token_allowlist || [record.asset],
     per_action_limit_atomic: { [record.asset]: perAction.toString() },
     total_cap_atomic: { [record.asset]: total.toString() },
     max_slippage_bps: Math.trunc(number("max_slippage_bps")),
@@ -386,16 +477,17 @@ const RECOVERY = {
     note: "Docket settles on BSC only. Switch the network, then start again.",
     actions: [{ label: "Switch and start again", action: "retry-payment" }],
   },
+  /* No fresh-payment button here, deliberately. A replay refusal means that authorization
+     reached Docket and was already spent, so the work behind it is bought; offering to
+     sign another from this panel is a second purchase of the same thing, one click from a
+     reader who has just been told something went wrong. */
   authorization_replay: {
     heading: "That authorization was already used",
     note:
-      "An authorization is spendable once. If the earlier attempt settled, the run it " +
-      "paid for is on My agents; do not sign a second payment for the same work until " +
-      "you have looked.",
-    actions: [
-      { label: "Check My agents", href: "/my-agents" },
-      { label: "Sign a fresh payment", action: "retry-payment" },
-    ],
+      "An authorization is spendable once, and this one has been spent — which means the " +
+      "work it paid for was bought. It is on My agents, with its receipt. Do not sign a " +
+      "second payment for it.",
+    actions: [{ label: "Check My agents", href: "/my-agents" }],
   },
   payment_not_verified: {
     heading: "The facilitator rejected the payment",
@@ -411,11 +503,19 @@ const RECOVERY = {
     note: "No work ran and no charge was attempted.",
     actions: [{ label: "Sign a fresh payment", action: "retry-payment" }],
   },
+  /* The one case where resending is safe, and the only one. The same signed bytes are
+     either already spent — in which case Docket answers 409 and nothing is bought twice —
+     or they never arrived, in which case they settle once. Signing a *new* authorization
+     here is what would double-purchase, so that is not offered; the resend is filled in at
+     render time because it is only offered while the signature is still inside its own
+     `validBefore`. */
   payment_outcome_unknown: {
     heading: "The connection dropped mid-payment",
     note:
-      "Docket cannot tell from here whether that authorization settled. Look before you " +
-      "sign another: a second payment would buy the same work twice.",
+      "Docket cannot tell from here whether that authorization reached it. Resending the " +
+      "same signed authorization is safe: if it settled, Docket refuses it as a replay; " +
+      "if it never arrived, it settles once. Signing a new one is not safe and is not " +
+      "offered.",
     actions: [{ label: "Check My agents", href: "/my-agents" }],
   },
   settlement_pending_reconciliation: {
@@ -468,13 +568,44 @@ const RECOVERY = {
   },
 };
 
+/* The one recovery that depends on the clock. Resending the same signature is safe only
+   while the server would still accept it on time; once the window has closed the only
+   honest thing left is the identifier the reader can quote to a person, because a fresh
+   signature would risk paying twice for work that may already be bought. */
+function lostResponseRecovery(recovery) {
+  const pending = state.pending;
+  if (!pending) return recovery;
+  const expired = Math.floor(Date.now() / 1000) >= pending.validBefore;
+  if (expired || pending.resent) {
+    return {
+      ...recovery,
+      note:
+        `That authorization's window has ${expired ? "closed" : "been used"}, so there is ` +
+        "nothing safe left to send. Quote this authorization nonce to support and they " +
+        `can say whether it settled: ${pending.nonce}. Do not sign a new payment for the ` +
+        "same work first.",
+      actions: [{ label: "Check My agents", href: "/my-agents" }],
+    };
+  }
+  return {
+    ...recovery,
+    actions: [
+      { label: "Resend the same authorization", action: "resend-payment" },
+      ...recovery.actions,
+    ],
+  };
+}
+
 function paintFailure(err) {
   const code = err && (err.code || err.error_code);
-  const recovery = RECOVERY[code] || {
+  let recovery = RECOVERY[code] || {
     heading: "That step did not complete",
     note: "Nothing beyond what is listed above was done.",
     actions: [{ label: "Start again", action: "retry-payment" }],
   };
+  if (code === "payment_outcome_unknown") {
+    recovery = lostResponseRecovery(recovery);
+  }
   const outcome = region("outcome");
   outcome.innerHTML = failurePanel(err, recovery);
   const heading = outcome.querySelector("h3");
@@ -483,6 +614,41 @@ function paintFailure(err) {
 }
 
 /* --------------------------------------------------------------- activations */
+
+/** What happened to this activation, in the server's own words.
+
+    Every accepted change appends an event carrying the reason for it, which is the only
+    place a reader can learn *why* a run failed rather than only that it did — the failure
+    copy says "the reason is recorded below", and this is below.
+
+    An event whose `from_state` equals its `to_state` is a note rather than a transition:
+    something worth recording that moved nothing. Rendering it with an arrow would invent a
+    change the server did not make, so it is rendered as the note it is. */
+function activationLog(activation) {
+  const events = activation.events || [];
+  if (!events.length) return "";
+  return `<section aria-labelledby="log-heading">
+      <h3 id="log-heading">What happened</h3>
+      <div class="panel">
+        <ul class="facts" data-region="events">
+          ${events
+            .map((event) => {
+              const note = event.from_state === event.to_state;
+              const label = note
+                ? escapeHTML(event.to_state || "note")
+                : `${escapeHTML(event.from_state || "start")} → ${escapeHTML(event.to_state || "")}`;
+              return `<li data-event="${note ? "note" : "transition"}">
+                  <strong>${label}</strong>
+                  ${event.reason ? `— ${escapeHTML(event.reason)}` : ""}
+                  <span class="dim">${escapeHTML(event.actor || "docket")},
+                    ${escapeHTML(timeAgo(event.at))}</span>
+                </li>`;
+            })
+            .join("")}
+        </ul>
+      </div>
+    </section>`;
+}
 
 function paintActivation() {
   const activation = state.activation;
@@ -514,6 +680,7 @@ function paintActivation() {
         ])}
       </dl>
     </div>
+    ${activationLog(activation)}
     <div data-region="next-action"></div>`;
   paintNextAction();
 }
@@ -528,19 +695,34 @@ function paintNextAction() {
   const next = activation.next_action || { kind: "none", detail: {} };
   const detail = next.detail || {};
   if (next.kind === "fund_session") {
-    const amounts = Object.entries(detail.required_atomic || {})
+    /* Each requirement carries whether it has been satisfied and, once it has, the
+       transaction that satisfied it. Rendering only the amounts would leave a reader who
+       has already sent one of two transfers unable to tell which one is still owed. */
+    const requirements = (detail.requirements || [])
       .map(
-        ([token, amount]) =>
-          `<li><span class="mono">${escapeHTML(amount)}</span> atomic units of
-             <span class="mono">${escapeHTML(token)}</span></li>`,
+        (row) =>
+          `<li data-requirement="${escapeHTML(row.kind || "transfer")}" data-satisfied="${row.satisfied ? "yes" : "no"}">
+             <span class="mono">${escapeHTML(row.amount_atomic)}</span> atomic units of
+             <span class="mono">${escapeHTML(row.token || "BNB")}</span>
+             — ${row.satisfied ? "received" : "still owed"}
+             ${row.tx_hash ? `<span class="mono wrap-anywhere">${escapeHTML(row.tx_hash)}</span>` : ""}
+           </li>`,
       )
       .join("");
+    const outstanding = (detail.requirements || []).filter(
+      (row) => !row.satisfied,
+    );
     target.innerHTML = `<div class="panel">
         <h3>Fund the session</h3>
-        <p>Send the amounts below to the session address from your own wallet, then paste
+        <p>Send what is still owed to the session address from your own wallet, then paste
           the transaction hash so Docket can confirm the funding at a block.</p>
-        <p class="mono wrap-anywhere">${escapeHTML(detail.address || (activation.session || {}).address || DASH)}</p>
-        <ul class="facts">${amounts || "<li>No amount was named.</li>"}</ul>
+        <p class="mono wrap-anywhere">${escapeHTML(detail.session_address || (activation.session || {}).address || DASH)}</p>
+        <ul class="facts">${requirements || "<li>No amount was named.</li>"}</ul>
+        ${
+          outstanding.length
+            ? ""
+            : '<p class="dim">Everything this session needs has been received.</p>'
+        }
         ${detail.gas_allowance_wei ? `<p class="dim">Plus <span class="mono">${escapeHTML(detail.gas_allowance_wei)}</span> wei of BNB for gas.</p>` : ""}
         <form data-fund-form novalidate>
           <div class="field">
@@ -585,39 +767,51 @@ function paintNextAction() {
 
 function stopPolling() {
   if (state.poller !== null) {
-    window.clearInterval(state.poller);
+    window.clearTimeout(state.poller);
     state.poller = null;
   }
+  state.polling = false;
 }
 
+/* A chain of timeouts rather than an interval: an interval fires on a schedule regardless
+   of whether the last request came back, so a slow API ends up with several reads in
+   flight against one activation and the last one to land wins — which is not necessarily
+   the newest. Each read is scheduled only once the previous one has finished. */
 function startPolling() {
   stopPolling();
-  state.polls = 0;
+  state.pollingSince = Date.now();
   if (!state.activation || TERMINAL_STATES.has(state.activation.state)) return;
-  state.poller = window.setInterval(pollOnce, POLL_INTERVAL_MS);
+  schedulePoll();
+}
+
+function schedulePoll() {
+  const elapsed = Date.now() - state.pollingSince;
+  const wait = elapsed >= POLL_SLOW_AFTER_MS ? POLL_SLOW_MS : POLL_FAST_MS;
+  state.poller = window.setTimeout(pollOnce, wait);
 }
 
 async function pollOnce() {
-  if (!state.activation) return;
-  state.polls += 1;
-  if (state.polls > POLL_ATTEMPTS) {
+  if (!state.activation || state.polling) return;
+  if (Date.now() - state.pollingSince > POLL_BUDGET_MS) {
     stopPolling();
     paintFailure(
       new api.ApiError(
         "poll_timeout",
         `This page watched activation ${state.activation.activation_id} for ` +
-          `${Math.round((POLL_ATTEMPTS * POLL_INTERVAL_MS) / 1000)} seconds and it has not ` +
-          "reached a final state.",
+          `${Math.round(POLL_BUDGET_MS / 1000)} seconds and it has not reached a final state.`,
       ),
     );
     return;
   }
+  state.polling = true;
   try {
     state.activation = await api.getActivation(state.activation.activation_id);
   } catch (err) {
     stopPolling();
     paintFailure(err);
     return;
+  } finally {
+    state.polling = false;
   }
   paintActivation();
   if (state.activation.result) {
@@ -630,6 +824,7 @@ async function pollOnce() {
     );
   }
   if (TERMINAL_STATES.has(state.activation.state)) stopPolling();
+  else schedulePoll();
 }
 
 /* ------------------------------------------------------------------- actions */
@@ -726,11 +921,11 @@ async function activateAndPay() {
     }
 
     say("Asking for the exact payment terms.");
-    const challenge = await payment.fetchChallenge(
+    let challenge = await payment.fetchChallenge(
       state.record.service_id,
       inputs,
     );
-    const terms = payment.paymentTerms(challenge);
+    let terms = assertTermsMatchTheQuote(payment.paymentTerms(challenge));
     say(
       `Terms: ${terms.amountAtomic} atomic units of ${terms.token} to ${terms.payTo}.`,
     );
@@ -748,9 +943,30 @@ async function activateAndPay() {
         : "The existing allowance already covers the price; nothing was approved.",
     );
 
+    /* An approval can take several blocks, and the offer is only good for so long. A
+       signature against terms the server has since replaced is refused for a reason the
+       reader has no way to see, so the offer is taken again rather than assumed. */
+    if (payment.challengeIsStale(challenge)) {
+      say(
+        "The offer went stale while the approval was mined. Asking for it again.",
+      );
+      challenge = await payment.fetchChallenge(state.record.service_id, inputs);
+      terms = assertTermsMatchTheQuote(payment.paymentTerms(challenge));
+    }
+
     say("Signing the payment authorization.");
     const envelope = await payment.signPayment(state.account, challenge);
     const header = payment.encodePaymentHeader(envelope);
+    /* Held so a dropped response can resend these exact bytes rather than sign new ones.
+       The window is the authorization's own: past `validBefore` the server refuses it on
+       time, so resending stops being a recovery and becomes a wasted round trip. */
+    state.pending = {
+      header,
+      inputs,
+      validBefore: Number(envelope.payload.authorization.validBefore),
+      nonce: envelope.payload.authorization.nonce,
+      resent: false,
+    };
 
     say("Submitting the signed authorization once.");
     const answer = await payment.hireWithPayment(
@@ -758,30 +974,117 @@ async function activateAndPay() {
       inputs,
       header,
     );
+    state.pending = null;
     say("The payment settled and the result arrived.");
     paintResult(answer, { free: false });
 
-    say("Binding the payment to your activation.");
-    const bindSignature = await wallet.personalSign(
-      api.authMessage(state.activation, "approve"),
-      state.account,
-    );
-    state.activation = await api.approveActivation(
-      state.activation.activation_id,
-      {
-        owner_signature: bindSignature,
-        nonce: state.activation.auth_nonce,
-        payment_id: answer.payment_id,
-      },
-    );
-    paintActivation();
-    say("Bound. This activation is yours and is listed on My agents.");
-    startPolling();
+    await bindPayment(answer);
   } catch (err) {
     paintFailure(err);
   } finally {
     busy(false);
   }
+}
+
+/** Send the same signed authorization a second time, once, after a dropped response.
+
+    Not a retry of the payment: it is a retry of the *delivery*. The bytes are identical, so
+    Docket either recognises the nonce and refuses it as a replay — proving the first
+    attempt landed — or has never seen it and settles it once. Either outcome is correct and
+    neither can buy the work twice, which is the whole reason this is offered and signing
+    again is not. */
+/** Refuse to sign terms that are not the ones the page put in front of the reader.
+
+    The price and asset were printed from `/services/{id}` before any of this began. If the
+    challenge names a different amount or a different token, the reader would be authorising
+    something other than what they read and agreed to — so the flow stops here, before the
+    wallet opens, rather than after they have approved it. */
+function assertTermsMatchTheQuote(terms) {
+  const quotedAmount = String(state.record.price_atomic);
+  const quotedAsset = String(state.record.asset);
+  if (terms.amountAtomic !== quotedAmount) {
+    throw new api.ApiError(
+      "quote_changed",
+      `This page quoted ${state.record.price_display} (${quotedAmount} atomic units) and ` +
+        `the payment challenge asks for ${terms.amountAtomic}. Nothing was signed.`,
+    );
+  }
+  if (terms.token.toLowerCase() !== quotedAsset.toLowerCase()) {
+    throw new api.ApiError(
+      "quote_changed",
+      `This page quoted a price in ${quotedAsset} and the payment challenge asks for ` +
+        `${terms.token}. Nothing was signed.`,
+    );
+  }
+  return terms;
+}
+
+async function resendPayment() {
+  const pending = state.pending;
+  if (!pending || pending.resent) return;
+  pending.resent = true;
+  busy(true);
+  say("Resending the same signed authorization.");
+  try {
+    const answer = await payment.hireWithPayment(
+      state.record.service_id,
+      pending.inputs,
+      pending.header,
+    );
+    state.pending = null;
+    say(
+      "It had not arrived the first time. The payment settled and the result arrived.",
+    );
+    paintResult(answer, { free: false });
+    await bindPayment(answer);
+  } catch (err) {
+    paintFailure(err);
+  } finally {
+    busy(false);
+  }
+}
+
+/** Bind a settled payment to the activation the reader opened for it. */
+async function bindPayment(answer) {
+  if (!state.activation) return;
+  say("Binding the payment to your activation.");
+  const signature = await wallet.personalSign(
+    api.authMessage(state.activation, "approve"),
+    await signingAccount(),
+  );
+  state.activation = await api.approveActivation(
+    state.activation.activation_id,
+    {
+      owner_signature: signature,
+      nonce: state.activation.auth_nonce,
+      payment_id: answer.payment_id,
+    },
+  );
+  paintActivation();
+  say("Bound. This activation is yours and is listed on My agents.");
+  startPolling();
+}
+
+/* The account every signature on this page is taken from. Re-read from the wallet each
+   time rather than carried in a variable: a reader who switched accounts mid-flow would
+   otherwise sign as the address the page remembered, and the server would refuse it as
+   `not_owner` after the wallet had already asked them to approve something. */
+async function signingAccount() {
+  const current = await wallet.currentAccount();
+  if (!current) {
+    throw new wallet.WalletError(
+      "no_account",
+      "The wallet has no account connected any more. Reconnect and start again.",
+    );
+  }
+  if (state.account && current.toLowerCase() !== state.account.toLowerCase()) {
+    throw new wallet.WalletError(
+      "account_changed",
+      `This activation belongs to ${state.account} and the wallet is now on ${current}. ` +
+        "Switch back, or start again on the account you want to own it.",
+    );
+  }
+  return current;
 }
 
 async function onFundSession(event) {
@@ -801,7 +1104,7 @@ async function onFundSession(event) {
     if (!state.account) state.account = await wallet.connect();
     const signature = await wallet.personalSign(
       api.authMessage(state.activation, "approve"),
-      state.account,
+      await signingAccount(),
     );
     state.activation = await api.approveActivation(
       state.activation.activation_id,
@@ -877,7 +1180,7 @@ async function onSignPrepared() {
     }
     const signature = await wallet.personalSign(
       api.authMessage(state.activation, "approve"),
-      state.account,
+      await signingAccount(),
     );
     state.activation = await api.approveActivation(
       state.activation.activation_id,
@@ -905,15 +1208,40 @@ function wireKind() {
     </fieldset>
     <div data-region="limits" hidden>
       <h3>The limits it runs inside</h3>
-      ${limitsForm(state.record)}
+      <div data-region="limits-body">
+        <span class="skeleton skeleton-row skeleton-wide"></span>
+      </div>
     </div>`;
   const limits = region("limits");
   for (const radio of target.querySelectorAll('input[name="kind"]')) {
-    radio.addEventListener("change", () => {
+    radio.addEventListener("change", async () => {
       state.kind = radio.value;
       limits.hidden = state.kind !== "persistent";
       refreshPermissionCopy();
       paintActions();
+      if (state.kind === "persistent") await paintLimits();
+    });
+  }
+}
+
+/* The allowlists are fetched, not assumed. The server owns them, a page that guessed would
+   either forbid the work or permit more than the reader agreed to, and one that sent empty
+   lists would be asking for a session allowed to call nothing. Fetched once and kept: the
+   skeleton for a service does not change while the reader is reading it. */
+async function paintLimits() {
+  const target = region("limits-body");
+  if (state.policyDefaults) return;
+  try {
+    state.policyDefaults = await api.policyDefaults(state.record.service_id);
+    target.innerHTML = limitsForm(state.record, state.policyDefaults);
+  } catch (err) {
+    state.policyDefaults = null;
+    renderFailure(target, err, {
+      heading: "The limits for this session could not be read",
+      note:
+        "Docket has not said what a session here would be allowed to touch, so there is " +
+        "nothing to agree to. Nothing was created.",
+      actions: [{ label: "Try again", action: "load-limits" }],
     });
   }
 }
@@ -960,6 +1288,8 @@ function wireRecovery() {
     if (action === "retry-payment") activateAndPay();
     if (action === "run-sample") runSample(false);
     if (action === "poll-once") pollOnce();
+    if (action === "load-limits") paintLimits();
+    if (action === "resend-payment") resendPayment();
   });
 }
 
@@ -992,8 +1322,12 @@ export async function init() {
     state.record = await resolveRecord(params);
   } catch (err) {
     region("controls").hidden = true;
+    /* The failure is this page's whole content, so it carries the page's only `h1`. A
+       document that reaches a reader with no top-level heading gives a screen reader
+       nothing to announce it by. */
     renderFailure(region("listing"), err, {
       heading: "Nothing to activate",
+      level: 1,
       actions: [{ label: "Pick a service", href: "/" }],
     });
     return;
@@ -1022,6 +1356,30 @@ export async function init() {
           <p>It is on <span class="mono">${escapeHTML(chain)}</span>. Docket settles on
             BNB Smart Chain only, and will ask you to switch back before it takes a
             signature. Nothing already signed is affected.</p>
+        </div>`;
+    });
+    /* An activation belongs to the address that opened it. A reader who switches accounts
+       mid-flow is told at that moment, rather than after the wallet has asked them to
+       approve something the server will refuse as `not_owner`; `signingAccount` is the
+       guard, and this is the warning. */
+    wallet.onAccountsChanged((account) => {
+      const notice = region("chain");
+      if (
+        !state.account ||
+        (account && account.toLowerCase() === state.account.toLowerCase())
+      ) {
+        notice.innerHTML = "";
+        notice.hidden = true;
+        return;
+      }
+      notice.hidden = false;
+      notice.innerHTML = `<div class="notice notice-warn" role="status">
+          <p class="notice-heading">Your wallet has switched accounts</p>
+          <p>This activation belongs to <span class="mono">${escapeHTML(state.account)}</span>
+            and the wallet is now on
+            <span class="mono">${escapeHTML(account || "no account")}</span>. Docket will
+            not sign for it from a different address; switch back, or start again on the
+            account you want to own it.</p>
         </div>`;
     });
   }

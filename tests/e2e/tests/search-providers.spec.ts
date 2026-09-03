@@ -288,7 +288,7 @@ test.describe("providers", () => {
     await page.locator("#listing-category").selectOption("rebalancing");
     await page.locator("#listing-capabilities").fill("Rebalances v3 ranges");
     await page.locator("#listing-price").fill("0.50 USDT");
-    await page.locator("#listing-payment-method").fill("x402");
+    await page.locator("#listing-payment-method").selectOption("x402");
     await page.getByRole("button", { name: "Publish listing" }).click();
 
     await expect(

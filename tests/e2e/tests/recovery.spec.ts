@@ -33,16 +33,17 @@ test.describe("failure recovery", () => {
       }),
     ).toBeVisible();
     await expect(page.getByText("authorization_replay")).toBeVisible();
-    /* Looking comes before signing again: the first attempt may have settled. */
+    /* A replay refusal means the authorization reached Docket and was already spent, so
+       the work behind it is bought. There is no fresh-payment button on this panel at all:
+       one click from a reader who has just been told something went wrong would buy the
+       same work twice. */
     const actions = page.locator(".panel-error .btn-row");
     await expect(
       actions.getByRole("link", { name: "Check My agents" }),
     ).toBeVisible();
+    await expect(actions.getByRole("button")).toHaveCount(0);
     await expect(
-      actions.getByRole("button", { name: "Sign a fresh payment" }),
-    ).toBeVisible();
-    await expect(
-      page.getByText("do not sign a second payment", { exact: false }),
+      page.getByText("Do not sign a second payment for it.", { exact: false }),
     ).toBeVisible();
   });
 

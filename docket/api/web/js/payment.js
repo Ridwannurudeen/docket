@@ -104,11 +104,20 @@ function challengeFrom(body, response) {
   ) {
     return null;
   }
+  const serverNow = serverSeconds(response);
   return {
     x402Version: body.x402Version,
     resource: body.resource,
     accepts,
-    server_now_seconds: serverSeconds(response),
+    server_now_seconds: serverNow,
+    /* How far this browser's clock is from the server's, measured once when the challenge
+       arrived. Signing uses the offset rather than the absolute reading, because minutes
+       can pass between the challenge and the signature — an allowance approval has to be
+       mined in between — and a window anchored to a stale instant is a window that has
+       already begun expiring. */
+    clock_offset_seconds:
+      serverNow === null ? null : serverNow - Math.floor(Date.now() / 1000),
+    fetched_at_ms: Date.now(),
   };
 }
 
@@ -224,7 +233,41 @@ export async function ensureAllowance(account, token, relayer, amount) {
     data: encodeApprove(relayer, required),
   });
   await wallet.waitForReceipt(hash);
-  return { allowance: required, approved: true, tx_hash: hash };
+  /* Read it back rather than assuming the approval did what it said. A receipt with
+     status 0x1 proves the transaction was mined, not that the allowance now covers the
+     price: a token with a non-standard approve, or a second approval racing this one, ends
+     with a mined receipt and an allowance that is still short. Signing on that assumption
+     would produce an authorization the relayer cannot pull. */
+  let settled;
+  try {
+    settled = decodeUint256(
+      await wallet.call({ to: token, data: encodeAllowance(account, relayer) }),
+    );
+  } catch (cause) {
+    throw new PaymentError(
+      "allowance_unreadable",
+      `The approval in ${hash} was mined, but the allowance it should have set could not ` +
+        `be read back: ${cause.message}`,
+    );
+  }
+  if (settled < required) {
+    throw new PaymentError(
+      "allowance_not_applied",
+      `The approval in ${hash} was mined and the allowance is still ${settled}, short of ` +
+        `the ${required} this payment needs. Nothing was signed.`,
+    );
+  }
+  return { allowance: settled, approved: true, tx_hash: hash };
+}
+
+/* How stale a challenge may be before it is worth asking for a fresh one. The allowance
+   step in between can take a block or several, and a challenge signed against terms the
+   server has since changed is refused for a reason the reader cannot see. */
+export const CHALLENGE_MAX_AGE_MS = 120_000;
+
+/** Whether this challenge has been sitting long enough to be worth refetching. */
+export function challengeIsStale(challenge, now = Date.now()) {
+  return now - Number(challenge.fetched_at_ms || 0) > CHALLENGE_MAX_AGE_MS;
 }
 
 /* 32 random bytes from the platform CSPRNG. The nonce is what makes one authorization
@@ -247,10 +290,10 @@ function randomNonce() {
 export async function signPayment(account, challenge) {
   const terms = paymentTerms(challenge);
   const anchored =
-    challenge.server_now_seconds !== null &&
-    challenge.server_now_seconds !== undefined;
+    challenge.clock_offset_seconds !== null &&
+    challenge.clock_offset_seconds !== undefined;
   const now = anchored
-    ? Number(challenge.server_now_seconds)
+    ? Math.floor(Date.now() / 1000) + Number(challenge.clock_offset_seconds)
     : Math.floor(Date.now() / 1000);
   const authorization = {
     token: terms.token,

@@ -231,11 +231,21 @@ export const WALLET_INIT = ({
             return digest(`personal:${String((params ?? [])[0])}`);
           case "eth_signTypedData_v4":
             return digest(`typed:${String((params ?? [])[1])}`);
-          case "eth_sendTransaction":
+          case "eth_sendTransaction": {
+            /* An approval that is mined changes what the next `eth_call` reads back. The
+               page re-reads the allowance after the receipt rather than trusting the
+               receipt, so a fake that kept answering with the old value would fail it —
+               correctly, which is why the fake behaves like a chain here instead. */
+            const tx = ((params ?? [])[0] ?? {}) as { data?: string };
+            const data = String(tx.data ?? "");
+            if (data.startsWith("0x095ea7b3") && data.length >= 138) {
+              control.allowance = data.slice(-64);
+            }
             return digest(`tx:${JSON.stringify((params ?? [])[0])}`).slice(
               0,
               66,
             );
+          }
           case "eth_call":
             return "0x" + control.allowance;
           case "eth_getTransactionReceipt":
@@ -404,10 +414,25 @@ export async function mockHire(
   });
 }
 
+/** The SessionPolicy skeleton `/api/activations/policy-defaults` serves: the allowlists a
+    category declares and the caps Docket proposes. */
+export const POLICY_DEFAULTS = {
+  contract_allowlist: ["0x46A15B0b27311cedF172AB29E4f4766fbE7F4364"],
+  function_allowlist: ["0x88316456", "0x0c49ccbe"],
+  token_allowlist: [USDT],
+  per_action_limit_atomic: { [USDT]: "1000000000000000000" },
+  total_cap_atomic: { [USDT]: "10000000000000000000" },
+  max_slippage_bps: 50,
+  max_gas_price_wei: "5000000000",
+  expires_at: null,
+  emergency_pause: false,
+};
+
 export async function mockActivations(
   page: Page,
   {
     onCreate = activation(),
+    policyDefaults = POLICY_DEFAULTS as Record<string, unknown> | null,
     afterApprove = activation({
       state: "completed",
       result: RESULT,
@@ -425,6 +450,14 @@ export async function mockActivations(
     } | null,
   } = {},
 ) {
+  await page.route("**/api/activations/policy-defaults*", (route) =>
+    policyDefaults
+      ? json(route, 200, policyDefaults)
+      : json(route, 503, {
+          error_code: "policy_defaults_unavailable",
+          message: "The category's allowlists could not be read.",
+        }),
+  );
   await page.route("**/api/activations/nonce*", (route) =>
     json(route, 200, {
       nonce: "nonce-one",
@@ -525,7 +558,11 @@ export async function mockProviders(
     level = "docket_tested" as string | null,
     paymentTested = false,
     hireable = false,
-    listingError = null as { status: number; error_code: string; message: string } | null,
+    listingError = null as {
+      status: number;
+      error_code: string;
+      message: string;
+    } | null,
   } = {},
 ) {
   await page.route("**/api/providers/claim", (route) =>

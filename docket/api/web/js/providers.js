@@ -158,10 +158,14 @@ function paintListingForm() {
           stated rather than showing a zero that reads as free.</p>
       </div>
       <div class="field">
-        <label for="listing-payment-method">Payment method (optional)</label>
-        <input id="listing-payment-method" name="payment_method" type="text" />
-        <p class="dim">How a buyer would pay you, for example
-          <span class="mono">x402</span>.</p>
+        <label for="listing-payment-method">Payment method</label>
+        <select id="listing-payment-method" name="payment_method">
+          <option value="x402">x402 — a buyer pays your endpoint directly</option>
+          <option value="free">free — no payment</option>
+          <option value="off_platform">off platform — arranged some other way</option>
+        </select>
+        <p class="dim">A closed set, so a listing cannot describe a payment path Docket has
+          no way to read. Docket does not take a cut of any of them.</p>
       </div>
       <p class="btn-row">
         <button type="submit" class="btn btn-primary" data-publish>Publish listing</button>
@@ -206,16 +210,23 @@ async function onPublish(event) {
     paintStatus();
     paintSteps("published");
   } catch (err) {
-    /* The nonce is spent on the attempt whether or not the listing was written, so the
-       claim above is no longer good and the reader is sent back to make a fresh one
-       rather than left pressing a button that can only fail. */
-    state.claim = null;
-    paintSteps("identity");
+    /* Only the refusals that actually void the claim send the reader back for a new one.
+       A 422 over a category or a capability string leaves the nonce unspent, and throwing
+       the claim away there would make the reader sign again to fix a typo. */
+    const voided = ["stale_nonce", "bad_signature", "not_owner"].includes(
+      err.code || err.error_code,
+    );
+    if (voided) {
+      state.claim = null;
+      paintSteps("identity");
+    }
     renderFailure(region("failure"), err, {
       heading: "The listing was not published",
-      note:
-        "Nothing was listed. A claim nonce is single use and this attempt spent it, so " +
-        "claim the identity again before publishing.",
+      note: voided
+        ? "Nothing was listed, and that claim can no longer be spent. Claim the identity " +
+          "again before publishing."
+        : "Nothing was listed. Your claim is still good — correct the listing above and " +
+          "publish again without signing anything new.",
     });
   } finally {
     button.disabled = false;
