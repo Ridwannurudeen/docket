@@ -374,7 +374,7 @@ def test_every_deployment_script_has_valid_bash_syntax(script: str):
 
 def test_release_and_preflight_track_every_systemd_unit_and_document_the_count():
     expected = {path.name for path in (DEPLOY / "systemd").iterdir() if path.is_file()}
-    assert len(expected) == 15
+    assert len(expected) == 17
 
     for script_name in ("preflight.sh", "release.sh"):
         script = (DEPLOY / script_name).read_text(encoding="utf-8")
@@ -386,10 +386,11 @@ def test_release_and_preflight_track_every_systemd_unit_and_document_the_count()
         assert declared == expected
 
     runbook = (ROOT / "docs/deployment-runbook.md").read_text(encoding="utf-8")
-    assert runbook.count("all fifteen tracked unit") == 2
+    assert runbook.count("all seventeen tracked unit") == 2
     assert "all ten tracked units" not in runbook
     assert "all twelve unit files" not in runbook
     assert "all thirteen tracked unit" not in runbook
+    assert "all fifteen tracked unit" not in runbook
 
 
 def test_release_refuses_a_held_process_lock_before_artifact_or_runtime_mutation(
@@ -1314,6 +1315,9 @@ def test_every_tracked_python_service_uses_safe_execution_and_containment():
             "0xe55816904796341bf8535e25f6c8b647927fc946 7141050 "
             "/var/lib/docket/lp-record/controlled.jsonl --declared-value-usd 50.55 "
             "--recenter-cost-usd 1.00 --horizon-days 30"
+        ),
+        "docket-jobs.service": (
+            "/opt/docket/.venv/bin/python -P -m docket.jobs.tick"
         ),
         "docket-refresh.service": ("/opt/docket/.venv/bin/python -P -m docket.refresh"),
         "docket-v3-capture.service": (

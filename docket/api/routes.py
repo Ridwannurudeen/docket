@@ -75,6 +75,7 @@ from ..hire.x402 import (
     verify_payment,
 )
 from ..liveness import probe_one
+from .activations import activations_router
 from ..marketplace.models import CATEGORIES, Category, ServiceRecord
 from ..marketplace.registry import (
     CATEGORY_DECLARATION,
@@ -2650,5 +2651,6 @@ def create_app(
     def favicon() -> FileResponse:
         return FileResponse(WEB_DIR / "favicon.svg", media_type="image/svg+xml")
 
+    app.include_router(activations_router(store, services=SERVICES, pay_to=pay_to))
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
     return app

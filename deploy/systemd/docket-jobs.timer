@@ -1,0 +1,12 @@
+[Unit]
+Description=Advance Docket's live persistent activations every five minutes
+
+[Timer]
+OnCalendar=*:0/5
+# A missed pass should run after downtime rather than be skipped: an activation whose
+# policy expired while the box was down still has a float to sweep back.
+Persistent=true
+Unit=docket-jobs.service
+
+[Install]
+WantedBy=timers.target

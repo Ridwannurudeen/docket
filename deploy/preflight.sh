@@ -59,6 +59,8 @@ readonly -a UNIT_NAMES=(
     docket.service
     docket-canary.service
     docket-canary.timer
+    docket-jobs.service
+    docket-jobs.timer
     docket-lp-record.service
     docket-lp-record.timer
     docket-refresh.service
