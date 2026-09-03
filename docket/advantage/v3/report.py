@@ -6,6 +6,7 @@ Only eight states exist, and the two terminal claim states are ``refuted`` and
 ``not_refuted``. The latter is deliberately bounded to the registered falsifier.
 """
 
+import json
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,28 @@ SPECS_DIR = V3_DIR / "specs"
 RUNS_DIR = V3_DIR / "runs"
 SHEETS_DIR = V3_DIR / "sheets"
 MAPPINGS_DIR = V3_DIR / "mappings"
+ADVANTAGE_DIR = V3_DIR.parent
+V1_DIR = ADVANTAGE_DIR / "experiments"
+# The three recorded v1 tasks, in the order the v1 page lists them. `recorded_runs/` and
+# `01-liquidity/live-audit.json` are separate observations, not tasks, and adding them here
+# would inflate a row count nobody registered.
+V1_TASK_IDS = ("01-liquidity", "02-trading", "03-security")
+# Every state below `refuted`/`not_refuted` reaches this table with no rubric medians,
+# because `family_report` only computes quality once both sheets and the mapping exist.
+V3_SCORED_STATES = frozenset({"refuted", "not_refuted"})
+NO_VERDICT = (
+    "No verdict is computed anywhere in this table. Every cell is read out of a committed "
+    "artifact, a null says the artifact does not carry that figure and names why, and "
+    "nothing here ranks an arm, a task or a family against another."
+)
+V1_NO_QUALITY = (
+    "v1 records both arms' complete outputs and refuses to grade them: a harness that "
+    "scored its own runs would be marking its own homework."
+)
+V2_NO_ARM_TIMING = (
+    "v2 registered dataset arms rather than a timed agent-versus-human pair, so it records "
+    "no per-arm elapsed seconds, out-of-pocket cost or rubric score."
+)
 
 REGISTERED_WAITING = "registered_waiting_for_inputs"
 SUPERSEDED_BEFORE_INPUT_LOCK = "superseded_before_input_lock"
@@ -284,6 +307,171 @@ def family_report(
     return family
 
 
+def _seconds(value):
+    return None if value is None else float(value)
+
+
+def _v1_rows(v1_dir: Path) -> list[dict]:
+    rows = []
+    for task_id in V1_TASK_IDS:
+        path = Path(v1_dir) / f"{task_id}.json"
+        if not path.is_file():
+            continue
+        record = json.loads(path.read_text(encoding="utf-8"))
+        arms = {"agent": record["agent_arm"], "manual": record["manual_arm"]}
+        errored = [name for name, arm in arms.items() if arm.get("error") is not None]
+        rows.append(
+            {
+                "version": "v1",
+                "task": record["task_id"],
+                "category": record["category"],
+                "arms": sorted(arms),
+                "n_planned": 1,
+                "n_terminal": len(arms),
+                "median_agent_seconds": _seconds(arms["agent"].get("seconds")),
+                "median_manual_seconds": _seconds(arms["manual"].get("seconds")),
+                "cost_by_arm": {name: arm.get("cost") for name, arm in arms.items()},
+                "quality_by_arm": {name: None for name in arms},
+                "quality_measure": None,
+                "state": "recorded_with_arm_error" if errored else "recorded",
+                "unavailable": {"quality_by_arm": V1_NO_QUALITY},
+            }
+        )
+    return rows
+
+
+def _v2_rows(experiments: list[dict]) -> list[dict]:
+    rows = []
+    for experiment in experiments:
+        run = experiment["run"]
+        arms = run.get("arms")
+        if isinstance(arms, dict):
+            arm_names = sorted(arms)
+        elif isinstance(run.get("arm_name"), str):
+            arm_names = [run["arm_name"]]
+        else:
+            arm_names = []
+        scores = experiment.get("scores")
+        quality = (
+            {arm_names[0]: scores} if len(arm_names) == 1 and scores else {}
+        )
+        rows.append(
+            {
+                "version": "v2",
+                "task": experiment["experiment_id"],
+                "category": experiment["spec"]["category"],
+                "arms": arm_names,
+                "n_planned": experiment["spec"]["n_planned"],
+                "n_terminal": run.get("n_planned"),
+                "median_agent_seconds": None,
+                "median_manual_seconds": None,
+                "cost_by_arm": {name: None for name in arm_names},
+                "quality_by_arm": quality or {name: None for name in arm_names},
+                "quality_measure": (
+                    "registered detector rates over the frozen corpus" if quality else None
+                ),
+                "state": (
+                    REFUTED
+                    if experiment["falsifier_result"]["refuted"]
+                    else NOT_REFUTED
+                ),
+                "unavailable": {
+                    "median_agent_seconds": V2_NO_ARM_TIMING,
+                    "median_manual_seconds": V2_NO_ARM_TIMING,
+                    "cost_by_arm": V2_NO_ARM_TIMING,
+                    **({} if quality else {"quality_by_arm": V2_NO_ARM_TIMING}),
+                },
+            }
+        )
+    return rows
+
+
+def _v3_rows(families: list[dict]) -> list[dict]:
+    rows = []
+    for family in families:
+        spec = family["spec"]
+        speed = family["speed"]
+        quality = family["quality"]
+        progress = family["run_progress"]
+        costs = family["costs"]
+        unavailable = {}
+        if speed is None:
+            unavailable["median_agent_seconds"] = (
+                f"no paired speed measure exists while this family is {family['state']}"
+            )
+            unavailable["median_manual_seconds"] = unavailable["median_agent_seconds"]
+        if quality is None:
+            unavailable["quality_by_arm"] = family["unscored_reason"] or (
+                f"no rubric aggregate exists while this family is {family['state']}"
+            )
+        if costs is None:
+            unavailable["cost_by_arm"] = (
+                "no ledger cost is recorded before the input lock"
+            )
+        by_arm = {arm: None for arm in runner.ARMS}
+        if costs is not None:
+            for total in costs["totals"]:
+                by_arm[total["arm"]] = {
+                    "amount": total["amount"],
+                    "unit": total["unit"],
+                }
+        rows.append(
+            {
+                "version": "v3",
+                "task": family["spec_id"],
+                "category": spec["category"],
+                "arms": sorted(spec["arms"]),
+                "n_planned": spec["n_planned"],
+                "n_terminal": (
+                    None if progress is None else progress["terminal_primaries"]
+                ),
+                "median_agent_seconds": (
+                    None if speed is None else speed["agent_median_seconds"]
+                ),
+                "median_manual_seconds": (
+                    None if speed is None else speed["manual_median_seconds"]
+                ),
+                "cost_by_arm": by_arm,
+                "quality_by_arm": (
+                    {arm: None for arm in runner.ARMS}
+                    if quality is None
+                    else {
+                        arm: quality["arms"][arm]["median_total"]
+                        for arm in runner.ARMS
+                    }
+                ),
+                "quality_measure": (
+                    None
+                    if quality is None
+                    else "median registered rubric total per arm"
+                ),
+                "state": family["state"],
+                "unavailable": unavailable,
+            }
+        )
+    return rows
+
+
+def one_page(families: list[dict], *, v1_dir: Path = V1_DIR) -> dict:
+    """Every registered task in one table, derived from committed artifacts only.
+
+    The v1, v2 and v3 rows are deliberately not made to look alike. v1 recorded one paired
+    observation per task and refused to grade it; v2 registered dataset arms with no clock
+    on either of them; only v3 has a paired elapsed measure and a rubric. Forcing one shape
+    onto all three would put a number in a cell no artifact contains, so a missing figure is
+    a null with the reason beside it.
+    """
+    from ..v2 import report as v2_report
+
+    rows = _v1_rows(v1_dir) + _v2_rows(v2_report.experiments()) + _v3_rows(families)
+    return {
+        "verdict": None,
+        "note": NO_VERDICT,
+        "n_rows": len(rows),
+        "rows": rows,
+    }
+
+
 def report(
     *,
     specs_dir: Path = SPECS_DIR,
@@ -354,6 +542,7 @@ def report(
         "states": list(STATES),
         "summary": {
             "n_families": len(families),
+            "one_page": one_page(families),
             "states": dict(sorted(states.items())),
             "refuted": [
                 family["spec_id"] for family in families if family["state"] == REFUTED

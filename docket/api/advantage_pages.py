@@ -92,6 +92,94 @@ def v3_index(payload: dict) -> str:
     )
 
 
+def _cell(value) -> str:
+    """One table cell: a number as a number, an absent figure as an em dash."""
+    if value is None:
+        return '<span class="mono">&mdash;</span>'
+    if isinstance(value, float):
+        return f'<span class="num">{_esc(round(value, 3))}</span>'
+    if isinstance(value, int) and not isinstance(value, bool):
+        return f'<span class="num">{_esc(value)}</span>'
+    return _esc(value)
+
+
+def _cost_cell(costs: dict, arms) -> str:
+    parts = []
+    for arm in arms:
+        cost = costs.get(arm)
+        if not isinstance(cost, dict):
+            parts.append(f"{_esc(arm)}: &mdash;")
+            continue
+        amount = f'{cost.get("amount", "")} {cost.get("unit", "")}'.strip()
+        parts.append(f'{_esc(arm)}: <span class="mono">{_esc(amount)}</span>')
+    return "<br>".join(parts) if parts else '<span class="mono">&mdash;</span>'
+
+
+def _quality_cell(row: dict) -> str:
+    parts = []
+    for arm in row["arms"]:
+        value = row["quality_by_arm"].get(arm)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            parts.append(f'{_esc(arm)}: <span class="num">{_esc(round(value, 3))}</span>')
+        else:
+            parts.append(f"{_esc(arm)}: &mdash;")
+    measure = row["quality_measure"]
+    if measure:
+        parts.append(f'<span class="section-note">{_esc(measure)}</span>')
+    return "<br>".join(parts) if parts else '<span class="mono">&mdash;</span>'
+
+
+def _one_page_section(one_page: dict) -> str:
+    rows = []
+    for row in one_page["rows"]:
+        planned = _cell(row["n_planned"])
+        terminal = _cell(row["n_terminal"])
+        reasons = "".join(
+            f'<p class="section-note">{_esc(field)}: {_esc(reason)}</p>'
+            for field, reason in sorted(row["unavailable"].items())
+        )
+        rows.append(
+            "<tr>"
+            f'<th scope="row"><span class="mono">{_esc(row["task"])}</span></th>'
+            f'<td><span class="mono">{_esc(row["version"])}</span></td>'
+            f"<td>{_esc(row['category'])}</td>"
+            f"<td>{_esc(', '.join(row['arms'])) or '&mdash;'}</td>"
+            f"<td>{planned} / {terminal}</td>"
+            f"<td>{_cell(row['median_agent_seconds'])}</td>"
+            f"<td>{_cell(row['median_manual_seconds'])}</td>"
+            f"<td>{_cost_cell(row['cost_by_arm'], row['arms'])}</td>"
+            f"<td>{_quality_cell(row)}</td>"
+            f'<td><span class="mono">{_esc(row["state"])}</span>{reasons}</td>'
+            "</tr>"
+        )
+    headers = (
+        "Task",
+        "Report",
+        "Category",
+        "Arms",
+        "Planned / terminal",
+        "Median agent seconds",
+        "Median manual seconds",
+        "Out-of-pocket per arm",
+        "Objective quality per arm",
+        "State",
+    )
+    heading = "".join(f'<th scope="col">{_esc(label)}</th>' for label in headers)
+    return (
+        '<section aria-labelledby="one-page"><h2 id="one-page">'
+        "Every registered task on one page</h2>"
+        f'<p class="lede"><span class="num">{_esc(one_page["n_rows"])}</span> rows, every '
+        "figure read out of a committed artifact at startup.</p>"
+        f'<p class="section-note">{_esc(one_page["note"])}</p>'
+        '<div class="table-wrap"><table><caption>'
+        "Registered tasks across all three reports, with the reason beside every figure an "
+        "artifact does not carry."
+        f"</caption><thead><tr>{heading}</tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table></div></section>"
+    )
+
+
 def v3_landing(shell: str, payload: dict) -> str:
     if "error" in payload:
         from ..advantage.v3.page import fill
@@ -103,7 +191,13 @@ def v3_landing(shell: str, payload: dict) -> str:
     from ..advantage.v3.page import fill
 
     shallow = {**payload, "families": []}
-    return fill(shell.replace(marker, v3_index(payload)), shallow)
+    one_page = payload["summary"].get("one_page")
+    index = v3_index(payload)
+    if one_page is not None:
+        # First of the generated sections, above the family index and the state summary.
+        # The shell above the marker is Lane A's; nothing here edits it.
+        index = _one_page_section(one_page) + index
+    return fill(shell.replace(marker, index), shallow)
 
 
 def _depth_shell(shell: str, title: str, body: str) -> str:

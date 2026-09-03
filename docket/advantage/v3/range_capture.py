@@ -190,7 +190,16 @@ def _contract_call(
     function: ContractFunction,
     arguments: tuple,
     block_tag: str | dict[str, str | bool],
+    *,
+    fixed_width: bool = True,
 ) -> tuple:
+    """One registered read, decoded strictly.
+
+    ``fixed_width`` is the length check: every Range read returns one 32-byte word per
+    output, so a different length means a different ABI and the frame aborts. A dynamic
+    return — Venus's ``getAssetsIn`` answers ``address[]`` — has no such width, so the
+    caller turns the check off and only whole words are required.
+    """
     try:
         encoded = abi_encode(function.input_types, arguments)
     except (TypeError, ValueError, EncodingError):
@@ -206,9 +215,13 @@ def _contract_call(
         raise RangeCaptureRefused(f"{function.name} returned malformed ABI bytes")
     raw = bytes.fromhex(result[2:])
     expected_length = 32 * len(function.output_types)
-    if len(raw) != expected_length:
+    if fixed_width and len(raw) != expected_length:
         raise RangeCaptureRefused(
             f"{function.name} returned {len(raw)} ABI bytes, expected {expected_length}"
+        )
+    if not fixed_width and (not raw or len(raw) % 32):
+        raise RangeCaptureRefused(
+            f"{function.name} returned {len(raw)} ABI bytes, not whole words"
         )
     try:
         return abi_decode(function.output_types, raw, strict=True)

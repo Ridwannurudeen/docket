@@ -33,12 +33,21 @@ def test_rehearsal_runs_the_complete_production_evidence_path(tmp_path):
     assert rehearsal.SPEC_ID not in scoring.FAMILY_PROTOCOLS
     assert set(payload) == {"version", "states", "summary", "families"}
     assert payload["version"] == "v3"
-    assert payload["summary"] == {
+    summary = dict(payload["summary"])
+    one_page = summary.pop("one_page")
+    assert summary == {
         "n_families": 1,
         "states": {report.NOT_REFUTED: 1},
         "refuted": [],
         "not_refuted": [rehearsal.SPEC_ID],
     }
+    # The one-page table always covers the committed v1 and v2 artifacts as well, so its
+    # row count is those plus this scratch family. It computes no verdict for any of them.
+    assert one_page["verdict"] is None
+    assert one_page["n_rows"] == len(one_page["rows"])
+    assert [row["task"] for row in one_page["rows"] if row["version"] == "v3"] == [
+        rehearsal.SPEC_ID
+    ]
 
     family = payload["families"][0]
     assert family["spec_id"] == rehearsal.SPEC_ID
@@ -108,12 +117,18 @@ def test_warden_rehearsal_locks_and_scores_all_slots_without_consuming_registrat
     )
     assert rehearsal.WARDEN_SPEC_ID not in spec_module.INPUT_VALIDATORS
     assert rehearsal.WARDEN_SPEC_ID not in scoring.FAMILY_PROTOCOLS
-    assert payload["summary"] == {
+    summary = dict(payload["summary"])
+    one_page = summary.pop("one_page")
+    assert summary == {
         "n_families": 1,
         "states": {report.NOT_REFUTED: 1},
         "refuted": [],
         "not_refuted": [rehearsal.WARDEN_SPEC_ID],
     }
+    assert one_page["verdict"] is None
+    assert [row["task"] for row in one_page["rows"] if row["version"] == "v3"] == [
+        rehearsal.WARDEN_SPEC_ID
+    ]
     family = payload["families"][0]
     assert family["state"] == report.NOT_REFUTED
     assert family["calibration"]["all_seats_qualified"] is True

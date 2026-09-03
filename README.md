@@ -47,13 +47,13 @@ exact inputs were locked, so neither arm ran.
   retry and substitution are forbidden, so rubric quality is permanently unscored.
   Frozen-label formulas put Warden recall at 4/8 (0.50) versus manual 6/8 (0.75) and
   record three Warden critical failures. `v3-04-warden-security` is therefore
-  `complete_unscored`, not a scored performance result. At the committed-artifact observation
-  on 2026-08-29, the committed v3 artifacts contain 7 families: `v3-02-yield-router` is
-  `abandoned_after_failed_primary`; `v3-04-warden-security` is `complete_unscored`;
-  `v3-05-range-doctor` is `locked_not_run`; `v3-06-yield-router-assisted` and
-  `v3-07-range-doctor` are
-  `registered_waiting_for_inputs`; `v3-01-range-doctor` and `v3-03-warden-security` are
-  `superseded_before_input_lock`.
+  `complete_unscored`, not a scored performance result. At the committed-artifact
+  observation on 2026-08-29, the committed v3 artifacts contain 9 families:
+  `v3-02-yield-router` is `abandoned_after_failed_primary`; `v3-04-warden-security` is
+  `complete_unscored`; `v3-05-range-doctor` is `locked_not_run`;
+  `v3-06-yield-router-assisted` and `v3-07-range-doctor` and `v3-08-yield-router` and
+  `v3-09-health-guard` are `registered_waiting_for_inputs`; `v3-01-range-doctor` and
+  `v3-03-warden-security` are `superseded_before_input_lock`.
 - The controlled LP record links an Aug 24 `WAIT` decision to one prior and three later
   observations, but it proves neither causal improvement nor realized return.
 

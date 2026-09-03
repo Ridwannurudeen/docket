@@ -82,7 +82,7 @@ nondeterministic.
 The VPS release is a copied tree under `/opt/docket`, not a Git checkout. Build the release
 bundle outside the checkout, then run the following from Git Bash. The tar stream carries the
 generated manifest and wheel plus the complete `deploy/` directory, including the hashed
-runtime lock and all fifteen tracked unit files.
+runtime lock and all seventeen tracked unit files.
 
 ```bash
 bundle=$(realpath /path/outside/checkout/docket-release)
@@ -100,7 +100,7 @@ ssh <deploy-user>@<host> \
 `preflight.sh` requires `nginx -t` to exit successfully, print `test is successful`, and
 emit exactly the operator-supplied number of lines containing the fixed `[warn]` token, whether
 nginx uses timestamped error-log or `nginx: [warn]` form. It also requires at least 2 GiB free
-under `/opt`, verifies all fifteen tracked units with `systemd-analyze verify`, and prints the
+under `/opt`, verifies all seventeen tracked units with `systemd-analyze verify`, and prints the
 current journal disk use. It never edits or reloads nginx. The tracked rate-limit example is
 still an owner-reviewed, separately applied nginx change.
 

@@ -28,6 +28,7 @@ from . import runner
 from .spec import (
     PairedSpec,
     assert_runnable,
+    is_health_family,
     is_range_family,
     is_range_successor_family,
     is_warden_family,
@@ -53,6 +54,22 @@ YIELD_FIELDS = (
     "rates",
     "scenario",
     "decision",
+    "limitations",
+)
+
+# The Health projection keeps Venus's own two figures and the ratio derived from them in
+# separate fields, because that separation is the whole point of the service: `venus` is
+# what the comptroller published and `derived_ratio` is what Docket computed from it. A
+# projection that merged them would let an answer that invented a health factor score the
+# same as one that derived a collateral ratio and said so.
+HEALTH_FIELDS = (
+    "account",
+    "observation",
+    "status",
+    "venus",
+    "derived_ratio",
+    "cross_check",
+    "markets",
     "limitations",
 )
 
@@ -133,6 +150,27 @@ FAMILY_PROTOCOLS = {
         "fields": RANGE_FIELDS,
         "family_salt": "range-v7-blinding",
         "service_literals": ("Range Doctor", "range-doctor", "range_doctor"),
+    },
+    "v3-08-yield-router": {
+        "normalisation_version": (
+            "yield.v1: sources, universe, rates, scenario, decision, limitations"
+        ),
+        "fields": YIELD_FIELDS,
+        "family_salt": "yield-v8-blinding",
+        "service_literals": ("Yield Router", "yield-router", "yield_router"),
+    },
+    "v3-09-health-guard": {
+        "normalisation_version": (
+            "health.v1: account, observation, status, venus, derived_ratio, cross_check, "
+            "markets, limitations"
+        ),
+        "fields": HEALTH_FIELDS,
+        "family_salt": "health-v9-blinding",
+        "service_literals": (
+            "Venus Health Guard Preview",
+            "health-guard",
+            "health_guard",
+        ),
     },
 }
 
@@ -359,6 +397,54 @@ def _yield_projection(body: dict) -> dict:
     }
 
 
+def _health_projection(body: dict) -> dict:
+    if all(field in body for field in HEALTH_FIELDS):
+        return body
+    account = body.get("account") if isinstance(body.get("account"), dict) else {}
+    assessment = (
+        body.get("assessment") if isinstance(body.get("assessment"), dict) else {}
+    )
+    venus = assessment.get("venus") if isinstance(assessment.get("venus"), dict) else {}
+    return {
+        "account": body.get("address") or assessment.get("address"),
+        "observation": {
+            "block": assessment.get("as_of_block") or account.get("as_of_block"),
+            "complete": account.get("complete"),
+            "markets_listed": account.get("markets_listed"),
+            "markets_entered": account.get("markets_entered"),
+            "oracle": account.get("oracle"),
+        },
+        "status": {
+            "status": assessment.get("status"),
+            "status_means": assessment.get("status_means"),
+            "status_vocabulary": assessment.get("status_vocabulary"),
+        },
+        "venus": venus,
+        "derived_ratio": {
+            "weighted_collateral_usd": assessment.get("weighted_collateral_usd"),
+            "borrowed_usd": assessment.get("borrowed_usd"),
+            "collateral_ratio": assessment.get("collateral_ratio"),
+            "collateral_ratio_scale": assessment.get("collateral_ratio_scale"),
+            "collateral_ratio_method": assessment.get("collateral_ratio_method"),
+            "collateral_ratio_is_derived": assessment.get(
+                "collateral_ratio_is_derived"
+            ),
+        },
+        "cross_check": assessment.get("cross_check"),
+        "markets": account.get("rows"),
+        "limitations": [
+            value
+            for value in (
+                venus.get("publishes_note"),
+                account.get("note"),
+                body.get("why_not_submitted"),
+                body.get("note"),
+            )
+            if value is not None
+        ],
+    }
+
+
 def _warden_projection(body: dict, case: dict | None) -> dict:
     verdict = body.get("verdict")
     if "effective_text" in body:
@@ -391,6 +477,8 @@ def _project_output(spec: PairedSpec, raw_output, case: dict | None) -> dict:
         projected = _range_projection(body)
     elif is_yield_family(spec):
         projected = _yield_projection(body)
+    elif is_health_family(spec):
+        projected = _health_projection(body)
     else:
         projected = _warden_projection(body, case)
     return projected
@@ -722,6 +810,25 @@ def _valid_completed_output(
             or not _yield_partition_matches(projection, inputs)
             or not isinstance(projection.get("decision"), dict)
             or projection["decision"].get("move_or_stay") not in {"MOVE", "STAY"}
+        ):
+            return False
+    if (
+        is_health_family(spec)
+        and case is not None
+        and {"account", "observation_block", "truth"} <= set(case)
+    ):
+        observation = projection.get("observation")
+        status = projection.get("status")
+        if not all(isinstance(value, dict) for value in (observation, status)):
+            return False
+        # The registered question names one account at one block. An answer about the same
+        # account at a later block is a different observation, not a worse answer, so it is
+        # not a valid completed output here.
+        if (
+            str(projection.get("account") or "").lower() != case["account"]
+            or observation.get("block") != case["observation_block"]
+            or status.get("status")
+            not in spec.case_selection["frame_definition"]["status_vocabulary"]
         ):
             return False
     return all(_has_substance(value) for value in projection.values())

@@ -1,0 +1,217 @@
+{
+  "arms": {
+    "agent": {
+      "display_name": "Deployed Health Guard",
+      "what_is_recorded": "Harness timing, the receipt's actual free-tier or settled payment status and any amount and asset present, input and output hashes, the complete response, and every timeout, error, empty result or wrong-block result exactly as returned.",
+      "what_it_does": "One public-endpoint hire for exactly the frozen account at the registered observation block, with the registered trigger. The response must describe that account at that block. A response about the same account at a different block is a different observation, not a worse answer, and is recorded under the blocked-contract rule rather than scored.",
+      "who_runs_it": "The harness against the deployed public service. It owns the clock and validates the returned address and evidence block against the frozen case before an output can be a valid completed pair; it does not call the Health Guard in process."
+    },
+    "manual": {
+      "display_name": "Human operator",
+      "what_is_recorded": "Harness timing, every frozen row consulted, the complete arithmetic, the final status, ratio and cross-check, and every timeout, error or unanswered field.",
+      "what_it_does": "Answer the identical frozen account from the pinned frame evidence: state Venus's own liquidity and shortfall with the call that produced them, derive the collateral ratio from the per-market snapshot, collateral factor and oracle price rows, cross-check the derived headroom against Venus's own, and classify the account's status.",
+      "who_runs_it": "One human operator, the owner, with neither Docket nor any agent output visible. The harness reveals one case at a time, owns the clock and accepts one final answer. The operator is not an independent party and no independence is claimed."
+    }
+  },
+  "case_selection": {
+    "chosen_by": "After this stage-one protocol hash exists and is committed, read the registered Borrow logs in registered fixed-size chunks over the registered window, take the distinct borrower addresses, remove the registered experiment-party wallets before any balance is read, and read every remaining account's entered markets, comptroller liquidity, per-market snapshot, collateral factor and oracle price once at the pinned block hash. Derive each account's status by the registered formula, then choose the lowest registered selection hash in each of the three ordered strata. No arm runs unless all three strata are nonempty. The derivation is registered before it is derived, and the eligible account count is not knowable until the frame has been collected.",
+    "conflict_exclusion": {
+      "excluded_reason": "experiment_party_controlled",
+      "wallets": [
+        "0xe55816904796341bf8535e25f6c8b647927fc946"
+      ]
+    },
+    "excluded": "A registered experiment-party wallet is removed before any balance is read and can never fill a stratum; it is published in the frame's conflict list so the removal is visible rather than silent. A missing or failed pinned call, a changed block hash, an incomplete log window, a repeated entered market, a market the comptroller does not list, a changed enumeration rule, an empty stratum or a post-lock replacement invalidates the whole input lock. If a stratum is empty after exclusions, input lock fails and this protocol must be recommitted with a new window before another frame is collected; no later block and no substitute frame may fill the gap.",
+    "frame_definition": {
+      "block_pin_endpoints": [
+        "https://bsc-dataseed.binance.org",
+        "https://bsc-dataseed1.defibit.io",
+        "https://bsc-dataseed2.defibit.io"
+      ],
+      "block_pin_rule": "The highest BSC block whose header timestamp is strictly earlier than 2026-09-03T00:00:00Z. Its number, hash and timestamp were read identically from every endpoint named in block_pin_endpoints before this file was written, so a reader can re-derive the pin without trusting the operator.",
+      "borrow_event": "Borrow(address,uint256,uint256,uint256)",
+      "borrow_topic": "0x13ed6866d4e1ee6da46f845c46d7e54120883d75c5ea9a2dacc1c4ca8984ab80",
+      "borrower_data_word": 0,
+      "chain_id": 56,
+      "complete_required": true,
+      "comptroller": "0xfd36e2c2a6789db23113685031d7f16329158384",
+      "enumeration_chunk_blocks": 2000,
+      "enumeration_from_block": 119427413,
+      "enumeration_to_block": 119627412,
+      "observation_block": 119627412,
+      "observation_block_hash": "0xbb5a6f67cb1e7ea06ec8472187dc8ee844ee9709d7a6d05142bea2a5b55ff78e",
+      "observation_time": "2026-09-02T23:59:59Z",
+      "rpc_failure_policy": "Each registered JSON-RPC call is made once against DOCKET_ARCHIVE_RPC. Any transport, JSON-RPC, ABI, pinned-header or completeness failure aborts the frame without substituting an endpoint or retrying a sampled call.",
+      "selection_rule": {
+        "digest": "SHA-256",
+        "order": "ascending_digest",
+        "preimage": "UTF8(stage_one_protocol_hash || '|56|' || lowercase(comptroller) || '|' || lowercase(account) || '|' || stratum_name)",
+        "take": "one_per_stratum"
+      },
+      "source_methods": [
+        "eth_blockNumber",
+        "eth_getBlockByNumber",
+        "eth_getLogs",
+        "getAssetsIn",
+        "getAccountLiquidity",
+        "markets",
+        "oracle",
+        "getAccountSnapshot",
+        "getUnderlyingPrice"
+      ],
+      "status_vocabulary": [
+        "borrowing_with_headroom",
+        "no_position",
+        "shortfall",
+        "supplied_no_borrow",
+        "unreadable"
+      ],
+      "strata": [
+        {
+          "definition": "The comptroller reports a shortfall above zero, which is Venus's own statement that the account is liquidatable at this block.",
+          "name": "shortfall"
+        },
+        {
+          "definition": "Something is owed and the comptroller reports liquidity rather than shortfall, so a collateral ratio has a denominator.",
+          "name": "borrowing_with_headroom"
+        },
+        {
+          "definition": "At least one market entered with a balance and nothing owed, so there is no ratio to state at all.",
+          "name": "supplied_no_borrow"
+        }
+      ],
+      "version": "health.venus-borrowers.v1",
+      "vtokens": [
+        "0xeca88125a5adbe82614ffc12d0db554e2e2867c8",
+        "0xfd5840cd36d94d7229439859c0112a4185bc0255"
+      ]
+    },
+    "population": "Every distinct borrower named by a Venus VToken Borrow log emitted by 0xeca88125a5adbe82614ffc12d0db554e2e2867c8 or 0xfd5840cd36d94d7229439859c0112a4185bc0255 between blocks 119427413 and 119627412 inclusive, read once at the pinned block hash. This is the set of accounts that borrowed USDC or USDT in that window, not every Venus borrower, not every Venus supplier, and not a sample of BSC lending as a whole. An account that borrowed earlier and never borrowed again inside the window is outside this frame by construction.",
+    "rule": "The UTF-8 input envelope binds this spec_id and stage_one_protocol_hash, one exact borrower-frame source, the complete eligible manifest, the conflict list and exactly three cases. Conflict classification uses the account address alone and happens before entered markets, balances, status or stratum are read. Within each stratum choose the minimum SHA-256(UTF8(stage_one_protocol_hash || '|56|' || lowercase(comptroller) || '|' || lowercase(account) || '|' || stratum_name)).",
+    "truth_source": "Pinned eth_call results at the registered block hash establish, for each account, the markets getAssetsIn reports it has entered, the comptroller's own (error, liquidity, shortfall) triple, and per entered market the vToken getAccountSnapshot balances and exchange rate, the comptroller's collateral factor and the oracle price. Everything else is derived here by the formula docket/agents/venus/guard.py applies and is labelled as derived: per entered market, weighted_collateral += vtoken_balance * exchange_rate / 1e18 * price / 1e18 * collateralFactor / 1e18 and borrowed += borrow_balance * price / 1e18, with truncating integer division throughout in the 1e18 USD scale Venus reports; collateral_ratio = weighted_collateral * 1e18 / borrowed only where something is owed. Venus publishes no health factor and no call here returns one. The derived headroom weighted_collateral - borrowed is compared against Venus's own liquidity - shortfall and the exact difference is published; one known systematic cause of a nonzero difference is minted VAI, which the comptroller counts on its borrow side and this per-market sum does not."
+  },
+  "category": "health factor",
+  "claim": "Across the three exact pinned-block cases, the median rubric total of the deployed Health Guard's hires is no lower than the human operator's, and the hired arm is materially faster under the registered complete-pair threshold: median paired saving at least 30.0 seconds and median agent/manual elapsed ratio at most 0.50. The comparison is about a derived collateral ratio and the figures it was derived from, because Venus publishes no health factor and neither arm can report one. It generalises no further than three accounts at one block answered once by one non-independent human operator.",
+  "execution_protocol": {
+    "agent_endpoint": "https://docket.gudman.xyz/hire/health-guard",
+    "agent_request_contract": "The harness derives the frozen account, the registered trigger shortfall, the registered observation block and the frozen frame source refs from the locked case. The endpoint must answer about that account at that block. A primary that reaches the endpoint without a settled receipt is published as it happened and is never resent.",
+    "agent_service_id": "health-guard",
+    "arm_block_order": "all_manual_primaries_then_all_agent_primaries",
+    "arm_block_order_reason": "Every manual primary is completed before any agent request is sent. Alternating within a pair would still let the operator carry a service answer into the next case, and an operator cannot un-see one.",
+    "arm_identities": {
+      "agent": {
+        "arm": "agent",
+        "authorization": "receipt_published_as_returned",
+        "display_name": "Deployed Health Guard",
+        "human": false,
+        "independent": false,
+        "kind": "public_endpoint_hire",
+        "settled_payment_assumed": false
+      },
+      "manual": {
+        "arm": "manual",
+        "display_name": "Human operator",
+        "human": true,
+        "independent": false,
+        "kind": "human_operator",
+        "operator": "owner"
+      }
+    },
+    "blinding_limitation": "The seed is public once inputs are locked, so the A/B assignment is reproducible and is NOT cryptographically unguessable. Blinding rests on each seat receiving an isolated, tool-free prompt carrying an opaque case label, the case's factual input/truth reference, the normalised A/B outputs and the rubric anchors, without the case id or arm mapping. It is prompt-level arm blinding and is not claimed as more.",
+    "blinding_parity": "even_a_is_agent",
+    "blinding_parity_note": "An arm_digest whose final byte is even maps A=agent and B=manual; odd maps A=manual and B=agent. Stated because the polarity is a free choice and an unregistered one is settled by whichever code runs first.",
+    "blinding_seed_recipe": "seed = SHA256( UTF8(stage_one_protocol_hash, with the 0x prefix) || UTF8(inputs_sha256, bare lowercase hex, no prefix) || UTF8(family_salt) ). arm_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"arm\")). order_digest = SHA256(seed as 32 RAW bytes || UTF8(case_id) || UTF8(\"order\")); cases are presented in ascending raw order_digest. Raw bytes, never the hex text, because the two hash differently and only one of them can be the registered one.",
+    "blocked_contract_rule": "At registration the deployed Health Guard reads Venus at its own head and accepts no observation block, so a response describing the frozen account at a later block does not answer the registered question. Such a primary is recorded as a blocked service contract: it is published exactly as it happened, it is not a rubric zero, and the family remains unscored rather than recording a task loss that did not occur. This is registered here, before any capability changes, so that a later endpoint that does accept the registered observation block is visibly a change to the service and not a change to this protocol.",
+    "normalisation_rule": "A deterministic projection into the registered fields, never a language model. It removes envelope metadata only, meaning tool and service names, HTTP metadata, receipts, prices, timings, transport hashes and presentation formatting, and substitutes registered service-name literals deterministically. Substantive prose is never paraphrased, and the untouched raw outputs are preserved beside the projection.",
+    "normalisation_version": "health.v1: account, observation, status, venus, derived_ratio, cross_check, markets, limitations",
+    "score_sheet_hash_recipe": "score_sheet_hash = canonical_hash(the parsed sheet) and raw_sheet_sha256 = SHA256 over the seat's untouched response bytes. Both are recorded; the parsed hash identifies what was scored and the raw hash checks that the preserved bytes decode to that parse. The A/B mapping is withheld until both seat artifacts exist and validate, then published in full. These ordinary files are not independently tamper-resistant.",
+    "sheets_per_seat": 1
+  },
+  "failure_policy": "Exactly one primary attempt is scheduled per case per arm. A timeout, technical error, or empty or malformed response is published, scores zero on every criterion, stays in the three-case quality and reliability denominators, and prevents the complete-pair speed limb. A blocked service contract is different: it means the registered agent arm could not be run at all, so it is published and the family remains unscored rather than recording a task loss that did not happen. Neither is ever replaced by a scored retry.",
+  "falsifier": "The quality limb is refuted if the hired arm's median rubric total is lower than the human operator's. The speed limb is refuted if any of the three pairs lacks two valid completed outputs, median(manual_seconds-agent_seconds) is below 30.0 seconds, or median(agent_seconds/manual_seconds) exceeds 0.50. A fast error cannot support speed. An answer that reports a health factor, or that repeats Venus's liquidity and shortfall without saying which of the figures beside them were derived here, receives no correctness credit for the number it printed.",
+  "inputs_ref": "docket/advantage/v3/inputs/09-health-accounts.json",
+  "inputs_sha256": "",
+  "measures": {
+    "cost": "Out-of-pocket amount and unit only: the receipt's actual charged amount, if any, plus any agent-arm gas and direct cash cost of manual tools. Health Guard's catalogue admission exposes no paid hire at registration, so a free-tier receipt records zero rather than an invented hire price. No hourly wage is invented and time is never converted into money.",
+    "time": "For each complete pair, d_i=manual elapsed seconds-agent elapsed seconds and r_i=agent/manual. Report every raw duration, both arm medians, median(d_i), median(r_i), timeout count and complete-pair count."
+  },
+  "n_planned": 3,
+  "protocol_correction": null,
+  "quality_rubric": {
+    "criteria": [
+      {
+        "name": "venus_own_figures_repeated_correctly",
+        "score_0_means": "Venus's liquidity or shortfall is absent, wrong, or presented as a health factor, or the stated address is not the frozen account.",
+        "score_1_means": "The exact account and both of Venus's figures are correct in the 1e18 USD scale, but the observation block is absent or wrong.",
+        "score_2_means": "Account, both figures and the observation block exactly match the frozen truth, but the call that produced them or the scale is not named.",
+        "score_3_means": "Account, liquidity, shortfall, error code, the observation block and the naming of comptroller.getAccountLiquidity and the 1e18 USD scale all exactly match the frozen truth."
+      },
+      {
+        "name": "ratio_is_derived_and_its_derivation_is_shown",
+        "score_0_means": "Where something is owed: no collateral ratio, a ratio outside exact equality with the frozen truth, or a figure presented as one Venus published. Where nothing is owed: a ratio is stated at all.",
+        "score_1_means": "The ratio exactly matches the frozen truth, or is correctly withheld where nothing is owed, but neither the formula nor the per-market inputs are shown.",
+        "score_2_means": "The ratio and its 1e18 scale are correct and the weighted collateral and borrowed totals exactly match the frozen truth, but at least one per-market input or the call that produced it is missing.",
+        "score_3_means": "Ratio, scale, both totals, every per-market balance, exchange rate, collateral factor and oracle price exactly match the frozen truth, each labelled with the call that produced it, and the answer says explicitly that the ratio was derived rather than read."
+      },
+      {
+        "name": "cross_check_against_venus",
+        "score_0_means": "No cross-check, or a stated derived or Venus headroom that does not exactly match the frozen truth.",
+        "score_1_means": "Both headroom figures exactly match the frozen truth but their difference is absent.",
+        "score_2_means": "Both headroom figures and their exact difference match the frozen truth, but the answer does not say whether the two are exactly equal.",
+        "score_3_means": "Both headroom figures, the exact difference and the exact-equality verdict match the frozen truth, and the answer names truncation and uncounted minted VAI as the causes a nonzero difference can have."
+      },
+      {
+        "name": "status_and_what_it_means",
+        "score_0_means": "No status, or a status that does not match the frozen truth.",
+        "score_1_means": "The status matches the frozen truth but is not explained in terms of what Venus reported.",
+        "score_2_means": "The status matches and is explained, but the closed status vocabulary is absent or incomplete.",
+        "score_3_means": "The status matches, is explained in terms of Venus's own figures, and the complete five-value status vocabulary is stated."
+      },
+      {
+        "name": "coverage_and_limits",
+        "score_0_means": "The answer claims Venus publishes a health factor, claims a liquidation was prevented or avoided, or states none of the registered limits.",
+        "score_1_means": "It says Venus publishes no health factor, and states no other registered limit.",
+        "score_2_means": "It also says the rows are the entered markets getAssetsIn reports and not every market on Venus, but omits the minted-VAI gap or the single-block bound.",
+        "score_3_means": "It states every limit: Venus publishes no health factor, the rows are the entered markets only, minted VAI is a debt this derivation does not count, and every figure describes one pinned block rather than a condition that persists."
+      }
+    ],
+    "scale": "0-3 per criterion, summed per output. Only the criterion-specific factual anchors below assign 0, 1, 2 or 3; an answer earns nothing for printing a number under the heading this category is named after."
+  },
+  "question": "On three deterministically selected Venus Core Pool accounts drawn from a registered borrower frame pinned at BSC block 119627412, does a human operator or a hire of the deployed Health Guard produce the better answer about that account's lending condition, and how much operator time does the hire save?",
+  "registration_provenance": "Git history is the registration witness: the first commit containing this exact v3-09 stage-one protocol hash establishes that this family predates its frame collection, its input lock and every arm output. This is a newly registered family and not a successor: it corrects no unlocked draft, answers no published ledger, and carries no protocol_correction, pilot_provenance or successor_provenance. Block 119627412 was fixed by a read-only public rule before this file was written, namely the highest BSC block whose header timestamp is strictly earlier than 2026-09-03T00:00:00Z, and its number, hash and timestamp were read identically from the three independent public BSC endpoints named in case_selection.frame_definition.block_pin_endpoints, so a reader can re-derive the pin without trusting the operator. The frame this pin defines is deterministic history and buys no foreknowledge: it is registered here as not having been read before this commit, and the enumeration rule, the window, the chunk size, the conflict list, the strata and the selection hash are all fixed before the first log is fetched, so the eligible account count and every account's status are unknown at registration. No independently attested timestamp exists, no wall-clock registration time is claimed inside this file, and git cannot attest that no off-repository draft existed.",
+  "scoring": {
+    "blinded": true,
+    "calibration": "Before input lock, the owner publishes one v3-09-bound SHA-256-bound base64 UTF-8 JSON answer key for exactly eight Venus cases. Its literal per-market balances, exchange rates, collateral factors, oracle prices and comptroller figures must cover a shortfall, a borrowing account with headroom and at least one state that has no ratio at all; the lock recomputes every expected status, weighted collateral, borrowed total, collateral ratio and cross-check from the registered formula. For each model seat, the input envelope publishes the exact model and build, session id, canonical hash of the registered objective rubric anchors and all eight structured responses. Each seat must exactly match at least seven complete canonical answers. The lock rejects invented answer-key values and computes the pass count from the published responses. This proves calibration against the published key, not evaluator independence.",
+    "disagreement": "Both per-criterion sheets are published. Scores are averaged per criterion; a gap of 2 or more is flagged and quoted, never resolved by a post-output adjudicator. If either named seat does not submit, the family remains unscored.",
+    "evaluator_roster": [
+      {
+        "evaluator_id": "seat-a"
+      },
+      {
+        "evaluator_id": "seat-b"
+      }
+    ],
+    "evaluators": 2,
+    "randomisation": "After input lock, seed=SHA-256(stage_one_protocol_hash || inputs_sha256 || 'health-v9-blinding'). Per case, SHA-256(seed || case_id || 'arm') parity assigns agent and manual to A and B; sorting SHA-256(seed || case_id || 'order') fixes case order. The harness removes tool names, timings, prices, receipts and formatting tells. Each model prompt receives the frozen task and truth under only the opaque case label, plus A and B outputs; it withholds the original case id, arm mapping and other sheet until both sheet hashes are submitted. This is prompt-level arm blinding; operator independence is not claimed.",
+    "selection_rule": "One operator runs the two fixed model seats identified here for the owner. They are not independent evaluators and no independent-party scoring is claimed. The calibration answer key, both model calibration response sets and both final per-criterion score sheets are published so a reader can recompute the checks. No substitution is permitted after any case output exists; a missing sheet leaves the report unscored."
+  },
+  "spec_hash": "0xa0dfeb40bfcbe9a8747f70fe830cda12b91f825d7886dfb0889d7e5c264b1815",
+  "spec_id": "v3-09-health-guard",
+  "speed_threshold": {
+    "formula": "For the three valid complete pairs, d_i=manual_seconds-agent_seconds and r_i=agent_seconds/manual_seconds; compute median(d_i) and median(r_i).",
+    "material_if": "All three pairs have valid completed outputs, median(d_i) is at least 30.0 seconds, and median(r_i) is at most 0.50. All conditions are conjunctive.",
+    "maximum_median_agent_to_manual_ratio": 0.5,
+    "minimum_median_seconds_saved": 30.0,
+    "requires_complete_pairs": true
+  },
+  "stage_one_protocol_hash": "0x5c5dc57de1e640d0c79d017e3c5d5dafdbe3ee1057b746ae3bf9940c177bf9f6",
+  "stopping_rule": "Schedule exactly three frozen primary agent hires and three manual answers, once each. Each primary ends in a schema-valid first accepted answer, timeout at 1,200 seconds, technical error, empty or malformed output, or a blocked service contract. Stop only after all six primary attempts have terminal records. The runner API refuses a scored retry or a replacement case or source; secondary diagnostics never substitute.",
+  "timing": {
+    "clock": "The harness owns a monotonic_ns clock and serializes each read/check/append transaction for both arms; the resulting UTC event log remains an ordinary editable file.",
+    "interruptions": "The clock never pauses. Loading, reading, research, arithmetic, corrections, network waits and interruptions remain inside elapsed time; nothing is subtracted after the fact. Breaks occur only between cases.",
+    "operator_control": "The manual operator cannot start, stop, pause or edit the clock. The harness reveals the case and accepts one final submission through an API that refuses a replacement.",
+    "start_event": "Agent: immediately before the public request is sent. Manual: when the harness first reveals the frozen account tuple and its pinned frame rows.",
+    "stop_event": "Agent: after the complete response and receipt validate, or at terminal failure. Manual: when the first accepted final answer is submitted, or at terminal failure.",
+    "timeout_seconds": 1200
+  }
+}

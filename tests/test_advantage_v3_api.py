@@ -45,6 +45,8 @@ def test_the_current_surface_shows_the_complete_unscored_family_and_never_says_p
         report.LOCKED_NOT_RUN,
         report.REGISTERED_WAITING,
         report.REGISTERED_WAITING,
+        report.REGISTERED_WAITING,
+        report.REGISTERED_WAITING,
     ]
     v4 = next(
         family

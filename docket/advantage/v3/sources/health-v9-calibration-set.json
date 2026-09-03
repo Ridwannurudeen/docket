@@ -1,0 +1,237 @@
+{
+  "authored_at": "2026-09-03",
+  "cases": [
+    {
+      "case_id": "h9-cal-01",
+      "expected": {
+        "borrowed_usd": "400000000000000000000",
+        "collateral_ratio": "2000000000000000000",
+        "derived_headroom_usd": "400000000000000000000",
+        "difference_usd": "0",
+        "exactly_equal": true,
+        "status": "borrowing_with_headroom",
+        "venus_headroom_usd": "400000000000000000000",
+        "weighted_collateral_usd": "800000000000000000000"
+      },
+      "input": {
+        "complete": true,
+        "error_code": 0,
+        "liquidity_usd": "400000000000000000000",
+        "markets": [
+          {
+            "borrow_balance": "400000000000000000000",
+            "collateral_factor_mantissa": "800000000000000000",
+            "exchange_rate_mantissa": "1000000000000000000",
+            "underlying_price_mantissa": "1000000000000000000",
+            "vtoken": "0xeca88125a5adbe82614ffc12d0db554e2e2867c8",
+            "vtoken_balance": "1000000000000000000000"
+          }
+        ],
+        "shortfall_usd": "0"
+      }
+    },
+    {
+      "case_id": "h9-cal-02",
+      "expected": {
+        "borrowed_usd": "1000000000000000000000",
+        "collateral_ratio": "800000000000000000",
+        "derived_headroom_usd": "-200000000000000000000",
+        "difference_usd": "0",
+        "exactly_equal": true,
+        "status": "shortfall",
+        "venus_headroom_usd": "-200000000000000000000",
+        "weighted_collateral_usd": "800000000000000000000"
+      },
+      "input": {
+        "complete": true,
+        "error_code": 0,
+        "liquidity_usd": "0",
+        "markets": [
+          {
+            "borrow_balance": "1000000000000000000000",
+            "collateral_factor_mantissa": "800000000000000000",
+            "exchange_rate_mantissa": "1000000000000000000",
+            "underlying_price_mantissa": "1000000000000000000",
+            "vtoken": "0xeca88125a5adbe82614ffc12d0db554e2e2867c8",
+            "vtoken_balance": "1000000000000000000000"
+          }
+        ],
+        "shortfall_usd": "200000000000000000000"
+      }
+    },
+    {
+      "case_id": "h9-cal-03",
+      "expected": {
+        "borrowed_usd": "0",
+        "collateral_ratio": null,
+        "derived_headroom_usd": "800000000000000000000",
+        "difference_usd": "0",
+        "exactly_equal": true,
+        "status": "supplied_no_borrow",
+        "venus_headroom_usd": "800000000000000000000",
+        "weighted_collateral_usd": "800000000000000000000"
+      },
+      "input": {
+        "complete": true,
+        "error_code": 0,
+        "liquidity_usd": "800000000000000000000",
+        "markets": [
+          {
+            "borrow_balance": "0",
+            "collateral_factor_mantissa": "800000000000000000",
+            "exchange_rate_mantissa": "1000000000000000000",
+            "underlying_price_mantissa": "1000000000000000000",
+            "vtoken": "0xeca88125a5adbe82614ffc12d0db554e2e2867c8",
+            "vtoken_balance": "1000000000000000000000"
+          }
+        ],
+        "shortfall_usd": "0"
+      }
+    },
+    {
+      "case_id": "h9-cal-04",
+      "expected": {
+        "borrowed_usd": "0",
+        "collateral_ratio": null,
+        "derived_headroom_usd": "0",
+        "difference_usd": "0",
+        "exactly_equal": true,
+        "status": "no_position",
+        "venus_headroom_usd": "0",
+        "weighted_collateral_usd": "0"
+      },
+      "input": {
+        "complete": true,
+        "error_code": 0,
+        "liquidity_usd": "0",
+        "markets": [],
+        "shortfall_usd": "0"
+      }
+    },
+    {
+      "case_id": "h9-cal-05",
+      "expected": {
+        "borrowed_usd": "400000000000000000000",
+        "collateral_ratio": null,
+        "derived_headroom_usd": "400000000000000000000",
+        "difference_usd": "0",
+        "exactly_equal": true,
+        "status": "unreadable",
+        "venus_headroom_usd": "400000000000000000000",
+        "weighted_collateral_usd": "800000000000000000000"
+      },
+      "input": {
+        "complete": false,
+        "error_code": 3,
+        "liquidity_usd": "400000000000000000000",
+        "markets": [
+          {
+            "borrow_balance": "400000000000000000000",
+            "collateral_factor_mantissa": "800000000000000000",
+            "exchange_rate_mantissa": "1000000000000000000",
+            "underlying_price_mantissa": "1000000000000000000",
+            "vtoken": "0xfd5840cd36d94d7229439859c0112a4185bc0255",
+            "vtoken_balance": "1000000000000000000000"
+          }
+        ],
+        "shortfall_usd": "0"
+      }
+    },
+    {
+      "case_id": "h9-cal-06",
+      "expected": {
+        "borrowed_usd": "400000000000000000000",
+        "collateral_ratio": "2000000000000000000",
+        "derived_headroom_usd": "400000000000000000000",
+        "difference_usd": "245",
+        "exactly_equal": false,
+        "status": "borrowing_with_headroom",
+        "venus_headroom_usd": "400000000000000000245",
+        "weighted_collateral_usd": "800000000000000000000"
+      },
+      "input": {
+        "complete": true,
+        "error_code": 0,
+        "liquidity_usd": "400000000000000000245",
+        "markets": [
+          {
+            "borrow_balance": "400000000000000000000",
+            "collateral_factor_mantissa": "800000000000000000",
+            "exchange_rate_mantissa": "1000000000000000000",
+            "underlying_price_mantissa": "1000000000000000000",
+            "vtoken": "0xeca88125a5adbe82614ffc12d0db554e2e2867c8",
+            "vtoken_balance": "1000000000000000000000"
+          }
+        ],
+        "shortfall_usd": "0"
+      }
+    },
+    {
+      "case_id": "h9-cal-07",
+      "expected": {
+        "borrowed_usd": "900000000000000000000",
+        "collateral_ratio": "888888888888888888",
+        "derived_headroom_usd": "-100000000000000000000",
+        "difference_usd": "50000000000000000000",
+        "exactly_equal": false,
+        "status": "shortfall",
+        "venus_headroom_usd": "-150000000000000000000",
+        "weighted_collateral_usd": "800000000000000000000"
+      },
+      "input": {
+        "complete": true,
+        "error_code": 0,
+        "liquidity_usd": "0",
+        "markets": [
+          {
+            "borrow_balance": "900000000000000000000",
+            "collateral_factor_mantissa": "800000000000000000",
+            "exchange_rate_mantissa": "1000000000000000000",
+            "underlying_price_mantissa": "1000000000000000000",
+            "vtoken": "0xfd5840cd36d94d7229439859c0112a4185bc0255",
+            "vtoken_balance": "1000000000000000000000"
+          }
+        ],
+        "shortfall_usd": "150000000000000000000"
+      }
+    },
+    {
+      "case_id": "h9-cal-08",
+      "expected": {
+        "borrowed_usd": "300000000000000000000",
+        "collateral_ratio": "2666666666666666666",
+        "derived_headroom_usd": "500000000000000000000",
+        "difference_usd": "0",
+        "exactly_equal": true,
+        "status": "borrowing_with_headroom",
+        "venus_headroom_usd": "500000000000000000000",
+        "weighted_collateral_usd": "800000000000000000000"
+      },
+      "input": {
+        "complete": true,
+        "error_code": 0,
+        "liquidity_usd": "500000000000000000000",
+        "markets": [
+          {
+            "borrow_balance": "0",
+            "collateral_factor_mantissa": "0",
+            "exchange_rate_mantissa": "1000000000000000000",
+            "underlying_price_mantissa": "1000000000000000000",
+            "vtoken": "0xfd5840cd36d94d7229439859c0112a4185bc0255",
+            "vtoken_balance": "500000000000000000000"
+          },
+          {
+            "borrow_balance": "300000000000000000000",
+            "collateral_factor_mantissa": "800000000000000000",
+            "exchange_rate_mantissa": "1000000000000000000",
+            "underlying_price_mantissa": "1000000000000000000",
+            "vtoken": "0xeca88125a5adbe82614ffc12d0db554e2e2867c8",
+            "vtoken_balance": "1000000000000000000000"
+          }
+        ],
+        "shortfall_usd": "0"
+      }
+    }
+  ],
+  "spec_id": "v3-09-health-guard"
+}
