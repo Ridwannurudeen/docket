@@ -83,6 +83,11 @@ DECREASE_LIQUIDITY_GAS = 250_000
 COLLECT_GAS = 200_000
 MINT_GAS = 600_000
 APPROVE_GAS = 60_000
+# A V2 exact-input swap settles well inside this. A v3 `exactInputSingle` that crosses
+# several initialised ticks costs more, and a leg that estimates above the ceiling is
+# refused by its own preflight rather than sent and reverted — the safe direction, but a
+# reset that stops being offered on a busy pool. Raise it if the v3 route starts refusing;
+# it is a ceiling on what may be spent, not an estimate of what will be.
 SWAP_GAS = 300_000
 # PancakeSwap V2 charges 25bps on every exact-input swap. The v3 pool the position lives
 # in charges its own fee tier instead, which is why the two venues are costed apart: a
@@ -780,7 +785,9 @@ def _economics(
     swap_notional = notional * SWAP_FRACTION
     # V2's 25bps, not the v3 tier: the leg is quoted on V2 first, and pricing a reset at
     # a 0.01% tier that is then executed against a 0.25% venue understates it fortyfold.
-    # `_prepare` re-tests this against the shortfall the venue actually quotes.
+    # This is the figure the decision to act is made on, before any venue has been chosen
+    # or any quote taken. `recost_swap` replaces it with the chosen venue's own cost once
+    # the leg has been priced, and the decision is re-tested against that.
     swap_usd = swap_notional * (V2_FEE_BPS + policy.max_slippage_bps) / 10_000
     total = gas_usd + swap_usd
     return {
@@ -799,6 +806,7 @@ def _economics(
         "swap_fraction": SWAP_FRACTION,
         "pool_fee_tier": fee,
         "swap_fee_bps_assumed": V2_FEE_BPS,
+        "required_slippage_bps": policy.max_slippage_bps,
         "swap_cost_usd": swap_usd,
         "total_cost_usd": total,
         "net_benefit_multiple": None if total <= 0 else recovery / total,
@@ -882,6 +890,55 @@ def swap_plan(
         }
     )
     return plan
+
+
+def recost_swap(economics: dict, *, venue: str, fee: int, shortfall_bps: int | None) -> dict:
+    """The same decision, priced at what the leg the executor actually built will cost.
+
+    `_economics` runs before a venue exists and assumes the worse of the two: V2's 25bps
+    plus the policy's slippage bound. Once `_choose_venue` has quoted the leg the real
+    cost is known — V2's fee plus the shortfall its own quote showed against the pool
+    price, or the pool's fee tier for a leg routed into the pool itself — and a reset
+    whose margin was thin can stop clearing the multiple it was authorised against.
+    Leaving the ex-ante figure in place would publish a cost nobody is going to pay and a
+    multiple computed from it.
+
+    A negative shortfall is a venue quoting better than the pool's own price, which is
+    possible and is not a discount anybody should bank: it is floored at zero.
+    """
+    if economics.get("total_cost_usd") is None:
+        return economics
+    notional = economics["swap_notional_usd"]
+    if venue == "v2":
+        bps = V2_FEE_BPS + max(int(shortfall_bps or 0), 0)
+    else:
+        # The leg trades in the position's own pool, so what it pays is that pool's fee
+        # tier. The price impact of a half-position against the liquidity it was part of
+        # is not read here and is not claimed to be zero; the floor the router enforces is
+        # what bounds it, and `cost_limitation` says so.
+        bps = fee / 100
+    swap_usd = notional * (bps + economics["required_slippage_bps"]) / 10_000
+    total = economics["gas_cost_usd"] + swap_usd
+    recosted = dict(economics)
+    recosted.update(
+        {
+            "swap_venue": venue,
+            "swap_fee_bps_charged": bps,
+            "swap_shortfall_bps": None if shortfall_bps is None else int(shortfall_bps),
+            "swap_cost_usd": swap_usd,
+            "total_cost_usd": total,
+            "net_benefit_multiple": (
+                None if total <= 0 else economics["projected_recovery_usd"] / total
+            ),
+            "recosted_from_assumption": {
+                "swap_fee_bps": economics["swap_fee_bps_assumed"],
+                "swap_cost_usd": economics["swap_cost_usd"],
+                "total_cost_usd": economics["total_cost_usd"],
+                "net_benefit_multiple": economics["net_benefit_multiple"],
+            },
+        }
+    )
+    return recosted
 
 
 def _unsimulated() -> dict:

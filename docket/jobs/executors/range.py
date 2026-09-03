@@ -53,6 +53,7 @@ from ...agents.pancake.keeper import (
     npm_approval_reader,
     npm_encoder,
     rebalance_calls,
+    recost_swap,
     swap_plan,
 )
 from ...agents.pancake.pools import PoolClient, is_plausible
@@ -77,13 +78,31 @@ CATEGORY = "rebalancing"
 # Which call each deferred one waits on. A call that spends tokens the close has not
 # released yet cannot be asked of the chain at this block, and naming what it waits on is
 # the difference between "not yet" and "no".
-_WAITS_ON = {
-    "session_balances_the_inventory_on_v2": "session_collects_to_fund_the_swap_and_the_mint",
-    "session_balances_the_inventory_on_v3": "session_collects_to_fund_the_swap_and_the_mint",
-    "session_mints_replacement_to_owner": (
-        "session_collects_to_fund_the_swap_and_the_mint and the swap that follows it"
-    ),
-}
+_COLLECT = "session_collects_to_fund_the_swap_and_the_mint"
+_SWAPS = (
+    "session_balances_the_inventory_on_v2",
+    "session_balances_the_inventory_on_v3",
+)
+
+
+def _waits_on(purpose: str, *, resuming: bool) -> str | None:
+    """Which call in this batch a call cannot be asked about ahead of, if any.
+
+    On a resumed batch the collect is not in the list at all — the session already holds
+    the inventory — so the swap has nothing to wait for and is put to the chain like any
+    other call. Deferring it against a call that is not there would report a preflight
+    nobody could ever satisfy, and would hide a swap that genuinely cannot land. The mint
+    still waits on the swap either way: it spends what the swap has not delivered yet.
+    """
+    if purpose in _SWAPS:
+        return None if resuming else _COLLECT
+    if purpose == "session_mints_replacement_to_owner":
+        return (
+            "the swap that precedes it"
+            if resuming
+            else f"{_COLLECT} and the swap that follows it"
+        )
+    return None
 # How long a prepared batch stays valid. Ten minutes is `venus/guard.py`'s own default and
 # is long enough for an owner to sign in a browser without being long enough for the price
 # the minimums were computed against to become historical.
@@ -349,6 +368,14 @@ class RangeKeeperExecutor:
 
         if decision.kind != "action":
             summary = decision.summary
+            if decision.evidence.get("resuming"):
+                held = decision.evidence["resuming"]["session_inventory"]
+                summary += (
+                    " This position is already burnt and its inventory is sitting in "
+                    f"Docket's session ({held['token0']} of token0, {held['token1']} of "
+                    "token1). It stays there until the reset completes or the session is "
+                    "revoked, which sweeps it back to you."
+                )
             # A staked position never reaches a diagnosis, so both keys are read
             # defensively rather than assumed.
             diagnosed = decision.evidence.get("diagnosis") or {}
@@ -455,6 +482,30 @@ class RangeKeeperExecutor:
                 block=read["observation_block"],
             )
         evidence["preflight"] = sim_evidence
+        # The decision was authorised against a cost assumed before any venue existed.
+        # Now that the leg has been priced, the same test is run again against what it
+        # will actually cost — a reset whose margin was thin can stop clearing the
+        # multiple its owner set, and acting on the ex-ante figure would be acting on a
+        # number nobody is going to pay.
+        economics = sim_evidence["economics"]
+        evidence["economics"] = economics
+        multiple = economics.get("net_benefit_multiple")
+        if multiple is not None and multiple < policy.min_net_benefit_multiple:
+            return Decision(
+                kind="alert",
+                summary=(
+                    f"Position {position['token_id']}'s reset is not offered at the venue "
+                    f"it would actually use: priced on "
+                    f"{economics.get('swap_venue', 'that venue')} the recovery covers the "
+                    f"cost {multiple:.2f} times against the "
+                    f"{policy.min_net_benefit_multiple:.2f} the policy requires, where the "
+                    "assumption it was authorised against cleared it."
+                ),
+                prepared=(),
+                evidence=evidence,
+                observed_at=read["observation_time"],
+                block=read["observation_block"],
+            )
         evidence["token_amounts"] = token_spend(prepared)
         # Per call as well as in total: `docket/jobs/tick.py` hands one mapping to
         # `execute` for every call in the batch and `SessionPolicy.allows` accumulates it
@@ -550,7 +601,7 @@ class RangeKeeperExecutor:
         reason = "every call whose preconditions hold at this block was accepted"
         simulated: list[PreparedCall] = []
         for call in calls:
-            waits_on = _WAITS_ON.get(call.purpose)
+            waits_on = _waits_on(call.purpose, resuming=resume)
             if waits_on is not None:
                 # It spends tokens the close has not released yet. Asking the chain would
                 # get TRANSFER_FROM_FAILED from a session holding nothing, which is a fact
@@ -582,6 +633,14 @@ class RangeKeeperExecutor:
                 "venue": venue_record,
                 "note": SWAP_NOTE,
             },
+            "economics": recost_swap(
+                decision.evidence["economics"],
+                venue=(swap or {}).get("venue", "none"),
+                fee=int(position["fee"]),
+                shortfall_bps=venue_record.get("v2_shortfall_bps"),
+            )
+            if swap is not None
+            else decision.evidence["economics"],
         }
 
     def _choose_venue(self, plan, *, pool, token0, token1, policy, fee, rpc):
@@ -636,7 +695,11 @@ class RangeKeeperExecutor:
                 "venue": "v2",
                 "token_in": plan["token_in"],
                 "amount_in": amount_in,
-                "min_output": int(quoted) * bound // 10_000,
+                # Floored against the pool's own price rather than against the venue's
+                # quote. The quote is already inside the bound, so `fair * bound` is the
+                # tighter of the two — and it is the number that does not move when the
+                # venue's own book does between the quote and the block this lands in.
+                "min_output": fair * bound // 10_000,
             }, record
         # The v3 leg trades in the position's own pool, so the pool's price IS the quote.
         # Its floor is that price less the pool's fee tier and the policy's bound, and the

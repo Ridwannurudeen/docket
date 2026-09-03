@@ -315,6 +315,30 @@ def _run_warden_scan(payload: dict) -> dict:
     return result | {"measured_value": _measured_value("warden-scan", elapsed)}
 
 
+def _observation_block(payload: dict) -> int | None:
+    """The block a caller pinned this read to, validated once for every service.
+
+    A paired experiment needs both arms answering about the same chain state, and "latest"
+    moves between them. v3-09 records an answer about a different block as a blocked
+    contract rather than a worse answer, so the block travels into every call rather than
+    being accepted and ignored.
+    """
+    raw = payload.get("observation_block")
+    if isinstance(raw, bool):
+        raise ValueError("observation_block must be a positive integer block number")
+    try:
+        block = None if raw is None else int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "observation_block must be a positive integer block number"
+        ) from exc
+    if block is not None and (
+        block <= 0 or (isinstance(raw, float) and raw != block)
+    ):
+        raise ValueError("observation_block must be a positive integer block number")
+    return block
+
+
 def _declared_number(payload: dict, field: str, *, allow_zero: bool) -> float | None:
     value = payload.get(field)
     if value is None:
@@ -423,20 +447,7 @@ def _run_range_doctor(payload: dict) -> dict:
     # A paired experiment needs both arms answering about the same chain state, and "latest"
     # moves between them. Without this the buyer can ask *what is true now* but not *what was
     # true at the moment we both looked*, and only the second is reproducible.
-    raw_block = payload.get("observation_block")
-    if isinstance(raw_block, bool):
-        raise ValueError("observation_block must be a positive integer block number")
-    try:
-        observation_block = None if raw_block is None else int(raw_block)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "observation_block must be a positive integer block number"
-        ) from exc
-    if observation_block is not None and (
-        observation_block <= 0
-        or (isinstance(raw_block, float) and raw_block != observation_block)
-    ):
-        raise ValueError("observation_block must be a positive integer block number")
+    observation_block = _observation_block(payload)
 
     snapshot_fields = ("pool_snapshot", "token_list_snapshot", "source_refs")
     supplied_snapshots = [payload.get(field) is not None for field in snapshot_fields]
@@ -570,30 +581,6 @@ def _run_grid_operator(payload: dict) -> dict:
     return GridPreview(plan, reader=reader, wallet=payload["wallet"]).preview(
         filled=filled
     )
-
-
-def _observation_block(payload: dict) -> int | None:
-    """The block a caller pinned this read to, validated the way the range read is.
-
-    A paired experiment needs both arms answering about the same chain state, and "latest"
-    moves between them. v3-09 records an answer about a different block as a blocked
-    contract rather than a worse answer, so the block travels into every call rather than
-    being accepted and ignored.
-    """
-    raw = payload.get("observation_block")
-    if isinstance(raw, bool):
-        raise ValueError("observation_block must be a positive integer block number")
-    try:
-        block = None if raw is None else int(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "observation_block must be a positive integer block number"
-        ) from exc
-    if block is not None and (
-        block <= 0 or (isinstance(raw, float) and raw != block)
-    ):
-        raise ValueError("observation_block must be a positive integer block number")
-    return block
 
 
 def _run_health_guard(payload: dict) -> dict:

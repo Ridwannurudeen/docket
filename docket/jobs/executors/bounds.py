@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 
 from web3 import Web3
 
+from ...sessions.policy import token_key
 from .allowlists import APPROVE
 from .base import BSC_CHAIN_ID, PreparedCall  # noqa: F401  BSC_CHAIN_ID re-exported
 
@@ -109,7 +110,21 @@ def approve_amount(data: str) -> int:
 
 
 def _same(left: str, right: str) -> bool:
-    return Web3.to_checksum_address(left) == Web3.to_checksum_address(right)
+    """Whether two entries name the same thing, in Lane B's spelling.
+
+    `token_key` rather than `to_checksum_address`, because a session's `token_allowlist`
+    and both cap maps legitimately carry the native key `"BNB"` — gas is a spend like any
+    other and `SessionPolicy.allows` folds it in under that name. Checksumming it raises,
+    and this walk sits in front of every send: a policy that happened to list "BNB" before
+    the token being checked would take the whole tick down rather than refuse a call, and
+    `tick.py` does not catch it. Anything that is neither an address nor the native key is
+    not equal to anything, which is the answer an allowlist should give for a value it
+    cannot read.
+    """
+    try:
+        return token_key(left) == token_key(right)
+    except ValueError:
+        return False
 
 
 def _listed(address: str, allowlist) -> bool:

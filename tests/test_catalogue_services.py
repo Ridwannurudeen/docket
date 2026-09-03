@@ -174,9 +174,21 @@ def test_the_health_guard_answers_about_the_block_it_was_asked_about():
         def preview(self, wallet, *, observation_block=None):
             seen["wallet"] = wallet
             seen["block"] = observation_block
+            # The real `preview()` shape, including the nested assessment block that
+            # Lane F's orchestrator reads the observed block out of. A fixture returning
+            # only the top-level key would let a route that never filled the nested one
+            # pass, and the harness would record a blocked contract instead.
             return {
+                "address": wallet,
                 "account": {"as_of_block": observation_block or 9, "address": wallet},
+                "assessment": {
+                    "address": wallet,
+                    "as_of_block": observation_block or 9,
+                    "status": "no_position",
+                },
+                "policy": {},
                 "actions": [],
+                "submitted": False,
             }
 
     import docket.agents.venus.guard as guard_module
@@ -200,6 +212,10 @@ def test_the_health_guard_answers_about_the_block_it_was_asked_about():
     assert result["as_of_block"] == 119_627_412
     assert result["address"] == CONTROLLED
     assert result["sources"] == refs
+    # Lane F's orchestrator reads the nested key, not only the top-level one.
+    assert result["assessment"]["as_of_block"] == 119_627_412
+    assert result["assessment"]["address"] == CONTROLLED
+    assert result["account"]["as_of_block"] == 119_627_412
 
 
 @pytest.mark.parametrize("bad", [0, -1, "latest", 1.5, True])

@@ -32,6 +32,7 @@ from docket.jobs.executors import EXECUTORS, Decision, PreparedCall, register
 from docket.jobs.executors.allowlists import defaults_for
 from docket.jobs.executors.bounds import (
     APPROVE_SELECTOR,
+    _same,
     approve_amount,
     parse_expiry,
     policy_field,
@@ -139,9 +140,16 @@ class _Eth:
                 return BALANCED0.to_bytes(32, "big") + BALANCED1.to_bytes(32, "big")
             return BURN0.to_bytes(32, "big") + BURN1.to_bytes(32, "big")
         if data.startswith((SWAP_SELECTOR, MINT_SELECTOR)):
-            # Nothing has been collected yet, so the session holds nothing to spend. This
-            # is the revert the deferral exists to keep out of a decision.
-            raise _Revert("TRANSFER_FROM_FAILED")
+            # Only a sender that already holds something can spend it. With no holdings
+            # the collect has not landed and the call reverts — the revert the deferral
+            # exists to keep out of a decision. On a resumed batch the session does hold
+            # the inventory, so the same call answers, which is what makes the resume path
+            # distinguishable here rather than passing for the same reason as the rest.
+            if not any(
+                amount for (_, who), amount in self._holdings.items() if who == sender
+            ):
+                raise _Revert("TRANSFER_FROM_FAILED")
+            return b""
         return b""
 
     def estimate_gas(self, tx):
@@ -529,7 +537,11 @@ def test_a_venue_quoting_far_below_the_pools_own_price_is_not_used():
     assert floor > fair * 70 // 100
 
 
-def test_a_venue_inside_the_bound_is_used_and_its_own_quote_is_the_floor():
+def test_a_venue_inside_the_bound_is_used_and_the_pools_price_is_still_the_floor():
+    """The venue is chosen on its quote; the floor is taken from the pool's own price.
+    A quote already inside the bound makes `fair * bound` the tighter of the two, and it
+    is the number that does not move when the venue's own book does between the quote and
+    the block the swap lands in."""
     quoted = QUOTED_OUT
     decision = _range(quotes=_Quotes(out=quoted)).evaluate(
         _activation(inputs=_range_inputs(), result=_observations(180)),
@@ -539,8 +551,9 @@ def test_a_venue_inside_the_bound_is_used_and_its_own_quote_is_the_floor():
     assert venue["venue"] == "v2"
     assert venue["v2_shortfall_bps"] == 10
     assert decision.evidence["preflight"]["amounts"]["swap"]["min_output"] == (
-        quoted * 9_950 // 10_000
+        FAIR_OUT * 9_950 // 10_000
     )
+    assert FAIR_OUT * 9_950 // 10_000 > quoted * 9_950 // 10_000
 
 
 def test_the_mint_is_funded_by_the_floor_the_swap_is_held_to():
@@ -850,7 +863,7 @@ def test_the_batch_declares_what_it_lets_the_session_spend_per_token():
     checked against and the bytes that do the spending cannot describe different things."""
     decision = _action()
     spend = decision.evidence["token_amounts"]
-    floor = QUOTED_OUT * 9_950 // 10_000
+    floor = FAIR_OUT * 9_950 // 10_000
     # token0 is approved twice — once to the router for the leg, once to the position
     # manager for the mint — and the declared spend is the sum of the two.
     assert spend == {TOKEN0: str(BURN0), TOKEN1: str(floor)}
@@ -968,29 +981,48 @@ def test_every_call_the_batch_sends_is_one_the_category_default_already_allows()
         }, call.purpose
 
 
-def test_the_v3_fallback_is_not_yet_covered_by_the_category_default():
-    """A known integration gap, pinned so it cannot be forgotten rather than discovered.
+def test_the_v3_fallback_needs_the_router_and_its_selector_in_the_category_default():
+    """The two entries Lane B is adding to `rebalancing`, asserted against the end state.
 
     The v3 leg exists because a pair can be untradeable on V2 — the fixture pair quotes 97%
-    down for a hundred units — but Lane B's default `rebalancing` policy names only the V2
-    router and its selector. A session granted the defaults would build the v3 batch and
-    then be refused by its own policy, which is the safe direction but not a working one.
-    Adding `V3_SWAP_ROUTER` and `exactInputSingle` to the table closes it; until then this
-    test says exactly what is missing.
+    down for a hundred units — so a session granted the defaults must be able to send it.
+    Marked `xfail(strict=True)`: it fails today for a reason named in the marker, and it
+    turns red the moment it starts passing, which is the day the marker must come off.
+    Lane B is also adding `exactInputSingle` to `spend.py MEASURED_SELECTORS`; without that
+    the leg's spend is charged as zero, and this file cannot assert it from here.
     """
     defaults = defaults_for("rebalancing")
     contracts = {Web3.to_checksum_address(a) for a in defaults["contract_allowlist"]}
-    assert V3_SWAP_ROUTER not in contracts
-    assert "0x414bf389" not in set(defaults["function_allowlist"])
-    # And the refusal is the one a reader would get, rather than a silent send.
-    fair = FAIR_OUT
-    decision = _range(quotes=_Quotes(out=fair * 70 // 100)).evaluate(
+    assert V3_SWAP_ROUTER in contracts, (
+        "allowlists.py must name the v3 SwapRouter for rebalancing"
+    )
+    assert "0x414bf389" in set(defaults["function_allowlist"]), (
+        "allowlists.py must name exactInputSingle for rebalancing"
+    )
+
+
+test_the_v3_fallback_needs_the_router_and_its_selector_in_the_category_default = (
+    pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "Lane B is adding V3_SWAP_ROUTER and 0x414bf389 to the rebalancing defaults "
+            "and exactInputSingle to spend.py MEASURED_SELECTORS. Until both land, a v3 "
+            "leg is built and then refused by the session's own policy, and its spend "
+            "would be charged as zero. Remove this marker when they land."
+        ),
+    )(test_the_v3_fallback_needs_the_router_and_its_selector_in_the_category_default)
+)
+
+
+def test_a_v3_routed_batch_is_refused_by_the_defaults_until_that_lands():
+    """The refusal a reader gets today, so the gap is visible rather than theoretical.
+    It asserts the shape of the answer either way, so it keeps passing once B lands."""
+    decision = _range(quotes=_Quotes(out=FAIR_OUT * 70 // 100)).evaluate(
         _activation(inputs=_range_inputs(), result=_observations(180)),
         reader=_Positions(),
     )
     assert decision.evidence["preflight"]["amounts"]["venue"]["venue"] == "v3"
-    # The fixture pair is not the table's USDT/WBNB, so those are added here to isolate
-    # the finding: the router is then the only thing the defaults do not name.
+    defaults = defaults_for("rebalancing")
     policy = dict(
         defaults,
         expires_at="2026-12-31T00:00:00Z",
@@ -1010,8 +1042,126 @@ def test_the_v3_fallback_is_not_yet_covered_by_the_category_default():
     ok, reason = _range().within_policy(
         _activation(inputs=_range_inputs(), policy=policy), decision
     )
-    assert ok is False
-    assert V3_SWAP_ROUTER in reason
+    if V3_SWAP_ROUTER in {
+        Web3.to_checksum_address(a) for a in defaults["contract_allowlist"]
+    }:
+        assert ok is True, reason
+    else:
+        assert ok is False
+        assert V3_SWAP_ROUTER in reason
+
+
+# --------------------------------------------------------- the native token key
+
+
+def test_a_policy_that_caps_gas_does_not_take_the_whole_tick_down():
+    """Gas is a spend like any other and `SessionPolicy.allows` folds it in under the
+    native key `"BNB"`, which is not an address. Checksumming it raises, and this walk sits
+    in front of every send with no try around it in `tick.py` — so a policy listing "BNB"
+    before the token being checked would take down every other owner's activation on the
+    same pass rather than refuse one call."""
+    decision = _action()
+    policy = _session_policy(
+        token_allowlist=["BNB", TOKEN0, TOKEN1],
+        per_action_limit_atomic={"BNB": 10**16, TOKEN0: 10**30, TOKEN1: 10**30},
+        total_cap_atomic={"BNB": 10**17, TOKEN0: 10**30, TOKEN1: 10**30},
+    )
+    ok, reason = _range().within_policy(
+        _activation(inputs=_range_inputs(), policy=policy), decision
+    )
+    assert ok is True, reason
+    assert _same("BNB", "BNB") is True
+    assert _same("BNB", TOKEN0) is False
+    assert _same("not-an-address", TOKEN0) is False
+
+
+# ------------------------------------------------- the cost the venue actually is
+
+
+def test_a_v2_and_a_v3_routed_reset_are_not_priced_the_same():
+    """`_economics` runs before a venue exists and assumes the worse of the two. Once the
+    leg is priced the real cost is known, and publishing the assumption instead would
+    publish a cost nobody is going to pay and a multiple computed from it."""
+    on_v2 = _range().evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(),
+    )
+    on_v3 = _range(quotes=_Quotes(out=FAIR_OUT * 70 // 100)).evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(),
+    )
+    assert on_v2.kind == on_v3.kind == "action"
+    v2 = on_v2.evidence["economics"]
+    v3 = on_v3.evidence["economics"]
+    assert v2["swap_venue"] == "v2" and v3["swap_venue"] == "v3"
+    # V2 pays its own 25bps plus the shortfall its quote showed; the v3 leg pays the
+    # pool's 0.01% tier, which is twenty-five times less.
+    assert v2["swap_fee_bps_charged"] == 25 + v2["swap_shortfall_bps"]
+    assert v3["swap_fee_bps_charged"] == POSITION["fee"] / 100 == 1.0
+    assert v3["swap_cost_usd"] < v2["swap_cost_usd"]
+    assert v3["net_benefit_multiple"] > v2["net_benefit_multiple"]
+    # Both carry what they were authorised against, so the change is auditable.
+    assert v2["recosted_from_assumption"]["swap_fee_bps"] == 25
+    assert v3["total_cost_usd"] != v3["recosted_from_assumption"]["total_cost_usd"]
+
+
+def test_a_reset_that_stops_clearing_its_multiple_at_the_real_venue_is_not_offered():
+    """The decision was authorised against an assumed cost. A venue quoting worse can push
+    the real cost past the multiple its owner set, and acting on the assumption would be
+    acting on a number nobody is going to pay."""
+    # The multiple the decision was AUTHORISED against — computed before a venue existed,
+    # from V2's fee plus the policy's bound and no shortfall at all.
+    assumed = _action().evidence["economics"]["recosted_from_assumption"][
+        "net_benefit_multiple"
+    ]
+    # A policy set exactly at it: the assumption clears by a hair, and the shortfall the
+    # venue's own quote shows is enough to put the real cost past it.
+    decision = _range().evaluate(
+        _activation(
+            inputs=_range_inputs(min_net_benefit_multiple=assumed),
+            result=_observations(180),
+        ),
+        reader=_Positions(),
+    )
+    assert decision.kind == "alert"
+    assert decision.prepared == ()
+    assert "is not offered at the venue it would actually use" in decision.summary
+    assert decision.evidence["economics"]["net_benefit_multiple"] < assumed
+    assert decision.evidence["economics"]["swap_shortfall_bps"] > 0
+
+
+def test_a_refused_resume_says_where_the_money_is():
+    """A burnt position whose inventory sits in Docket's session is not a quiet noop. An
+    owner reading "no reset is offered" has to be told the tokens are not where they were."""
+    holdings = {(TOKEN0, SESSION): BURN0, (TOKEN1, SESSION): 0}
+    decision = _range(rpc=_Rpc(holdings=holdings)).evaluate(
+        _activation(
+            inputs=_range_inputs(min_net_benefit_multiple=10_000.0),
+            result=_observations(180),
+        ),
+        reader=_Positions(position=dict(POSITION, liquidity=0)),
+    )
+    assert decision.kind == "alert"
+    assert "already burnt" in decision.summary
+    assert "sitting in Docket's session" in decision.summary
+    assert "revoked, which sweeps it back to you" in decision.summary
+
+
+def test_a_resumed_swap_waits_on_nothing_because_the_collect_is_not_in_the_batch():
+    """Deferring against a call that is not in the list would report a preflight nobody
+    could satisfy, and would hide a swap that genuinely cannot land."""
+    holdings = {(TOKEN0, SESSION): BURN0, (TOKEN1, SESSION): 0}
+    decision = _range(rpc=_Rpc(holdings=holdings)).evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(position=dict(POSITION, liquidity=0)),
+    )
+    assert decision.kind == "action"
+    swap = decision.prepared[1]
+    assert swap.purpose == "session_balances_the_inventory_on_v2"
+    assert swap.simulation["ok"] is True
+    mint = decision.prepared[4]
+    assert mint.simulation["ok"] is None
+    assert mint.simulation["revert_reason"] == "deferred: depends on the swap that precedes it"
 
 
 # ------------------------------------------------------- the tick loop's reader
