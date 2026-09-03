@@ -10,6 +10,7 @@ import * as api from "./api.js?v=13";
 import * as wallet from "./wallet.js?v=13";
 import {
   DASH,
+  IN_FLIGHT_STATES,
   TERMINAL_STATES,
   escapeHTML,
   receiptBlock,
@@ -97,6 +98,10 @@ function nextRun(activation) {
    predicted is a defect in the page. */
 function controlsFor(activation) {
   const controls = [];
+  /* A sweep already in flight takes no further instruction: revoking again would ask for
+     a signature over a transition the server is bound to refuse, and a refusal the page
+     could have predicted is a defect in the page. The row still says what is happening. */
+  if (IN_FLIGHT_STATES.has(activation.state)) return controls;
   if (activation.kind === "persistent") {
     if (activation.state === "active") controls.push(["pause", "Pause"]);
     if (!TERMINAL_STATES.has(activation.state))
@@ -240,7 +245,7 @@ async function runControl(activationId, action) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const nonce = activation.auth_nonce;
     const signature = await wallet.personalSign(
-      api.actionMessage(activationId, action, nonce),
+      api.authMessage(activation, action),
       state.account,
     );
     try {

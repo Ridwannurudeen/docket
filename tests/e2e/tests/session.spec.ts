@@ -324,7 +324,7 @@ test("signing a prepared call binds it to the activation with the owner's signat
   expect(approves).toHaveLength(2);
   const bound = JSON.parse(approves[1]);
   expect(bound.tx_hash).toMatch(/^0x[0-9a-f]{64}$/);
-  expect(bound.payment_header).toBeUndefined();
+  expect(bound.payment_id).toBeUndefined();
   expect(bound.nonce).toBe(needs.auth_nonce);
   expect(bound.owner_signature).toMatch(/^0x[0-9a-f]{130}$/);
 });

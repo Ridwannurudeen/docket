@@ -141,12 +141,22 @@ test("an agent name and description in search reach the page as text", async ({
       name: `Somebody Else's Agent ${PAYLOAD}`,
       description: `Does things. ${PAYLOAD}`,
       category: `rebalancing ${PAYLOAD}`,
-      service_id: null,
-      verification: { level: "registered", evidence: [], verified_at: null },
+      capability_source: `provider_declared ${PAYLOAD}`,
+      capabilities: `Does things. ${PAYLOAD}`,
+      endpoints: [{ kind: `a2a ${PAYLOAD}`, url: `https://example.invalid/${PAYLOAD}` }],
+      price: `0.50 ${PAYLOAD}`,
+      verification: {
+        level: "registered",
+        payment_tested: false,
+        payment_tested_evidence: null,
+        evidence: [{ level: `live ${PAYLOAD}`, ok: false, at: "2026-09-03T09:00:00Z" }],
+        verified_at: null,
+      },
+      hireable: false,
     },
   ]);
   await page.goto("/search");
-  await expect(page.locator(".result-row")).toBeVisible();
+  await expect(page.locator("[data-agent]")).toBeVisible();
 
   await assertRenderedAsText(page);
 });
@@ -158,16 +168,18 @@ test("a verification level Docket does not recognise cannot smuggle an attribute
     {
       agent_id: "56:0x8004:409",
       name: "Somebody Else's Agent",
-      service_id: null,
       verification: {
         level: `registered" onload="window.__pwned=true`,
+        payment_tested: false,
+        payment_tested_evidence: null,
         evidence: [],
         verified_at: null,
       },
+      hireable: false,
     },
   ]);
   await page.goto("/search");
-  await expect(page.locator(".verify-badge")).toBeVisible();
+  await expect(page.locator("[data-agent] .verify-badge").first()).toBeVisible();
 
   expect(await page.locator("[onload]").count()).toBe(0);
   expect(
@@ -179,16 +191,13 @@ test("a failed check's detail reaches the provider page as text", async ({
   page,
 }) => {
   await mockProviders(page, {
-    level: "endpoint_detected",
-    failedChecks: [
-      { name: `live_probe ${PAYLOAD}`, detail: `No answer. ${PAYLOAD}` },
-    ],
+    level: `endpoint_detected ${PAYLOAD}`,
+    evidence: [{ level: `live_probe ${PAYLOAD}`, ok: false, at: "2026-09-03T09:00:00Z" }],
   });
   await page.goto("/providers");
   await page.locator("#provider-agent").fill("311253");
   await page.getByRole("button", { name: "Connect wallet and claim" }).click();
   await page.locator("#listing-capabilities").fill("Rebalances ranges");
-  await page.locator("#listing-price").fill("500000000000000000");
   await page.getByRole("button", { name: "Publish listing" }).click();
   await expect(
     page.getByRole("heading", { name: "Listing status" }),

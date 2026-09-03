@@ -1,10 +1,16 @@
-/* Find agents: one search over Docket's own stock and the registry it observes, filtered by
-   job and by how far Docket has actually got with each one.
+/* Find agents: one search across two layers that this page never lets blur.
 
-   The verification level is the whole point of this page. A registry entry that nothing has
-   ever called is still shown, because hiding it would misrepresent what is out there — but
-   it is shown as `registered`, and the page says in as many words that Docket cannot run it.
-   The badge is a statement about Docket's evidence, never a rating of the agent. */
+   Docket's own services are work Docket runs. It holds the code, publishes a recorded run
+   behind each one, and sells them; they are the only things activatable from this site.
+   Everything at `/api/agents` is a third-party agent Docket observed in the ERC-8004
+   registry. Docket did not write those, its category for one carries the
+   `capability_source` that produced it, and being in a registry is not an offer.
+
+   Two facts travel with every third-party listing and neither is derived from the other.
+   The level says what Docket's evidence supports. `payment_tested` says whether a payment
+   challenge was ever exercised — `docket_tested` hangs off `live`, not off a payment, so
+   the level alone can never stand in for it. And whether Docket offers a listing at all is
+   the server's own `hireable`, read here and never recomputed. */
 
 import * as api from "./api.js?v=13";
 import {
@@ -23,6 +29,16 @@ const CATEGORIES = [
   ["yield_optimisation", "Routes liquidity to the highest APR"],
   ["health_factor", "Protects lending positions"],
 ];
+
+/* Where a third-party listing's category came from. A category Docket's own rule table
+   read out of capability text is a different claim from one the owner declared, and a page
+   that printed both the same way would be inventing agreement between them. */
+const CAPABILITY_SOURCES = {
+  provider_declared: "the owner declared this category",
+  registration_metadata: "read from its on-chain registration",
+  docket_classified:
+    "Docket's printed rule table read this out of its capability text",
+};
 
 function readFilters() {
   const params = new URLSearchParams(window.location.search);
@@ -70,7 +86,7 @@ function paintControls(filters) {
       <div class="field">
         <label for="search-level">Verification, at least</label>
         <select id="search-level" name="level">
-          <option value="">Any level, including untested</option>
+          <option value="">Any level, including never observed</option>
           ${levels}
         </select>
       </div>
@@ -81,92 +97,87 @@ function paintControls(filters) {
     </form>`;
 }
 
-/* Docket-verified supply is activated here; a registry entry is read here and hired
-   somewhere else, if at all. Sending a reader to /activate for an agent Docket has never
-   run would be a purchase button over an unknown, which is the exact failure this whole
-   verification vocabulary exists to prevent. */
-function destination(agent) {
-  if (
-    agent.service_id &&
-    isHireable(agent.verification && agent.verification.level)
-  ) {
-    return {
-      href: `/activate?service=${encodeURIComponent(agent.service_id)}`,
-      label: "Activate",
-      hireable: true,
-    };
-  }
-  return {
-    href: `/agent?id=${encodeURIComponent(agent.agent_id)}`,
-    label: "Read what Docket observed",
-    hireable: false,
-  };
-}
+/* ---------------------------------------------------------------- the layers */
 
-function resultRow(agent) {
-  const verification = agent.verification || {};
-  const target = destination(agent);
-  const evidence = (verification.evidence || [])
-    .map((ref) =>
-      typeof ref === "string"
-        ? `<li>${escapeHTML(ref)}</li>`
-        : `<li><a href="${escapeHTML(ref.url || "#")}">${escapeHTML(ref.label || ref.kind || "record")}</a></li>`,
-    )
-    .join("");
-  return `<li class="result-row" data-agent="${escapeHTML(agent.agent_id)}">
+function docketRow(card) {
+  const href = `/activate?service=${encodeURIComponent(card.service_id)}`;
+  return `<li class="result-row" data-service="${escapeHTML(card.service_id)}">
       <div class="result-head">
-        <h3><a href="${escapeHTML(target.href)}">${escapeHTML(agent.name || "(no name)")}</a></h3>
-        ${verificationBadge(verification.level)}
+        <h3><a href="${escapeHTML(href)}">${escapeHTML(card.name)}</a></h3>
+        <span class="verify-badge" data-level="docket_run"
+          title="Docket runs this service itself and publishes the record behind it.">Docket runs this</span>
       </div>
-      <p class="dim">${escapeHTML(agent.description || agent.endpoint || "")}</p>
+      <p class="dim">${escapeHTML(card.what_you_get)}</p>
       <dl class="deflist">
-        <dt>Agent</dt><dd class="mono">${escapeHTML(agent.agent_id)}</dd>
-        <dt>Job</dt><dd>${escapeHTML(agent.category || "not one of the four jobs")}</dd>
-        <dt>Verified</dt><dd>${escapeHTML(timeAgo(verification.verified_at))}</dd>
+        <dt>Job</dt><dd>${escapeHTML(card.category_job || "Outside the four job categories")}</dd>
+        <dt>Price</dt><dd class="num">${escapeHTML(card.price_display)}</dd>
+        <dt>Paid stock</dt><dd>${escapeHTML(card.paid_stock ? "admitted" : card.stock_status)}</dd>
       </dl>
-      ${evidence ? `<ul class="facts">${evidence}</ul>` : ""}
       <p class="btn-row">
-        <a class="btn${target.hireable ? " btn-primary" : ""}" href="${escapeHTML(target.href)}">${escapeHTML(target.label)}</a>
-        ${
-          target.hireable
-            ? ""
-            : '<span class="dim">Docket has not run this agent, so it cannot be activated here.</span>'
-        }
+        <a class="btn btn-primary" href="${escapeHTML(href)}">Activate</a>
       </p>
     </li>`;
 }
 
-function paintResults(listing, filters) {
-  const agents = listing.agents || [];
-  const target = region("results");
-  if (!agents.length) {
-    target.innerHTML = `<div class="panel">
-        <h2>No agent matched</h2>
-        <p>Nothing in Docket's stock or in the registry slice it has swept matches
-          ${escapeHTML(describe(filters))}. A zero here is the answer, not a gap.</p>
-        <p class="btn-row"><button type="button" class="btn" data-clear>Clear filters</button></p>
-      </div>`;
-    return;
-  }
-  const untested = agents.filter(
-    (agent) => !isHireable((agent.verification || {}).level),
-  ).length;
-  target.innerHTML = `<p class="section-note" data-field="result-count">
-      ${agents.length} of ${escapeHTML(String(listing.total === undefined ? agents.length : listing.total))}
-      matched ${escapeHTML(describe(filters))}.
-    </p>
-    ${
-      untested
-        ? `<div class="notice notice-warn">
-             <p class="notice-heading">${untested} of these are registry entries Docket has not run</p>
-             <p>An entry below <span class="mono">docket_tested</span> is a record somebody
-               published on chain. Docket has not executed it, has not settled a payment with
-               it, and has no result to show for it — so it is not hireable from this site, and
-               nothing here should be read as a recommendation to hire it elsewhere.</p>
-           </div>`
-        : ""
-    }
-    <ul class="result-list">${agents.map(resultRow).join("")}</ul>`;
+/* What a reader could actually reach, as the listing declares it. A `web` link is a
+   homepage rather than an invocable endpoint, so its kind is printed beside it. */
+function endpointLine(listing) {
+  const rows = listing.endpoints || [];
+  if (!rows.length) return "no endpoint declared";
+  return rows
+    .map((row) => `${row.kind || "endpoint"} ${row.url || ""}`.trim())
+    .join(", ");
+}
+
+/* Every level that was attempted and what it observed, passes and failures alike. A run
+   that only showed its passes would be a scoreboard rather than a record. */
+function evidenceList(verification) {
+  const rows = verification.evidence || [];
+  if (!rows.length) return "";
+  return `<ul class="facts">${rows
+    .map(
+      (row) =>
+        `<li><strong>${escapeHTML(row.level || "level")}</strong> — ${
+          row.ok ? "passed" : "did not pass"
+        }${row.at ? `, ${escapeHTML(timeAgo(row.at))}` : ""}</li>`,
+    )
+    .join("")}</ul>`;
+}
+
+function capabilitySource(listing) {
+  return (
+    CAPABILITY_SOURCES[listing.capability_source] ||
+    "Docket does not know where this category came from"
+  );
+}
+
+function listingRow(listing) {
+  const verification = listing.verification || {};
+  const href = `/agent?id=${encodeURIComponent(listing.agent_id)}`;
+  return `<li class="result-row" data-agent="${escapeHTML(listing.agent_id)}">
+      <div class="result-head">
+        <h3><a href="${escapeHTML(href)}">${escapeHTML(listing.name || "(no name)")}</a></h3>
+        ${verificationBadge(verification)}
+      </div>
+      <p class="dim">${escapeHTML(listing.capabilities || endpointLine(listing))}</p>
+      <dl class="deflist">
+        <dt>Agent</dt><dd class="mono">${escapeHTML(listing.agent_id)}</dd>
+        <dt>Job</dt><dd>${escapeHTML(listing.category || "not filed under one of the four jobs")}
+          <span class="dim">— ${escapeHTML(capabilitySource(listing))}</span></dd>
+        <dt>Price the provider states</dt><dd>${escapeHTML(listing.price || "none stated")}</dd>
+        <dt>Endpoints</dt><dd class="wrap-anywhere">${escapeHTML(endpointLine(listing))}</dd>
+        <dt>Observed</dt><dd>${escapeHTML(timeAgo(verification.verified_at))}</dd>
+      </dl>
+      ${evidenceList(verification)}
+      <p class="btn-row">
+        <a class="btn" href="${escapeHTML(href)}">Read what Docket observed</a>
+        ${
+          isHireable(listing)
+            ? ""
+            : '<span class="dim">Docket does not offer this, so it is not hireable from this site.</span>'
+        }
+      </p>
+    </li>`;
 }
 
 function describe(filters) {
@@ -179,13 +190,126 @@ function describe(filters) {
   return parts.length ? parts.join(", ") : "an unfiltered search";
 }
 
+function paintResults(answer, services, filters) {
+  const items = answer.items || [];
+  const target = region("results");
+  const total = answer.total === undefined ? items.length : answer.total;
+  if (!items.length && !services.length) {
+    target.innerHTML = `<div class="panel">
+        <h2>No agent matched</h2>
+        <p>Nothing Docket runs, and nothing in the registry slice it has swept, matches
+          ${escapeHTML(describe(filters))}. A zero here is the answer, not a gap.</p>
+        <p class="btn-row"><button type="button" class="btn" data-clear>Clear filters</button></p>
+      </div>`;
+    return;
+  }
+  const unoffered = items.filter((listing) => !isHireable(listing)).length;
+  const lookup = answer.registry_lookup || {};
+  target.innerHTML = `<p class="section-note" data-field="result-count">
+      ${services.length} service${services.length === 1 ? "" : "s"} Docket runs and
+      ${items.length} of ${escapeHTML(String(total))} registry listings matched
+      ${escapeHTML(describe(filters))}.
+    </p>
+    ${
+      lookup.reason
+        ? `<div class="notice"><p>The registry was not swept for this query:
+             ${escapeHTML(lookup.reason)}. What is below is what Docket already held.</p></div>`
+        : ""
+    }
+    <section aria-labelledby="docket-layer-heading">
+      <h3 id="docket-layer-heading">Services Docket runs</h3>
+      <p class="section-note">Docket holds the code, publishes a recorded run behind each
+        one, and sells them. These are the only agents activatable from this site.</p>
+      ${
+        services.length
+          ? `<ul class="result-list">${services.map(docketRow).join("")}</ul>`
+          : `<p class="dim">Nothing Docket runs matches ${escapeHTML(describe(filters))}.</p>`
+      }
+    </section>
+    <section aria-labelledby="registry-layer-heading">
+      <h3 id="registry-layer-heading">Third-party agents Docket observed</h3>
+      <p class="section-note">Registered by somebody else on BSC. Docket did not write these
+        and does not sell them. Each carries the level its evidence supports, whether a
+        payment challenge was ever exercised against it, and where its category came from.</p>
+      ${
+        unoffered
+          ? `<div class="notice notice-warn">
+               <p class="notice-heading">${unoffered} of these are not offered by Docket</p>
+               <p>Being in a registry is not an offer. A listing Docket has not run has no
+                 result to show for itself, and one badged
+                 <span class="mono">payment untested</span> has had no payment challenge
+                 exercised against it — its level never says otherwise. Nothing here is a
+                 recommendation to hire it somewhere else.</p>
+             </div>`
+          : ""
+      }
+      ${
+        items.length
+          ? `<ul class="result-list">${items.map(listingRow).join("")}</ul>`
+          : `<p class="dim">No registry listing matches ${escapeHTML(describe(filters))}.</p>`
+      }
+    </section>`;
+}
+
+/* ------------------------------------------------------------------- loading */
+
+/* The two layers are two requests, and one failing must not blank the other: a registry
+   sweep that times out should still leave the reader able to see and activate what Docket
+   runs. The Docket layer is filtered on `category` only — it has no verification level,
+   because Docket running something itself is not an observation about somebody else. */
+async function fetchLayers(filters) {
+  const [listings, services] = await Promise.allSettled([
+    api.searchAgents(filters),
+    api.listServices(filters.category || null),
+  ]);
+  if (listings.status === "rejected" && services.status === "rejected") {
+    throw listings.reason;
+  }
+  return {
+    answer:
+      listings.status === "fulfilled"
+        ? listings.value
+        : { items: [], total: 0 },
+    services:
+      services.status === "fulfilled"
+        ? matching(services.value.services, filters)
+        : [],
+    partial:
+      listings.status === "rejected"
+        ? `The registry listings could not be read: ${listings.reason.message}`
+        : services.status === "rejected"
+          ? `Docket's own services could not be read: ${services.reason.message}`
+          : null,
+  };
+}
+
+/* `/services` has no text search, so the query is applied here over the fields a reader
+   would have been searching: what Docket calls the service and what it says it does. */
+function matching(services, filters) {
+  const needle = filters.q.trim().toLowerCase();
+  if (!needle) return services || [];
+  return (services || []).filter((card) =>
+    `${card.name} ${card.service_id} ${card.what_you_get}`
+      .toLowerCase()
+      .includes(needle),
+  );
+}
+
 async function load(filters, { push }) {
   const target = region("results");
   target.setAttribute("aria-busy", "true");
   const url = `/search${toQuery(filters)}`;
   if (push) window.history.pushState(filters, "", url);
   try {
-    paintResults(await api.searchAgents(filters), filters);
+    const { answer, services, partial } = await fetchLayers(filters);
+    paintResults(answer, services, filters);
+    if (partial) {
+      target.insertAdjacentHTML(
+        "afterbegin",
+        `<div class="notice notice-warn"><p>${escapeHTML(partial)} One layer of this page is
+          missing, and it is not being shown as an empty one.</p></div>`,
+      );
+    }
     region("live-status").textContent = "Search finished.";
   } catch (err) {
     renderFailure(target, err, {

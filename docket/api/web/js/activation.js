@@ -697,7 +697,10 @@ async function activateAndPay() {
     say("Wallet is on BNB Smart Chain.");
 
     say("Opening the activation.");
-    const opened = await api.activationNonce(state.account);
+    const opened = await api.activationNonce(
+      state.account,
+      state.record.service_id,
+    );
     const createSignature = await wallet.personalSign(
       opened.message,
       state.account,
@@ -760,11 +763,7 @@ async function activateAndPay() {
 
     say("Binding the payment to your activation.");
     const bindSignature = await wallet.personalSign(
-      api.actionMessage(
-        state.activation.activation_id,
-        "approve",
-        state.activation.auth_nonce,
-      ),
+      api.authMessage(state.activation, "approve"),
       state.account,
     );
     state.activation = await api.approveActivation(
@@ -772,7 +771,7 @@ async function activateAndPay() {
       {
         owner_signature: bindSignature,
         nonce: state.activation.auth_nonce,
-        payment_header: header,
+        payment_id: answer.payment_id,
       },
     );
     paintActivation();
@@ -801,11 +800,7 @@ async function onFundSession(event) {
   try {
     if (!state.account) state.account = await wallet.connect();
     const signature = await wallet.personalSign(
-      api.actionMessage(
-        state.activation.activation_id,
-        "approve",
-        state.activation.auth_nonce,
-      ),
+      api.authMessage(state.activation, "approve"),
       state.account,
     );
     state.activation = await api.approveActivation(
@@ -881,11 +876,7 @@ async function onSignPrepared() {
       say(`Sent ${call.purpose} in ${lastHash}.`);
     }
     const signature = await wallet.personalSign(
-      api.actionMessage(
-        state.activation.activation_id,
-        "approve",
-        state.activation.auth_nonce,
-      ),
+      api.authMessage(state.activation, "approve"),
       state.account,
     );
     state.activation = await api.approveActivation(

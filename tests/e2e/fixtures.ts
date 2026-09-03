@@ -429,6 +429,8 @@ export async function mockActivations(
     json(route, 200, {
       nonce: "nonce-one",
       message: "Docket activation create range-doctor nonce-one",
+      expires_at: "2026-09-03T10:15:00Z",
+      expires_in_seconds: 900,
     }),
   );
   await page.route("**/api/activations/*/approve", (route) =>
@@ -485,38 +487,86 @@ export async function mockActivations(
   });
 }
 
-export async function mockAgents(page: Page, agents: unknown[]) {
+/** `/api/agents` answers with `items`, plus the paging and registry-lookup fields the
+    marketplace router serves. */
+export async function mockAgents(
+  page: Page,
+  items: unknown[],
+  { registryLookup = { attempted: false, hydrated: 0, reason: null } } = {},
+) {
   await page.route("**/api/agents*", (route) =>
-    json(route, 200, { agents, total: agents.length }),
+    json(route, 200, {
+      items,
+      total: items.length,
+      limit: 25,
+      offset: 0,
+      filters: { q: null, category: null, level: null },
+      registry_lookup: registryLookup,
+      levels: [
+        "registered",
+        "endpoint_detected",
+        "live",
+        "payment_tested",
+        "docket_tested",
+        "docket_verified",
+      ],
+      listings_by_level: {},
+    }),
   );
 }
 
+/* The provider routes as the marketplace router serves them: `claim` with only
+   `{agent_id}` mints a nonce and prints the sentence to sign, and `listings` spends that
+   same nonce, so there is no separate spend step. */
 export async function mockProviders(
   page: Page,
   {
-    failedChecks = [] as Array<{ name: string; detail: string }>,
-    level = "docket_tested",
+    evidence = [] as Array<{ level: string; ok: boolean; at?: string }>,
+    level = "docket_tested" as string | null,
+    paymentTested = false,
+    hireable = false,
+    listingError = null as { status: number; error_code: string; message: string } | null,
   } = {},
 ) {
   await page.route("**/api/providers/claim", (route) =>
-    json(route, 200, {
+    json(route, 201, {
+      agent_id: "311253",
       nonce: "claim-nonce",
-      message: "Docket listing claim 311253 claim-nonce",
+      message: "Docket provider claim 311253 claim-nonce",
+      issued_at: "2026-09-03T10:00:00Z",
+      expires_in_seconds: 900,
     }),
   );
   await page.route("**/api/providers/listings", (route) =>
-    json(route, 201, {
-      listing_id: "lst_000000000000000000000001",
-      agent_id: "311253",
-      category: "rebalancing",
-      price_atomic: PRICE_ATOMIC,
-      verification: {
-        level,
-        evidence: [],
-        verified_at: "2026-09-03T10:00:00Z",
-      },
-      failed_checks: failedChecks,
-    }),
+    listingError
+      ? json(route, listingError.status, {
+          error_code: listingError.error_code,
+          message: listingError.message,
+        })
+      : json(route, 201, {
+          listing: {
+            agent_id: "311253",
+            chain_id: 56,
+            name: "Somebody's Range Agent",
+            owner: ACCOUNT,
+            endpoints: [{ kind: "a2a", url: "https://example.invalid/a2a" }],
+            category: "rebalancing",
+            capability_source: "provider_declared",
+            capabilities: "Rebalances v3 ranges",
+            price: "0.50 USDT",
+            payment_method: "x402",
+            verification: {
+              level,
+              payment_tested: paymentTested,
+              payment_tested_evidence: null,
+              evidence,
+              verified_at: "2026-09-03T10:00:00Z",
+            },
+            hireable,
+            source: "provider_submitted",
+            updated_at: "2026-09-03T10:00:00Z",
+          },
+        }),
   );
 }
 

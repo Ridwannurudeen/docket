@@ -118,9 +118,29 @@ export function actionMessage(activationId, action, nonce) {
   return `Docket activation ${activationId} ${action} ${nonce}`;
 }
 
-/** A single-use nonce and the exact message to sign for a create. */
-export function activationNonce(owner) {
-  return send(`/api/activations/nonce${query({ owner })}`);
+/** What to sign for one action on one activation.
+
+    The server's own sentence wins whenever it serves one: an activation carrying an
+    `auth_message` is stating exactly what its current nonce must be signed against, and
+    signing that verbatim cannot drift from what the server verifies — including when the
+    server starts binding the body into the message. The composed form above is the
+    fallback for a server that serves only `auth_nonce`. */
+export function authMessage(activation, action) {
+  if (typeof activation.auth_message === "string" && activation.auth_message) {
+    return activation.auth_message;
+  }
+  return actionMessage(activation.activation_id, action, activation.auth_nonce);
+}
+
+/** A single-use nonce and the exact message to sign for a create.
+
+    `service_id` is not optional in practice: without it the server issues the nonce with a
+    null message, and there is then nothing to sign. Asking for the message rather than
+    assembling it is what keeps the browser and the server on one sentence. */
+export function activationNonce(owner, serviceId) {
+  return send(
+    `/api/activations/nonce${query({ owner, service_id: serviceId })}`,
+  );
 }
 
 /** Open one activation. The signature proves the owner asked for it. */
@@ -167,16 +187,21 @@ function mutate(activationId, action, body) {
   );
 }
 
-/** Bind a settled payment, a funding transaction, or an owner approval to an activation. */
+/** Bind a settled payment, or a funding transaction, to an activation.
+
+    A payment is named by its `payment_id` — the id `/hire/{service}` put in the receipt —
+    and not by the header that bought it. The server binds against its own settled
+    `hire_payments` row, so re-sending the authorization would prove nothing it has not
+    already recorded and would put a spent authorization back on the wire. */
 export function approveActivation(
   activationId,
-  { owner_signature, nonce, tx_hash = null, payment_header = null },
+  { owner_signature, nonce, tx_hash = null, payment_id = null },
 ) {
   return mutate(activationId, "approve", {
     owner_signature,
     nonce,
     ...(tx_hash === null ? {} : { tx_hash }),
-    ...(payment_header === null ? {} : { payment_header }),
+    ...(payment_id === null ? {} : { payment_id }),
   });
 }
 
@@ -206,34 +231,36 @@ export function searchAgents({ q = "", category = "", level = "" } = {}) {
 
 /* ------------------------------------------------------------------ providers */
 
-/** Start a provider claim: the server issues the nonce and the message to sign. */
-export function providerClaim({ agent_id, owner }) {
-  return send("/api/providers/claim", {
-    method: "POST",
-    body: { agent_id, owner },
-  });
+/** Start a provider claim. Docket mints a single-use nonce and prints the exact sentence
+    to sign; it does not need to be told who the owner is, because it reads that from
+    `ownerOf` on chain and compares it to whoever signed. */
+export function providerClaim({ agent_id }) {
+  return send("/api/providers/claim", { method: "POST", body: { agent_id } });
 }
 
-/** Publish one listing against a claimed identity. */
+/** Publish one listing, spending the claim nonce in the same call.
+
+    A nonce can be spent here or on `/api/providers/claim`, never on both, so the claim is
+    proved by this request rather than in a step before it. */
 export function createListing({
   agent_id,
-  owner,
-  owner_signature,
   nonce,
+  signature,
   category,
   capabilities,
-  price_atomic,
+  price = null,
+  payment_method = null,
 }) {
   return send("/api/providers/listings", {
     method: "POST",
     body: {
       agent_id,
-      owner,
-      owner_signature,
       nonce,
+      signature,
       category,
       capabilities,
-      price_atomic,
+      price,
+      payment_method,
     },
   });
 }

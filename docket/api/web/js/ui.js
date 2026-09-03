@@ -33,6 +33,10 @@ export const PERSISTENT_STATES = [
   "quoted",
   "awaiting_wallet",
   "authorized",
+  /* The server mints the session key on a background pass, so there is a state between
+     "you signed for it" and "here is the address to fund". It is a step with a wait in
+     it, not a gap, and the stepper says so. */
+  "awaiting_session",
   "funded",
   "active",
   "paused",
@@ -45,6 +49,11 @@ export const TERMINAL_STATES = new Set([
   "revoked",
   "expired",
 ]);
+
+/* Requested and not finished. A revoke is only `revoked` once the sweep back to the owner
+   has actually completed, so this state is the one the reader is on while their money is
+   still moving — and it is neither active nor terminal. */
+export const IN_FLIGHT_STATES = new Set(["revoking"]);
 
 export const FAILED_STATES = new Set([
   "failed",
@@ -65,7 +74,13 @@ const STATE_MEANS = {
   needs_approval:
     "It stopped and needs a decision from you before it can go on.",
   active: "Running on its schedule, inside the limits you set.",
+  awaiting_session:
+    "Docket is minting the session key this will act through. Nothing can be funded until " +
+    "it exists, and nothing is spent while you wait.",
   paused: "Held. It runs nothing until you resume it.",
+  revoking:
+    "Revoking. The session is stopped and the sweep back to your wallet has been started; " +
+    "this becomes revoked once that sweep has completed.",
   completed: "Finished, with a result and a receipt.",
   failed: "It stopped without a result. The reason is recorded below.",
   refunded: "It did not deliver, and the payment was returned.",
@@ -98,11 +113,18 @@ export function stepper(activation) {
       </li>`;
     })
     .join("");
-  const outcome = failed
-    ? `<li class="step" data-step="${escapeHTML(current)}" data-status="failed" aria-current="step">
+  /* A state outside the declared run — a terminal failure, a sweep still in flight, or one
+     this build has never heard of — is appended where it happened rather than dropped. A
+     stepper that silently omits the state the reader is stuck on is worse than none: it
+     shows a journey nobody is on. */
+  const outcome =
+    index >= 0
+      ? ""
+      : `<li class="step" data-step="${escapeHTML(current)}" data-status="${
+          failed ? "failed" : "current"
+        }" aria-current="step">
         <span class="step-name">${escapeHTML(current.replaceAll("_", " "))}</span>
-      </li>`
-    : "";
+      </li>`;
   return `<ol class="stepper" data-region="stepper" aria-label="Activation progress">
       ${steps}${outcome}
     </ol>
@@ -127,21 +149,44 @@ export const VERIFICATION_LEVELS = [
 
 const LEVEL_MEANS = new Map(VERIFICATION_LEVELS);
 
-/* Anything below this has never been run by Docket, so nothing on this site can activate
-   it. Saying so beside the badge is the point of the badge. */
+/* The level a listing has to reach before Docket will offer it. The decision itself is
+   the server's — every listing carries its own `hireable` — and this constant is here so
+   the page can name that level when it explains why something is not offered. */
 export const HIREABLE_FROM = "docket_tested";
 
-export function isHireable(level) {
-  const order = VERIFICATION_LEVELS.map(([name]) => name);
-  return order.indexOf(String(level)) >= order.indexOf(HIREABLE_FROM);
+/** Whether Docket offers this listing, read from the listing rather than derived from its
+    level. The server owns that decision, and a page that recomputed it would eventually
+    disagree with the server about what is for sale. */
+export function isHireable(listing) {
+  return Boolean(listing && listing.hireable === true);
 }
 
-export function verificationBadge(level) {
-  const name = String(level || "registered");
-  const means =
-    LEVEL_MEANS.get(name) || "Docket does not recognise this level.";
+/** The level badge, and beside it the one fact a level cannot state.
+
+    `docket_tested` hangs off `live`, not off `payment_tested`, so a listing can stand at
+    `docket_tested` with no payment challenge ever exercised against it. The level alone
+    would read as though there had been one. The boolean is therefore rendered as its own
+    badge from the listing's own `verification.payment_tested` and is never inferred from
+    the level; a listing Docket has observed nothing about carries no level at all rather
+    than the weakest one. */
+export function verificationBadge(verification) {
+  const record =
+    verification && typeof verification === "object"
+      ? verification
+      : { level: verification };
+  const name = record.level ? String(record.level) : "no level";
+  const means = record.level
+    ? LEVEL_MEANS.get(name) || "Docket does not recognise this level."
+    : "Seen in the registry index. Docket has observed nothing about it.";
+  const tested = record.payment_tested === true;
+  const paymentMeans = tested
+    ? "A payment challenge was exercised against it and answered."
+    : "No payment challenge has been exercised against it. The level says nothing either way.";
   return `<span class="verify-badge" data-level="${escapeHTML(name)}" title="${escapeHTML(means)}">
       ${escapeHTML(name.replaceAll("_", " "))}
+    </span>
+    <span class="verify-badge" data-payment-tested="${tested ? "yes" : "no"}" title="${escapeHTML(paymentMeans)}">
+      ${tested ? "payment tested" : "payment untested"}
     </span>`;
 }
 

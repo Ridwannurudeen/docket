@@ -88,18 +88,21 @@ test("search fits, filters and all", async ({ page }) => {
       agent_id: "56:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:311253",
       name: "Range Doctor",
       category: "rebalancing",
-      service_id: "range-doctor",
+      capability_source: "provider_declared",
+      capabilities: "Reads PancakeSwap v3 positions.",
+      endpoints: [{ kind: "a2a", url: "https://example.invalid/a2a" }],
       verification: {
         level: "docket_verified",
-        evidence: [
-          { url: "/advantage/v1/01-liquidity", label: "Advantage task 01" },
-        ],
+        payment_tested: true,
+        payment_tested_evidence: null,
+        evidence: [{ level: "live", ok: true, at: "2026-09-03T09:00:00Z" }],
         verified_at: "2026-09-03T10:00:00Z",
       },
+      hireable: true,
     },
   ]);
   await page.goto("/search");
-  await expect(page.locator(".result-row")).toBeVisible();
+  await expect(page.locator(".result-row").first()).toBeVisible();
 
   const { scroll, client } = await noHorizontalScroll(page);
   expect(scroll).toBeLessThanOrEqual(client);

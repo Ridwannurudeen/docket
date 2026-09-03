@@ -292,9 +292,11 @@ def test_the_activation_module_names_every_state_the_plan_declares():
         "completed",
         "failed",
         "refunded",
+        "awaiting_session",
         "funded",
         "active",
         "paused",
+        "revoking",
         "revoked",
         "expired",
     ):
@@ -315,26 +317,37 @@ def test_the_search_module_names_every_verification_level():
     assert 'HIREABLE_FROM = "docket_tested"' in source
 
 
-def test_the_search_page_says_an_untested_entry_is_not_hireable():
-    source = _read("search.js")
-    assert "not hireable from this site" in source
-    assert "Docket has not run this agent, so it cannot be activated here." in source
-
-
 def test_every_mutating_control_signs_the_message_the_server_issues():
     """Pause, cancel and revoke each carry a fresh signature over the activation's own
-    nonce. A control that posted without one would be an unauthenticated state change."""
+    nonce, and over the server's own sentence wherever the server serves one.
+
+    `authMessage` prefers `activation.auth_message` and falls back to the documented
+    template. That order is what lets the server start binding the request body into the
+    message — the shape the activation lane is moving to — without the browser signing
+    something the server no longer verifies."""
     jobs = _read("jobs.js")
     assert "wallet.personalSign(" in jobs
-    assert "api.actionMessage(activationId, action, nonce)" in jobs
+    assert "api.authMessage(activation, action)" in jobs
     for control in ("pauseActivation", "cancelActivation", "revokeActivation"):
         assert control in jobs, control
 
     api = _read("api.js")
     assert "return `Docket activation ${activationId} ${action} ${nonce}`;" in api
+    assert 'if (typeof activation.auth_message === "string"' in api
+    assert "return activation.auth_message;" in api
     # A create has no counterpart here on purpose: `/api/activations/nonce` issues that
     # message and the browser signs it verbatim, which is stricter than rebuilding it.
     assert "activation create" not in api
+
+
+def test_the_payment_is_bound_by_its_id_rather_than_by_a_spent_authorization():
+    """`/api/activations/{id}/approve` binds against the server's own settled payment row.
+    Re-sending the authorization would put a spent header back on the wire and prove
+    nothing the server has not already recorded."""
+    api = _read("api.js")
+    assert "payment_id = null" in api
+    assert "payment_header" not in api
+    assert "payment_id: answer.payment_id" in _read("activation.js")
 
 
 def test_the_page_routes_sit_directly_above_the_static_mount():
