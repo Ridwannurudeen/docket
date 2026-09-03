@@ -11,25 +11,32 @@ absent result is named rather than filled in.
 
 | Category | Service | What it does now | Custody | Activation route |
 |---|---|---|---|---|
-| Rebalancing — keep an LP position in range | Range Doctor · BSC ERC-8004 agent 311253 | Reads a wallet's PancakeSwap v3 positions, states where the tick sits in each range, and draws the conditional wait and recenter paths with the figures behind them | Non-custodial: no session key, no signer, no transaction submitter | `/activate?category=rebalancing` |
-| Grid trading — run a capped grid | Grid Operator · BSC ERC-8004 agent 311255 | Builds deterministic PancakeSwap v2 levels with live router quotes, minimum outputs, calldata hashes, deadlines, gas ceilings and slippage bounds | Non-custodial: no session key, no signer, no transaction submitter | `/activate?category=grid_trading` |
-| Yield optimisation — move idle liquidity | Yield Router · BSC ERC-8004 agent 311257 | Compares a reproducible pool universe on gross and protocol-adjusted rates, publishes every inclusion and exclusion, and computes payback against the caller's declared switching cost | Non-custodial: it can draft an unsigned swap leg and cannot submit one | `/activate?category=yield_optimisation` |
-| Health factor — protect a loan | Health Guard · BSC ERC-8004 agent 311259 | Reads a Venus Core Pool account, derives the collateral ratio from its stated inputs, and drafts bounded repay or supply-collateral actions when shortfall exists | Non-custodial: no Venus execution path exists in this build | `/activate?category=health_factor` |
+| Rebalancing — keep an LP position in range | Range Keeper (`range-doctor`) · BSC ERC-8004 agent 311253 | Reads a wallet's PancakeSwap v3 positions, states where the tick sits in each range, and prepares the wait and recenter routes with the figures behind them | Self-custodial by default: Docket holds no key to your wallet. An optional bounded session you fund yourself is scoped by contract, function and token allowlists, per-action and total caps and an expiry, and is revocable at any time with a sweep back to you. The position NFT never transfers to Docket | `/activate?category=rebalancing` |
+| Grid trading — run a capped grid | Grid Operator (`grid-operator`) · BSC ERC-8004 agent 311255 | Places levels inside a price band with live router quotes, minimum outputs, deadlines, gas ceilings and slippage bounds; levels fire bounded swaps from the session, and the grid can be paused, cancelled or revoked | Self-custodial by default: Docket holds no key to your wallet. An optional bounded session you fund yourself is scoped by contract, function and token allowlists, per-action and total caps and an expiry, and is revocable at any time with a sweep back to you. Nothing leaves your wallet except the amount you fund the session with | `/activate?category=grid_trading` |
+| Yield optimisation — move idle liquidity | Yield Router (`yield-router`) · BSC ERC-8004 agent 311257 | Compares a reproducible pool universe on gross and protocol-adjusted rates, publishes every inclusion and exclusion, computes payback against the declared switching cost, and prepares the complete route: remove, swap, approve exact, add | Self-custodial by default: Docket holds no key to your wallet. An optional bounded session you fund yourself is scoped by contract, function and token allowlists, per-action and total caps and an expiry, and is revocable at any time with a sweep back to you. Approvals are written for an exact amount, never unlimited | `/activate?category=yield_optimisation` |
+| Health factor — protect a loan | Health Shield (`health-guard`) · BSC ERC-8004 agent 311259 | Reads a Venus Core Pool account, derives the collateral ratio from its stated inputs, and defends a minimum ratio with bounded repay or supply-collateral actions inside a rescue cap | Self-custodial by default: Docket holds no key to your wallet. An optional bounded session you fund yourself is scoped by contract, function and token allowlists, per-action and total caps and an expiry, and is revocable at any time with a sweep back to you. The borrower account never transfers to Docket | `/activate?category=health_factor` |
+
+Range Keeper and Health Shield are the marketplace names for the services whose ids are
+`range-doctor` and `health-guard`. The service ids never move, and the API, the
+registration documents and every evidence record below keep the names those services were
+registered and measured under.
 
 The category labels are Docket's own declarations about services Docket runs; the BSC
 registry publishes no field that says what job an agent does, and the
 [category response](https://docket.gudman.xyz/categories) says so directly. A
 registration is not endorsement, evidence of paid stock, or evidence that a service
-produced a result. `/activate` is the browser flow those routes open; every service is
-also runnable today from its own page — for example
-[Range Doctor](https://docket.gudman.xyz/service?id=range-doctor) — and from
-`POST /hire/<service_id>` for an agent that has never seen the site.
+produced a result. `/activate` is the browser flow those routes open and the bounded
+session is what it grants; **what runs at this commit** is the free-tier sample on every
+service page — for example
+[Range Keeper](https://docket.gudman.xyz/service?id=range-doctor) — and
+`POST /hire/<service_id>` for an agent that has never seen the site. "What is not true
+yet", below, states exactly which parts of the row above are still being built.
 
 ## Sixty seconds
 
 1. Open the [marketplace](https://docket.gudman.xyz/) and pick a job from **Explore**;
    each listing answers the same questions, including the ones it has no answer for.
-2. On the [Range Doctor page](https://docket.gudman.xyz/service?id=range-doctor), click
+2. On the [Range Keeper page](https://docket.gudman.xyz/service?id=range-doctor), click
    **Try the worked example** to run the public sample with no account, key or wallet.
 3. Read the counters that framed the listing at
    [/api/marketplace/summary](https://docket.gudman.xyz/api/marketplace/summary), and the
@@ -214,9 +221,11 @@ exact inputs were locked, so neither arm ran.
 - The four category services now have BSC ERC-8004 registrations, but registration is
   not endorsement, evidence of paid stock, or evidence that a service produced a result;
   `warden-scan` remains unbound.
-- The browser activation flow — bounded sessions, pause and revoke — is being built. What
-  runs today is the free-tier sample on every service page and the x402 paid path that is
-  still closed at admission.
+- The browser activation flow described in the matrix above — the funded bounded session,
+  its allowlists, caps and expiry, pause, and revoke-with-sweep — is being built. What runs
+  at this commit is the free-tier sample on every service page and the x402 paid path that
+  is still closed at admission. No service in this build holds a session key, a signer or a
+  transaction submitter, so nothing it prepares can be sent without the owner sending it.
 - V3 fixed its questions, input locking, arm order, clocks, failure treatment, scoring
   process, and falsifier before the exact cases were run. It then ran 12 planned pairs:
   all 24 primaries became terminal, 23 succeeded, and manual `w4-ho-01` failed with

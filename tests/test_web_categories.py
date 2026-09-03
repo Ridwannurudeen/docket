@@ -898,8 +898,8 @@ def test_homepage_is_the_public_case_file_and_keeps_external_context_in_research
     # The counters are derived, so they are asserted on the served page. The phrases the
     # old rail used are banned outright: they contradicted the approved canary.
     assert "6 services" in served
-    assert "0 Public paid hires" in served
-    assert "0 Services open for paid hiring" in served
+    assert "0 public paid hires" in served
+    assert "0 services open for paid hiring" in served
     assert "settlements ever run" not in index
     assert "No settlement has occurred" not in index
     assert "arXiv:2606.26028" not in index

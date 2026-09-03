@@ -41,7 +41,6 @@ def test_hero_uses_the_approved_copy_and_keeps_both_actions_above_the_truth_rail
     home = _home()
     hero = re.search(r'<section class="case-hero".*?</section>', home, re.S).group(0)
     rail = re.search(r'<aside class="truth-rail".*?</aside>', home, re.S).group(0)
-    rail_text = _plain(rail)
 
     assert "DOCKET / EVIDENCE-BACKED BSC AGENT MARKETPLACE" in hero
     assert "Find BSC agents that actually work." in hero
@@ -53,17 +52,18 @@ def test_hero_uses_the_approved_copy_and_keeps_both_actions_above_the_truth_rail
     assert ">Explore live agents<" in hero
     assert 'href="/activate?service=range-doctor&amp;demo=1"' in hero
     assert ">Run a verified demo<" in hero
-    # Every counter is a placeholder the server fills. A digit typed beside one of these
-    # labels is the defect this rail was rebuilt to make impossible.
-    for label in (
-        "Public paid hires",
-        "Internal canary settlements",
-        "Services open for paid hiring",
-        "ERC-8004 identities",
-        "Registered paired families",
-    ):
-        assert label in rail_text, label
-    assert not re.search(r"\d\s*(?:Public paid hires|Internal canary)", rail_text)
+    # The rail carries five markers and nothing else countable. The number and its noun
+    # are rendered together because they have to agree — a fixed plural in the shell
+    # publishes "1 public paid hires" the first time the counter reaches one.
+    markers = re.findall(r"<!-- (rail-[a-z0-9-]+) -->", rail)
+    assert markers == [
+        "rail-public-paid-hires",
+        "rail-canary-settlements",
+        "rail-services-paid-stock",
+        "rail-erc8004-identities",
+        "rail-v3-families",
+    ]
+    assert not re.search(r"\d", _plain(rail).replace("ERC-8004", ""))
     assert hero.index("hero-copy") < hero.index("truth-rail")
     assert (
         home.index("case-hero") < home.index("truth-rail") < home.index('id="explore"')

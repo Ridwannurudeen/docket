@@ -1458,7 +1458,7 @@ for (const text of ["$126.78", "across 22 eligible pools", "8.30 days", "0/231",
 def test_navigation_names_public_marketplace_destinations():
     index = Path("docket/api/web/index.html").read_text(encoding="utf-8")
 
-    assert 'href="/">Explore</a>' in index
+    assert 'href="/" aria-current="page">Explore</a>' in index
     assert 'href="/search">Find agents</a>' in index
     assert 'href="/my-agents">My agents</a>' in index
     assert 'href="/providers">Providers</a>' in index

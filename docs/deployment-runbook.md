@@ -439,7 +439,7 @@ Expected response contract; only the operational numbers change:
   service carries `service_id`, `paid_stock`, `stock_status`, and all four admission booleans.
 - `/categories` has four rows and declares that category labels are Docket's.
 - `/advantage/v2.json` builds from the artifacts included in the wheel.
-- `/advantage/v3.json` has six registered families and reports their current artifact state.
+- `/advantage/v3.json` lists every registered family and reports its current artifact state.
 - `/canary` exposes the latest durable result and bounded history rather than inferring uptime.
 
 Do not use a payment header in these manual checks. Only the governing runner may exercise

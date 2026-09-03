@@ -64,6 +64,37 @@ FREE_TIER_PERMISSIONS = (
 
 NOT_MEASURED = "not yet measured"
 
+# What the marketplace calls each of the four category agents. The service id is the
+# contract and never moves; the catalogue keeps the name each service was registered and
+# measured under, and the evidence records keep it too. This mapping is the product
+# surface only, and every listing prints the id beside the name so the two can be joined.
+PRODUCT_NAMES = {
+    "range-doctor": "Range Keeper",
+    "grid-operator": "Grid Operator",
+    "yield-router": "Yield Router",
+    "health-guard": "Health Shield",
+}
+
+# Each rail line's singular and plural, written out rather than derived: an -s appended
+# by rule turns "1 public paid hires" into a sentence no reader trusts, and there are five
+# of these, not fifty. The identity line names which identities it counts, because the
+# marketplace also relays a service whose ERC-8004 identity is somebody else's.
+RAIL_LINES = (
+    ("public_paid_hires", "public paid hire", "public paid hires"),
+    ("canary_settlements", "internal canary settlement", "internal canary settlements"),
+    (
+        "services_paid_stock",
+        "service open for paid hiring",
+        "services open for paid hiring",
+    ),
+    (
+        "erc8004_identities",
+        "ERC-8004 identity for category services",
+        "ERC-8004 identities for category services",
+    ),
+    ("v3_families", "registered paired family", "registered paired families"),
+)
+
 
 def _esc(value) -> str:
     return html.escape(str(value))
@@ -293,7 +324,7 @@ def listing_facts(store, services: list) -> list[dict]:
         facts.append(
             {
                 "service_id": record.service_id,
-                "name": record.name,
+                "name": PRODUCT_NAMES.get(record.service_id, record.name),
                 "category": record.category.value if record.category else None,
                 "job": record.offer.job_summary,
                 "identity": (
@@ -308,7 +339,17 @@ def listing_facts(store, services: list) -> list[dict]:
                     else NOT_MEASURED
                 ),
                 "measurement_window": window,
-                "price": f"{record.price_display} per completed run",
+                # The price and the permissions answer the same question from two sides,
+                # so they answer it the same way: a catalogue price on a service that
+                # cannot be bought is a term, not an offer, and the cell says which.
+                "price": (
+                    f"{record.price_display} per completed run"
+                    if admission.passes
+                    else (
+                        f"{record.price_display} per completed run — paid hiring closed "
+                        "at admission; the public sample runs free"
+                    )
+                ),
                 "custody": (
                     "Non-custodial. Docket holds no key and no funds for you; a settled "
                     f"hire pulls exactly {record.price_display} through the "
@@ -355,7 +396,8 @@ def _listing_card(listing: dict) -> str:
     )
     return (
         f'<article class="listing-card" data-listing-id="{_esc(listing["service_id"])}">'
-        f"<h3>{_esc(listing['name'])}</h3>"
+        f"<h3>{_esc(listing['name'])} "
+        f'<span class="mono listing-id">{_esc(listing["service_id"])}</span></h3>'
         f'<dl class="listing-facts">{definitions}'
         f'<dt>Evidence</dt><dd><a href="{_esc(listing["evidence_url"])}">'
         f"{_esc(listing['evidence_label'])}</a></dd></dl>"
@@ -364,6 +406,16 @@ def _listing_card(listing: dict) -> str:
         f'<a href="/service?id={_esc(listing["service_id"])}">Inspect</a>'
         "</p></article>"
     )
+
+
+def _rail_line(count: int, singular: str, plural: str) -> str:
+    """One counter and the label that agrees with it, as one replacement.
+
+    The number and its noun are rendered together because they have to agree: a shell
+    holding a fixed plural beside a filled-in number publishes "1 public paid hires" the
+    first time the count reaches one, which is the day the counter finally matters.
+    """
+    return f'<strong class="num">{count:,}</strong> {_esc(singular if count == 1 else plural)}'
 
 
 def home_page(shell: str, summary: dict, listings: list[dict]) -> str:
@@ -379,11 +431,12 @@ def home_page(shell: str, summary: dict, listings: list[dict]) -> str:
     # drift this page was rebuilt to remove, so the heading counts its own.
     category_services = sum(1 for listing in listings if listing["category"])
     replacements = {
-        "<!-- summary-public-paid-hires -->": f"{summary['public_paid_hires']:,}",
-        "<!-- summary-canary-settlements -->": f"{summary['canary_settlements']:,}",
+        f"<!-- rail-{key.replace('_', '-')} -->": _rail_line(summary[key], one, many)
+        for key, one, many in RAIL_LINES
+    }
+    replacements |= {
         "<!-- summary-services-paid-stock -->": f"{summary['services_paid_stock']:,}",
         "<!-- summary-services-total -->": f"{summary['services_total']:,}",
-        "<!-- summary-erc8004-identities -->": f"{summary['erc8004_identities']:,}",
         "<!-- summary-category-services -->": f"{category_services:,}",
         "<!-- summary-v3-families -->": f"{summary['v3_families']:,}",
         "<!-- summary-generated-at -->": _esc(summary["generated_at"]),
@@ -410,7 +463,7 @@ def summary_router(store, v3_report: dict, services: list) -> APIRouter:
     """
     router = APIRouter()
 
-    @router.get("/api/marketplace/summary", include_in_schema=False)
+    @router.get("/api/marketplace/summary")
     def marketplace_summary_route() -> dict:
         return marketplace_summary(store, v3_report=v3_report, services=services)
 

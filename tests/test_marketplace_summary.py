@@ -19,8 +19,10 @@ from fastapi.testclient import TestClient
 
 from docket.advantage.v3.report import report as v3_report
 from docket.api import create_app
+from docket.api.advantage_pages import NOT_RECORDED
 from docket.api.summary import (
     CANARY_PAYER,
+    FREE_TIER_PERMISSIONS,
     NOT_MEASURED,
     home_page,
     listing_facts,
@@ -251,6 +253,43 @@ def test_an_unmeasured_listing_says_so_rather_than_dropping_the_row(store):
     assert "311253" in range_doctor["identity"]
 
 
+def test_a_price_on_a_service_nobody_can_buy_says_so_where_the_price_is(store):
+    """The price and the permissions answer one question from two sides. A cell reading
+    "0.50 USDT per completed run" beside one reading "the public sample needs no wallet"
+    tells a reader two different things about the same listing."""
+    facts = listing_facts(store, all_records())
+
+    for listing in facts:
+        admission = resolve_admission(
+            next(
+                record
+                for record in all_records()
+                if record.service_id == listing["service_id"]
+            ).offer,
+            store.latest_canary_run(listing["service_id"]),
+        )
+        if admission.passes:
+            assert "closed at admission" not in listing["price"]
+            assert "exact-amount" in listing["permissions"]
+        else:
+            assert "paid hiring closed at admission" in listing["price"]
+            assert "the public sample runs free" in listing["price"]
+            assert listing["permissions"] == FREE_TIER_PERMISSIONS
+
+
+def test_the_marketplace_names_the_products_and_prints_their_service_ids(store):
+    """The marketplace name and the API contract have to be joinable on the page: a
+    listing called Range Keeper with no `range-doctor` on it cannot be called."""
+    facts = {row["service_id"]: row for row in listing_facts(store, all_records())}
+
+    assert facts["range-doctor"]["name"] == "Range Keeper"
+    assert facts["health-guard"]["name"] == "Health Shield"
+    assert facts["grid-operator"]["name"] == "Grid Operator"
+    assert facts["yield-router"]["name"] == "Yield Router"
+    # A service with no marketplace name of its own keeps the catalogue's.
+    assert facts["warden-scan"]["name"] == "Warden Payload Scan"
+
+
 def test_a_recorded_canary_fills_the_verification_fields_from_the_run(store):
     started = datetime(2026, 8, 30, 4, 17, tzinfo=timezone.utc)
     finished = started + timedelta(seconds=42)
@@ -299,24 +338,54 @@ def test_the_home_shell_types_no_counter_of_its_own():
     beside one of these nouns is exactly the drift that made the page contradict the
     README, so it is refused at the shell."""
     shell = (WEB / "index.html").read_text(encoding="utf-8")
-    # The lookbehind keeps the label `ERC-8004 identities` from reading as a count.
-    typed = re.search(
-        r"(?<![-\w.])\d[\d,]*\s+"
-        r"(?:settlements?|paid hires?|identities|services|families)",
-        shell,
+    # Every phrase on this page a number attaches to, written as it is rendered. The
+    # lookbehind keeps the `8004` inside `ERC-8004` from reading as a count of its own.
+    counted = re.compile(
+        r"(?<![-\w.])\d[\d,]*\s+(?:"
+        + "|".join(
+            (
+                r"public paid hires?",
+                r"internal canary settlements?",
+                r"services? open for paid hiring",
+                r"ERC-8004 identit(?:y|ies) for category services",
+                r"registered paired famil(?:y|ies)",
+                r"registered families",
+                r"runnable category services",
+                r"services,",
+                r"open for paid hiring today",
+            )
+        )
+        + ")",
+        re.IGNORECASE,
     )
+    # A guard that cannot fire is not a guard. Each rendered label is shown a filled-in
+    # line first, so this test fails if the pattern stops matching what the page says.
+    for filled in (
+        "<p>1 public paid hire</p>",
+        "<p>2 internal canary settlements</p>",
+        "<p>0 services open for paid hiring</p>",
+        "<p>4 ERC-8004 identities for category services</p>",
+        "<p>7 registered paired families</p>",
+        "<h2>7 registered families. No scored result.</h2>",
+        "<h2>4 runnable category services.</h2>",
+        "<p>6 services, 0 open for paid hiring today.</p>",
+    ):
+        assert counted.search(filled), filled
 
+    typed = counted.search(shell)
     assert typed is None, (
         f"the home shell types a counter: {typed and typed.group(0)!r}"
     )
     assert "settlements ever run" not in shell
     assert "No settlement has occurred" not in shell
     for marker in (
-        "<!-- summary-public-paid-hires -->",
-        "<!-- summary-canary-settlements -->",
+        "<!-- rail-public-paid-hires -->",
+        "<!-- rail-canary-settlements -->",
+        "<!-- rail-services-paid-stock -->",
+        "<!-- rail-erc8004-identities -->",
+        "<!-- rail-v3-families -->",
         "<!-- summary-services-paid-stock -->",
         "<!-- summary-services-total -->",
-        "<!-- summary-erc8004-identities -->",
         "<!-- summary-category-services -->",
         "<!-- summary-v3-families -->",
         "<!-- summary-generated-at -->",
@@ -329,7 +398,7 @@ def test_the_home_shell_types_no_counter_of_its_own():
 def test_a_shell_missing_a_marker_is_refused_rather_than_served_blank(store):
     summary = _summary(store)
 
-    with pytest.raises(ValueError, match="summary-public-paid-hires"):
+    with pytest.raises(ValueError, match="rail-public-paid-hires"):
         home_page("<html></html>", summary, [])
 
 
@@ -350,11 +419,19 @@ def test_the_served_home_carries_the_counted_numbers_without_scripting(tmp_path)
     assert set(summary) == SUMMARY_KEYS
     assert summary["public_paid_hires"] == 1
     assert summary["canary_settlements"] == 1
-    assert f"{summary['public_paid_hires']} Public paid hires" in plain
-    assert f"{summary['canary_settlements']} Internal canary settlements" in plain
-    assert f"{summary['services_paid_stock']} Services open for paid hiring" in plain
-    assert f"{summary['erc8004_identities']} ERC-8004 identities" in plain
-    assert f"{summary['v3_families']} Registered paired families" in plain
+    # One settlement each, so both labels must be singular here: a fixed plural in the
+    # shell would read "1 public paid hires" the first time the counter mattered.
+    assert "1 public paid hire" in plain and "public paid hires" not in plain
+    assert (
+        "1 internal canary settlement" in plain
+        and "internal canary settlements" not in plain
+    )
+    assert f"{summary['services_paid_stock']} services open for paid hiring" in plain
+    assert (
+        f"{summary['erc8004_identities']} ERC-8004 identities for category services"
+        in plain
+    )
+    assert f"{summary['v3_families']} registered paired families" in plain
     assert f"{summary['services_total']} services" in plain
     # The category heading counts categorised services, not registered identities: the
     # two are equal today and are not the same question.
@@ -390,6 +467,8 @@ def test_the_served_home_lists_every_catalogue_service_with_the_same_fields(tmp_
             assert label in card, label
         assert "/activate?service=" in card
         assert "/service?id=" in card
+        listing_id = re.search(r'data-listing-id="([^"]+)"', card).group(1)
+        assert f'<span class="mono listing-id">{listing_id}</span>' in card
 
 
 def test_the_advantage_report_opens_with_the_one_page_summary(tmp_path):
@@ -421,6 +500,18 @@ def test_the_advantage_report_opens_with_the_one_page_summary(tmp_path):
     # `$U` is the v1 records' own name for the asset; the page writes it as USDT
     # everywhere, and one asset under two spellings is two assets to a reader.
     assert "$U<" not in section and "$U " not in section
+    # A zero cost prints bare, so no cell puts two assets side by side as if comparable.
+    assert "0 USD<" not in section
+    assert "USDT · 0 USD" not in section
+    assert "<td>agent 0.01 USDT · manual 0</td>" in section
+    # An empty cost ledger is a measure the report does not carry, not a missing sheet:
+    # v3-04 ran all 24 primaries and still records no cost, so its cell is not `unscored`.
+    v3_04 = re.search(
+        r'<th scope="row" class="mono">v3-04-warden-security</th>(.*?)</tr>',
+        section,
+        re.S,
+    ).group(1)
+    assert v3_04.split("</td>")[3] == f"<td>{NOT_RECORDED}"
 
 
 def test_the_advantage_shell_carries_the_marker_rather_than_the_table():

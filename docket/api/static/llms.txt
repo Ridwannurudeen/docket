@@ -565,6 +565,18 @@ GET /advantage/v3
 
     curl -s "$DOCKET/advantage/v3"
 
+GET /api/marketplace/summary
+    The marketplace's own counters, recounted per request and derived from the durable
+    records rather than typed anywhere: services_total, services_paid_stock,
+    public_paid_hires (settled hire payments that are not the internal canary's),
+    canary_settlements, erc8004_identities, v3_families, external_listings_by_level,
+    activations_by_state, deployed_commit, and generated_at. A counter whose table does
+    not exist in this build reports an empty object rather than a zero nobody counted.
+    The home page is rendered from this same object at process startup, so the page and
+    this route cannot be two transcriptions of one count.
+
+    curl -s "$DOCKET/api/marketplace/summary"
+
 GET /llms.txt
     This file. text/plain.
 

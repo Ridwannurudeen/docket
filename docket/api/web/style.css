@@ -1470,6 +1470,14 @@ textarea {
   font-size: var(--fs-xl);
 }
 
+/* The API contract beside the marketplace name, quieter than it but never absent. */
+.listing-id {
+  color: var(--fg-dim);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
 .listing-facts {
   display: grid;
   grid-template-columns: minmax(120px, auto) 1fr;

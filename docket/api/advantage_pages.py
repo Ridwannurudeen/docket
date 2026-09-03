@@ -70,15 +70,26 @@ def v1_page(shell: str, task_id: str | None = None) -> str:
     return rendered
 
 
-def _cost_display(cost: dict) -> str:
-    """One arm's recorded cost, in the asset name this page already uses for it.
+# One mapping from a recorded unit to the name this page prints for it. `$U` is what the
+# v1 records were written under and USDT is what every other line of this page calls it;
+# two spellings of one asset are two assets as far as a reader can tell.
+UNIT_DISPLAY = {"$U": "USDT"}
 
-    `$U` is the name the v1 records were written under; the page renders it as USDT
-    everywhere else, and a second spelling of one asset on one page is a second asset as
-    far as a reader can tell.
+
+def _cost_display(cost: dict) -> str:
+    """One arm's recorded cost, through the one unit mapping.
+
+    A zero cost prints as a bare zero. Nought of one asset and nought of another are the
+    same quantity, and printing "0.01 USDT · 0 USD" in a single cell invites a comparison
+    across two assets that the records do not support.
     """
-    unit = "USDT" if cost["unit"] == "$U" else cost["unit"]
-    return f"{cost['amount']} {unit}"
+    amount = str(cost["amount"])
+    try:
+        if float(amount) == 0:
+            return "0"
+    except ValueError:
+        pass
+    return f"{amount} {UNIT_DISPLAY.get(cost['unit'], cost['unit'])}"
 
 
 def _one_page_table(caption: str, rows: list[tuple[str, ...]]) -> str:
@@ -193,11 +204,14 @@ def _v3_rows(payload: dict) -> list[tuple[str, ...]]:
                 f"{speed['n_complete_pairs']} complete pairs"
                 if isinstance(speed, dict)
                 else absent,
+                # An empty cost ledger is a measure the report does not carry, whether or
+                # not the arms ran; it is never "unscored", which is about score sheets.
                 " · ".join(
-                    f"{total['arm']} {total['amount']} {total['unit']}"
+                    f"{total['arm']} {total['amount']} "
+                    f"{UNIT_DISPLAY.get(total['unit'], total['unit'])}"
                     for total in totals
                 )
-                or absent,
+                or NOT_RECORDED,
                 f"agent median {quality['arms']['agent']['median_total']} · "
                 f"manual median {quality['arms']['manual']['median_total']}"
                 if isinstance(quality, dict)

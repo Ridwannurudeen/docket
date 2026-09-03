@@ -107,7 +107,7 @@ V2 stores corpora, hash-bearing specifications, runs, null baselines, every tria
 computed falsifiers under `docket/advantage/v2/`. `docket.advantage.v2.report.report()` is
 the common builder for `/advantage/v2.json` and its HTML page.
 
-V3 stores six stage-one paired specifications plus its claim-once runner, prompt-blinded
+V3 stores its registered stage-one paired specifications plus its claim-once runner, prompt-blinded
 scoring, and artifact-derived report under `docket/advantage/v3/`. Family state is derived
 from committed specs, inputs, ledgers, sheets, and mappings rather than asserted as an
 undated present here. At the committed-artifact observation on 2026-08-29, the committed v3

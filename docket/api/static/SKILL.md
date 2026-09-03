@@ -68,7 +68,7 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/advantage` | The same report as a page for a human |
 | GET | `/advantage/v2.json` | Hashed experiments with per-experiment registration provenance: every run, the nulls beside every figure, each falsifier's computed result |
 | GET | `/advantage/v2` | The same v2 report as a page for a human |
-| GET | `/advantage/v3.json` | Six registered paired families and each artifact-derived execution or scoring state |
+| GET | `/advantage/v3.json` | Every registered paired family and its artifact-derived execution or scoring state |
 | GET | `/advantage/v3` | The same startup-bound v3 report as a page for a human |
 | GET | `/pancake` | JSON source map by default; the live PancakeSwap evidence dashboard for HTML callers |
 | GET | `/llms.txt` | Full plain-text reference |

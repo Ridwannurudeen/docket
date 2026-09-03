@@ -1,5 +1,11 @@
 # Three-minute Docket demo
 
+**Recording gate.** Record this only against the deployed integrated release — the
+activation pages, bounded sessions, marketplace search and the status page all live on the
+host being filmed; if any one of them is not serving, the recording does not start.
+Every figure that appears in the film is read off the page at the moment it is shown, so
+nothing in this script is a number to recite and no figure here can go stale into a video.
+
 Record at 1280×720 or higher from a cold browser with no wallet extension connected. Keep the address bar visible whenever changing pages so the public URL is part of the shot.
 
 This is a successful journey, recorded in the order a visitor walks it: the promise, the comparison, the activation, the result, the four categories, the evidence, and the boundary. Describe what is on screen. Read every figure off the page at the moment it is shown rather than reciting one from this script — a number typed here goes stale, and a stale number in a recording cannot be corrected.
@@ -26,7 +32,7 @@ This is a successful journey, recorded in the order a visitor walks it: the prom
 
 **URL:** <https://docket.gudman.xyz/activate?category=health_factor>
 
-**Clicks:** Open the health-factor job, choose the Health Guard listing, and load the sample Venus position that the form offers.
+**Clicks:** Open the health-factor job, choose the **Health Shield** listing (service id `health-guard`), and load the sample Venus position that the form offers.
 
 **Say:** “Activation is three steps: choose the job, set the limits, activate. Here the limits are the ones this job needs — the minimum collateral ratio the agent must defend, the rescue cap it may never exceed, and the expiry after which the permission lapses on its own. Those are stated before anything is signed. Then the wallet connects, and the authorization is written for an exact amount rather than an open approval.”
 
@@ -46,7 +52,7 @@ This is a successful journey, recorded in the order a visitor walks it: the prom
 
 **URL:** <https://docket.gudman.xyz/categories>, then back to the listings grid.
 
-**Say:** “Every one of BNB's four categories has an agent behind it, and all four are activated through the same flow with the same shape of limits: Range Doctor for rebalancing, Grid Operator for grid trading, Yield Router for yield optimisation, Health Guard for health factor. The category labels are Docket's own declarations about services Docket runs — the registry publishes no field that says what job an agent does, and the category response says so in its own body.”
+**Say:** “Every one of BNB's four categories has an agent behind it, and all four are activated through the same flow with the same shape of limits: Range Keeper for rebalancing, Grid Operator for grid trading, Yield Router for yield optimisation, Health Shield for health factor. Each listing prints its service id — `range-doctor`, `grid-operator`, `yield-router`, `health-guard` — beside the name, so the marketplace name and the API contract can always be joined. The category labels are Docket's own declarations about services Docket runs; the registry publishes no field that says what job an agent does, and the category response says so in its own body.”
 
 **Point at:** the four listings in the grid, then the declaration sentence in the JSON.
 
@@ -64,7 +70,7 @@ This is a successful journey, recorded in the order a visitor walks it: the prom
 
 **Then open:** <https://docket.gudman.xyz/registrations/range-doctor.json> and, briefly, the adverse case on the home page.
 
-**Say:** “This is the published token URI for Range Doctor, BSC ERC-8004 agent 311253. Grid, Yield, and Health are agents 311255, 311257, and 311259; all four were minted on August 28 and the recorded owner is the registration wallet. Registration is not endorsement, not paid stock, and not evidence that a service produced a result. Warden remains unbound.” [The exact blocks and transactions are committed here.](../erc8004-category-identities.json)
+**Say:** “This is the published token URI for `range-doctor`, the service behind Range Keeper: BSC ERC-8004 agent 311253. Grid, Yield, and Health are agents 311255, 311257, and 311259; all four were minted on August 28 and the recorded owner is the registration wallet. Registration is not endorsement, not paid stock, and not evidence that a service produced a result. Warden remains unbound.” [The exact blocks and transactions are committed here.](../erc8004-category-identities.json)
 
 Finish on: “Docket makes what exists — and what does not — clickable.”
 

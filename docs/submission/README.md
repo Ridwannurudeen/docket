@@ -13,10 +13,10 @@ For the shortest evidence-led tour, use [Judge start here](judge-start-here.md).
 
 ## Four jobs, four concrete returns
 
-- **Rebalancing — Keep LP earning.** [Range Doctor](https://docket.gudman.xyz/services/range-doctor) reads a BSC wallet's PancakeSwap v3 position NFTs and returns each position's range state, the values used for that diagnosis, bounded fee-rate context, and conditional wait or recenter paths; it signs, approves, and moves nothing.
+- **Rebalancing — Keep LP earning.** [Range Keeper](https://docket.gudman.xyz/services/range-doctor) (service id `range-doctor`) reads a BSC wallet's PancakeSwap v3 position NFTs and returns each position's range state, the values used for that diagnosis, bounded fee-rate context, and conditional wait or recenter paths; it signs, approves, and moves nothing.
 - **Grid trading — Run a capped grid.** [Grid Operator](https://docket.gudman.xyz/services/grid-operator) returns deterministic PancakeSwap v2 levels, live router quotes, minimum outputs, calldata hashes, deadlines, gas ceilings, and slippage bounds; it has no signer or transaction submitter.
 - **Yield optimisation — Move idle liquidity.** [Yield Router](https://docket.gudman.xyz/services/yield-router) returns a reproducible PancakeSwap v3 pool universe, every inclusion and exclusion, gross and protocol-adjusted observed rates, and caller-cost break-even arithmetic; it can draft an unsigned swap leg but cannot submit it.
-- **Health factor — Protect a loan.** [Health Guard](https://docket.gudman.xyz/services/health-guard) returns Venus Core Pool liquidity and shortfall values, a disclosed collateral-ratio derivation, market-level inputs, and bounded repay or supply-collateral drafts when shortfall exists; no Venus execution path exists in this build.
+- **Health factor — Protect a loan.** [Health Shield](https://docket.gudman.xyz/services/health-guard) (service id `health-guard`) returns Venus Core Pool liquidity and shortfall values, a disclosed collateral-ratio derivation, market-level inputs, and bounded repay or supply-collateral drafts when shortfall exists; no Venus execution path exists in this build.
 
 The four labels above are Docket's declared job categories, not fields emitted by the BSC registry; the [category response](https://docket.gudman.xyz/categories) says so directly.
 
