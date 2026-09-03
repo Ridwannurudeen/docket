@@ -11,16 +11,23 @@ a batch which cannot land does not reach a signer. A call the chain refused come
 `alert` carrying the revert reason; a call that could not be put to the chain at all comes
 back as `alert` too, because an unread preflight is not a passed one.
 
-**Every call in the batch is put to the chain, and carries its own answer.** Nothing is
-skipped and nothing is assumed: each of the eight calls gets an `eth_call` and an
-`eth_estimateGas` from the address expected to send it, and `simulation.ok` is what the
-chain said about that call rather than an inference from its neighbours. The three
-position-manager calls are asked from the *holder* of the position NFT, who is authorised
-over the token whether or not the session approval has landed, so the calldata, the token
-id and the minimums are validated against the live price. `docket/sessions/executor.py`
-re-simulates every call from its real sender at send time; nothing here is a substitute
-for that, and a batch is a sequence whose later calls depend on state its earlier ones
-create.
+**A call is simulated when its preconditions hold, and deferred when they do not.** The
+close and the collect are asked of the chain from the position's holder, who is authorised
+over the token whichever way the approval went; the approvals are asked from the session,
+which needs no balance to grant one. The swap and the mint spend tokens the collect has
+not released yet, so at this block they would revert for a reason that says nothing about
+whether they are right — `TRANSFER_FROM_FAILED` from a session holding nothing is not a
+finding. Those two carry `ok: None` and name the call they wait on. Simulating them anyway
+would end every real tick as an alert, and reporting a dependency as a refusal is the same
+mistake as reporting an outage as one. `docket/sessions/executor.py` re-simulates every
+call from its real sender immediately before sending it, which is the check that matters.
+
+**The owner's ERC-721 approval is not a prepared call.** Lane B's loop sends everything in
+`decision.prepared` from the session, and an ERC-721 approval sent by anyone but the NFT's
+holder reverts. So the approval is read rather than drafted: `getApproved` and
+`isApprovedForAll` decide whether the session may act at all, and an unapproved position
+comes back as an `alert` carrying `evidence["needs_nft_approval"]` for the browser step
+that collects it.
 
 **Observations have to persist, and today nothing persists them.** Time out of range can
 only be measured against earlier readings. Each evaluation returns the list it built under
@@ -39,9 +46,12 @@ carried beside it.
 from web3 import Web3
 
 from ...agents.pancake.keeper import (
+    Q192,
     SWAP_NOTE,
+    V2_FEE_BPS,
     KeeperPolicy,
     evaluate as keeper_evaluate,
+    npm_approval_reader,
     npm_encoder,
     rebalance_calls,
     swap_plan,
@@ -53,6 +63,7 @@ from ...execution.simulate import BscQuoteReader
 from . import register
 from .base import Decision, PreparedCall
 from .bounds import (
+    defer,
     now_utc,
     token_spend,
     policy_field,
@@ -62,6 +73,16 @@ from .bounds import (
 )
 
 CATEGORY = "rebalancing"
+# Which call each deferred one waits on. A call that spends tokens the close has not
+# released yet cannot be asked of the chain at this block, and naming what it waits on is
+# the difference between "not yet" and "no".
+_WAITS_ON = {
+    "session_balances_the_inventory_on_v2": "session_collects_to_fund_the_swap_and_the_mint",
+    "session_balances_the_inventory_on_v3": "session_collects_to_fund_the_swap_and_the_mint",
+    "session_mints_replacement_to_owner": (
+        "session_collects_to_fund_the_swap_and_the_mint and the swap that follows it"
+    ),
+}
 # How long a prepared batch stays valid. Ten minutes is `venus/guard.py`'s own default and
 # is long enough for an owner to sign in a browser without being long enough for the price
 # the minimums were computed against to become historical.
@@ -226,7 +247,12 @@ class RangeKeeperExecutor:
             inputs["token_id"],
             reader=reader,
             pools=self._pool_client(),
-            observation_block=inputs.get("observation_block"),
+            # A persistent watch always reads the head. A pinned block is a
+            # reproducibility lever for a one-off diagnosis; on a watch it would freeze
+            # every tick at one moment and the position would never appear to move.
+            observation_block=(
+                None if activation.kind == "persistent" else inputs.get("observation_block")
+            ),
         )
         read = state["read"]
         observations = list((activation.result or {}).get("observations") or [])
@@ -249,7 +275,23 @@ class RangeKeeperExecutor:
             position["declared_position_value_usd"] = float(
                 inputs["declared_position_value_usd"]
             )
-        policy = keeper_policy(activation)
+        try:
+            policy = keeper_policy(activation)
+        except (ValueError, KeyError, TypeError) as exc:
+            # A request whose policy will not construct is a misconfigured watch, not a
+            # crash: the tick loop would otherwise count it as an error every five minutes
+            # and the owner would see nothing saying why.
+            return Decision(
+                kind="alert",
+                summary=(
+                    f"This watch's policy is not usable, so nothing was evaluated: "
+                    f"{type(exc).__name__}: {exc}."
+                ),
+                prepared=(),
+                evidence={"read": read, "observations": observations},
+                observed_at=read["observation_time"],
+                block=read["observation_block"],
+            )
         try:
             gas_price_wei = int(rpc(lambda w3: w3.eth.gas_price))
         except Exception as exc:
@@ -264,6 +306,18 @@ class RangeKeeperExecutor:
                 observed_at=read["observation_time"],
                 block=read["observation_block"],
             )
+
+        session_address = ((activation.session or {}).get("address") or "").strip()
+        if position["liquidity"] == 0 and session_address:
+            # A closed position whose tokens are still in the session is a reset that
+            # stopped halfway, not a position with nothing left to do.
+            try:
+                position["session_inventory"] = session_inventory(
+                    position, session=session_address, rpc=rpc
+                )
+            except Exception as exc:
+                evidence_note = f"{type(exc).__name__}: {exc}"
+                position["session_inventory_unreadable"] = evidence_note
 
         decision = keeper_evaluate(
             position,
@@ -282,7 +336,9 @@ class RangeKeeperExecutor:
                     "observed_at": read["observation_time"],
                     "block": read["observation_block"],
                     "tick": (state["pool"] or {}).get("tick"),
-                    "in_range": decision.evidence["diagnosis"]["in_range"],
+                    "in_range": (decision.evidence.get("diagnosis") or {}).get(
+                        "in_range", True
+                    ),
                 }
             ]
         )[-MAX_OBSERVATIONS:]
@@ -293,9 +349,13 @@ class RangeKeeperExecutor:
 
         if decision.kind != "action":
             summary = decision.summary
+            # A staked position never reaches a diagnosis, so both keys are read
+            # defensively rather than assumed.
+            diagnosed = decision.evidence.get("diagnosis") or {}
+            timing = decision.evidence.get("time_out_of_range") or {}
             if (
-                not decision.evidence["diagnosis"]["in_range"]
-                and decision.evidence["time_out_of_range"]["prior_observations"] == 0
+                diagnosed.get("in_range") is False
+                and timing.get("prior_observations") == 0
             ):
                 summary += (
                     " No earlier observation was carried forward on this activation, so no "
@@ -312,7 +372,9 @@ class RangeKeeperExecutor:
                 block=read["observation_block"],
             )
 
-        session = (activation.session or {}).get("address")
+        # An empty string is not an address. Lane B writes the session record before the
+        # key exists, so `{"address": ""}` is the shape of "not funded yet".
+        session = ((activation.session or {}).get("address") or "").strip()
         if not session:
             return Decision(
                 kind="alert",
@@ -327,13 +389,45 @@ class RangeKeeperExecutor:
                 block=read["observation_block"],
             )
 
+        holder = Web3.to_checksum_address(inputs["wallet"])
+        try:
+            approved = session_may_move(
+                position, holder=holder, session=session, rpc=rpc
+            )
+        except Exception as exc:
+            approved = None
+            evidence["nft_approval_unreadable"] = f"{type(exc).__name__}: {exc}"
+        if approved is not True:
+            # The approval is the owner's to make and no session can make it for them, so
+            # it is reported rather than drafted. Lane B's funding step reads this.
+            evidence["needs_nft_approval"] = {
+                "contract": NPM,
+                "token_id": position["token_id"],
+                "session": Web3.to_checksum_address(session),
+                "holder": holder,
+            }
+            return Decision(
+                kind="alert",
+                summary=(
+                    decision.summary
+                    + f" Docket's session {session} is not approved over position NFT "
+                    f"{position['token_id']}, so no call is prepared. Approve it from the "
+                    "wallet that holds the position — only its holder can — and the watch "
+                    "prepares the reset on its next pass."
+                ),
+                prepared=(),
+                evidence=evidence,
+                observed_at=read["observation_time"],
+                block=read["observation_block"],
+            )
+
         try:
             prepared, sim_evidence = self._prepare(
                 position=position,
                 pool=state["pool"],
                 decision=decision,
                 policy=policy,
-                holder=Web3.to_checksum_address(inputs["wallet"]),
+                holder=holder,
                 session=session,
                 now=now,
                 rpc=rpc,
@@ -361,6 +455,14 @@ class RangeKeeperExecutor:
             )
         evidence["preflight"] = sim_evidence
         evidence["token_amounts"] = token_spend(prepared)
+        # Per call as well as in total: `docket/jobs/tick.py` hands one mapping to
+        # `execute` for every call in the batch and `SessionPolicy.allows` accumulates it
+        # each time, so a loop that charged the batch total per call would count an
+        # approval six times. The per-call breakdown is what a correct charge reads.
+        evidence["token_amounts_by_call"] = [
+            {"purpose": call.purpose, "spends": token_spend([call])}
+            for call in prepared
+        ]
         evidence["slippage_bps"] = policy.max_slippage_bps
         if sim_evidence["verdict"] != "passed":
             # No prepared calls on an alert. A batch that did not pass its preflight is
@@ -387,11 +489,16 @@ class RangeKeeperExecutor:
         )
 
     def _prepare(self, *, position, pool, decision, policy, holder, session, now, rpc):
-        """Build the whole batch, then ask the chain about every call in it."""
+        """Build the batch, choose the swap's venue, then ask the chain what it can."""
         deadline = int(now.timestamp()) + DEADLINE_S
-        burn0, burn1 = burn_quote(
-            position, owner=holder, deadline=deadline, rpc=rpc
-        )
+        resume = bool(decision.evidence.get("resuming"))
+        if resume:
+            held = decision.evidence["resuming"]["session_inventory"]
+            burn0, burn1 = int(held["token0"]), int(held["token1"])
+        else:
+            burn0, burn1 = burn_quote(
+                position, owner=holder, deadline=deadline, rpc=rpc
+            )
         plan = swap_plan(
             burn0,
             burn1,
@@ -401,21 +508,17 @@ class RangeKeeperExecutor:
         token0 = Web3.to_checksum_address(position["token0"])
         token1 = Web3.to_checksum_address(position["token1"])
         swap = None
+        venue_record = {"needed": plan["needed"], "reason": plan["reason"]}
         if plan["needed"]:
-            route = (
-                (token0, token1) if plan["token_in"] == "token0" else (token1, token0)
+            swap, venue_record = self._choose_venue(
+                plan,
+                pool=pool,
+                token0=token0,
+                token1=token1,
+                policy=policy,
+                fee=int(position["fee"]),
+                rpc=rpc,
             )
-            # The router's own live quote, taken the way `agents/grid/operator.py` takes
-            # one: a view call, so it answers at a block where the session holds nothing.
-            quoted_out = int(
-                self._quote_handle(rpc).amounts_out(plan["amount_in"], route)[-1]
-            )
-            swap = {
-                "token_in": plan["token_in"],
-                "amount_in": plan["amount_in"],
-                "quoted_out": quoted_out,
-                "route": list(route),
-            }
         calls = rebalance_calls(
             position,
             new_tick_lower=decision.new_tick_lower,
@@ -427,18 +530,26 @@ class RangeKeeperExecutor:
                 "max_slippage_bps": policy.max_slippage_bps,
                 "burn0": burn0,
                 "burn1": burn1,
+                "resume": resume,
                 "swap": swap,
             },
         )
         block = 0
         verdict = "passed"
-        reason = "every call in the batch was accepted at this block"
+        reason = "every call whose preconditions hold at this block was accepted"
         simulated: list[PreparedCall] = []
         for call in calls:
+            waits_on = _WAITS_ON.get(call.purpose)
+            if waits_on is not None:
+                # It spends tokens the close has not released yet. Asking the chain would
+                # get TRANSFER_FROM_FAILED from a session holding nothing, which is a fact
+                # about the ordering and not about the call.
+                simulated.append(with_simulation(call, defer(call, depends_on=waits_on, block=block)))
+                continue
             # The position-manager calls are asked as the holder: the holder is authorised
-            # over the token whether or not the ERC-721 approval has landed, so asking from
-            # that address answers whether the calldata, the token id and the minimums hold
-            # at this price rather than whether an approval exists yet.
+            # over the token whichever way the approval went, so asking from that address
+            # answers whether the calldata, the token id and the minimums hold at this
+            # price rather than whether an approval exists yet.
             sender = holder if call.to == NPM else session
             record, outcome = simulate_call(call, sender=sender, rpc=rpc)
             block = record["block"] or block
@@ -446,28 +557,97 @@ class RangeKeeperExecutor:
             if outcome != "passed" and verdict == "passed":
                 verdict = outcome
                 reason = f"{call.purpose}: {record['revert_reason']}"
-        return tuple(simulated), {
+        prepared = tuple(simulated)
+        return prepared, {
             "verdict": verdict,
             "reason": reason,
             "block": block,
+            "resumed": resume,
             "amounts": {
                 "burn0": str(burn0),
                 "burn1": str(burn1),
                 "swap": swap,
-                # Atomic figures travel as strings, the way every other atomic amount in
-                # Docket does. `bool` subclasses `int`, so it is excluded explicitly —
-                # a `needed` of "True" reads as a string nobody can branch on.
-                "swap_plan": {
-                    key: (
-                        str(value)
-                        if isinstance(value, int) and not isinstance(value, bool)
-                        else value
-                    )
-                    for key, value in plan.items()
-                },
+                "swap_plan": _stringify(plan),
+                "venue": venue_record,
                 "note": SWAP_NOTE,
             },
         }
+
+    def _choose_venue(self, plan, *, pool, token0, token1, policy, fee, rpc):
+        """Which router the leg goes through, and the floor it is held to.
+
+        PancakeSwap V2 is quoted first because it is the venue the rest of Docket's
+        execution plane already uses. Its quote is then held against the price the
+        position's own v3 pool is trading at: a pair that exists on V2 in name can be thin
+        enough there to lose most of a position, and an `amountOutMin` derived from that
+        quote would be a floor under a number that was already wrong. Where V2 falls short
+        of the policy's own slippage bound the leg is routed into the v3 pool the position
+        was minted in instead, whose floor comes from that pool's price less its fee tier
+        and the same bound.
+        """
+        route = (
+            (token0, token1) if plan["token_in"] == "token0" else (token1, token0)
+        )
+        amount_in = plan["amount_in"]
+        fair = expected_out(
+            amount_in,
+            token_in=plan["token_in"],
+            sqrt_price_x96=int(pool["sqrt_price_x96"]),
+        )
+        bound = 10_000 - policy.max_slippage_bps
+        quoted = None
+        quote_error = None
+        try:
+            quoted = int(self._quote_handle(rpc).amounts_out(amount_in, route)[-1])
+        except Exception as exc:  # a venue that cannot quote is a venue not used
+            quote_error = f"{type(exc).__name__}: {exc}"
+        shortfall_bps = (
+            None if quoted is None or fair <= 0 else (fair - quoted) * 10_000 // fair
+        )
+        record = {
+            "needed": True,
+            "route": list(route),
+            "amount_in": str(amount_in),
+            "pool_price_out": str(fair),
+            "v2_quote": None if quoted is None else str(quoted),
+            "v2_quote_error": quote_error,
+            "v2_shortfall_bps": None if shortfall_bps is None else int(shortfall_bps),
+            "slippage_bps": policy.max_slippage_bps,
+        }
+        if quoted is not None and quoted * 10_000 >= fair * bound:
+            record["venue"] = "v2"
+            record["reason"] = (
+                f"PancakeSwap V2 quotes {quoted} against the {fair} this position's own "
+                f"pool prices the trade at, {shortfall_bps}bps short of it and inside the "
+                f"{policy.max_slippage_bps}bps the policy allows"
+            )
+            return {
+                "venue": "v2",
+                "token_in": plan["token_in"],
+                "amount_in": amount_in,
+                "min_output": int(quoted) * bound // 10_000,
+            }, record
+        # The v3 leg trades in the position's own pool, so the pool's price IS the quote.
+        # Its floor is that price less the pool's fee tier and the policy's bound, and the
+        # router enforces it by reverting rather than by anyone trusting it.
+        record["venue"] = "v3"
+        record["reason"] = (
+            "PancakeSwap V2 "
+            + (
+                f"could not quote this route ({quote_error})"
+                if quoted is None
+                else f"quotes {quoted} against the {fair} this position's own pool prices "
+                f"the trade at — {shortfall_bps}bps short, outside the "
+                f"{policy.max_slippage_bps}bps the policy allows"
+            )
+            + ", so the leg is routed through the v3 SwapRouter into that pool instead"
+        )
+        return {
+            "venue": "v3",
+            "token_in": plan["token_in"],
+            "amount_in": amount_in,
+            "min_output": fair * bound // 10_000 * (1_000_000 - fee) // 1_000_000,
+        }, record
 
     def within_policy(self, activation, decision: Decision) -> tuple[bool, str]:
         """Whether the session the owner granted covers every call this decision offers."""
@@ -478,6 +658,75 @@ class RangeKeeperExecutor:
             gas_price_wei=gas_price,
             now=self._clock(),
         )
+
+
+BALANCE_OF = "0x70a08231"
+
+
+def session_inventory(position: dict, *, session: str, rpc) -> dict:
+    """What the session already holds of this position's two tokens.
+
+    Read whenever the position's liquidity is zero, because that is the state a batch
+    leaves behind when it closed the position and then stopped: the NFT is empty and the
+    money is in the session. Without this read the watch would call it `closed` and go
+    quiet on a position whose owner is mid-reset.
+    """
+    holder = Web3.to_checksum_address(session)[2:].rjust(64, "0")
+    out = {}
+    for name in ("token0", "token1"):
+        raw = rpc(
+            lambda w3, token=position[name]: w3.eth.call(
+                {"to": Web3.to_checksum_address(token), "data": BALANCE_OF + holder}
+            )
+        )
+        out[name] = int.from_bytes(bytes(raw)[-32:], "big") if raw else 0
+    return out
+
+
+def session_may_move(position: dict, *, holder: str, session: str, rpc) -> bool:
+    """Whether the session is already authorised over this position NFT.
+
+    Two reads because ERC-721 grants two ways: `getApproved` for the single token, and
+    `isApprovedForAll` for the holder's whole collection. Either is enough, and neither is
+    something Docket can grant itself — which is the point of asking rather than drafting.
+    """
+    token_id = int(position["token_id"])
+    operator = Web3.to_checksum_address(session)
+    approved = rpc(
+        lambda w3: w3.eth.call(
+            {
+                "to": NPM,
+                "data": npm_approval_reader.encode_abi("getApproved", args=[token_id]),
+            }
+        )
+    )
+    if Web3.to_checksum_address(bytes(approved)[-20:]) == operator:
+        return True
+    blanket = rpc(
+        lambda w3: w3.eth.call(
+            {
+                "to": NPM,
+                "data": npm_approval_reader.encode_abi(
+                    "isApprovedForAll",
+                    args=[Web3.to_checksum_address(holder), operator],
+                ),
+            }
+        )
+    )
+    return int.from_bytes(bytes(blanket)[-32:], "big") == 1
+
+
+def expected_out(amount_in: int, *, token_in: str, sqrt_price_x96: int) -> int:
+    """What the position's own pool prices this trade at, in integers.
+
+    The yardstick a venue's quote is held against. A pair can exist on PancakeSwap V2 and
+    still be thin enough there to lose most of a position — the fixture pair in the tests
+    quotes 30% down for one unit and 97% down for a hundred — so a quote is only usable
+    once it has been compared with the price the position is actually marked at.
+    """
+    if token_in == "token0":
+        return amount_in * sqrt_price_x96 * sqrt_price_x96 // Q192
+    return amount_in * Q192 // (sqrt_price_x96 * sqrt_price_x96)
 
 
 def burn_quote(position: dict, *, owner: str, deadline: int, rpc) -> tuple[int, int]:
@@ -527,3 +776,15 @@ __all__ = [
     "keeper_policy",
     "read_position",
 ]
+
+
+def _stringify(plan: dict) -> dict:
+    """Atomic figures travel as strings; `bool` subclasses `int` and must not."""
+    return {
+        key: (
+            str(value)
+            if isinstance(value, int) and not isinstance(value, bool)
+            else value
+        )
+        for key, value in plan.items()
+    }

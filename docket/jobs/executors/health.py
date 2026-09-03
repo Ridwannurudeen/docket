@@ -24,10 +24,12 @@ them. The spend is read out of the approval this batch actually makes. The slipp
 zero, and that is a fact rather than an omission: neither `repayBorrowBehalf` nor `mint`
 takes a minimum-out argument, so there is no price in either call to slip against.
 
-**A collateral add is the owner's own transaction.** `mint(uint256)` credits its caller and
-has no on-behalf form, so a session sending it would buy vTokens for itself while the
-borrower's collateral stayed where it was. Both of its calls carry `owner_signs`, and
-`within_policy` therefore asks nothing of the session about them.
+**A collateral add never becomes an action.** `mint(uint256)` credits its caller and has
+no on-behalf form, so a session sending it would buy vTokens for *itself* with the owner's
+float while the borrower's collateral stayed exactly where it was. `docket/jobs/tick.py`
+sends every call in `decision.prepared` from the session, so putting those calls there
+would cause precisely that. They travel in `evidence["owner_calls"]` on an `alert`
+instead, for the owner to sign from their own wallet.
 """
 
 from ...agents.venus.markets import VenusReader
@@ -109,14 +111,42 @@ class HealthShieldExecutor:
             rpc = self._rpc if self._rpc is not None else reader
             reader = VenusReader(rpc=reader)
         state = reader.account(inputs["wallet"])
-        policy = shield_policy(activation)
-        decision = shield_evaluate(state, policy, now=now)
+        try:
+            policy = shield_policy(activation)
+            decision = shield_evaluate(state, policy, now=now)
+        except (ValueError, KeyError, TypeError) as exc:
+            # A watch whose policy will not construct is misconfigured, not broken: the
+            # tick loop would otherwise count it as an error every five minutes and the
+            # owner would see nothing saying which field was wrong.
+            return Decision(
+                kind="alert",
+                summary=(
+                    f"This watch's policy is not usable, so {state.address}'s position was "
+                    f"read but nothing was sized from it: {type(exc).__name__}: {exc}."
+                ),
+                prepared=(),
+                evidence={"address": state.address, "as_of_block": state.as_of_block},
+                observed_at=now.isoformat(),
+                block=state.as_of_block,
+            )
         evidence = dict(decision.evidence)
         try:
             gas_price_wei = int(rpc(lambda w3: w3.eth.gas_price))
         except Exception as exc:
-            gas_price_wei = 0
+            # Zero would read as a free block and pass every gas ceiling in the policy.
+            # A price nobody could read is a preflight that did not happen.
             evidence["gas_price_unavailable"] = f"{type(exc).__name__}: {exc}"
+            return Decision(
+                kind="alert",
+                summary=(
+                    f"{state.address}'s remedy could not be priced: the gas price could "
+                    f"not be read ({type(exc).__name__}: {exc})."
+                ),
+                prepared=(),
+                evidence=evidence,
+                observed_at=now.isoformat(),
+                block=state.as_of_block,
+            )
         evidence["gas_price_wei"] = str(gas_price_wei)
         evidence["token_amounts"] = {}
         # Neither Venus write takes a minimum-out argument, so there is no price in
@@ -138,8 +168,30 @@ class HealthShieldExecutor:
             )
 
         owner_signs_only = decision.remedy["mode"] == "add_collateral"
-        session = (activation.session or {}).get("address")
-        if session is None and not owner_signs_only:
+        # An empty string is not an address: Lane B writes the session record before the
+        # key exists, so `{"address": ""}` is the shape of "not funded yet".
+        session = ((activation.session or {}).get("address") or "").strip()
+        if owner_signs_only:
+            # Reported, never offered for execution. See the module docstring.
+            calls = rescue_calls(
+                state, decision, session=state.address, borrower=state.address
+            )
+            evidence["owner_calls"] = [call.to_dict() for call in calls]
+            return Decision(
+                kind="alert",
+                summary=(
+                    decision.summary
+                    + " Supplying collateral has no on-behalf form — mint credits whoever "
+                    "sends it — so these two calls are yours to sign from the wallet that "
+                    "holds the position, and Docket's session is not permitted to send "
+                    "them. They are in this alert's evidence, ready to sign."
+                ),
+                prepared=(),
+                evidence=evidence,
+                observed_at=now.isoformat(),
+                block=state.as_of_block,
+            )
+        if not session:
             return Decision(
                 kind="alert",
                 summary=(
@@ -158,14 +210,9 @@ class HealthShieldExecutor:
         # `repayBorrowBehalf` names the account whose debt is retired, and building that
         # calldata from a different address would retire somebody else's.
         calls = rescue_calls(
-            state,
-            decision,
-            session=session or state.address,
-            borrower=state.address,
+            state, decision, session=session, borrower=state.address
         )
-        # A collateral add credits its sender, so the only address for which sending it
-        # changes anything is the borrower's own.
-        sender = state.address if owner_signs_only else session
+        sender = session
         approve, spend = calls
         record, outcome = simulate_call(approve, sender=sender, rpc=rpc)
         prepared = (
@@ -191,6 +238,12 @@ class HealthShieldExecutor:
             "simulated_from": sender,
         }
         evidence["token_amounts"] = token_spend(prepared)
+        # Per call as well as in total: the tick loop hands one mapping to `execute` for
+        # every call and `SessionPolicy.allows` accumulates it each time, so a charge that
+        # used the batch total would count this approval twice.
+        evidence["token_amounts_by_call"] = [
+            {"purpose": call.purpose, "spends": token_spend([call])} for call in prepared
+        ]
         if outcome != "passed":
             # No prepared calls on an alert. A batch whose approval the chain refused is
             # not a batch anybody may send, and `Decision` refuses to carry one.

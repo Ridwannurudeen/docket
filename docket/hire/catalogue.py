@@ -774,22 +774,35 @@ SERVICES: dict[str, Service] = {
             "recentred range needs — and the multiple between them. If that multiple clears the "
             "one you set, the whole reset is prepared as exact calls, in the order they have to "
             "land: close the position, collect what it holds, rebalance the inventory through "
-            "one PancakeSwap V2 swap, and mint a replacement whose position NFT is issued to "
+            "one exact-input swap, and mint a replacement whose position NFT is issued to "
             "your own address and never to Docket. The swap is there because a position that "
             "left its range holds one token and a range drawn around the current tick needs "
-            "both; its minimum output is the router's own live quote less your slippage bound, "
-            "and the mint is sized against that minimum rather than the quote, so the amounts "
-            "the position manager is asked to pull are amounts the swap is obliged to have "
-            "delivered. A position already balanced within that bound is minted without a swap "
-            "and the record says so. Every token approval in the bundle is for an exact amount "
-            "and never unlimited. Each call is put to the "
-            "chain as an eth_call and a gas estimate "
-            "before it is offered, and a batch the chain refuses comes back as an alert rather "
-            "than reaching a signer. You sign the calls yourself, or grant a bounded session — a "
-            "contract allowlist, a per-token cap, a gas ceiling and an expiry — and let Docket "
-            "send them under it. Pause the watch or revoke the session whenever you choose; "
-            "revoking sweeps the session balance back to you. Every finding carries the numbers "
-            "it was computed from, so you can check it against the chain yourself."
+            "both. Its venue is chosen rather than assumed: PancakeSwap V2 is quoted first "
+            "and used only when its quote is within your slippage bound of the price your own "
+            "pool is trading at, because a pair that exists on V2 in name can be thin enough "
+            "there to lose most of a position; where it falls short the leg goes through "
+            "PancakeSwap's v3 router into the very pool your position was minted in. Either "
+            "way the minimum output is enforced by the router, and the mint is sized against "
+            "that minimum rather than a quote, so the amounts the position manager is asked to "
+            "pull are amounts the swap was obliged to deliver. An inventory already balanced "
+            "within your bound is minted without a swap and the record says so. Every token "
+            "approval in the bundle is for an exact amount and never unlimited. Each call is "
+            "put to the chain as an eth_call and a gas estimate before it is offered where its "
+            "preconditions already hold; the swap and the mint spend tokens the collect has "
+            "not released yet, so they are marked as waiting on it rather than tested against "
+            "a state that does not exist — and every call is simulated again from its real "
+            "sender immediately before it is sent. A batch the chain refuses comes back as an "
+            "alert rather than reaching a signer. One call is never in the bundle: the ERC-721 "
+            "approval that lets Docket touch your position NFT can only be made by the wallet "
+            "holding it, so Docket reads whether you have made it and asks rather than "
+            "drafting it. You sign the rest yourself, or grant a bounded session — a contract "
+            "allowlist, a per-token cap, a gas ceiling and an expiry, all checked by Docket "
+            "before every send rather than enforced by a chain, so what really bounds your "
+            "exposure is how much you fund the session with. Pause the watch or revoke the "
+            "session whenever you choose; revoking sweeps the session balance back to you, "
+            "including fee residue and any swap surplus left above the mint. Every finding "
+            "carries the numbers it was computed from, so you can check it against the chain "
+            "yourself."
         ),
         input_schema={
             "wallet": {
@@ -846,11 +859,14 @@ SERVICES: dict[str, Service] = {
             "bnb_usd": {
                 "type": "number",
                 "required": False,
-                "default": 900.0,
+                "required_for_watch": True,
                 "description": (
                     "the caller-declared USD price of BNB, used only to convert the gas "
-                    "ceilings of a reset into dollars. Docket derives no token price, so a "
-                    "reset is never priced against a figure the caller did not state"
+                    "ceilings of a reset into dollars. A one-off diagnosis never needs it. "
+                    "A persistent watch cannot act without it and reports every reset "
+                    "instead — and it is never defaulted, because Docket derives no token "
+                    "price and a default here would be Docket quietly supplying the one "
+                    "number it says it does not have"
                 ),
             },
             "out_of_range_minutes": {
@@ -1085,16 +1101,21 @@ SERVICES: dict[str, Service] = {
             "and the ratio recomputed after it. The remedy is prepared as exact calls: an "
             "approval for the exact amount and never unlimited, then repayBorrowBehalf on the "
             "vToken, which is the one Venus function a third party may call on a borrower's "
-            "account. Supplying collateral has no such form, so it is offered for you to sign "
-            "from your own wallet and says why on the call itself. Borrow and withdraw are "
-            "encoded nowhere in this service. Each call is put to the chain as an eth_call and a "
-            "gas estimate before it is offered, and a batch the chain refuses comes back as an "
-            "alert rather than reaching a signer. You sign the calls yourself, or grant a "
-            "bounded session — a contract allowlist, a per-token cap, a gas ceiling and an "
-            "expiry — and let Docket send them under it. Pause the watch or revoke the session "
-            "whenever you choose; revoking sweeps the session balance back to you. Every figure "
-            "comes back with the block it was read at, so you can check any of it against the "
-            "chain yourself."
+            "account. Supplying collateral has no such form — mint credits whoever sends it — "
+            "so a collateral add is reported for you to sign from your own wallet and is never "
+            "offered for Docket to execute. Borrow and withdraw are encoded nowhere in this "
+            "service. The approval is put to the chain as an eth_call and a gas estimate "
+            "before it is offered; the call that spends under it is marked as waiting on that "
+            "approval rather than tested against a state that does not exist, and every call "
+            "is simulated again from its real sender immediately before it is sent. A batch "
+            "the chain refuses comes back as an alert rather than reaching a signer. You sign "
+            "the calls yourself, or grant a bounded session — a contract allowlist, a "
+            "per-token cap, a gas ceiling and an expiry, all checked by Docket before every "
+            "send rather than enforced by a chain, so what really bounds your exposure is how "
+            "much you fund the session with. Pause the watch or revoke the session whenever "
+            "you choose; revoking sweeps the session balance back to you. Every figure comes "
+            "back with the block it was read at, so you can check any of it against the chain "
+            "yourself."
         ),
         input_schema={
             "wallet": {
@@ -1146,8 +1167,12 @@ SERVICES: dict[str, Service] = {
                 "type": "array",
                 "items": {"type": "string"},
                 "required": False,
-                "default": [VENUS_VUSDT, VENUS_VUSDC],
+                "required_for_watch": True,
+                "example": [VENUS_VUSDT, VENUS_VUSDC],
                 "description": (
+                    "required by a persistent watch and never defaulted: a market list "
+                    "Docket chose for you is a permission you did not grant. A one-off "
+                    "report needs none, and a watch without one sizes nothing. "
                     "the Venus Core Pool vTokens a remedy may be sized in. The native "
                     "market is refused: vBNB takes repayBorrowBehalf(address) with the "
                     "amount as BNB value, which is a different function from the one this "
@@ -1157,8 +1182,12 @@ SERVICES: dict[str, Service] = {
             "max_rescue_atomic": {
                 "type": "object",
                 "required": False,
-                "default": {VENUS_USDT: GUARD_CAP, VENUS_USDC: GUARD_CAP},
+                "required_for_watch": True,
+                "example": {VENUS_USDT: GUARD_CAP, VENUS_USDC: GUARD_CAP},
                 "description": (
+                    "required by a persistent watch and never defaulted: a spend ceiling "
+                    "Docket chose for you is a cap you did not set. A one-off report needs "
+                    "none, and a watch without one sizes nothing. "
                     "the largest remedy permitted per underlying token, keyed by that "
                     "token's address in its own atomic units. A remedy above the cap is "
                     "reported with the amount that was refused rather than trimmed to fit"

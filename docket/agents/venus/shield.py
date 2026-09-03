@@ -283,9 +283,12 @@ def _repay_remedy(
     Repaying reduces the denominator and leaves the numerator alone, so the borrow figure
     the account may carry at the target ratio is `weighted * 1e18 // target` — floored, so
     the resulting ratio lands at or above the target rather than a unit under it. The
-    market is the largest allowed debt: a remedy split across markets is two transactions
-    where one will do, and the largest debt is the one most likely to cover the whole
-    shortfall on its own.
+    market is the largest allowed debt IN DOLLARS: a remedy split across markets is two
+    transactions where one will do, and the largest debt is the one most likely to cover
+    the whole shortfall on its own. Ranked by USD rather than by atomic balance, because
+    atomic balances are not comparable across markets — 1 BTCB and 1 USDT are the same
+    number and four orders of magnitude apart in value, so ranking on the raw figure would
+    reach for the wrong market whenever the two prices differ.
     """
     allowed = {Web3.to_checksum_address(v) for v in policy.allowed_vtokens}
     candidates = [
@@ -297,7 +300,12 @@ def _repay_remedy(
         return None, (
             "no market this account borrows in is named by the policy's allowed_vtokens"
         )
-    candidates.sort(key=lambda row: (-row.borrow_balance, row.vtoken))
+    candidates.sort(
+        key=lambda row: (
+            -_usd(row.borrow_balance, row.underlying_price_mantissa),
+            row.vtoken,
+        )
+    )
     row = candidates[0]
     if row.underlying_price_mantissa <= 0:
         return (

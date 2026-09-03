@@ -496,10 +496,12 @@ def test_the_health_factor_card_says_venus_publishes_no_health_factor():
         "single recorded read; no paired run against a person",
         # Custody, stated rather than implied.
         "docket never holds a key to your wallet",
-        "revocable by you at any time",
+        "revoking it sweeps its balance back to you at any time",
         "never transferred to docket",
         "always yours to sign",
         "exact amount and never unlimited",
+        "not rules a chain enforces",
+        "how much you fund the session with",
         # What a mined transaction does not prove.
         "not by itself evidence of how much was retired",
     ):
@@ -780,9 +782,13 @@ def test_range_doctor_states_the_limits_its_own_audit_named():
         "ticks rather than prices",
         # Custody, stated rather than implied.
         "docket never holds a key to your wallet",
-        "revocable by you at any time",
+        "revoking it sweeps its balance back to you at any time",
         "no position nft is ever transferred to docket",
-        "may only ever refuse more, never less",
+        # The caps are Docket's own checks, not a chain's. Saying otherwise would make a
+        # Python gate read as a guarantee the chain stands behind.
+        "not rules a chain enforces",
+        "how much you fund the session with",
+        "stay there until you revoke",
         # What the watch cannot know.
         "realises impermanent loss",
         "a departure between two reads is not dated",

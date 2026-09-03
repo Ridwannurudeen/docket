@@ -12,11 +12,20 @@ key here, no signer, no submitter, and no method that puts a transaction on a wi
 `docket/sessions/executor.py` is the only thing in Docket that does, and it re-simulates
 every call at send time rather than trusting a preflight taken at evaluation.
 
-**The new position NFT goes to the owner.** `mint`'s recipient is the wallet that owns
-the old one, never Docket and never the session. The session is the recipient of
-`collect` alone, because the tokens have to pass through the address that funds the mint
-— that transit is the only moment Docket's session touches the assets, and it is bounded
-by the ERC-20 approvals below and by the session's own on-chain caps.
+**Every call here is one a session may send, and the batch contains nothing else.** The
+ERC-721 approval a session needs over the position NFT can only be made by the NFT's
+holder, so it is never in `prepared`: the executor reads `getApproved` and
+`isApprovedForAll` before building anything and refuses with the approval the owner has to
+make. A list of calls that mixed the two would be handed to a loop that sends all of them
+from the session, and the owner's would revert.
+
+**The new position NFT goes to the owner.** `mint`'s recipient is the wallet that owns the
+old one, never Docket and never the session. The session is the recipient of `collect` and
+of the swap, because the tokens have to pass through the address that funds the mint —
+that transit is the only moment Docket's session touches the assets, and what bounds it is
+the exact approvals below plus the session policy `docket/sessions/policy.py` applies
+before every send. Fee residue swept by `collect` and any surplus the swap leaves over the
+mint's floor stay in the session until the owner revokes it, which sweeps them back.
 
 **A recentred range needs a swap, and the batch contains it.** A position that left its
 range holds one token only: below the range it is all token0, above it all token1. A range
@@ -70,6 +79,11 @@ COLLECT_GAS = 200_000
 MINT_GAS = 600_000
 APPROVE_GAS = 60_000
 SWAP_GAS = 300_000
+# PancakeSwap V2 charges 25bps on every exact-input swap. The v3 pool the position lives
+# in charges its own fee tier instead, which is why the two venues are costed apart: a
+# reset priced at a 0.01% tier and then executed on V2 was costed at a fortieth of what it
+# paid.
+V2_FEE_BPS = 25
 # Everything a session sends for one reset: the three position-manager calls, the router
 # leg, and the three ERC-20 approvals in front of them. The owner-signed ERC-721 approval
 # is not counted — the owner pays for it from their own wallet, and charging it to the
@@ -79,6 +93,69 @@ REBALANCE_GAS_UNITS = (
 )
 # A v3 pool stores sqrt(price) as Q64.96, so squaring one costs 2**192 of scale.
 Q192 = 2**192
+
+# PancakeSwap's v3 SwapRouter on BSC mainnet, 12,154 bytes of code at block 119,728,495.
+# Identified rather than assumed: `factory()` answers 0x0BFbCF9f…091865, which is the same
+# v3 factory `positions.py` reads pools from, and `WETH9()` answers WBNB.
+V3_SWAP_ROUTER = Web3.to_checksum_address("0x1b81D678ffb9C0263b24A97847620C99d213eB14")
+# The deployed router carries Uniswap's shape of the struct, with the deadline INSIDE it,
+# rather than PancakeSwap's SmartRouter shape which drops the deadline and hashes to
+# 0x04e45aaf. Both were checked against the runtime bytecode at that block and only this
+# one is present here; encoding the other would name a function this router does not have.
+EXACT_INPUT_SINGLE_SIGNATURE = (
+    "exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160))"
+)
+# No price limit: the floor is `amountOutMinimum`, which the router enforces by reverting.
+# A second bound expressed as a sqrt price would have to agree with the first, and the one
+# that disagreed would be the one nobody read.
+NO_SQRT_PRICE_LIMIT = 0
+V3_ROUTER_ABI = [
+    {
+        "name": "exactInputSingle",
+        "type": "function",
+        "stateMutability": "payable",
+        "inputs": [
+            {
+                "name": "params",
+                "type": "tuple",
+                "components": [
+                    {"name": "tokenIn", "type": "address"},
+                    {"name": "tokenOut", "type": "address"},
+                    {"name": "fee", "type": "uint24"},
+                    {"name": "recipient", "type": "address"},
+                    {"name": "deadline", "type": "uint256"},
+                    {"name": "amountIn", "type": "uint256"},
+                    {"name": "amountOutMinimum", "type": "uint256"},
+                    {"name": "sqrtPriceLimitX96", "type": "uint160"},
+                ],
+            }
+        ],
+        "outputs": [{"name": "amountOut", "type": "uint256"}],
+    }
+]
+# The two reads that say whether the session may already touch this NFT. Checked before a
+# batch is built rather than approved inside it: an ERC-721 approval can only be made by
+# the token's holder, so it is never the session's to send and must not travel in a list
+# of calls a session executes.
+NPM_APPROVAL_ABI = [
+    {
+        "name": "getApproved",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "tokenId", "type": "uint256"}],
+        "outputs": [{"name": "", "type": "address"}],
+    },
+    {
+        "name": "isApprovedForAll",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [
+            {"name": "owner", "type": "address"},
+            {"name": "operator", "type": "address"},
+        ],
+        "outputs": [{"name": "", "type": "bool"}],
+    },
+]
 # How far ahead the fee recovery is projected. Thirty days is the catalogue's own default
 # decision horizon for the Range Doctor's break-even, so the two answers are commensurable.
 # It is stated in the evidence rather than left implicit: a recovery figure without its
@@ -108,12 +185,16 @@ COST_LIMITATION = (
 )
 SWAP_NOTE = (
     "A range drawn around the current tick holds both tokens and a position that left its "
-    "range holds one, so the inventory is rebalanced to equal value by one PancakeSwap V2 "
-    "exact-input swap between the collect and the mint. The leg is part of the batch. Its "
-    "amountOutMin is the router's own live quote less the policy's slippage bound, and the "
-    "mint is sized against that floor rather than against the quote, so every amount the "
-    "position manager is asked to pull is one the swap is obliged to have delivered. The "
-    "trade's fee and slippage are priced into the cost this decision was made on."
+    "range holds one, so the inventory is rebalanced to equal value by one exact-input "
+    "swap between the collect and the mint. The leg is part of the batch. The venue is "
+    "chosen rather than assumed: PancakeSwap V2 is quoted first and used only when its "
+    "quote is within the policy's slippage bound of the price the position's own v3 pool "
+    "is trading at, because a pair that exists on V2 in name can be thin enough there to "
+    "lose most of a position. Where V2 falls short the leg is routed through PancakeSwap's "
+    "v3 SwapRouter into the very pool the position was minted in. Either way the floor is "
+    "amountOutMinimum, which the router enforces by reverting, and the mint is sized "
+    "against that floor rather than against a quote — so every amount the position manager "
+    "is asked to pull is one the swap was obliged to deliver."
 )
 
 # Minimal fragments rather than the full periphery artifact, the way `positions.py` writes
@@ -222,6 +303,8 @@ MINT_SIGNATURE = (
 # the same fragments, so the bytes it quotes with and the bytes it offers are encoded
 # by one encoder rather than two.
 npm_encoder = Web3().eth.contract(abi=NPM_WRITE_ABI)
+npm_approval_reader = Web3().eth.contract(abi=NPM_APPROVAL_ABI)
+v3_router_encoder = Web3().eth.contract(abi=V3_ROUTER_ABI)
 _erc20_encoder = Web3().eth.contract(abi=APPROVE_ABI)
 
 
@@ -415,8 +498,40 @@ def evaluate(
     position NFT's USD value, which is the same reason `diagnose` refuses to invent one.
     """
     policy.validate()
+    if position.get("staked"):
+        # MasterChefV3 holds the NFT, so `NPM.ownerOf` names the farm and there is no
+        # approval the owner can make that lets a session touch it. "Unstake first" is the
+        # only useful answer; drafting a batch nobody could authorise is not.
+        return KeeperDecision(
+            kind="alert",
+            summary=(
+                f"Position {position['token_id']}'s NFT is held by MasterChefV3, so it is "
+                "staked in a farm and no session can be authorised over it. Unstake from "
+                "MasterChefV3 first and the watch picks it up on its next pass."
+            ),
+            evidence={
+                "policy": policy.as_record(),
+                "staked": True,
+                "token_id": position["token_id"],
+            },
+            new_tick_lower=None,
+            new_tick_upper=None,
+        )
+    inventory = position.get("session_inventory") or {}
+    # A batch that closed the position and then stopped leaves liquidity at zero and the
+    # tokens in the session. `diagnose` reads that as `closed`, which is true of the NFT
+    # and wrong about the money: the reset is half done, and the half left is the half
+    # that matters. Restarting it would burn nothing and mint nothing.
+    resuming = position["liquidity"] == 0 and bool(
+        int(inventory.get("token0") or 0) or int(inventory.get("token1") or 0)
+    )
     diagnosis = doctor.diagnose(
-        position,
+        # A resumed batch already burnt the position, so `diagnose` would read it as
+        # `closed` and quote no pool rate at all. The rate that matters here is the one the
+        # REPLACEMENT will earn, which is the pool's — so the diagnosis is taken against
+        # the range as it stood, with a placeholder liquidity that only decides whether the
+        # position counts as closed. Every other figure in it is the real one.
+        dict(position, liquidity=1) if resuming else position,
         pool,
         pool_stats,
         declared_position_value_usd=position.get("declared_position_value_usd"),
@@ -426,8 +541,12 @@ def evaluate(
     status = diagnosis["status"]
     economics = diagnosis["economic_consequence"]
     tick = diagnosis["verifiable_facts"]["current_tick"]
+    # `unknown_pool` and `closed` say nothing about whether the position was outside a
+    # range, so neither is counted as time outside one. Reading them as "out" would date a
+    # departure from an observation that observed no price at all.
+    placed = status in doctor.RANGE_STATUSES
     observed_minutes = out_of_range_minutes(
-        history, now=now, in_range=diagnosis["in_range"]
+        history, now=now, in_range=not placed or diagnosis["in_range"]
     )
 
     new_lower = new_upper = None
@@ -473,7 +592,19 @@ def evaluate(
         "swap_note": SWAP_NOTE,
     }
 
-    if status not in ("out_of_range_below", "out_of_range_above"):
+    if resuming:
+        evidence["resuming"] = {
+            "session_inventory": {
+                "token0": str(int(inventory.get("token0") or 0)),
+                "token1": str(int(inventory.get("token1") or 0)),
+            },
+            "reason": (
+                "this position's liquidity is zero and the session still holds inventory "
+                "from a batch that stopped after the collect, so the reset continues from "
+                "the swap rather than beginning again — there is nothing left to burn"
+            ),
+        }
+    elif status not in doctor.RANGE_STATUSES or diagnosis["in_range"]:
         evidence["economics"] = _no_economics(
             f"the position is {status}, so no reset is due and none is priced"
         )
@@ -485,7 +616,7 @@ def evaluate(
             new_tick_upper=new_upper,
         )
 
-    if observed_minutes < policy.out_of_range_minutes:
+    if not resuming and observed_minutes < policy.out_of_range_minutes:
         evidence["economics"] = _no_economics(
             f"the position has been observed outside its range for "
             f"{observed_minutes:.1f} minutes, below the {policy.out_of_range_minutes} "
@@ -629,7 +760,10 @@ def _economics(
     gas_wei = REBALANCE_GAS_UNITS * gas_price_wei
     gas_usd = gas_wei / WEI_PER_BNB * bnb_usd
     swap_notional = notional * SWAP_FRACTION
-    swap_usd = swap_notional * (fee / 1_000_000 + policy.max_slippage_bps / 10_000)
+    # V2's 25bps, not the v3 tier: the leg is quoted on V2 first, and pricing a reset at
+    # a 0.01% tier that is then executed against a 0.25% venue understates it fortyfold.
+    # `_prepare` re-tests this against the shortfall the venue actually quotes.
+    swap_usd = swap_notional * (V2_FEE_BPS + policy.max_slippage_bps) / 10_000
     total = gas_usd + swap_usd
     return {
         "declared_notional_usd": notional,
@@ -646,6 +780,7 @@ def _economics(
         "swap_notional_usd": swap_notional,
         "swap_fraction": SWAP_FRACTION,
         "pool_fee_tier": fee,
+        "swap_fee_bps_assumed": V2_FEE_BPS,
         "swap_cost_usd": swap_usd,
         "total_cost_usd": total,
         "net_benefit_multiple": None if total <= 0 else recovery / total,
@@ -763,44 +898,42 @@ def rebalance_calls(
 ) -> list[PreparedCall]:
     """The exact calls that close one position and open its replacement. Signs nothing.
 
-    Eight calls, in the order they must land — six where the inventory needs no trade.
+    Seven calls, in the order they must land — five where the inventory needs no trade,
+    and five where a stopped batch is being resumed and there is nothing left to close.
+    Every one of them is the session's to send; see the module docstring for why the
+    owner's ERC-721 approval is not among them.
 
-    The first is the owner's. `approve(session, tokenId)` on the position manager is
-    ERC-721, and only the token's owner may make it: a session key cannot grant itself
-    authority over an NFT it does not hold. It carries `purpose: "owner_signs"` so nothing
-    downstream mistakes it for something the session can send.
+    `decreaseLiquidity` and `collect` first. `collect`'s recipient is the session and not
+    the owner: the tokens have to be held by the address that funds the swap and the mint,
+    and routing them to the owner first would need a second owner signature to send them
+    back. `mint`'s recipient is the owner, so the new position NFT is the owner's from the
+    block it exists in — Docket never holds it.
 
-    Then `decreaseLiquidity` and `collect`, both from the session under that approval.
-    `collect`'s recipient is the session and not the owner: the tokens have to be held by
-    the address that funds the swap and the mint, and routing them to the owner first
-    would need a second owner signature to send them back. `mint`'s recipient is the
-    owner, so the new position NFT is the owner's from the block it exists in — Docket
-    never holds it.
+    Between them, the router leg: an exact-amount approval and one exact-input swap, at
+    whichever venue `amounts["swap"]["venue"]` names. `v2` is
+    `swapExactTokensForTokens` through `docket/execution/simulate.py::swap_calldata`,
+    the same builder and the same router the rest of Docket's execution plane uses. `v3`
+    is `exactInputSingle` into the very pool the position was minted in, for pairs whose
+    V2 market is too thin to trade through — the executor chooses, and records why.
 
-    Between them, the router leg: an exact-amount `approve(router, amountIn)` and one
-    PancakeSwap V2 `swapExactTokensForTokens` built by
-    `docket/execution/simulate.py::swap_calldata`, the same builder and the same router
-    the rest of Docket's execution plane uses. Its recipient is the session, because the
-    session is what has to hold the proceeds a moment later.
+    `deadline` is one instant shared by every call in the batch: the position manager and
+    both routers each refuse a call that arrives after it, so the batch either lands
+    inside its own window or is refused in the block after it.
 
     `amounts`, in atomic units:
 
-      * `burn0` / `burn1` — the quoted output of `decreaseLiquidity`.
-      * `max_slippage_bps` — the bound every minimum below is derived from, including the
-        swap's `amountOutMin`.
+      * `burn0` / `burn1` — the quoted output of `decreaseLiquidity`, or the inventory the
+        session already holds when `resume` is set.
+      * `max_slippage_bps` — the bound every minimum below is derived from.
+      * `resume` — truthy to skip the close entirely: the position is already burnt and
+        its tokens are already in the session.
       * `swap` — `None` where the inventory is already balanced, otherwise
-        `{"token_in": "token0"|"token1", "amount_in": int, "quoted_out": int}` where
-        `quoted_out` is the router's own live quote for `amount_in`.
+        `{"venue", "token_in", "amount_in", "min_output"}`. The floor is passed in rather
+        than derived here because only the caller knows which venue quoted it and how.
 
-    The amounts the mint asks for are derived here rather than passed in, so the floor the
-    swap is held to and the amount the mint pulls cannot drift apart: the mint desires
-    exactly `quoted_out` less the slippage bound, which is the least the swap may deliver
-    without reverting. Fees swept by `collect` are on top of that and are simply left in
-    the session — approving less than is held is the safe direction.
-
-    The collect maxima are the uint128 ceiling on purpose: `collect` sweeps whatever is
-    owed, and a maximum below that would leave fees behind in a position about to be
-    closed for good.
+    The amounts the mint asks for are derived here, so the floor the swap is held to and
+    the amount the mint pulls cannot drift apart: the mint desires exactly the swap's
+    `min_output`, which is the least it may deliver without reverting.
     """
     slippage = int(amounts["max_slippage_bps"])
     if not 0 < slippage <= 1000:
@@ -810,7 +943,8 @@ def rebalance_calls(
         )
     token_id = int(position["token_id"])
     liquidity = int(position["liquidity"])
-    if liquidity <= 0:
+    resume = bool(amounts.get("resume"))
+    if liquidity <= 0 and not resume:
         raise ValueError(
             f"position {token_id} holds no liquidity, so there is nothing to decrease and "
             "no reset to build"
@@ -837,19 +971,24 @@ def rebalance_calls(
                 f"swap token_in {side!r} is neither token0 nor token1, so no route can be "
                 "built from it"
             )
+        venue = swap["venue"]
+        if venue not in ("v2", "v3"):
+            raise ValueError(
+                f"swap venue {venue!r} is neither v2 nor v3, and no other venue has a "
+                "builder here"
+            )
         amount_in = int(swap["amount_in"])
-        quoted_out = int(swap["quoted_out"])
+        min_output = int(swap["min_output"])
         held = burn0 if side == "token0" else burn1
         if not 0 < amount_in <= held:
             raise ValueError(
-                f"the swap sells {amount_in} atomic units of {side} and closing this "
-                f"position releases {held}; a leg cannot spend what the burn does not free"
+                f"the swap sells {amount_in} atomic units of {side} and the inventory "
+                f"holds {held}; a leg cannot spend what the session does not have"
             )
-        min_output = _floor(quoted_out, slippage)
         if min_output <= 0:
             raise ValueError(
-                f"the router quotes {quoted_out} out for {amount_in} in, which leaves no "
-                f"floor once {slippage}bps is allowed for the price moving"
+                "a swap with a floor of 0 accepts any output at all, which is the one "
+                "thing no action in this package is allowed to do"
             )
         if side == "token0":
             desired0, desired1 = burn0 - amount_in, burn1 + min_output
@@ -858,84 +997,92 @@ def rebalance_calls(
             desired0, desired1 = burn0 + min_output, burn1 - amount_in
             route = (token1, token0)
 
-    calls = [
-        PreparedCall(
-            to=NPM,
-            data=_erc20_encoder.encode_abi("approve", args=[session_address, token_id]),
-            value_atomic="0",
-            chain_id=BSC_CHAIN_ID,
-            gas_ceiling=APPROVE_GAS,
-            deadline=deadline,
-            # ERC-721 approve, not ERC-20: the second argument is this NFT's id, not an
-            # amount, and only its owner can make the call.
-            purpose="owner_signs",
-            simulation=_unsimulated(),
-        ),
-        PreparedCall(
-            to=NPM,
-            data=npm_encoder.encode_abi(
-                "decreaseLiquidity",
+    calls: list[PreparedCall] = []
+    if not resume:
+        calls.extend(
+            [
+                PreparedCall(
+                    to=NPM,
+                    data=npm_encoder.encode_abi(
+                        "decreaseLiquidity",
+                        args=[
+                            (
+                                token_id,
+                                liquidity,
+                                _floor(burn0, slippage),
+                                _floor(burn1, slippage),
+                                deadline,
+                            )
+                        ],
+                    ),
+                    value_atomic="0",
+                    chain_id=BSC_CHAIN_ID,
+                    gas_ceiling=DECREASE_LIQUIDITY_GAS,
+                    deadline=deadline,
+                    purpose="session_closes_position",
+                    simulation=_unsimulated(),
+                ),
+                PreparedCall(
+                    to=NPM,
+                    data=npm_encoder.encode_abi(
+                        "collect",
+                        args=[(token_id, session_address, MAX_UINT128, MAX_UINT128)],
+                    ),
+                    value_atomic="0",
+                    chain_id=BSC_CHAIN_ID,
+                    gas_ceiling=COLLECT_GAS,
+                    deadline=deadline,
+                    purpose="session_collects_to_fund_the_swap_and_the_mint",
+                    simulation=_unsimulated(),
+                ),
+            ]
+        )
+    if swap is not None:
+        target = PANCAKE_V2_ROUTER if venue == "v2" else V3_SWAP_ROUTER
+        if venue == "v2":
+            data = "0x" + swap_calldata(
+                amount_in=amount_in,
+                min_output=min_output,
+                route=route,
+                recipient=session_address,
+                deadline=deadline,
+            ).hex()
+        else:
+            data = v3_router_encoder.encode_abi(
+                "exactInputSingle",
                 args=[
                     (
-                        token_id,
-                        liquidity,
-                        _floor(burn0, slippage),
-                        _floor(burn1, slippage),
+                        route[0],
+                        route[1],
+                        int(position["fee"]),
+                        session_address,
                         deadline,
+                        amount_in,
+                        min_output,
+                        NO_SQRT_PRICE_LIMIT,
                     )
                 ],
-            ),
-            value_atomic="0",
-            chain_id=BSC_CHAIN_ID,
-            gas_ceiling=DECREASE_LIQUIDITY_GAS,
-            deadline=deadline,
-            purpose="session_closes_position",
-            simulation=_unsimulated(),
-        ),
-        PreparedCall(
-            to=NPM,
-            data=npm_encoder.encode_abi(
-                "collect",
-                args=[(token_id, session_address, MAX_UINT128, MAX_UINT128)],
-            ),
-            value_atomic="0",
-            chain_id=BSC_CHAIN_ID,
-            gas_ceiling=COLLECT_GAS,
-            deadline=deadline,
-            purpose="session_collects_to_fund_the_swap_and_the_mint",
-            simulation=_unsimulated(),
-        ),
-    ]
-    if swap is not None:
+            )
         calls.extend(
             [
                 PreparedCall(
                     to=route[0],
-                    data=_erc20_encoder.encode_abi(
-                        "approve", args=[PANCAKE_V2_ROUTER, amount_in]
-                    ),
+                    data=_erc20_encoder.encode_abi("approve", args=[target, amount_in]),
                     value_atomic="0",
                     chain_id=BSC_CHAIN_ID,
                     gas_ceiling=APPROVE_GAS,
                     deadline=deadline,
-                    purpose="session_approves_router_exact",
+                    purpose=f"session_approves_{venue}_router_exact",
                     simulation=_unsimulated(),
                 ),
                 PreparedCall(
-                    to=PANCAKE_V2_ROUTER,
-                    data="0x"
-                    + swap_calldata(
-                        amount_in=amount_in,
-                        min_output=min_output,
-                        route=route,
-                        recipient=session_address,
-                        deadline=deadline,
-                    ).hex(),
+                    to=target,
+                    data=data,
                     value_atomic="0",
                     chain_id=BSC_CHAIN_ID,
                     gas_ceiling=SWAP_GAS,
                     deadline=deadline,
-                    purpose="session_balances_the_inventory",
+                    purpose=f"session_balances_the_inventory_on_{venue}",
                     simulation=_unsimulated(),
                 ),
             ]

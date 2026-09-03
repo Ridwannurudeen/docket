@@ -132,12 +132,20 @@ def within_session_policy(policy, prepared, *, gas_price_wei: int, now: datetime
         # of the session — but said in its own words rather than borrowed from the
         # owner-signed case, which is a different fact about a different decision.
         return True, "this decision prepared no call, so there is nothing to authorise"
-    session_calls = [call for call in prepared if call.purpose != OWNER_SIGNS]
-    if not session_calls:
-        return True, (
-            "every prepared call is signed by the account owner from their own wallet, so "
-            "no session authority is used"
+    owner_calls = [call for call in prepared if call.purpose == OWNER_SIGNS]
+    if owner_calls:
+        # `docket/jobs/tick.py` sends every call in `decision.prepared` from the session.
+        # An owner-signed call in that list is a call the session cannot make — an ERC-721
+        # approval it does not hold, or a `mint` that would buy vTokens for the session
+        # itself with the owner's float. Returning True for one would authorise exactly
+        # that, so a decision carrying one is refused outright and the call belongs in
+        # evidence instead.
+        return False, (
+            f"{owner_calls[0].purpose} is the account owner's own transaction and would be "
+            "sent from the session by the tick loop; a decision that offers one for "
+            "execution is refused, and the call belongs in the decision's evidence"
         )
+    session_calls = list(prepared)
     if policy is None:
         return False, (
             "no session policy was granted, so nothing may be sent by a session on the "
@@ -176,6 +184,17 @@ def within_session_policy(policy, prepared, *, gas_price_wei: int, now: datetime
             )
         if selector != APPROVE_SELECTOR:
             continue
+        # The spender is the contract that will pull the tokens, so it is the contract the
+        # allowlist has to cover. An approval to an address the owner never allowlisted
+        # hands a stranger a standing claim on the session's balance, and the target of the
+        # approve call is the token rather than the spender — checking only `call.to` would
+        # never look at the address that ends up holding the right to spend.
+        spender = Web3.to_checksum_address("0x" + call.data[34:74])
+        if not _listed(spender, contracts):
+            return False, (
+                f"{call.purpose} approves {spender} to spend {call.to}, and {spender} is "
+                "not on the session's contract allowlist"
+            )
         # An approval the session sends spends the session's own tokens, so the target has
         # to be an allowlisted token and the exact amount has to be inside both caps.
         # Skipping the cap check for an approval to an unlisted address would leave the one

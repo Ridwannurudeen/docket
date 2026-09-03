@@ -537,3 +537,40 @@ def test_the_shield_encodes_two_writes_and_neither_borrows_nor_withdraws():
     source = inspect.getsource(shield_module)
     for forbidden in ("borrow(uint256)", "redeem(", "redeemUnderlying", "exitMarket"):
         assert forbidden not in source, forbidden
+
+
+def test_the_largest_debt_is_the_largest_in_dollars_and_not_in_atomic_units():
+    """Atomic balances are not comparable across markets. One BTCB and one USDT are the
+    same number and four orders of magnitude apart in value, so a shield ranking on the raw
+    figure would reach for the wrong market whenever the two prices differ — and repay a
+    dollar of the wrong debt while the real one stayed where it was."""
+    weighted, _ = _totals(_account(0))
+    # vBUSD holds ten times the atomic balance and a hundredth of the price, so vUSDT is
+    # the larger debt in dollars and the smaller one in units.
+    state = _state(
+        _row(VUSDC, symbol="vUSDC", cf=CF_USDC, supplied=SUPPLIED_VUSDC, rate=USDC_RATE),
+        _row(VUSDT, symbol="vUSDT", cf=CF_USDT, borrowed=weighted, rate=USDT_RATE),
+        _row(
+            VBUSD,
+            symbol="vBUSD",
+            cf=CF_USDT,
+            borrowed=weighted * 10,
+            rate=USDT_RATE,
+            price=E18 // 100,
+        ),
+        address=HOLDER,
+    )
+    decision = evaluate(
+        state,
+        _policy(
+            allowed_vtokens=(VUSDT, VUSDC, VBUSD),
+            max_rescue_atomic={USDT: 10**30, USDC: 10**30, BUSD: 10**30},
+        ),
+        now=NOW,
+    )
+    assert decision.kind == "action"
+    assert decision.remedy["symbol"] == "vUSDT"
+    assert decision.remedy["vtoken"] == VUSDT
+    # The atomic ranking would have chosen vBUSD, which carries ten times the units.
+    largest_by_units = max(state.rows, key=lambda row: row.borrow_balance)
+    assert largest_by_units.symbol == "vBUSD"

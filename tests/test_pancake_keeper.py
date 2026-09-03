@@ -25,6 +25,8 @@ from web3 import Web3
 
 from docket.agents.pancake import keeper as keeper_module
 from docket.agents.pancake.keeper import (
+    EXACT_INPUT_SINGLE_SIGNATURE,
+    V3_SWAP_ROUTER,
     COLLECT_SIGNATURE,
     DECREASE_SIGNATURE,
     MAX_UINT128,
@@ -43,6 +45,7 @@ from docket.agents.pancake.keeper import (
     selector,
     swap_plan,
     tick_spacing,
+    v3_router_encoder,
 )
 from docket.agents.pancake.positions import NPM
 from docket.execution.simulate import (
@@ -150,7 +153,6 @@ def test_every_selector_is_the_keccak_of_the_signature_it_claims():
 def test_the_bytes_the_module_builds_carry_those_exact_selectors():
     calls = _calls()
     assert [call.data[:10] for call in calls] == [
-        "0x095ea7b3",  # ERC-721 approve, owner-signed
         "0x0c49ccbe",  # decreaseLiquidity
         "0xfc6f7865",  # collect
         "0x095ea7b3",  # ERC-20 approve, router
@@ -159,19 +161,19 @@ def test_the_bytes_the_module_builds_carry_those_exact_selectors():
         "0x095ea7b3",  # ERC-20 approve, NPM, token1
         "0x88316456",  # mint
     ]
-    assert calls[4].data[:10] == "0x" + Web3.keccak(text=SWAP_SIGNATURE)[:4].hex()
+    assert calls[3].data[:10] == "0x" + Web3.keccak(text=SWAP_SIGNATURE)[:4].hex()
 
 
-def test_the_erc721_and_erc20_approvals_share_one_selector_and_two_meanings():
+def test_the_two_approve_shapes_still_share_one_selector_and_two_meanings():
     """0x095ea7b3 is ERC-20's approve and ERC-721's. The second argument is an amount on
-    one and a token id on the other, so a policy that allowlists the selector without also
-    pinning the contract has allowed both — which is why the first call goes to the
-    position manager and the two after it go to the pool's tokens."""
-    calls = _calls()
-    assert calls[0].data[:10] == calls[3].data[:10] == "0x095ea7b3"
-    assert calls[0].to == NPM
-    assert calls[3].to == Web3.to_checksum_address(POSITION["token0"])
-    assert int(calls[0].data[74:138], 16) == POSITION["token_id"]
+    one and a token id on the other, which is why the session policy reads the contract and
+    the selector together — and why the ERC-721 one is never in a batch a session sends."""
+    from docket.jobs.executors.bounds import APPROVE_SELECTOR
+
+    assert APPROVE_SELECTOR == "0x" + Web3.keccak(text=APPROVE_SIGNATURE)[:4].hex()
+    erc20 = _calls()[2]
+    assert erc20.data[:10] == APPROVE_SELECTOR
+    assert erc20.to == Web3.to_checksum_address(POSITION["token0"])
 
 
 # --------------------------------------------------------------- tick geometry
@@ -295,7 +297,10 @@ def test_a_reset_that_pays_for_itself_is_offered_with_the_whole_arithmetic():
         10_000 * NET_APR * PROJECTION_DAYS / 365
     )
     gas_usd = REBALANCE_GAS_UNITS * ONE_GWEI / 10**18 * BNB_USD
-    swap_usd = 10_000 * 0.5 * (100 / 1_000_000 + 50 / 10_000)
+    # Costed at PancakeSwap V2's own 25bps plus the slippage bound, not at the v3 pool's
+    # 0.01% tier: the leg is quoted on V2 first, and a reset priced at the tier but
+    # executed on V2 was understated fortyfold.
+    swap_usd = 10_000 * 0.5 * (25 + 50) / 10_000
     assert economics["gas_cost_usd"] == pytest.approx(gas_usd)
     assert economics["swap_cost_usd"] == pytest.approx(swap_usd)
     assert economics["total_cost_usd"] == pytest.approx(gas_usd + swap_usd)
@@ -445,7 +450,12 @@ def _calls(**overrides):
         "max_slippage_bps": 50,
         "burn0": 1_000_000,
         "burn1": 0,
-        "swap": {"token_in": "token0", "amount_in": 500_000, "quoted_out": 400_000},
+        "swap": {
+            "venue": "v2",
+            "token_in": "token0",
+            "amount_in": 500_000,
+            "min_output": MIN_OUT,
+        },
     }
     amounts.update(overrides.pop("amounts", {}))
     fields = {
@@ -460,34 +470,44 @@ def _calls(**overrides):
     return rebalance_calls(POSITION, **fields)
 
 
-# The floor the swap is held to, and therefore the amount of token1 the mint may ask for.
+# The floor the swap is held to, and therefore the token1 the mint may ask for.
 MIN_OUT = 400_000 * 9_950 // 10_000
 
 
-def test_the_batch_is_eight_calls_in_the_order_they_have_to_land():
+def test_the_batch_is_seven_session_calls_in_the_order_they_have_to_land():
     calls = _calls()
     assert [call.purpose for call in calls] == [
-        "owner_signs",
         "session_closes_position",
         "session_collects_to_fund_the_swap_and_the_mint",
-        "session_approves_router_exact",
-        "session_balances_the_inventory",
+        "session_approves_v2_router_exact",
+        "session_balances_the_inventory_on_v2",
         "session_approves_token0_exact",
         "session_approves_token1_exact",
         "session_mints_replacement_to_owner",
     ]
-    # `value_atomic` is a string on the shared record: a prepared call is stored as
-    # JSON inside an activation, and an atomic amount that round-trips as a float is a
-    # commitment that checks on one machine and not on another.
     assert all(call.chain_id == 56 and call.value_atomic == "0" for call in calls)
     assert all(call.deadline == 1_800_000_000 for call in calls)
 
 
-def test_the_router_leg_is_the_shared_builder_against_the_shared_router():
+def test_no_call_in_the_batch_is_one_the_session_cannot_send():
+    """Lane B's loop sends every prepared call from the session. An owner-signed ERC-721
+    approval in that list is a call the session does not hold the right to make, so it is
+    read at evaluate and reported instead of drafted — it is not in this batch at all."""
+    calls = _calls()
+    assert all(call.purpose != "owner_signs" for call in calls)
+    # The only NPM calls left are the three a session may make under an approval.
+    assert [c.purpose for c in calls if c.to == NPM] == [
+        "session_closes_position",
+        "session_collects_to_fund_the_swap_and_the_mint",
+        "session_mints_replacement_to_owner",
+    ]
+
+
+def test_the_v2_leg_is_the_shared_builder_against_the_shared_router():
     """Not a second copy of either. The bytes come from
     `docket/execution/simulate.py::swap_calldata`, which is what the grid and the yield
     router already send, and the target is the router constant defined beside it."""
-    approve, swap = _calls()[3], _calls()[4]
+    approve, swap = _calls()[2], _calls()[3]
     assert approve.to == Web3.to_checksum_address(POSITION["token0"])
     assert int(approve.data[10:74], 16) == int(PANCAKE_V2_ROUTER, 16)
     assert int(approve.data[74:138], 16) == 500_000
@@ -502,36 +522,66 @@ def test_the_router_leg_is_the_shared_builder_against_the_shared_router():
     ).hex()
 
 
-def test_the_swaps_floor_is_the_router_quote_less_the_slippage_bound():
-    """`amountOutMin` is the whole reason a swap in a batch is safe to prepare. It is the
-    caller's live quote reduced by the policy's bound, and nothing else."""
-    swap = _calls()[4]
-    assert MIN_OUT in _swap_args(swap)
-    wider = _calls(amounts={"max_slippage_bps": 500})[4]
-    assert 400_000 * 9_500 // 10_000 in _swap_args(wider)
-    assert 400_000 * 9_500 // 10_000 < MIN_OUT
+def test_the_v3_leg_trades_in_the_pool_the_position_was_minted_in():
+    """For a pair whose V2 market is too thin to use. The router, the selector and the
+    struct shape were all read off the deployed contract: PancakeSwap's v3 SwapRouter
+    carries Uniswap's tuple with the deadline inside it, not the SmartRouter's."""
+    calls = _calls(
+        amounts={
+            "swap": {
+                "venue": "v3",
+                "token_in": "token0",
+                "amount_in": 500_000,
+                "min_output": MIN_OUT,
+            }
+        }
+    )
+    approve, swap = calls[2], calls[3]
+    assert approve.purpose == "session_approves_v3_router_exact"
+    assert int(approve.data[10:74], 16) == int(V3_SWAP_ROUTER, 16)
+    assert swap.to == V3_SWAP_ROUTER
+    assert swap.data[:10] == "0x414bf389"
+    assert selector(EXACT_INPUT_SINGLE_SIGNATURE) == "0x414bf389"
+    _, args = v3_router_encoder.decode_function_input(swap.data)
+    params = args["params"]
+    assert params["tokenIn"] == Web3.to_checksum_address(POSITION["token0"])
+    assert params["tokenOut"] == Web3.to_checksum_address(POSITION["token1"])
+    assert params["fee"] == POSITION["fee"]
+    assert params["recipient"] == SESSION
+    assert params["deadline"] == 1_800_000_000
+    assert params["amountIn"] == 500_000
+    assert params["amountOutMinimum"] == MIN_OUT
+    assert params["sqrtPriceLimitX96"] == 0
 
 
-def _swap_args(call) -> list[int]:
-    body = call.data[10:]
-    return [int(body[i : i + 64], 16) for i in range(0, 128, 64)]
+def test_a_venue_with_no_builder_is_refused_rather_than_guessed_at():
+    with pytest.raises(ValueError, match="neither v2 nor v3"):
+        _calls(
+            amounts={
+                "swap": {
+                    "venue": "v4",
+                    "token_in": "token0",
+                    "amount_in": 1,
+                    "min_output": 1,
+                }
+            }
+        )
 
 
 def test_the_swap_proceeds_are_paid_to_the_session_that_funds_the_mint():
-    swap = _calls()[4]
+    swap = _calls()[3]
     assert SESSION.lower()[2:] in swap.data.lower()
     assert OWNER.lower()[2:] not in swap.data.lower()
 
 
 def test_a_position_holding_only_token0_sells_token0_and_the_mint_is_sized_on_the_floor():
     calls = _calls()
-    _, mint = npm_encoder.decode_function_input(calls[7].data)
+    _, mint = npm_encoder.decode_function_input(calls[6].data)
     params = mint["params"]
-    # 1,000,000 released, 500,000 sold, and at most MIN_OUT of token1 guaranteed back.
     assert params["amount0Desired"] == 500_000
     assert params["amount1Desired"] == MIN_OUT
-    assert int(calls[5].data[74:138], 16) == 500_000
-    assert int(calls[6].data[74:138], 16) == MIN_OUT
+    assert int(calls[4].data[74:138], 16) == 500_000
+    assert int(calls[5].data[74:138], 16) == MIN_OUT
 
 
 def test_a_position_holding_only_token1_runs_the_leg_the_other_way():
@@ -539,10 +589,15 @@ def test_a_position_holding_only_token1_runs_the_leg_the_other_way():
         amounts={
             "burn0": 0,
             "burn1": 1_000_000,
-            "swap": {"token_in": "token1", "amount_in": 500_000, "quoted_out": 400_000},
+            "swap": {
+                "venue": "v2",
+                "token_in": "token1",
+                "amount_in": 500_000,
+                "min_output": MIN_OUT,
+            },
         }
     )
-    approve, swap = calls[3], calls[4]
+    approve, swap = calls[2], calls[3]
     assert approve.to == Web3.to_checksum_address(POSITION["token1"])
     assert swap.data == "0x" + swap_calldata(
         amount_in=500_000,
@@ -551,7 +606,7 @@ def test_a_position_holding_only_token1_runs_the_leg_the_other_way():
         recipient=SESSION,
         deadline=1_800_000_000,
     ).hex()
-    _, mint = npm_encoder.decode_function_input(calls[7].data)
+    _, mint = npm_encoder.decode_function_input(calls[6].data)
     assert mint["params"]["amount0Desired"] == MIN_OUT
     assert mint["params"]["amount1Desired"] == 500_000
 
@@ -559,7 +614,6 @@ def test_a_position_holding_only_token1_runs_the_leg_the_other_way():
 def test_an_inventory_that_needs_no_trade_is_minted_without_a_leg():
     calls = _calls(amounts={"burn0": 400_000, "burn1": 600_000, "swap": None})
     assert [call.purpose for call in calls] == [
-        "owner_signs",
         "session_closes_position",
         "session_collects_to_fund_the_swap_and_the_mint",
         "session_approves_token0_exact",
@@ -567,21 +621,46 @@ def test_an_inventory_that_needs_no_trade_is_minted_without_a_leg():
         "session_mints_replacement_to_owner",
     ]
     assert not any(call.to == PANCAKE_V2_ROUTER for call in calls)
-    _, mint = npm_encoder.decode_function_input(calls[5].data)
+    _, mint = npm_encoder.decode_function_input(calls[4].data)
     assert mint["params"]["amount0Desired"] == 400_000
     assert mint["params"]["amount1Desired"] == 600_000
 
 
-def test_the_first_call_is_the_owners_because_only_an_owner_may_approve_their_own_nft():
-    approve = _calls()[0]
-    assert approve.purpose == "owner_signs"
-    assert approve.to == NPM
-    _, args = npm_encoder.decode_function_input(_calls()[1].data)
-    assert args["params"]["tokenId"] == POSITION["token_id"]
+def test_a_resumed_batch_does_not_burn_a_position_that_is_already_closed():
+    """A batch that stopped after the collect left the NFT empty and the tokens in the
+    session. Starting again would decrease liquidity that is already zero."""
+    calls = rebalance_calls(
+        dict(POSITION, liquidity=0),
+        new_tick_lower=65_800,
+        new_tick_upper=66_400,
+        recipient=OWNER,
+        session=SESSION,
+        deadline=1_800_000_000,
+        amounts={
+            "max_slippage_bps": 50,
+            "burn0": 1_000_000,
+            "burn1": 0,
+            "resume": True,
+            "swap": {
+                "venue": "v2",
+                "token_in": "token0",
+                "amount_in": 500_000,
+                "min_output": MIN_OUT,
+            },
+        },
+    )
+    assert [call.purpose for call in calls] == [
+        "session_approves_v2_router_exact",
+        "session_balances_the_inventory_on_v2",
+        "session_approves_token0_exact",
+        "session_approves_token1_exact",
+        "session_mints_replacement_to_owner",
+    ]
+    assert not any(call.purpose == "session_closes_position" for call in calls)
 
 
 def test_collect_pays_the_session_because_the_session_funds_the_swap_and_the_mint():
-    _, args = npm_encoder.decode_function_input(_calls()[2].data)
+    _, args = npm_encoder.decode_function_input(_calls()[1].data)
     params = args["params"]
     assert params["recipient"] == SESSION
     # Swept in full: a maximum below the ceiling would leave fees in the position being
@@ -590,7 +669,7 @@ def test_collect_pays_the_session_because_the_session_funds_the_swap_and_the_min
 
 
 def test_the_new_position_nft_is_minted_to_the_owner_and_never_to_docket():
-    _, args = npm_encoder.decode_function_input(_calls()[7].data)
+    _, args = npm_encoder.decode_function_input(_calls()[6].data)
     params = args["params"]
     assert params["recipient"] == OWNER
     assert params["recipient"] != SESSION
@@ -602,23 +681,22 @@ def test_the_new_position_nft_is_minted_to_the_owner_and_never_to_docket():
 
 def test_every_minimum_is_the_quoted_amount_less_the_slippage_bound():
     calls = _calls(amounts={"max_slippage_bps": 200})
-    _, burn = npm_encoder.decode_function_input(calls[1].data)
+    _, burn = npm_encoder.decode_function_input(calls[0].data)
     assert burn["params"]["amount0Min"] == 1_000_000 * 9_800 // 10_000
     assert burn["params"]["amount1Min"] == 0
-    floor = 400_000 * 9_800 // 10_000
-    _, mint = npm_encoder.decode_function_input(calls[7].data)
+    _, mint = npm_encoder.decode_function_input(calls[6].data)
     assert mint["params"]["amount0Desired"] == 500_000
-    assert mint["params"]["amount1Desired"] == floor
+    assert mint["params"]["amount1Desired"] == MIN_OUT
     assert mint["params"]["amount0Min"] == 500_000 * 9_800 // 10_000
-    assert mint["params"]["amount1Min"] == floor * 9_800 // 10_000
+    assert mint["params"]["amount1Min"] == MIN_OUT * 9_800 // 10_000
 
 
 def test_every_token_approval_is_exact_and_never_unlimited():
     calls = _calls()
-    assert int(calls[3].data[74:138], 16) == 500_000
-    assert int(calls[5].data[74:138], 16) == 500_000
-    assert int(calls[6].data[74:138], 16) == MIN_OUT
-    for index in (3, 5, 6):
+    assert int(calls[2].data[74:138], 16) == 500_000
+    assert int(calls[4].data[74:138], 16) == 500_000
+    assert int(calls[5].data[74:138], 16) == MIN_OUT
+    for index in (2, 4, 5):
         assert int(calls[index].data[74:138], 16) != 2**256 - 1
 
 
@@ -642,18 +720,24 @@ def test_no_call_arrives_carrying_a_simulation_nobody_ran():
             {
                 "amounts": {
                     "swap": {
+                        "venue": "v2",
                         "token_in": "token0",
                         "amount_in": 9_000_000,
-                        "quoted_out": 1,
+                        "min_output": 1,
                     }
                 }
             },
-            "cannot spend what the burn does not free",
+            "cannot spend what the session does not have",
         ),
         (
             {
                 "amounts": {
-                    "swap": {"token_in": "token2", "amount_in": 1, "quoted_out": 1}
+                    "swap": {
+                        "venue": "v2",
+                        "token_in": "token2",
+                        "amount_in": 1,
+                        "min_output": 1,
+                    }
                 }
             },
             "neither token0 nor token1",
@@ -662,13 +746,14 @@ def test_no_call_arrives_carrying_a_simulation_nobody_ran():
             {
                 "amounts": {
                     "swap": {
+                        "venue": "v2",
                         "token_in": "token0",
                         "amount_in": 500_000,
-                        "quoted_out": 0,
+                        "min_output": 0,
                     }
                 }
             },
-            "leaves no floor",
+            "accepts any output at all",
         ),
     ],
 )
@@ -677,7 +762,7 @@ def test_a_batch_that_could_not_land_is_refused_before_it_is_built(overrides, ma
         _calls(**overrides)
 
 
-def test_a_closed_position_has_nothing_to_reset():
+def test_a_closed_position_has_nothing_to_reset_unless_a_batch_is_being_resumed():
     with pytest.raises(ValueError, match="holds no liquidity"):
         rebalance_calls(
             dict(POSITION, liquidity=0),
@@ -758,25 +843,34 @@ def test_the_keeper_holds_nothing_that_could_send_a_transaction():
 
 def test_the_catalogue_describes_the_bundle_the_batch_actually_contains():
     """The description is the contract. It names the swap as part of the sequence, says
-    where the swap's floor comes from, and says what happens when no swap is needed."""
+    where its floor comes from, says which calls are not simulated and why, and does not
+    claim the session's caps are enforced by a chain."""
     from docket.hire.catalogue import SERVICES
 
     copy = SERVICES["range-doctor"].what_you_get
     for phrase in (
         "the whole reset is prepared as exact calls, in the order they have to land",
-        "rebalance the inventory through one PancakeSwap V2 swap",
-        "the router's own live quote less your slippage bound",
-        "the mint is sized against that minimum rather than the quote",
+        "rebalance the inventory through one exact-input swap",
+        "Its venue is chosen rather than assumed",
+        "the mint is sized against that minimum rather than a quote",
         "minted without a swap",
         "exact amount and never unlimited",
+        "marked as waiting on it rather than tested against a state that does not exist",
+        "can only be made by the wallet holding it",
+        "checked by Docket before every send rather than enforced by a chain",
+        "how much you fund the session with",
     ):
         assert phrase in copy, phrase
-    # Nothing left over from the version that left the trade to the owner.
     for gone in ("priced but not prepared", "yours to make"):
         assert gone not in copy, gone
-    # And the module's own evidence says the same thing to a machine reader.
     assert "The leg is part of the batch." in keeper_module.SWAP_NOTE
-    decision = evaluate(
+
+
+def test_a_multiple_exactly_at_the_threshold_is_acted_on_rather_than_refused():
+    """The boundary the whole benefit test turns on. `>=` and `>` differ by exactly the
+    case where the projection covers the cost by the multiple asked for and no more, and a
+    policy that refused that would be refusing the thing it was configured to permit."""
+    base = evaluate(
         _valued(),
         POOL_ABOVE,
         STATS,
@@ -786,4 +880,61 @@ def test_the_catalogue_describes_the_bundle_the_batch_actually_contains():
         gas_price_wei=ONE_GWEI,
         bnb_usd=BNB_USD,
     )
-    assert decision.evidence["economics"]["swap_cost_usd"] > 0
+    achieved = base.evidence["economics"]["net_benefit_multiple"]
+    at = evaluate(
+        _valued(),
+        POOL_ABOVE,
+        STATS,
+        _policy(min_net_benefit_multiple=achieved),
+        history=_history(180),
+        now=NOW,
+        gas_price_wei=ONE_GWEI,
+        bnb_usd=BNB_USD,
+    )
+    assert at.kind == "action"
+    just_above = evaluate(
+        _valued(),
+        POOL_ABOVE,
+        STATS,
+        _policy(min_net_benefit_multiple=achieved * 1.000001),
+        history=_history(180),
+        now=NOW,
+        gas_price_wei=ONE_GWEI,
+        bnb_usd=BNB_USD,
+    )
+    assert just_above.kind == "alert"
+
+
+def test_a_staked_position_is_never_reset_because_the_farm_holds_its_nft():
+    decision = evaluate(
+        _valued(staked=True),
+        POOL_ABOVE,
+        STATS,
+        _policy(),
+        history=_history(180),
+        now=NOW,
+        gas_price_wei=ONE_GWEI,
+        bnb_usd=BNB_USD,
+    )
+    assert decision.kind == "alert"
+    assert "Unstake from MasterChefV3 first" in decision.summary
+    assert decision.evidence["staked"] is True
+
+
+def test_a_pool_that_could_not_be_read_is_not_counted_as_time_outside_a_range():
+    """`unknown_pool` observed no price at all, so it says nothing about whether the
+    position was outside its range. Counting it would date a departure from a read that
+    failed."""
+    decision = evaluate(
+        _valued(),
+        {"address": None, "tick": None, "sqrt_price_x96": None, "liquidity": None,
+         "block_number": None, "observation_time": None},
+        None,
+        _policy(),
+        history=_history(600),
+        now=NOW,
+        gas_price_wei=ONE_GWEI,
+        bnb_usd=BNB_USD,
+    )
+    assert decision.kind == "noop"
+    assert decision.evidence["time_out_of_range"]["observed_minutes"] == 0.0

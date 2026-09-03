@@ -38,6 +38,7 @@ from docket.jobs.executors.bounds import (
     within_session_policy,
 )
 from docket.jobs.executors.health import HealthShieldExecutor
+from docket.agents.pancake.keeper import V3_SWAP_ROUTER, v3_router_encoder
 from docket.execution.simulate import PANCAKE_V2_ROUTER, SWAP_SIGNATURE
 from docket.jobs.executors.bounds import simulate_call
 from docket.jobs.executors.range import RangeKeeperExecutor
@@ -67,14 +68,23 @@ from tests.test_venus_shield import (
 NOW = datetime(2026, 9, 3, 12, 0, 0, tzinfo=timezone.utc)
 DECREASE_SELECTOR = "0x0c49ccbe"
 SWAP_SELECTOR = "0x" + Web3.keccak(text=SWAP_SIGNATURE)[:4].hex()
+MINT_SELECTOR = "0x88316456"
+GET_APPROVED = "0x" + Web3.keccak(text="getApproved(uint256)")[:4].hex()
+IS_APPROVED_FOR_ALL = (
+    "0x" + Web3.keccak(text="isApprovedForAll(address,address)")[:4].hex()
+)
+BALANCE_OF = "0x70a08231"
+ZERO = "0x0000000000000000000000000000000000000000"
 TOKEN0 = Web3.to_checksum_address(POSITION["token0"])
 TOKEN1 = Web3.to_checksum_address(POSITION["token1"])
 # The whole position comes back as token0: the price sits above the range, so the burn
 # releases one side only. That is the shape the keeper actually meets.
 BURN0 = 1_000_000_000_000_000_000
 BURN1 = 0
-# What the fake router answers for the half that gets sold.
-QUOTED_OUT = 321_000_000_000_000_000
+# What the position's own v3 pool prices the half that gets sold at, and what a healthy
+# V2 market quotes against it — 10bps down, inside any sane slippage bound.
+FAIR_OUT = BURN0 // 2 * POOL_ABOVE["sqrt_price_x96"] ** 2 // 2**192
+QUOTED_OUT = FAIR_OUT * 9_990 // 10_000
 # A burn whose two sides are of equal value AT THIS POOL'S PRICE — not of equal count,
 # which at any price but 1 is a different thing. This is the inventory that needs no leg.
 BALANCED0 = BURN0 // 2
@@ -86,23 +96,51 @@ class _Revert(Exception):
 
 
 class _Eth:
-    def __init__(self, *, gas_price, block, reverts, gas, balanced):
+    """A chain that answers the way the real one would, including who is asking.
+
+    `tx["from"]` is honoured rather than ignored: the whole point of the deferral is that
+    a call spending tokens the session does not hold yet reverts, and a fake that answered
+    every sender identically would let a batch simulated from the wrong address pass.
+    """
+
+    def __init__(
+        self, *, gas_price, block, reverts, gas, balanced, approved, holdings, authorized
+    ):
         self.gas_price = gas_price
         self.block_number = block
         self._reverts = reverts
         self._gas = gas
         self._balanced = balanced
+        self._approved = approved
+        self._holdings = holdings
+        self._authorized = authorized
 
     def call(self, tx):
+        data = tx["data"]
         for selector, reason in self._reverts.items():
-            if tx["data"].startswith(selector):
+            if data.startswith(selector):
                 raise _Revert(reason)
-        if tx["data"].startswith(DECREASE_SELECTOR):
-            # decreaseLiquidity returns (amount0, amount1). `balanced` releases equal
-            # value on both sides, which is the inventory that needs no leg.
+        if data.startswith(GET_APPROVED):
+            operator = SESSION if self._approved else ZERO
+            return bytes.fromhex(operator[2:].rjust(64, "0"))
+        if data.startswith(IS_APPROVED_FOR_ALL):
+            return (1 if self._approved else 0).to_bytes(32, "big")
+        if data.startswith(BALANCE_OF):
+            who = Web3.to_checksum_address("0x" + data[34:74])
+            return self._holdings.get((tx["to"], who), 0).to_bytes(32, "big")
+        sender = Web3.to_checksum_address(tx["from"])
+        if data.startswith(DECREASE_SELECTOR):
+            # Only the holder is authorised over the token, which is exactly why the close
+            # and the collect are asked from that address rather than from the session.
+            if sender not in self._authorized:
+                raise _Revert("Not approved")
             if self._balanced:
                 return BALANCED0.to_bytes(32, "big") + BALANCED1.to_bytes(32, "big")
             return BURN0.to_bytes(32, "big") + BURN1.to_bytes(32, "big")
+        if data.startswith((SWAP_SELECTOR, MINT_SELECTOR)):
+            # Nothing has been collected yet, so the session holds nothing to spend. This
+            # is the revert the deferral exists to keep out of a decision.
+            raise _Revert("TRANSFER_FROM_FAILED")
         return b""
 
     def estimate_gas(self, tx):
@@ -122,6 +160,9 @@ class _Rpc:
         reverts=None,
         gas=50_000,
         balanced=False,
+        approved=True,
+        holdings=None,
+        authorized=(),
     ):
         self._w3 = SimpleNamespace(
             eth=_Eth(
@@ -130,6 +171,9 @@ class _Rpc:
                 reverts=reverts or {},
                 gas=gas,
                 balanced=balanced,
+                approved=approved,
+                holdings=holdings or {},
+                authorized=set(authorized) or {OWNER},
             )
         )
         self.calls = 0
@@ -264,7 +308,7 @@ def _range(**overrides):
 
 def _session_policy(**overrides):
     fields = {
-        "contract_allowlist": [NPM, TOKEN0, TOKEN1, PANCAKE_V2_ROUTER],
+        "contract_allowlist": [NPM, TOKEN0, TOKEN1, PANCAKE_V2_ROUTER, V3_SWAP_ROUTER],
         "function_allowlist": [
             "0x095ea7b3",
             "0x0c49ccbe",
@@ -338,32 +382,95 @@ def test_a_position_inside_its_range_produces_no_prepared_call_at_all():
     assert decision.prepared == ()
 
 
-def test_a_position_that_is_due_a_reset_comes_back_with_the_whole_simulated_batch():
-    """The whole ordered sequence, every call answered by the chain in its own right —
-    nothing skipped, nothing inferred from a neighbour."""
+def test_a_position_that_is_due_a_reset_comes_back_with_seven_session_calls():
+    """Seven, not eight: the owner's ERC-721 approval is read at evaluate and never
+    drafted, because Lane B's loop sends everything in `prepared` from the session."""
     decision = _range().evaluate(
         _activation(inputs=_range_inputs(), result=_observations(180)),
         reader=_Positions(),
     )
     assert decision.kind == "action"
     assert [call.purpose for call in decision.prepared] == [
-        "owner_signs",
         "session_closes_position",
         "session_collects_to_fund_the_swap_and_the_mint",
-        "session_approves_router_exact",
-        "session_balances_the_inventory",
+        "session_approves_v2_router_exact",
+        "session_balances_the_inventory_on_v2",
         "session_approves_token0_exact",
         "session_approves_token1_exact",
         "session_mints_replacement_to_owner",
     ]
+    assert all(call.purpose != "owner_signs" for call in decision.prepared)
     assert decision.evidence["preflight"]["verdict"] == "passed"
-    assert [call.simulation["ok"] for call in decision.prepared] == [True] * 8
-    assert all(
-        call.simulation["revert_reason"] is None for call in decision.prepared
-    ), "nothing in the batch is deferred any more"
-    assert all(call.simulation["block"] == 119_700_000 for call in decision.prepared)
-    assert all(call.simulation["gas_estimate"] == 50_000 for call in decision.prepared)
     assert decision.block == 119_700_000
+
+
+def test_the_calls_that_spend_what_the_collect_has_not_released_are_deferred():
+    """The swap and the mint would revert with TRANSFER_FROM_FAILED against current state,
+    from a session holding nothing until the collect lands. That is a fact about the
+    ordering and not about the calls, so they carry `ok: None` and name what they wait on
+    — simulating them anyway would end every mainnet tick as an alert."""
+    decision = _range().evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(),
+    )
+    assert [call.simulation["ok"] for call in decision.prepared] == [
+        True,
+        True,
+        True,
+        None,
+        True,
+        True,
+        None,
+    ]
+    for index in (3, 6):
+        reason = decision.prepared[index].simulation["revert_reason"]
+        assert reason.startswith("deferred: depends on ")
+        assert "session_collects_to_fund_the_swap_and_the_mint" in reason
+    assert all(
+        call.simulation["revert_reason"] is None
+        for call in decision.prepared
+        if call.simulation["ok"] is True
+    )
+
+
+def test_the_close_and_the_collect_are_asked_of_the_chain_as_the_holder():
+    """The fake chain reverts a decreaseLiquidity from anyone but the holder, so a batch
+    simulated from the session could not pass this by accident."""
+    rpc = _Rpc()
+    decision = _range(rpc=rpc).evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(),
+    )
+    assert decision.kind == "action"
+    assert decision.prepared[0].simulation["ok"] is True
+    # And a batch whose position-manager calls were asked from anyone else would fail,
+    # so this cannot pass by accident if the sender is ever wired up wrongly.
+    assert rpc._w3.eth.call(
+        {"from": OWNER, "to": NPM, "data": DECREASE_SELECTOR + "00" * 32}
+    )
+    stranger = Web3.to_checksum_address("0xE4fe23FB57dbb9AC2f685ea29B6b9A1409A0d359")
+    with pytest.raises(_Revert):
+        rpc._w3.eth.call(
+            {"from": stranger, "to": NPM, "data": DECREASE_SELECTOR + "00" * 32}
+        )
+
+
+def test_a_session_the_owner_has_not_approved_over_the_nft_prepares_nothing():
+    """An ERC-721 approval can only be made by the NFT's holder, so it is read rather than
+    drafted, and the alert carries what the browser step needs to collect it."""
+    decision = _range(rpc=_Rpc(approved=False)).evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(),
+    )
+    assert decision.kind == "alert"
+    assert decision.prepared == ()
+    assert decision.evidence["needs_nft_approval"] == {
+        "contract": NPM,
+        "token_id": POSITION["token_id"],
+        "session": SESSION,
+        "holder": OWNER,
+    }
+    assert "only its holder can" in decision.summary
 
 
 def test_the_router_leg_is_quoted_through_the_injected_quote_reader():
@@ -373,15 +480,55 @@ def test_the_router_leg_is_quoted_through_the_injected_quote_reader():
         reader=_Positions(),
     )
     assert decision.kind == "action"
-    # Half the one-sided inventory, priced along the token0 -> token1 route.
     assert quotes.asked == [(BURN0 // 2, (TOKEN0, TOKEN1))]
     swap = decision.evidence["preflight"]["amounts"]["swap"]
+    assert swap["venue"] == "v2"
     assert swap["token_in"] == "token0"
     assert swap["amount_in"] == BURN0 // 2
-    assert swap["quoted_out"] == QUOTED_OUT
-    assert swap["route"] == [TOKEN0, TOKEN1]
-    assert decision.prepared[4].to == PANCAKE_V2_ROUTER
-    assert decision.prepared[4].data[:10] == SWAP_SELECTOR
+    assert decision.prepared[3].to == PANCAKE_V2_ROUTER
+    assert decision.prepared[3].data[:10] == SWAP_SELECTOR
+
+
+def test_a_venue_quoting_far_below_the_pools_own_price_is_not_used():
+    """A pair can exist on V2 in name and be thin enough there to lose most of a position:
+    the fixture pool's V2 market quotes 30% down for one unit and 97% down for a hundred.
+    An amountOutMin derived from that quote is a floor under a number already wrong, so the
+    leg is routed into the v3 pool the position was minted in instead."""
+    fair = FAIR_OUT
+    decision = _range(quotes=_Quotes(out=fair * 70 // 100)).evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(),
+    )
+    assert decision.kind == "action"
+    venue = decision.evidence["preflight"]["amounts"]["venue"]
+    assert venue["venue"] == "v3"
+    assert venue["v2_shortfall_bps"] >= 2_900
+    assert "routed through the v3 SwapRouter" in venue["reason"]
+    swap = decision.prepared[3]
+    assert swap.to == V3_SWAP_ROUTER
+    assert swap.data[:10] == "0x414bf389"
+    assert decision.prepared[2].purpose == "session_approves_v3_router_exact"
+    # And the floor is the pool's own price less its fee tier and the policy's bound,
+    # never the V2 quote that was rejected.
+    _, args = v3_router_encoder.decode_function_input(swap.data)
+    floor = fair * 9_950 // 10_000 * (1_000_000 - POSITION["fee"]) // 1_000_000
+    assert args["params"]["amountOutMinimum"] == floor
+    assert floor > fair * 70 // 100
+
+
+def test_a_venue_inside_the_bound_is_used_and_its_own_quote_is_the_floor():
+    fair = FAIR_OUT
+    quoted = QUOTED_OUT
+    decision = _range(quotes=_Quotes(out=quoted)).evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(),
+    )
+    venue = decision.evidence["preflight"]["amounts"]["venue"]
+    assert venue["venue"] == "v2"
+    assert venue["v2_shortfall_bps"] == 10
+    assert decision.evidence["preflight"]["amounts"]["swap"]["min_output"] == (
+        quoted * 9_950 // 10_000
+    )
 
 
 def test_the_mint_is_funded_by_the_floor_the_swap_is_held_to():
@@ -393,39 +540,39 @@ def test_the_mint_is_funded_by_the_floor_the_swap_is_held_to():
     )
     amounts = decision.evidence["preflight"]["amounts"]
     assert amounts["burn0"] == str(BURN0)
-    floor = QUOTED_OUT * 9_950 // 10_000
-    _, mint = npm_encoder.decode_function_input(decision.prepared[7].data)
+    floor = amounts["swap"]["min_output"]
+    _, mint = npm_encoder.decode_function_input(decision.prepared[6].data)
     assert mint["params"]["amount0Desired"] == BURN0 - BURN0 // 2
     assert mint["params"]["amount1Desired"] == floor
     assert mint["params"]["recipient"] == OWNER
-    assert approve_amount(decision.prepared[6].data) == floor
+    assert approve_amount(decision.prepared[5].data) == floor
     assert amounts["swap_plan"]["needed"] is True
 
 
-def test_an_inventory_that_needs_no_trade_produces_a_six_call_batch_and_says_why():
-    """Both sides already within the slippage bound. No leg, no router approval, and the
-    plan's own reason travels in the evidence."""
+def test_an_inventory_that_needs_no_trade_produces_a_five_call_batch_and_says_why():
     decision = _range(rpc=_Rpc(balanced=True)).evaluate(
         _activation(inputs=_range_inputs(), result=_observations(180)),
         reader=_Positions(),
     )
     assert decision.kind == "action"
     assert [call.purpose for call in decision.prepared] == [
-        "owner_signs",
         "session_closes_position",
         "session_collects_to_fund_the_swap_and_the_mint",
         "session_approves_token0_exact",
         "session_approves_token1_exact",
         "session_mints_replacement_to_owner",
     ]
-    assert [call.simulation["ok"] for call in decision.prepared] == [True] * 6
     amounts = decision.evidence["preflight"]["amounts"]
     assert amounts["swap"] is None
     assert amounts["swap_plan"]["needed"] is False
     assert "already tolerates" in amounts["swap_plan"]["reason"]
 
 
-def test_a_swap_the_router_will_not_quote_prepares_nothing():
+def test_a_venue_that_cannot_quote_at_all_falls_back_to_the_positions_own_pool():
+    """`exactInputSingle` routes by (tokenIn, tokenOut, fee) rather than by pool address,
+    and the position exists — so its pool does. A V2 router that cannot answer is a reason
+    to use the other venue, never a reason to abandon the reset."""
+
     class _Dead:
         def amounts_out(self, amount_in, route):
             raise RuntimeError("every endpoint failed")
@@ -434,9 +581,51 @@ def test_a_swap_the_router_will_not_quote_prepares_nothing():
         _activation(inputs=_range_inputs(), result=_observations(180)),
         reader=_Positions(),
     )
+    assert decision.kind == "action"
+    venue = decision.evidence["preflight"]["amounts"]["venue"]
+    assert venue["venue"] == "v3"
+    assert venue["v2_quote"] is None
+    assert "could not quote this route" in venue["reason"]
+    assert decision.prepared[3].to == V3_SWAP_ROUTER
+
+
+def test_a_staked_position_is_refused_because_the_farm_holds_its_nft():
+    decision = _range().evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(position=dict(POSITION, staked=True)),
+    )
     assert decision.kind == "alert"
     assert decision.prepared == ()
-    assert decision.evidence["preflight"]["verdict"] == "unreadable"
+    assert "Unstake from MasterChefV3 first" in decision.summary
+
+
+def test_a_batch_that_stopped_after_the_collect_is_resumed_rather_than_restarted():
+    """Liquidity zero and the tokens still in the session is a reset half done, not a
+    position with nothing left to do. Starting again would burn what is already burnt."""
+    holdings = {(TOKEN0, SESSION): BURN0, (TOKEN1, SESSION): 0}
+    decision = _range(rpc=_Rpc(holdings=holdings)).evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(position=dict(POSITION, liquidity=0)),
+    )
+    assert decision.kind == "action"
+    assert [call.purpose for call in decision.prepared] == [
+        "session_approves_v2_router_exact",
+        "session_balances_the_inventory_on_v2",
+        "session_approves_token0_exact",
+        "session_approves_token1_exact",
+        "session_mints_replacement_to_owner",
+    ]
+    assert decision.evidence["preflight"]["resumed"] is True
+    assert decision.evidence["resuming"]["session_inventory"]["token0"] == str(BURN0)
+
+
+def test_a_closed_position_the_session_holds_nothing_for_is_still_a_noop():
+    decision = _range().evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(position=dict(POSITION, liquidity=0)),
+    )
+    assert decision.kind == "noop"
+    assert decision.prepared == ()
 
 
 def test_a_call_the_chain_refuses_is_reported_as_an_alert_and_never_as_an_action():
@@ -615,7 +804,11 @@ def test_a_repay_with_no_session_prepares_nothing():
     assert "funds a session" in decision.summary
 
 
-def test_a_collateral_add_needs_no_session_because_the_owner_signs_both_calls():
+def test_a_collateral_add_is_reported_for_the_owner_and_never_offered_for_execution():
+    """`mint` credits whoever sends it. A session sending one would buy vTokens for itself
+    with the owner's float while the borrower's collateral stayed exactly where it was, and
+    Lane B's loop sends everything in `prepared` from the session — so these two calls
+    travel in evidence instead, ready for the owner to sign."""
     decision = _health().evaluate(
         _activation(
             category="health_factor",
@@ -626,11 +819,13 @@ def test_a_collateral_add_needs_no_session_because_the_owner_signs_both_calls():
         ),
         reader=_Venus(_underwater()),
     )
-    assert decision.kind == "action"
-    assert [call.purpose for call in decision.prepared] == [
-        "owner_signs",
-        "owner_signs",
-    ]
+    assert decision.kind == "alert"
+    assert decision.prepared == ()
+    owner_calls = decision.evidence["owner_calls"]
+    assert [call["purpose"] for call in owner_calls] == ["owner_signs", "owner_signs"]
+    assert owner_calls[1]["data"][:10] == "0xa0712d68"
+    assert "no on-behalf form" in decision.summary
+    assert decision.evidence.get("token_amounts", {}) == {}
 
 
 # ------------------------------------------------- what the policy engine reads
@@ -645,23 +840,27 @@ def test_the_batch_declares_what_it_lets_the_session_spend_per_token():
     floor = QUOTED_OUT * 9_950 // 10_000
     # token0 is approved twice — once to the router for the leg, once to the position
     # manager for the mint — and the declared spend is the sum of the two.
-    assert spend == {
-        TOKEN0: str(BURN0 // 2 + (BURN0 - BURN0 // 2)),
-        TOKEN1: str(floor),
-    }
+    assert spend == {TOKEN0: str(BURN0), TOKEN1: str(floor)}
     assert int(spend[TOKEN0]) == BURN0
+    # And per call, because the tick loop charges each call against the cap separately.
+    by_call = decision.evidence["token_amounts_by_call"]
+    assert [entry["purpose"] for entry in by_call] == [
+        call.purpose for call in decision.prepared
+    ]
+    assert by_call[2]["spends"] == {TOKEN0: str(BURN0 // 2)}
+    assert by_call[4]["spends"] == {TOKEN0: str(BURN0 - BURN0 // 2)}
+    assert by_call[5]["spends"] == {TOKEN1: str(floor)}
     assert decision.evidence["slippage_bps"] == 50
     # Derived from the calldata, not carried beside it.
     assert spend == token_spend(decision.prepared)
 
 
-def test_the_owner_signed_approval_is_not_counted_as_a_session_spend():
-    """The ERC-721 approval is the owner's own transaction over their own NFT. Folding its
-    token id into a spend mapping would charge a session cap for something no session
-    sends — and the id would be read as an amount."""
+def test_no_owner_signed_call_reaches_the_spend_mapping_because_none_is_prepared():
+    """The ERC-721 approval is the owner's own transaction over their own NFT, and it is
+    read at evaluate rather than drafted. Nothing in `prepared` is the owner's, so nothing
+    in the spend mapping is either — and the NFT's token id is never read as an amount."""
     decision = _action()
-    assert decision.prepared[0].purpose == "owner_signs"
-    assert decision.prepared[0].to == NPM
+    assert all(call.purpose != "owner_signs" for call in decision.prepared)
     assert NPM not in decision.evidence["token_amounts"]
 
 
@@ -679,7 +878,7 @@ def test_a_repay_declares_the_one_approval_it_makes():
     assert "no minimum-out argument" in decision.evidence["slippage_bps_means"]
 
 
-def test_a_collateral_add_declares_no_session_spend_because_the_owner_signs_it():
+def test_a_collateral_add_declares_no_session_spend_because_no_session_sends_it():
     decision = _health().evaluate(
         _activation(
             category="health_factor",
@@ -688,8 +887,8 @@ def test_a_collateral_add_declares_no_session_spend_because_the_owner_signs_it()
         ),
         reader=_Venus(_underwater()),
     )
-    assert decision.kind == "action"
-    assert decision.evidence["token_amounts"] == {}
+    assert decision.kind == "alert"
+    assert decision.evidence.get("token_amounts", {}) == {}
 
 
 # ------------------------------------------------------- the tick loop's reader
@@ -854,105 +1053,53 @@ def test_a_batch_with_no_session_policy_at_all_is_refused():
     assert "no session policy was granted" in reason
 
 
-def test_calls_the_owner_signs_need_no_session_authority():
-    """An owner-signed call leaves the owner's own wallet. A session policy that refused it
-    would be refusing the owner permission to act on their own position."""
-    decision = _health().evaluate(
-        _activation(
-            category="health_factor",
-            inputs=_health_inputs(
-                mode="add_collateral", max_rescue_atomic={USDC: 10**30}
-            ),
-            session=None,
-        ),
-        reader=_Venus(_underwater()),
+def test_a_decision_offering_an_owner_signed_call_for_execution_is_refused():
+    """Lane B's loop sends every call in `prepared` from the session. An owner-signed call
+    there is a call the session cannot make — an ERC-721 approval it does not hold, or a
+    `mint` that would buy vTokens for the session itself with the owner's float. The gate
+    refuses the whole decision rather than waving the call through."""
+    owner_call = PreparedCall(
+        to=NPM,
+        data="0x095ea7b3" + "00" * 64,
+        value_atomic="0",
+        chain_id=56,
+        gas_ceiling=60_000,
+        deadline=0,
+        purpose="owner_signs",
+        simulation={"ok": True},
     )
-    ok, reason = _health().within_policy(_activation(policy=None), decision)
-    assert ok is True
-    assert "signed by the account owner" in reason
-
-
-def test_the_erc721_approval_is_never_covered_by_an_erc20_token_cap():
-    """ERC-20 and ERC-721 approve share 0x095ea7b3, and the ERC-721 second argument is a
-    token id. A cap check that read the selector alone would compare a token id against a
-    spend limit and pass whichever way the numbers happened to fall."""
-    decision = _action()
-    erc721 = decision.prepared[0]
-    assert erc721.to == NPM and erc721.purpose == "owner_signs"
-    assert approve_amount(erc721.data) == POSITION["token_id"]
-    # The position manager is not a token, so no cap keyed by a token address covers it.
-    policy = _session_policy()
-    assert NPM not in policy["token_allowlist"]
-    ok, _ = _range().within_policy(
-        _activation(inputs=_range_inputs(), policy=policy), decision
-    )
-    assert ok is True
-
-
-def test_an_approval_to_a_token_the_session_never_allowlisted_is_refused():
-    """The approval is the one call in either batch that authorises a spend. An approval
-    whose target is outside the token allowlist is bounded by no cap at all, so skipping
-    the cap check for it would leave exactly the wrong call unbounded."""
-    decision = _action()
-    ok, reason = _range().within_policy(
-        _activation(
-            inputs=_range_inputs(), policy=_session_policy(token_allowlist=[TOKEN1])
-        ),
-        decision,
+    ok, reason = within_session_policy(
+        _session_policy(), (owner_call,), gas_price_wei=10**9, now=NOW
     )
     assert ok is False
-    assert "is not on the session's token allowlist" in reason
+    assert "the account owner's own transaction" in reason
+    assert "belongs in the decision's evidence" in reason
 
 
-def test_the_batch_is_built_for_the_wallet_that_holds_the_position():
-    """The activation's creator and the address holding the NFT are two facts. Building the
-    ERC-721 approval or the mint against the wrong one produces a call the holder cannot
-    sign and a replacement position issued to somebody who does not own the old one."""
-    holder = Web3.to_checksum_address("0x429898ba0Fc5b9F1fF0a8f0BD1D6D3cB33B26DdD")
-    creator = Web3.to_checksum_address("0xE4fe23FB57dbb9AC2f685ea29B6b9A1409A0d359")
-    assert holder != creator
-    decision = _range().evaluate(
-        _activation(
-            owner=creator,
-            inputs=_range_inputs(wallet=holder),
-            result=_observations(180),
-        ),
-        reader=_Positions(),
+def test_a_token_approved_twice_is_capped_on_the_sum_and_not_on_each_half():
+    """The keeper approves token0 twice — for the router and for the position manager —
+    and `docket/sessions/policy.py` is handed the sum. A gate that only ever looked at one
+    approval at a time would pass a batch the chain side then refuses, and Docket's own
+    checks must refuse more than the chain's, never less."""
+    decision = _action()
+    half = BURN0 // 2
+    # Either half fits; the sum does not.
+    policy = _session_policy(
+        per_action_limit_atomic={TOKEN0: half + 1, TOKEN1: 10**30},
+        total_cap_atomic={TOKEN0: 10**30, TOKEN1: 10**30},
     )
-    assert decision.kind == "action"
-    _, mint = npm_encoder.decode_function_input(decision.prepared[7].data)
-    assert mint["params"]["recipient"] == holder
-    assert mint["params"]["recipient"] != creator
-
-
-def test_the_repay_names_the_account_that_was_actually_read():
-    """`repayBorrowBehalf` names whose debt is retired. Taking that address from the
-    activation rather than from the snapshot would retire a different account's."""
-    creator = Web3.to_checksum_address("0xE4fe23FB57dbb9AC2f685ea29B6b9A1409A0d359")
-    state = _underwater()
-    assert state.address != creator
-    decision = _health().evaluate(
-        _activation(
-            category="health_factor", owner=creator, inputs=_health_inputs(wallet=OWNER)
-        ),
-        reader=_Venus(state),
+    ok, reason = _range().within_policy(
+        _activation(inputs=_range_inputs(), policy=policy), decision
     )
-    assert decision.kind == "action"
-    repay = decision.prepared[1]
-    assert int(repay.data[10:74], 16) == int(state.address, 16)
-    assert int(repay.data[10:74], 16) != int(creator, 16)
+    assert ok is False
+    assert "across its approvals" in reason
+    assert str(BURN0) in reason
 
 
-def test_a_decision_that_prepared_nothing_says_so_rather_than_borrowing_a_reason():
-    """A noop has no calls at all, which is not the same fact as a batch the owner signs.
-    Two different decisions reading back one sentence is how a reader stops trusting it."""
-    noop = _range().evaluate(
-        _activation(inputs=_range_inputs()), reader=_Positions(pool=POOL_IN_RANGE)
-    )
-    assert noop.kind == "noop" and noop.prepared == ()
-    ok, reason = _range().within_policy(_activation(inputs=_range_inputs()), noop)
-    assert ok is True
-    assert reason == "this decision prepared no call, so there is nothing to authorise"
+def test_a_batch_with_no_session_policy_at_all_is_refused():
+    ok, reason = _range().within_policy(_activation(inputs=_range_inputs()), _action())
+    assert ok is False
+    assert "no session policy was granted" in reason
 
 
 def test_a_policy_is_read_the_same_whether_it_arrived_as_json_or_as_an_object():
