@@ -48,11 +48,11 @@ replace an artifact to make a second attempt possible.
 |---|---|---|
 | Sep 5 | Owner commits the registration. **Nothing below may run first.** | Owner |
 | Any time after the registration commit | Stage 2, the frame collection | Operator |
-| Sep 7 or later | Stage 3, both calibration seats | Operator |
+| Sep 9, or the first free day | Stage 3, both calibration seats | Operator |
 | After stage 3 | Stage 4, bind and lock | Operator |
-| Sep 8 | Stage 5, three manual primaries by the owner, then three agent primaries | Owner |
-| Sep 8 | Stage 6, seats, import, mapping, report | Operator |
-| Sep 9 | Review before requesting any commit | Owner |
+| Sep 9 | Stage 5, three manual primaries by the owner, then three agent primaries | Owner |
+| Sep 9 | Stage 6, seats, import, mapping, report | Operator |
+| After stage 6 | Review before requesting any commit | Owner |
 
 **Stage 2 is not time-bound.** It reads a past block by block hash, and the enumeration
 window, chunk size, conflict list, strata and selection hash were all fixed by the stage-one
@@ -61,15 +61,25 @@ accounts it names and what status each one has are unknown until it runs.
 
 **One family per day.** Do not run v3-07's, v3-08's or v3-09's arms or evaluator seats on the
 same day. The Claude seat adapter is what left v3-04 permanently `complete_unscored`, and one
-family per day is the rule that came out of it. v3-07 runs Sep 6, v3-08's manual primaries
-Sep 7, so v3-09's primaries wait for Sep 8.
+family per day is the rule that came out of it. v3-07 runs Sep 6 and v3-08 runs its seats
+and lock on Sep 7 and its primaries on Sep 8, so v3-09's seats and primaries wait for
+Sep 9.
 
 **Seat-a is unavailable until Sep 7.** The Codex adapter behind `seat-a` is at its usage limit
 and cannot answer before then, and evaluator seats may be scheduled at any time after that.
-Stage 3 therefore cannot start before Sep 7, and because calibration has to be captured before
-the input lock, stage 4 waits on it too. Nothing in this family is on a clock that a delay can
-spoil: unlike v3-08 there is no registered capture moment here, so stage 3 and stage 4 may
+Stage 3 therefore cannot start before Sep 7, and because the input envelope has to carry both
+seats' eight responses, stage 4 waits on stage 3. Nothing in this family is on a clock that a
+delay can spoil: unlike v3-08 there is no registered capture moment here, so stages 3 to 6 may
 move to whichever day both seats can answer.
+
+**This family is the one with room to slip, and it should be the one that slips.** v3-07 runs
+Sep 6, v3-08's seats and lock Sep 7 and its primaries Sep 8, so the first day one-family-per-day
+leaves free for v3-09 is Sep 9 — the submission day. If Sep 9 is too full, the honest outcome is
+to leave v3-09 `registered_waiting_for_inputs` with its frame collected and committed. That is
+a published state, not a failure: the registration, the frame and the answer key stand on their
+own, and a reader can check every one of them without a single arm having run. Do not compress
+two families' evaluator seats into one day to avoid it — that is precisely the shortcut that
+left v3-04 permanently `complete_unscored`.
 
 ## 0. Immutable state and preflight
 

@@ -20,11 +20,16 @@ is.
 The evidence stages are different operations and must not be reordered:
 
 1. commit the registration — git history is the only registration witness;
-2. calibrate both evaluator seats against the committed answer key;
-3. capture the top-pools and token-list bytes at 12:00Z, 12:01Z or 12:02Z on 2026-09-06;
+2. capture the top-pools and token-list bytes at 12:00Z, 12:01Z or 12:02Z on 2026-09-06;
+3. calibrate both evaluator seats against the committed answer key;
 4. bind the successful capture and lock the input;
 5. run three human manual primaries, then three agent primaries;
 6. export, score, map and publish.
+
+Stages 2 and 3 are independent of each other and only stage 4 depends on both. The capture
+is fixed to one registered moment and cannot move; the seats are not, and nothing in the
+lock compares a calibration timestamp to the capture's. Ordering them the other way round
+would make an unmovable stage wait on a movable one for no registered reason.
 
 Every registered evidence path below is first-write. Do not delete, rename, truncate or
 replace an artifact to make a second attempt possible.
@@ -33,8 +38,8 @@ replace an artifact to make a second attempt possible.
 
 | Artifact | Stage | If it goes wrong |
 |---|---|---|
-| Each seat's calibration attempt | 2 | A captured response binds even when it fails. Never ask the same seat again. |
-| `/var/lib/docket/v3-capture/yield-v3-08` on the host | 3 | Three attempts only. After any `attempt-*` file exists, no restart and no manual rerun. |
+| Each seat's calibration attempt | 3 | A captured response binds even when it fails. Never ask the same seat again. |
+| `/var/lib/docket/v3-capture/yield-v3-08` on the host | 2 | Three attempts only. After any `attempt-*` file exists, no restart and no manual rerun. |
 | `data/yield-v8-capture-20260906` | 4 | One `Move-Item` from a verified staging copy. Only a failed staging copy may be discarded. |
 | `docket/advantage/v3/inputs/08-yield-cases.json` | 4 | A byte-identical rewrite is accepted for crash recovery; different bytes refuse. |
 | `inputs_sha256` in the spec | 4 | Once set, the input lock cannot be repeated. |
@@ -47,28 +52,34 @@ replace an artifact to make a second attempt possible.
 |---|---|---|
 | Sep 5 | Owner commits the registration. **Nothing below may run first.** | Owner |
 | Sep 5 morning, or Sep 6 before 11:40 | Deploy the tested commit, outside every refusal window | Owner |
-| Sep 5, or Sep 6 morning | Stage 2, both calibration seats | Operator |
 | Sep 6 11:50 | `docket-v3-yield-v8-capture.timer` arms; capture at 12:00 | Timer |
-| Sep 6 after 12:03:06 | Stages 3 and 4, copy, bind, lock | Operator |
-| Sep 7 | Stage 5, three manual primaries by the owner | Owner |
-| Sep 8 | Stage 5, three agent primaries | Operator |
+| Sep 6 after 12:03:06 | Stage 2 evidence copied off the host | Operator |
+| Sep 7 | Stage 3, both calibration seats | Operator |
+| Sep 7 | Stage 4, bind and lock | Operator |
+| Sep 8 | Stage 5, three manual primaries by the owner, then three agent primaries | Owner |
 | Sep 8 | Stage 6, seats, import, mapping, report | Operator |
 | Sep 9 | Review before requesting any commit | Owner |
 
 **One family per day.** Do not run v3-07's, v3-08's or v3-09's arms or evaluator seats on the
 same day. The Claude seat adapter is what left v3-04 permanently `complete_unscored`, and one
-family per day is the rule that came out of it. v3-07's manual primaries are scheduled for
-Sep 6, so v3-08's manual primaries wait for Sep 7.
+family per day is the rule that came out of it. A capture is neither an arm nor a seat, so the
+Sep 6 timer does not collide with v3-07's Sep 6 primaries; stages 3 onwards do, which is why
+they start on Sep 7.
 
 **Seat-a is unavailable until Sep 7.** The Codex adapter behind `seat-a` is at its usage limit
 and cannot answer before then, and evaluator seats may be scheduled at any time after that.
-That constraint has one hard consequence at stage 2: **calibration has to be captured before
-the input lock**, so if seat-a cannot answer before Sep 6 the lock cannot happen and the
-registered capture cannot be used. There is no lawful way to lock first and calibrate
-afterwards. If seat-a has not answered by the time stage 4 would run, do not lock: preserve
-the capture directory as it stands, publish the family as it is, and recommit the protocol
-with new capture times before another capture is attempted. Trying it the other way round is
-exactly the substitution the registration exists to prevent.
+That delays stage 3 and, through it, stage 4 — but **it does not touch the capture**. Nothing
+in the input lock compares a calibration timestamp to the capture's: `_validate_yield_inputs`
+only requires the two source snapshots to sit inside their registered attempt window and in
+the registered order, and `_validate_evaluator_calibration` reads no timestamp at all. The
+capture at 2026-09-06T12:00:00Z is the one thing here that cannot move; the seats are the one
+thing that can. So capture on the registered moment regardless of seat availability, and
+calibrate when both seats can answer. The frozen bytes wait; the registered moment does not.
+
+What genuinely gates the lock is that the input envelope carries both seats' eight responses,
+so **stage 4 cannot run before stage 3**. If neither seat can ever answer, the capture stays
+frozen and unlocked and the family is published as registered rather than run; nothing is
+substituted and no second capture is taken.
 
 `deploy/release.sh` refuses releases in four windows: `2026-08-26T12:02:54Z` to
 `2026-08-26T12:10:06Z`, `2026-09-03T11:49:54Z` to `2026-09-03T12:03:06Z`,
@@ -127,57 +138,7 @@ Unlike the Range and Health families, v3-08 has no chain frame to collect. Its w
 population is the two response bodies stage 3 captures, and until that capture happens the
 eligible candidate count is not knowable. That is the point of the ordering.
 
-## 2. Calibrate both evaluator seats — before input lock
-
-The answer key `docket/advantage/v3/sources/yield-v8-calibration-set.json` is committed with
-the registration. It is a new eight-case key whose inputs are disjoint from both v3-02's and
-v3-06's, so a seat cannot answer it from memory of either earlier run. A captured response
-binds even when it fails; never delete one and never ask the same seat again.
-
-```powershell
-$specPath = 'docket/advantage/v3/specs/v3-08-yield-router.json'
-$calibrationSet = 'docket/advantage/v3/sources/yield-v8-calibration-set.json'
-$calibrationRoot = 'docket/advantage/v3/calibration-captures/2026-09-06-yield-v8'
-& .\.venv\Scripts\python.exe -m docket.advantage.v3.calibration_driver $specPath $calibrationRoot --evaluator-id seat-a --session-id "yield-v8-seat-a-$([guid]::NewGuid().ToString('N'))" --calibration-set $calibrationSet --seat docket.advantage.v3.seats.codex_cli:ask
-if ($LASTEXITCODE -ne 0) { throw 'seat-a calibration did not capture; preserve its attempt' }
-& .\.venv\Scripts\python.exe -m docket.advantage.v3.calibration_driver $specPath $calibrationRoot --evaluator-id seat-b --session-id "yield-v8-seat-b-$([guid]::NewGuid().ToString('N'))" --calibration-set $calibrationSet --seat docket.advantage.v3.seats.claude_cli:ask
-if ($LASTEXITCODE -ne 0) { throw 'seat-b calibration did not capture; preserve its attempt' }
-```
-
-Assemble and verify the two binding responses:
-
-```powershell
-@'
-import base64
-import json
-from pathlib import Path
-from docket.advantage.v3.calibration import assemble_evaluator_calibration, verify_calibration_capture
-from docket.advantage.v3.spec import load
-
-root = Path('.').resolve()
-spec = load(root / 'docket/advantage/v3/specs/v3-08-yield-router.json', repo_root=root)
-calibration_set = (root / 'docket/advantage/v3/sources/yield-v8-calibration-set.json').read_bytes()
-calibration_root = root / 'docket/advantage/v3/calibration-captures/2026-09-06-yield-v8'
-rows = assemble_evaluator_calibration(spec, calibration_root, calibration_set)
-body = {
-    'calibration_set': {'body_base64': base64.b64encode(calibration_set).decode('ascii')},
-    'evaluator_calibration': rows,
-}
-verify_calibration_capture(spec, body, calibration_root)
-out = root / 'docket/advantage/v3/sources/yield-v8-evaluator-calibration.json'
-with out.open('x', encoding='utf-8', newline='\n') as handle:
-    json.dump(rows, handle, indent=2, sort_keys=True)
-    handle.write('\n')
-print(out)
-'@ | .\.venv\Scripts\python.exe -
-if ($LASTEXITCODE -ne 0) { throw 'v3-08 calibration assembly failed; preserve both sessions' }
-```
-
-Each seat must exactly match at least seven of the eight canonical answers. The input lock,
-not this stage, is what enforces that; a seat that falls short makes the lock fail and the
-family cannot run.
-
-## 3. Registered source capture — the only time-bound stage
+## 2. Registered source capture — the only time-bound stage
 
 The tracked timer is `docket-v3-yield-v8-capture.timer`. It fires at `11:50:00Z`, writes
 `armed.json`, and sleeps in-process to `12:00:00Z`. There is no randomized delay.
@@ -244,8 +205,59 @@ Interpret the exit and files exactly:
 
 After any `attempt-*` evidence exists, no restart or manual rerun is permitted. If all three
 attempts fail, preserve the entire directory, do not make a fourth request, and do not run
-stage 4. A later capture requires a newly committed registration with new timestamps and a
+stage 4. Do not skip stage 3 either: an unlockable capture is still evidence, and the seats
+are captured whether or not the lock can follow. A later capture requires a newly committed registration with new timestamps and a
 new empty directory.
+
+## 3. Calibrate both evaluator seats — before input lock
+
+The answer key `docket/advantage/v3/sources/yield-v8-calibration-set.json` is committed with
+the registration. It is a new eight-case key whose inputs are disjoint from both v3-02's and
+v3-06's, so a seat cannot answer it from memory of either earlier run. A captured response
+binds even when it fails; never delete one and never ask the same seat again.
+
+```powershell
+$specPath = 'docket/advantage/v3/specs/v3-08-yield-router.json'
+$calibrationSet = 'docket/advantage/v3/sources/yield-v8-calibration-set.json'
+$calibrationRoot = 'docket/advantage/v3/calibration-captures/2026-09-06-yield-v8'
+& .\.venv\Scripts\python.exe -m docket.advantage.v3.calibration_driver $specPath $calibrationRoot --evaluator-id seat-a --session-id "yield-v8-seat-a-$([guid]::NewGuid().ToString('N'))" --calibration-set $calibrationSet --seat docket.advantage.v3.seats.codex_cli:ask
+if ($LASTEXITCODE -ne 0) { throw 'seat-a calibration did not capture; preserve its attempt' }
+& .\.venv\Scripts\python.exe -m docket.advantage.v3.calibration_driver $specPath $calibrationRoot --evaluator-id seat-b --session-id "yield-v8-seat-b-$([guid]::NewGuid().ToString('N'))" --calibration-set $calibrationSet --seat docket.advantage.v3.seats.claude_cli:ask
+if ($LASTEXITCODE -ne 0) { throw 'seat-b calibration did not capture; preserve its attempt' }
+```
+
+Assemble and verify the two binding responses:
+
+```powershell
+@'
+import base64
+import json
+from pathlib import Path
+from docket.advantage.v3.calibration import assemble_evaluator_calibration, verify_calibration_capture
+from docket.advantage.v3.spec import load
+
+root = Path('.').resolve()
+spec = load(root / 'docket/advantage/v3/specs/v3-08-yield-router.json', repo_root=root)
+calibration_set = (root / 'docket/advantage/v3/sources/yield-v8-calibration-set.json').read_bytes()
+calibration_root = root / 'docket/advantage/v3/calibration-captures/2026-09-06-yield-v8'
+rows = assemble_evaluator_calibration(spec, calibration_root, calibration_set)
+body = {
+    'calibration_set': {'body_base64': base64.b64encode(calibration_set).decode('ascii')},
+    'evaluator_calibration': rows,
+}
+verify_calibration_capture(spec, body, calibration_root)
+out = root / 'docket/advantage/v3/sources/yield-v8-evaluator-calibration.json'
+with out.open('x', encoding='utf-8', newline='\n') as handle:
+    json.dump(rows, handle, indent=2, sort_keys=True)
+    handle.write('\n')
+print(out)
+'@ | .\.venv\Scripts\python.exe -
+if ($LASTEXITCODE -ne 0) { throw 'v3-08 calibration assembly failed; preserve both sessions' }
+```
+
+Each seat must exactly match at least seven of the eight canonical answers. The input lock,
+not this stage, is what enforces that; a seat that falls short makes the lock fail and the
+family cannot run.
 
 ## 4. Copy, bind and lock
 
@@ -345,11 +357,11 @@ print('included', len(body['truth_manifest']['included_pool_ids']),
 if ($LASTEXITCODE -ne 0) { throw 'locked v3-08 input did not validate' }
 ```
 
-## 5. The six primaries — manual first, on separate days
+## 5. The six primaries — manual first
 
 Close Docket, every agent transcript and all Yield Router output. Every manual primary is
 completed before any agent request is sent, because an operator cannot un-see a service
-answer. From the repository root, run exactly three manual slots on Sep 7:
+answer. From the repository root, run exactly three manual slots:
 
 ```powershell
 1..3 | ForEach-Object {
@@ -374,9 +386,11 @@ paste the revealed payload as the answer. A blank, malformed, multiline, interru
 schema-invalid submission consumes that primary. There is one final submission per slot and
 no retry or replacement.
 
-Then, on Sep 8, run the three agent primaries. Yield Router's catalogue admission exposes no
-paid hire, so the harness records the receipt actually returned; a free-tier receipt records
-zero rather than an invented price.
+Then, once all three manual primaries are terminal, run the three agent primaries. Both
+blocks belong to this family, so running them on one day does not breach the one-family-per-day
+rule; running another family's seats that day would. Yield Router's catalogue admission
+exposes no paid hire, so the harness records the receipt actually returned, and a free-tier
+receipt records zero rather than an invented price.
 
 ```powershell
 1..3 | ForEach-Object {

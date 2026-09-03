@@ -213,5 +213,12 @@ def test_v8_runbook_names_the_registered_moment_and_the_one_family_per_day_rule(
     assert "one family per day is the rule that came out of it" in runbook
     assert "Seat-a is unavailable until Sep 7" in runbook
     assert "seat-a" in runbook
-    assert "| Sep 7 | Stage 5, three manual primaries by the owner |" in runbook
-    assert "| Sep 8 | Stage 5, three agent primaries |" in runbook
+    assert "| Sep 7 | Stage 3, both calibration seats | Operator |" in runbook
+    assert "| Sep 7 | Stage 4, bind and lock | Operator |" in runbook
+    # The capture is the one unmovable stage, so it never waits on a seat.
+    assert runbook.index("## 2. Registered source capture") < runbook.index(
+        "## 3. Calibrate both evaluator seats"
+    )
+    assert "capture on the registered moment regardless of seat availability" in (
+        runbook
+    )
