@@ -8,6 +8,7 @@ paths, because a router nobody mounted is a set of tests about nothing.
 
 import json
 
+import httpx
 import pytest
 from eth_account import Account
 from eth_account.messages import encode_defunct
@@ -137,6 +138,9 @@ def _app(db, *, rpc=_rpc, http=_http, search=_FakeRegistry, spend_probe=None):
                 search_client=search,
                 rpc=rpc,
                 http=http,
+                # The real pacer holds each host to one hit a second. These tests drive a
+                # fake sender, so the only thing it would pace is the clock.
+                pace=lambda last_hit, url: None,
             )
         )
     )
@@ -151,7 +155,14 @@ def client(tmp_path):
     db = tmp_path / "d.sqlite3"
     store = Store(db)
     store.upsert_external_listing(listing_from_registry(HEYANON).to_json())
-    return TestClient(_app(db))
+    built = TestClient(_app(db))
+    built.docket_db = db
+    return built
+
+
+def _db_of(client):
+    """The database behind a fixture client, so a test can point a second app at it."""
+    return client.docket_db
 
 
 def test_create_app_registers_all_six_marketplace_paths(tmp_path):
@@ -629,6 +640,163 @@ def test_a_listing_submission_writes_a_registered_listing_that_is_not_hireable(c
     assert listing["hireable"] is False
     assert "not hireable" in created.json()["next_step"]
     assert [row["url"] for row in listing["endpoints"]] == ["https://mcp.example/venus"]
+
+
+def _claim_and_submit(client, agent_id, **fields):
+    issued = client.post("/api/providers/claim", json={"agent_id": agent_id}).json()
+    signature = Account.sign_message(
+        encode_defunct(text=issued["message"]), private_key=OWNER.key
+    ).signature.hex()
+    return client.post(
+        "/api/providers/listings",
+        json={
+            "agent_id": agent_id,
+            "nonce": issued["nonce"],
+            "signature": signature,
+            "capabilities": "Places a grid of orders inside a band.",
+            **fields,
+        },
+    )
+
+
+def test_a_claimed_listing_carries_the_endpoints_its_registration_declares(client):
+    """The half-fixed hole. Endpoints come from the registration, and `submit_listing`
+    copies them from whatever row was held — which for a search-page row is nothing. A
+    listing written that way could never pass `endpoint_detected`, so `/verify` told its
+    owner "no a2a or mcp endpoint is declared" about a registration that declares one."""
+    hydrated = client.get("/api/agents?q=grid").json()["items"][0]
+    assert hydrated["endpoints"] == []
+    _FakeRegistry.fetched = []
+
+    created = _claim_and_submit(client, hydrated["agent_id"], category="grid_trading")
+
+    assert created.status_code == 201
+    listing = created.json()["listing"]
+    assert listing["source"] == "provider_submitted"
+    assert [row["kind"] for row in listing["endpoints"]] == ["a2a"]
+    assert _FakeRegistry.fetched == ["999"], "exactly one card read"
+
+    verified = client.post(f"/api/agents/{listing['agent_id']}/verify", json={}).json()
+    assert verified["level"] == "live"
+    assert _FakeRegistry.fetched == ["999"], "and no second read to verify it"
+
+
+def test_a_claim_on_an_agent_docket_has_never_seen_still_gets_its_endpoints(client):
+    """No held row at all is the same hole seen from the other side."""
+    created = _claim_and_submit(client, "999", category="grid_trading")
+
+    assert created.status_code == 201
+    assert [row["kind"] for row in created.json()["listing"]["endpoints"]] == ["a2a"]
+
+
+def test_an_index_outage_during_a_claim_costs_a_retry_and_not_the_nonce(client):
+    """The card is read before the nonce is spent, so a failure there leaves the owner
+    able to submit again with the same signature."""
+
+    class _Down(_FakeRegistry):
+        def get_agent(self, chain_id, token_id):
+            raise ConnectionError("index down")
+
+    db = (
+        client.app.state
+    )  # not used; the fixture's db is reused through a new app below
+    assert db is not None
+    issued = client.post("/api/providers/claim", json={"agent_id": "999"}).json()
+    signature = Account.sign_message(
+        encode_defunct(text=issued["message"]), private_key=OWNER.key
+    ).signature.hex()
+    body = {
+        "agent_id": "999",
+        "nonce": issued["nonce"],
+        "signature": signature,
+        "capabilities": "Places a grid of orders inside a band.",
+    }
+    down = TestClient(_app(_db_of(client), search=_Down))
+    refused = down.post("/api/providers/listings", json=body)
+
+    assert refused.status_code == 502
+    assert refused.json()["error_code"] == "registry_unavailable"
+
+    accepted = client.post("/api/providers/listings", json=body)
+    assert accepted.status_code == 201, "the nonce must still be spendable"
+
+
+def test_a_reclaim_does_not_demote_a_listing_docket_has_already_tested(client):
+    """A claim changes the description, the category and the price. It does not change
+    the endpoint, and it is not a reason to forget what Docket observed."""
+    verified = client.post(f"/api/agents/{AGENT}/verify", json={}).json()
+    assert verified["level"] == "docket_tested"
+    earned = verified["listing"]["verification"]
+
+    created = _claim_and_submit(
+        client, AGENT, category="health_factor", price="0.75 USDT"
+    )
+
+    assert created.status_code == 201
+    listing = created.json()["listing"]
+    assert listing["verification"]["level"] == "docket_tested"
+    assert listing["verification"]["evidence"] == earned["evidence"]
+    assert listing["verification"]["verified_at"] == earned["verified_at"]
+    assert listing["hireable"] is True
+    assert listing["price"] == "0.75 USDT"
+    assert listing["capability_source"] == "provider_declared"
+    # The claim is not lost — it is recorded beside the evidence rather than over it.
+    runs = client.get(f"/api/agents/{AGENT}/verification").json()["runs"]
+    assert any(
+        run["detail"].get("check", "").startswith("IdentityRegistry.ownerOf against")
+        for run in runs
+    )
+
+
+def test_minting_a_nonce_validates_the_id_before_it_spends_anything(client):
+    refused = client.post("/api/providers/claim", json={"agent_id": "not-a-token"})
+
+    assert refused.status_code == 422
+    assert refused.json()["error_code"] == "invalid_agent_id"
+    # The allowance is untouched, so a real claim still works afterwards.
+    assert (
+        client.post("/api/providers/claim", json={"agent_id": "999"}).status_code == 201
+    )
+
+
+def test_a_card_the_index_does_not_hold_is_a_missing_listing_not_an_outage(client):
+    """A 404 is an answer about the agent. Reported as an outage it would tell a caller to
+    retry something that will keep saying no."""
+
+    class _Missing(_FakeRegistry):
+        def get_agent(self, chain_id, token_id):
+            raise httpx.HTTPStatusError(
+                "404",
+                request=httpx.Request("GET", "https://x"),
+                response=httpx.Response(404),
+            )
+
+    hydrated = client.get("/api/agents?q=grid").json()["items"][0]
+    gone = TestClient(_app(_db_of(client), search=_Missing))
+    refused = gone.get(f"/api/agents/{hydrated['agent_id']}")
+
+    assert refused.status_code == 404
+    assert refused.json()["error_code"] == "listing_not_found"
+
+
+def test_the_verify_response_says_the_level_is_held_beside_the_level(tmp_path):
+    db = tmp_path / "held.sqlite3"
+    Store(db).upsert_external_listing(listing_from_registry(HEYANON).to_json())
+    working = TestClient(_app(db))
+    working.post(f"/api/agents/{AGENT}/verify", json={})
+
+    def down(agent_id):
+        return {**_rpc(agent_id), "outcome": "rpc_unavailable", "owner": None}
+
+    body = (
+        TestClient(_app(db, rpc=down))
+        .post(f"/api/agents/{AGENT}/verify", json={})
+        .json()
+    )
+
+    assert body["level"] == "docket_tested"
+    assert body["held_from_outage"] is True
+    assert body["chain_read_failed"] is True
 
 
 def test_a_submission_without_a_signature_is_refused(client):

@@ -315,14 +315,50 @@ def submit_listing(
     endpoints: tuple[dict, ...] = ()
     name = ""
     registration_uri = claim.token_uri
-    if held:
-        existing = ExternalListing.from_json(held)
+    existing = ExternalListing.from_json(held) if held else None
+    if existing is not None:
         endpoints = existing.endpoints
         name = existing.name
         registration_uri = existing.registration_uri or registration_uri
     if registry_metadata:
         endpoints = endpoints_from_metadata(registry_metadata) or endpoints
         name = registry_metadata.get("name") or name
+
+    claim_evidence = {
+        "level": "registered",
+        "ok": True,
+        "at": claim.verified_at,
+        "detail": {
+            "check": "IdentityRegistry.ownerOf against a signed claim",
+            "owner": claim.owner,
+            "token_uri": claim.token_uri,
+            "nonce": claim.nonce,
+            "message": claim_message(claim.agent_id, claim.nonce),
+        },
+    }
+    # A claim changes the description, the category and the price. It does not change the
+    # endpoint, and it is not a reason to forget what Docket observed of one: a
+    # `docket_tested` listing whose owner comes back to correct a typo must not be handed
+    # back to them at `registered` with its evidence gone. So where the listing already
+    # carries a level, it keeps its block and its `hireable`, and the claim is recorded
+    # beside it as a verification run rather than written over it.
+    if existing is not None and existing.level is not None:
+        verification = existing.verification
+        hireable = existing.hireable
+        store.record_verification_run(
+            claim.agent_id,
+            level="registered",
+            at=claim.verified_at,
+            ok=True,
+            detail=claim_evidence["detail"],
+        )
+    else:
+        verification = {
+            "level": "registered",
+            "evidence": [claim_evidence],
+            "verified_at": claim.verified_at,
+        }
+        hireable = False
 
     listing = ExternalListing(
         agent_id=claim.agent_id,
@@ -336,25 +372,8 @@ def submit_listing(
         capability_source="provider_declared",
         price=price,
         payment_method=payment_method,
-        verification={
-            "level": "registered",
-            "evidence": [
-                {
-                    "level": "registered",
-                    "ok": True,
-                    "at": claim.verified_at,
-                    "detail": {
-                        "check": "IdentityRegistry.ownerOf against a signed claim",
-                        "owner": claim.owner,
-                        "token_uri": claim.token_uri,
-                        "nonce": claim.nonce,
-                        "message": claim_message(claim.agent_id, claim.nonce),
-                    },
-                }
-            ],
-            "verified_at": claim.verified_at,
-        },
-        hireable=False,
+        verification=verification,
+        hireable=hireable,
         capabilities=capabilities.strip(),
         classification_rationale=(
             "the owner of this agent declared the category when they claimed it"

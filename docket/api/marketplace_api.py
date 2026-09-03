@@ -33,6 +33,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
+from ..liveness import _pace as liveness_pace
 from ..marketplace import providers as provider_flow
 from ..marketplace.external import (
     LEVELS,
@@ -45,6 +46,7 @@ from ..marketplace.verification import (
     LEVEL_PREREQUISITE,
     _now as verification_now,
     apply_result,
+    held_through_outage,
     send as guarded_send,
     verify_listing,
 )
@@ -104,6 +106,9 @@ class MarketplaceContext:
     # Stamped onto every hydrated row. Ordering falls back to `updated_at` within a level,
     # and a row stored with no timestamp sorts unpredictably against one that has one.
     now: Callable[[], str] = verification_now
+    # One hit per host per second, the same helper the snapshot sweep paces with. An
+    # argument so a test driving a fake sender does not spend real seconds asleep.
+    pace: Callable[[dict, str], None] = liveness_pace
     lookups: "OrderedDict[str, tuple[float, int]]" = field(default_factory=OrderedDict)
 
 
@@ -205,42 +210,90 @@ def marketplace_router(context: MarketplaceContext) -> APIRouter:
             listings.append(payload)
         return listings
 
-    def upgrade_from_card(listing: dict, request: Request):
-        """Fetch the per-agent card once for a row built from a search page.
+    def fetch_card(agent_id: str, request: Request):
+        """One per-agent card, through the lookup allowance. Returns `(card, refusal)`.
 
-        Returns `(listing, refusal)`. Spends from the lookup allowance, because it is one
-        more request to the index. A row that has already been upgraded, or that came from
-        a card in the first place, is returned untouched and spends nothing.
+        The index's 404 is an answer about the agent, not a failure of the road to it, so
+        it becomes `listing_not_found` rather than an outage a caller is told to retry.
         """
-        if listing.get("source") != "registry_index_list":
-            return listing, None
         resets_in = _spend_lookup(context.lookups, client_ip(request))
         if resets_in is not None:
-            return listing, _error(
+            return None, _error(
                 429,
                 "lookup_rate_limited",
-                f"This listing was found on a search page and its endpoints have not been "
-                f"read yet, and this caller has used its allowance of {LOOKUP_ATTEMPTS} "
-                f"registry lookups per {LOOKUP_WINDOW_S} seconds; retry in {resets_in}s.",
+                f"Docket has not read this agent's endpoints yet, and this caller has "
+                f"used its allowance of {LOOKUP_ATTEMPTS} registry lookups per "
+                f"{LOOKUP_WINDOW_S} seconds; retry in {resets_in}s.",
                 headers={"Retry-After": str(resets_in)},
             )
-        token_id = listing["agent_id"].rsplit(":", 1)[1]
         try:
-            card = _registry_agent(context, token_id)
+            return _registry_agent(context, agent_id.rsplit(":", 1)[1]), None
         except Exception as exc:
-            return listing, _error(
+            if _is_upstream_not_found(exc):
+                return None, _error(
+                    404,
+                    "listing_not_found",
+                    f"The registry index holds no agent {agent_id!r} on chain "
+                    f"{context.chain_id}.",
+                )
+            return None, _error(
                 502,
                 "registry_unavailable",
-                f"The registry index did not answer for {listing['agent_id']!r}: "
+                f"The registry index did not answer for {agent_id!r}: "
                 f"{type(exc).__name__}.",
             )
-        upgraded = replace(
-            listing_from_registry(
-                card, chain_id=context.chain_id, updated_at=context.now()
-            ),
-            verification=ExternalListing.from_json(listing).verification,
-            source="registry_index",
-        ).to_json()
+
+    def needs_card(listing: dict) -> bool:
+        """Whether this row is missing the endpoints only the per-agent card carries.
+
+        Keyed on the endpoints being empty, not only on the row's source. A row from a
+        search page is the common case, but a provider-submitted row inherits its
+        endpoints from whatever was held, so one written over an absent or list-hydrated
+        row is endpointless too — and it can never pass `endpoint_detected`, so `/verify`
+        would print "no a2a or mcp endpoint is declared" about an agent that declares one.
+        Keying on the symptom rescues the rows already in that state.
+        """
+        return listing.get("source") == "registry_index_list" or not listing.get(
+            "endpoints"
+        )
+
+    def upgrade_from_card(listing: dict, request: Request):
+        """Fill in a row's endpoints from the per-agent card, once.
+
+        Returns `(listing, refusal)`. A row that already has endpoints and did not come
+        from a search page is returned untouched and spends nothing.
+
+        What is kept differs by where the row came from, and the difference is the point.
+        A search-page row is Docket's own cache, so it is rebuilt from the card outright —
+        its classification was read from a truncated description with no services or tool
+        names in it. A provider-submitted row is the owner's own description, so only the
+        endpoints, and a name or registration URI it lacks, are taken from the card:
+        rebuilding it would overwrite the category and price its owner signed for.
+        """
+        if not needs_card(listing):
+            return listing, None
+        card, refusal = fetch_card(listing["agent_id"], request)
+        if refusal is not None:
+            return listing, refusal
+        fresh = listing_from_registry(
+            card, chain_id=context.chain_id, updated_at=context.now()
+        )
+        held = ExternalListing.from_json(listing)
+        if held.source == "provider_submitted":
+            upgraded = replace(
+                held,
+                endpoints=fresh.endpoints,
+                name=held.name or fresh.name,
+                registration_uri=held.registration_uri or fresh.registration_uri,
+                updated_at=context.now(),
+            ).to_json()
+        else:
+            upgraded = replace(
+                fresh,
+                verification=held.verification,
+                hireable=held.hireable,
+                source="registry_index",
+            ).to_json()
         store().upsert_external_listing(upgraded)
         return upgraded, None
 
@@ -384,7 +437,7 @@ def marketplace_router(context: MarketplaceContext) -> APIRouter:
             listing, refusal = await run_in_threadpool(
                 upgrade_from_card, listing, request
             )
-            if refusal is not None and listing.get("source") == "registry_index_list":
+            if refusal is not None and needs_card(listing):
                 return refusal
         return {
             "listing": listing,
@@ -448,7 +501,7 @@ def marketplace_router(context: MarketplaceContext) -> APIRouter:
         held_listing, refusal = await run_in_threadpool(
             upgrade_from_card, held_listing, request
         )
-        if refusal is not None and held_listing.get("source") == "registry_index_list":
+        if refusal is not None and needs_card(held_listing):
             return refusal
         peer = client_ip(request)
         resets_in = context.spend_probe(peer)
@@ -466,7 +519,11 @@ def marketplace_router(context: MarketplaceContext) -> APIRouter:
         def run() -> dict:
             fresh = Store(context.db_path)
             result = verify_listing(
-                listing, store=fresh, http=context.http, rpc=context.rpc
+                listing,
+                store=fresh,
+                http=context.http,
+                rpc=context.rpc,
+                pace=context.pace,
             )
             updated = apply_result(listing, result)
             fresh.upsert_external_listing(updated.to_json())
@@ -476,6 +533,10 @@ def marketplace_router(context: MarketplaceContext) -> APIRouter:
                 "previous_level": result.previous_level,
                 "verified_at": result.verified_at,
                 "chain_read_failed": result.outage,
+                # Beside the level, because that is where it changes how the level reads:
+                # true means this run could not look and the level below is the one the
+                # listing already held.
+                "held_from_outage": held_through_outage(result),
                 "evidence": result.evidence,
                 "listing": updated.to_json(),
                 "requested_from_ip_hash": hashlib.sha256(
@@ -501,7 +562,13 @@ def marketplace_router(context: MarketplaceContext) -> APIRouter:
             return _error(400, "invalid_json", "Send a JSON object.")
         agent_id = payload.get("agent_id")
         if not isinstance(agent_id, str) or not agent_id.strip():
-            return _error(400, "invalid_agent_id", "agent_id is required.")
+            return _error(422, "invalid_agent_id", "agent_id is required, as a string.")
+        # Validated before anything is spent. llms.txt promises 422 `invalid_agent_id`
+        # on every route that takes an id, and a malformed one must not cost the caller
+        # an allowance it was never going to use.
+        _, refusal = _resolved_id(agent_id)
+        if refusal is not None:
+            return refusal
         held = store()
         signature = payload.get("signature")
         if signature is None:
@@ -567,6 +634,9 @@ def marketplace_router(context: MarketplaceContext) -> APIRouter:
                 "invalid_claim",
                 "agent_id, nonce and signature are required, all as strings.",
             )
+        canonical, refusal = _resolved_id(agent_id)
+        if refusal is not None:
+            return refusal
         try:
             # Validated BEFORE the nonce is spent. A submission refused for a typo used to
             # burn the nonce on the way in, sending the owner back to their wallet to sign
@@ -579,10 +649,30 @@ def marketplace_router(context: MarketplaceContext) -> APIRouter:
                 sample_input=payload.get("sample_input"),
                 output_schema=payload.get("output_schema"),
             )
-            claim = await run_in_threadpool(
-                _verify_claim, context, agent_id.strip(), signature, nonce
+        except provider_flow.ClaimError as exc:
+            return _error(_claim_status(exc.code), exc.code, exc.message)
+
+        # And the card is read before the nonce is spent too, for the same reason plus a
+        # sharper one: a listing written with no endpoints can never pass
+        # `endpoint_detected`, so `/verify` would tell its owner "no a2a or mcp endpoint
+        # is declared" about a registration that declares one. `submit_listing` takes
+        # endpoints only from registration metadata, so the metadata has to be in hand
+        # before it runs — and an index outage here must cost a retry, not a signature.
+        registry_metadata = None
+        existing = store().external_listing(canonical)
+        if not existing or needs_card(existing):
+            registry_metadata, refusal = await run_in_threadpool(
+                fetch_card, canonical, request
             )
-            listing = await run_in_threadpool(_submit, context, claim, payload)
+            if refusal is not None:
+                return refusal
+        try:
+            claim = await run_in_threadpool(
+                _verify_claim, context, canonical, signature, nonce
+            )
+            listing = await run_in_threadpool(
+                _submit, context, claim, payload, registry_metadata
+            )
         except provider_flow.ClaimError as exc:
             return _error(_claim_status(exc.code), exc.code, exc.message)
         return JSONResponse(
@@ -590,7 +680,8 @@ def marketplace_router(context: MarketplaceContext) -> APIRouter:
             content={
                 "listing": listing.to_json(),
                 "next_step": (
-                    "This listing stands at level registered and is not hireable. Run "
+                    f"This listing stands at level {listing.level} and is "
+                    f"{'' if listing.hireable else 'not '}hireable. Run "
                     f"POST /api/agents/{listing.agent_id}/verify to have Docket observe "
                     "the endpoint your registration names."
                 ),
@@ -626,7 +717,9 @@ def _verify_claim(
     )
 
 
-def _submit(context: MarketplaceContext, claim, payload: dict) -> ExternalListing:
+def _submit(
+    context: MarketplaceContext, claim, payload: dict, registry_metadata: dict | None
+) -> ExternalListing:
     return provider_flow.submit_listing(
         claim,
         capabilities=str(payload.get("capabilities") or ""),
@@ -636,6 +729,7 @@ def _submit(context: MarketplaceContext, claim, payload: dict) -> ExternalListin
         sample_input=payload.get("sample_input"),
         output_schema=payload.get("output_schema"),
         store=Store(context.db_path),
+        registry_metadata=registry_metadata,
     )
 
 

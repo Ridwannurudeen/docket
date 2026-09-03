@@ -317,12 +317,15 @@ def verify_listing(
     http=send,
     rpc=lookup_owner_onchain,
     now=_now,
+    pace=_pace,
 ) -> VerificationResult:
     """Run every level in order, record what each one observed, and report the highest
     level whose prerequisite chain holds.
 
     `http` is `send`, which is `liveness.request_one` — the same SSRF-guarded,
-    address-pinned, redirect-refusing sender the snapshot sweep uses. `rpc` is
+    address-pinned, redirect-refusing sender the snapshot sweep uses. `pace` is
+    `liveness._pace`, holding each host to one hit a second; it is an argument so a test
+    driving a fake sender does not spend real seconds asleep. `rpc` is
     `scan8004.lookup_owner_onchain`. Both are arguments so a test can supply a fake, and
     both default to the real thing so a caller cannot accidentally verify against nothing.
 
@@ -340,6 +343,7 @@ def verify_listing(
     # A verification can make three requests to one host, and three at once is a burst to
     # whoever operates it however small the number looks from here.
     last_hit: dict[str, float] = {}
+    pace_host = pace
 
     def record(level: str, ok: bool, detail: dict) -> None:
         runs.append(LevelRun(level=level, ok=ok, at=at, detail=detail))
@@ -413,7 +417,7 @@ def verify_listing(
         attempts = []
         considered = listing.invocable_endpoints[:MAX_ENDPOINTS_PER_RUN]
         for candidate in considered:
-            _pace(last_hit, candidate["url"])
+            pace_host(last_hit, candidate["url"])
             observation = http(
                 {
                     "snapshot_id": None,
@@ -455,7 +459,7 @@ def verify_listing(
     def invoke(plan: dict | None) -> dict | None:
         if plan is None:
             return None
-        _pace(last_hit, plan["url"])
+        pace_host(last_hit, plan["url"])
         return http(
             {
                 "snapshot_id": None,

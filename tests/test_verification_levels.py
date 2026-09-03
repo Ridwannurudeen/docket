@@ -146,9 +146,14 @@ def _levels(result) -> dict[str, bool]:
     return {run.level: run.ok for run in result.runs}
 
 
+def _no_pace(last_hit, url):
+    """The real pacer holds each host to one hit a second. Nothing here is a real host."""
+    return None
+
+
 def test_registered_needs_the_chain_and_nothing_else_follows_without_it():
     result = verify_listing(
-        _listing(endpoints=MCP), rpc=_outcome("not_registered"), http=_responder()
+        _listing(endpoints=MCP), rpc=_outcome("not_registered"), http=_responder(), pace=_no_pace
     )
 
     assert result.level is None
@@ -161,7 +166,7 @@ def test_registered_needs_the_chain_and_nothing_else_follows_without_it():
 def test_a_web_homepage_does_not_reach_endpoint_detected():
     """ "The marketing site answered" is not "the service answered"."""
     http = _responder()
-    result = verify_listing(_listing(endpoints=WEB), rpc=_owned, http=http)
+    result = verify_listing(_listing(endpoints=WEB), rpc=_owned, http=http, pace=_no_pace)
 
     assert result.level == "registered"
     assert _levels(result)["endpoint_detected"] is False
@@ -173,7 +178,7 @@ def test_a_web_homepage_does_not_reach_endpoint_detected():
 
 def test_endpoint_detected_stops_there_when_the_endpoint_does_not_answer():
     result = verify_listing(
-        _listing(endpoints=A2A), rpc=_owned, http=_responder(outcome="timeout")
+        _listing(endpoints=A2A), rpc=_owned, pace=_no_pace, http=_responder(outcome="timeout")
     )
 
     assert result.level == "endpoint_detected"
@@ -185,7 +190,7 @@ def test_live_follows_the_sweep_vocabulary_and_publishes_the_status_beside_it():
     """A 404 proves the host is up, which is what `live` claims. `answered_2xx` is the
     narrower reading, published beside the level rather than instead of it."""
     result = verify_listing(
-        _listing(endpoints=A2A), rpc=_owned, http=_responder(status=404, body="nope")
+        _listing(endpoints=A2A), rpc=_owned, pace=_no_pace, http=_responder(status=404, body="nope")
     )
 
     assert result.level == "live"
@@ -197,6 +202,7 @@ def test_payment_tested_needs_a_402_carrying_a_readable_x402_body():
     result = verify_listing(
         _listing(endpoints=A2A),
         rpc=_owned,
+        pace=_no_pace,
         http=_responder(status=402, body=X402_CHALLENGE),
     )
 
@@ -211,6 +217,7 @@ def test_a_402_whose_body_is_not_an_x402_challenge_does_not_reach_payment_tested
     result = verify_listing(
         _listing(endpoints=A2A),
         rpc=_owned,
+        pace=_no_pace,
         http=_responder(status=402, body='{"detail": "pay me"}'),
     )
 
@@ -225,7 +232,7 @@ def test_docket_tested_sends_tools_list_and_hashes_the_result():
             {"status": 200, "body": TOOLS_RESULT},
         ]
     )
-    result = verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http)
+    result = verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http, pace=_no_pace)
 
     assert result.level == "docket_tested"
     tested = result.runs[4].detail
@@ -242,7 +249,7 @@ def test_the_sample_never_calls_a_tool_the_server_lists():
     http = _staged(
         [{"status": 200, "body": "{}"}, {"status": 200, "body": TOOLS_RESULT}]
     )
-    verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http)
+    verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http, pace=_no_pace)
 
     bodies = [row.get("json_body") for row in http.sent if row.get("json_body")]
     assert bodies == [MCP_TOOLS_LIST]
@@ -255,7 +262,7 @@ def test_docket_tested_reached_without_a_payment_challenge_still_says_so():
     http = _staged(
         [{"status": 200, "body": "{}"}, {"status": 200, "body": TOOLS_RESULT}]
     )
-    result = verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http)
+    result = verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http, pace=_no_pace)
 
     assert result.level == "docket_tested"
     assert _levels(result)["payment_tested"] is False
@@ -266,7 +273,7 @@ def test_an_a2a_endpoint_without_a_declared_sample_stops_at_live():
     """The only free A2A read is the agent card, and a card describes an agent rather than
     being a result it produced."""
     http = _responder(status=200, body='{"name": "x", "skills": []}')
-    result = verify_listing(_listing(endpoints=A2A), rpc=_owned, http=http)
+    result = verify_listing(_listing(endpoints=A2A), rpc=_owned, http=http, pace=_no_pace)
 
     assert result.level == "live"
     assert _levels(result)["docket_tested"] is False
@@ -293,7 +300,7 @@ def test_a_providers_own_sample_is_run_and_recorded_but_raises_no_level():
         sample_input={"account": "0x1"},
         output_schema={"type": "object", "required": ["health_factor"]},
     )
-    result = verify_listing(listing, rpc=_owned, http=http)
+    result = verify_listing(listing, rpc=_owned, http=http, pace=_no_pace)
 
     assert result.level == "live", "a provider sample must not reach docket_tested"
     assert _levels(result)["docket_tested"] is False
@@ -316,7 +323,7 @@ def test_an_empty_provider_schema_cannot_certify_an_endpoint_that_returns_nothin
         listing = _listing(
             endpoints=A2A, sample_input={"account": "0x1"}, output_schema=schema
         )
-        row = _provider_row(verify_listing(listing, rpc=_owned, http=http))
+        row = _provider_row(verify_listing(listing, rpc=_owned, http=http, pace=_no_pace))
 
         assert row.ok is False, schema
         assert "non-empty JSON object" in row.detail["schema_check"], schema
@@ -334,7 +341,7 @@ def test_a_provider_sample_missing_a_required_key_fails_its_own_row():
         sample_input={"account": "0x1"},
         output_schema={"type": "object", "required": ["health_factor"]},
     )
-    result = verify_listing(listing, rpc=_owned, http=http)
+    result = verify_listing(listing, rpc=_owned, http=http, pace=_no_pace)
 
     assert result.level == "live"
     assert _provider_row(result).ok is False
@@ -348,7 +355,7 @@ def test_a_sample_that_answers_with_something_other_than_json_does_not_pass():
     http = _staged(
         [{"status": 200, "body": "{}"}, {"status": 200, "body": "<html>hello</html>"}]
     )
-    result = verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http)
+    result = verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http, pace=_no_pace)
 
     assert result.level == "live"
     assert result.runs[4].detail["message"] == "the sample response body is not JSON"
@@ -361,7 +368,7 @@ def test_a_json_rpc_error_is_not_a_result():
             {"status": 200, "body": '{"jsonrpc":"2.0","id":1,"error":{"code":-32601}}'},
         ]
     )
-    result = verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http)
+    result = verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http, pace=_no_pace)
 
     assert result.level == "live"
     assert "JSON-RPC error" in result.runs[4].detail["message"]
@@ -378,7 +385,7 @@ def test_an_mcp_server_answering_over_sse_is_read_rather_than_failed():
             },
         ]
     )
-    result = verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http)
+    result = verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http, pace=_no_pace)
 
     assert result.level == "docket_tested"
 
@@ -387,7 +394,7 @@ def test_docket_verified_is_computed_and_recorded_as_unreached():
     http = _staged(
         [{"status": 200, "body": "{}"}, {"status": 200, "body": TOOLS_RESULT}]
     )
-    result = verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http)
+    result = verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http, pace=_no_pace)
 
     assert benchmark_ref(_listing()) is None
     assert _levels(result)["docket_verified"] is False
@@ -399,7 +406,7 @@ def test_a_chain_outage_never_demotes_a_level_a_listing_already_earned():
     """`rpc_unavailable` says Docket could not look. Recording it as a lost level would
     turn an outage into a verdict about somebody else's agent."""
     listing = _listing(endpoints=MCP, level="docket_tested")
-    result = verify_listing(listing, rpc=_outcome("rpc_unavailable"), http=_responder())
+    result = verify_listing(listing, rpc=_outcome("rpc_unavailable"), http=_responder(), pace=_no_pace)
 
     assert result.outage is True
     assert result.level == "docket_tested"
@@ -421,7 +428,7 @@ def test_apply_result_leaves_a_held_listing_exactly_as_it_stood():
             ),
         ),
     )
-    outage = verify_listing(earned, rpc=_outcome("rpc_unavailable"), http=_responder())
+    outage = verify_listing(earned, rpc=_outcome("rpc_unavailable"), http=_responder(), pace=_no_pace)
     held = apply_result(earned, outage)
 
     assert held_through_outage(outage) is True
@@ -440,7 +447,7 @@ def test_only_the_first_few_declared_endpoints_are_ever_touched():
         {"kind": "a2a", "url": f"https://a{index}.example/card"} for index in range(6)
     )
     http = _responder(outcome="timeout")
-    result = verify_listing(_listing(endpoints=many), rpc=_owned, http=http)
+    result = verify_listing(_listing(endpoints=many), rpc=_owned, http=http, pace=_no_pace)
 
     assert len(http.sent) == MAX_ENDPOINTS_PER_RUN
     assert result.runs[2].detail["endpoints_considered"] == MAX_ENDPOINTS_PER_RUN
@@ -449,7 +456,7 @@ def test_only_the_first_few_declared_endpoints_are_ever_touched():
 
 def test_a_chain_revert_is_not_an_outage_and_does_take_the_level_away():
     listing = _listing(endpoints=MCP, level="docket_tested")
-    result = verify_listing(listing, rpc=_outcome("not_registered"), http=_responder())
+    result = verify_listing(listing, rpc=_outcome("not_registered"), http=_responder(), pace=_no_pace)
 
     assert result.outage is False
     assert result.level is None
@@ -460,7 +467,7 @@ def test_every_attempted_level_writes_one_evidence_row_pass_or_fail(tmp_path):
     http = _staged(
         [{"status": 200, "body": "{}"}, {"status": 200, "body": TOOLS_RESULT}]
     )
-    result = verify_listing(_listing(endpoints=MCP), store=store, rpc=_owned, http=http)
+    result = verify_listing(_listing(endpoints=MCP), store=store, rpc=_owned, http=http, pace=_no_pace)
 
     runs = store.iter_verification_runs(AGENT)
     assert [run["level"] for run in runs] == list(reversed(LEVELS))
@@ -476,12 +483,12 @@ def test_a_verified_listing_becomes_hireable_only_at_docket_tested():
     )
     tested = apply_result(
         _listing(endpoints=MCP),
-        verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http),
+        verify_listing(_listing(endpoints=MCP), rpc=_owned, http=http, pace=_no_pace),
     )
     live = apply_result(
         _listing(endpoints=A2A),
         verify_listing(
-            _listing(endpoints=A2A), rpc=_owned, http=_responder(status=200, body="{}")
+            _listing(endpoints=A2A), rpc=_owned, pace=_no_pace, http=_responder(status=200, body="{}")
         ),
     )
 
