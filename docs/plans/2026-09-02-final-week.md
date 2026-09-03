@@ -1,5 +1,13 @@
 # Final week — close the public-truth gaps and add the two missing evidence limbs
 
+> **Superseded in part, 2026-09-03.** The owner directive of 2026-09-03 moved the week's
+> remaining work onto [the marketplace pivot plan](2026-09-03-marketplace-pivot.md), which is
+> now the contract every lane builds against. W1 and W2 below were completed on 2026-09-02 and
+> are marked done. W3 through W7 stand as written and are unchanged: the pivot plan adds the
+> product surface, the activation backend and the browser flow beside them, and takes nothing
+> off this list. Nothing here is deleted — a plan that erased what it had already decided
+> would leave no record of why the later decision was made.
+>
 > **Status:** DRAFT for owner approval. No step here authorizes a commit, push, deployment,
 > transaction, or submission. Steps use `- [ ]`.
 
@@ -60,52 +68,61 @@ zero today. W5 is the highest value and the highest risk, so it goes last and is
 
 ---
 
-## W1 — Make the public documents true again (today; no owner attention beyond approval)
+## W1 — Make the public documents true again — DONE 2026-09-02
+
+**Done 2026-09-02**, on `main` at `967f89a` (PR #1: the four document corrections, the SOLVENT
+record and the v3-07 registration). Production still serves `4a632c0`; the manifest already
+describes `main` one doc-commit ahead of production as the normal state.
 
 Today's deploy falsified four tracked, public statements.
 
 **Files:** `docs/source-deploy-manifest.md`, `docs/api-and-payment-semantics.md`,
 `docs/deployment-runbook.md`, `docs/operational-evidence.md`
 
-- [ ] `source-deploy-manifest.md:16` — `Current production release commit` → `4a632c0…9381`.
-- [ ] `source-deploy-manifest.md:36` — the `RELEASE-commit.txt` row and the surrounding
+- [x] `source-deploy-manifest.md:16` — `Current production release commit` → `4a632c0…9381`.
+- [x] `source-deploy-manifest.md:36` — the `RELEASE-commit.txt` row and the surrounding
       "Current deployed identity" table → wheel
       `923d410953e11bd98cec7dc9d26ef371ccd6e5c73bb8f11d3ce964c32b3769b6`, runtime-lock
       `2b0fb7bc…` (unchanged), venv `/opt/docket-venvs/4a632c01ebcf`.
       Delete the "one source-only commit after the deployed release / do not describe
       production as running that base" paragraph — source and production are now equal.
-- [ ] `api-and-payment-semantics.md:119-122` — remove "Production remains on the pre-update
+- [x] `api-and-payment-semantics.md:119-122` — remove "Production remains on the pre-update
       `b8b6ed7` runtime and therefore still serves its earlier `true_settlement=false` static
       limb". Replace with the live fact: Range Doctor serves `true_settlement=true`,
       `fresh_paired_benchmark=false` keeps `paid_stock=false`.
-- [ ] `deployment-runbook.md:397-398` — the `b8b6ed7` sentence and "no deployment is
+- [x] `deployment-runbook.md:397-398` — the `b8b6ed7` sentence and "no deployment is
       scheduled before the Sep 3 capture" are both false. Rewrite to the deployed state and
       restate the refusal window from `release.sh:880` verbatim.
-- [ ] `operational-evidence.md` — **append** a `## Collected 2026-09-02 — release of 4a632c0`
+- [x] `operational-evidence.md` — **append** a `## Collected 2026-09-02 — release of 4a632c0`
       record. Do not edit the 2026-08-30 record. Include: read-back release commit, venv,
       wheel sha, runtime-lock unchanged, all six timer states, the v3-06 NextElapse, the
       rollback tree, `preflight.sh 22` with the host's live `nginx -t` warn count, the
       `install-canary.sh` backup at `/var/backups/docket-canary/20260902T144452Z`, and the
       live admission limbs.
-- [ ] Run `./.venv/Scripts/python -m pytest -q tests/test_claims_to_evidence.py
+- [x] Run `./.venv/Scripts/python -m pytest -q tests/test_claims_to_evidence.py
       tests/test_judge_facing_state.py` — both cross-check docs against artifacts and may pin
       wording. Fix wording to satisfy them; do not weaken a test.
-- [ ] Show the full diff to the owner. **Commit only on explicit approval.** State that the
+- [x] Show the full diff to the owner. **Commit only on explicit approval.** State that the
       commit puts `main` one doc-commit ahead of production, which the manifest already
       describes as the normal state.
 
-## W2 — Finish the publication checklist (today; owner says yes, I run it)
+## W2 — Finish the publication checklist — DONE 2026-09-02
+
+**Done 2026-09-02.** Step 13 is independently corroborated by the pivot plan's verified
+constraints of 2026-09-03: `main` is protected and requires a PR plus the `test (3.11)`,
+`test (3.12)` and `package` checks. Steps 11 and 14 were carried out in the same session and
+are recorded here as done rather than re-verified in this document.
 
 Steps 11, 13 and 14 were never done after the visibility flip. Verified via `gh`:
 `description` and `homepageUrl` are both `""`, `rulesets` is `[]`, `secret_scanning` and
 `secret_scanning_push_protection` are both `disabled`.
 
-- [ ] `gh repo edit Ridwannurudeen/docket --homepage https://docket.gudman.xyz/
+- [x] `gh repo edit Ridwannurudeen/docket --homepage https://docket.gudman.xyz/
       --description "<owner-supplied one line>"` (step 11).
-- [ ] Create a `main` branch ruleset blocking force pushes and requiring the `test` and
+- [x] Create a `main` branch ruleset blocking force pushes and requiring the `test` and
       `package` checks (step 13). The visibility conversion disabled all push rulesets.
-- [ ] Enable Secret Protection, secret scanning and push protection (step 14).
-- [ ] Re-verify with `gh repo view --json visibility,defaultBranchRef,homepageUrl` and
+- [x] Enable Secret Protection, secret scanning and push protection (step 14).
+- [x] Re-verify with `gh repo view --json visibility,defaultBranchRef,homepageUrl` and
       `gh api repos/Ridwannurudeen/docket/rulesets`.
 
 ## W3 — Land v3-06 (Sep 3; attended, unrepeatable)

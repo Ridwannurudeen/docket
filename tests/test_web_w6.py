@@ -1455,10 +1455,12 @@ for (const text of ["$126.78", "across 22 eligible pools", "8.30 days", "0/231",
     assert completed.returncode == 0, completed.stderr
 
 
-def test_navigation_names_public_case_file_destinations():
+def test_navigation_names_public_marketplace_destinations():
     index = Path("docket/api/web/index.html").read_text(encoding="utf-8")
 
-    assert 'href="#evidence">Case file</a>' in index
-    assert 'href="#services">Services</a>' in index
-    assert 'href="#experiments">Experiments</a>' in index
-    assert 'href="/advantage/v3.json">Raw data</a>' in index
+    assert 'href="/">Explore</a>' in index
+    assert 'href="/search">Find agents</a>' in index
+    assert 'href="/my-agents">My agents</a>' in index
+    assert 'href="/providers">Providers</a>' in index
+    assert 'href="/advantage">Evidence</a>' in index
+    assert 'href="/llms.txt">API</a>' in index

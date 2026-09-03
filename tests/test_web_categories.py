@@ -109,14 +109,28 @@ def test_the_moved_url_carries_the_filters_it_was_asked_for(client):
 
 
 def test_the_home_leads_with_a_marketplace_and_publishes_the_loss_immediately(client):
+    """The product leads and the loss still arrives on the same page, without scripting.
+
+    The pivot moved the adverse finding below the listings; it did not move it off the
+    home page, out of the served HTML, or behind a control a reader has to operate.
+    """
     index = _read("index.html")
     h1 = re.search(r"<h1[^>]*>(.*?)</h1>", index, re.S)
-    assert h1 and "Hire by evidence, not promises." in h1.group(1)
+    assert h1 and "Find BSC agents that actually work." in h1.group(1)
     hero = re.search(r'<section class="case-hero".*?</section>', index, re.S).group(0)
-    assert "We measured our own security agent against a human. The human won." in hero
-    assert "It is on the front page." in hero
-    assert 'href="/advantage/v3"' in hero
-    assert 'href="/service?id=range-doctor"' in hero
+    assert 'href="#explore"' in hero
+    assert 'href="/activate?service=range-doctor&amp;demo=1"' in hero
+
+    evidence = re.search(r'<section[^>]+id="evidence".*?</section>', index, re.S).group(
+        0
+    )
+    assert "Hire by evidence, not promises." in evidence
+    assert (
+        "We measured our own security agent against a human. The human won." in evidence
+    )
+    assert 'href="/advantage/v3"' in evidence
+    assert 'href="/service?id=range-doctor"' in evidence
+    assert index.index('id="explore"') < index.index('id="evidence"')
 
 
 def test_the_home_server_renders_the_four_bound_services_from_the_registry(client):
@@ -145,11 +159,13 @@ def test_the_home_server_renders_the_four_bound_services_from_the_registry(clien
 
 
 def test_the_case_file_does_not_invent_an_empty_category_claim(client):
+    """The counts are still published; they are read off the served page, not the shell,
+    because the shell carries placeholders and the server fills them from the records."""
     index = _read("index.html")
-    plain = _plain(index)
+    served = _plain(client.get("/", headers={"accept": "text/html"}).text)
     assert EMPTY_CATEGORY not in index
-    assert "4 ERC-8004 identities" in plain
-    assert "6 services" in plain
+    assert "4 ERC-8004 identities" in served
+    assert "6 services" in served
 
 
 def test_no_page_promises_stock_it_does_not_have(client):
@@ -433,11 +449,14 @@ def test_every_page_carries_exactly_one_primary_destination_per_section(client):
         text = _read(name)
         nav = re.search(r'<nav class="site-nav"[^>]*>(.*?)</nav>', text, re.S)
         assert nav, f"{name} has no primary navigation"
-        expected = (
-            ["#evidence", "#services", "#experiments", "/advantage/v3.json"]
-            if name == "index.html"
-            else ["/", "/pancake", "/research", "/advantage", "/llms.txt"]
-        )
+        expected = [
+            "/",
+            "/search",
+            "/my-agents",
+            "/providers",
+            "/advantage",
+            "/llms.txt",
+        ]
         assert re.findall(r'href="([^"]+)"', nav.group(1)) == expected, (
             f"{name} has competing or out-of-order primary destinations"
         )
@@ -480,7 +499,7 @@ def test_every_page_asks_for_the_same_version_of_the_same_two_files():
     for name in ASSET_PAGES:
         text = _read(name)
         tokens.update(re.findall(r'/static/(?:style\.css|app\.js)\?v=([^"]+)', text))
-    assert tokens == {"12"}, f"the site asks for unexpected asset versions: {tokens}"
+    assert tokens == {"13"}, f"the site asks for unexpected asset versions: {tokens}"
 
 
 # ------------------------------------------------- served claims vs served reality
@@ -752,19 +771,28 @@ def test_the_yield_decision_leads_and_carries_the_pool_it_was_measured_against()
     assert "annualise one 24-hour observation" in flat
 
 
-def test_the_experiment_register_keeps_every_missing_result_visible():
-    markup = _read("index.html")
+def test_the_experiment_register_keeps_every_missing_result_visible(client):
+    """The register is checked against the committed artifacts rather than a literal.
+
+    The homepage said "Six registered families" while the report had reconstructed seven,
+    so the page and the README disagreed about the same quantity. The row count, the
+    heading count and every state tally are now read from `report()`, which is the only
+    thing that can go stale without a test noticing.
+    """
+    from docket.advantage.v3.report import report
+
+    summary = report()["summary"]
+    served = client.get("/", headers={"accept": "text/html"}).text
     register = re.search(
-        r'<section[^>]+id="experiments".*?</section>', markup, re.S
+        r'<section[^>]+id="experiments".*?</section>', served, re.S
     ).group(0)
-    assert "Six registered families. No scored result." in register
-    assert register.count('class="experiment-row"') == 6
-    assert register.count("Observed 29 Aug 2026") == 6
-    assert register.count("superseded_before_input_lock") == 2
-    assert register.count("locked_not_run") == 1
-    assert register.count("abandoned_after_failed_primary") == 1
-    assert register.count("registered_waiting_for_inputs") == 1
-    assert register.count("complete_unscored") == 1
+    assert f"{summary['n_families']} registered families. No scored result." in _plain(
+        register
+    )
+    assert register.count('class="experiment-row"') == summary["n_families"]
+    assert register.count("Observed 29 Aug 2026") == summary["n_families"]
+    for state, count in summary["states"].items():
+        assert register.count(state) == count, state
     assert "Absent" in register
 
     styles = _read("style.css")
@@ -854,20 +882,26 @@ def test_service_register_distinguishes_registration_stock_and_evidence():
         assert "View on chain" in row
 
 
-def test_homepage_is_the_public_case_file_and_keeps_external_context_in_research():
+def test_homepage_is_the_public_case_file_and_keeps_external_context_in_research(
+    client,
+):
     index = _read("index.html")
     research = _read("research.html")
     styles = _read("style.css")
-    plain = _plain(index)
+    served = _plain(client.get("/", headers={"accept": "text/html"}).text)
 
     assert "$126.78" in index
     assert "$10k notional" in index
     assert "8.30 days" in index
     assert "n=22" in index
     assert "0/231" in index
-    assert "6 services" in plain
-    assert "0 paid stock" in plain
-    assert "0 settlements ever run" in plain
+    # The counters are derived, so they are asserted on the served page. The phrases the
+    # old rail used are banned outright: they contradicted the approved canary.
+    assert "6 services" in served
+    assert "0 Public paid hires" in served
+    assert "0 Services open for paid hiring" in served
+    assert "settlements ever run" not in index
+    assert "No settlement has occurred" not in index
     assert "arXiv:2606.26028" not in index
     assert "arXiv:2606.12128" not in index
     assert "arXiv:2606.26028" in research

@@ -20,6 +20,8 @@ def _plain(markup: str) -> str:
 def test_public_case_file_has_the_fixed_section_order_and_labelled_sections():
     home = _home()
     section_ids = (
+        "explore",
+        "activate",
         "evidence",
         "experiments",
         "adverse-case",
@@ -31,9 +33,7 @@ def test_public_case_file_has_the_fixed_section_order_and_labelled_sections():
     offsets = [home.index(f'id="{section_id}"') for section_id in section_ids]
     assert offsets == sorted(offsets)
     for section_id in section_ids:
-        section = re.search(
-            rf'<section[^>]+id="{section_id}"[^>]*>', home
-        ).group(0)
+        section = re.search(rf'<section[^>]+id="{section_id}"[^>]*>', home).group(0)
         assert "aria-labelledby=" in section
 
 
@@ -43,17 +43,31 @@ def test_hero_uses_the_approved_copy_and_keeps_both_actions_above_the_truth_rail
     rail = re.search(r'<aside class="truth-rail".*?</aside>', home, re.S).group(0)
     rail_text = _plain(rail)
 
-    assert "DOCKET / EVIDENCE-FIRST AGENT MARKETPLACE" in hero
-    assert "Hire by evidence, not promises." in hero
-    assert "We measured our own security agent against a human. The human won." in hero
-    assert "It is on the front page." in hero
-    assert ">Inspect the evidence<" in hero
-    assert ">Run Range Doctor<" in hero
-    assert "6 services" in rail_text
-    assert "0 paid stock" in rail_text
-    assert "0 settlements ever run" in rail_text
-    assert hero.index("hero-copy") < hero.index("truth-rail") < hero.index("hero-finding")
-    assert home.index("case-hero") < home.index("truth-rail")
+    assert "DOCKET / EVIDENCE-BACKED BSC AGENT MARKETPLACE" in hero
+    assert "Find BSC agents that actually work." in hero
+    assert (
+        "Compare live performance, activate agents with bounded permissions, and"
+        in hero
+    )
+    assert "verify every result onchain." in hero
+    assert ">Explore live agents<" in hero
+    assert 'href="/activate?service=range-doctor&amp;demo=1"' in hero
+    assert ">Run a verified demo<" in hero
+    # Every counter is a placeholder the server fills. A digit typed beside one of these
+    # labels is the defect this rail was rebuilt to make impossible.
+    for label in (
+        "Public paid hires",
+        "Internal canary settlements",
+        "Services open for paid hiring",
+        "ERC-8004 identities",
+        "Registered paired families",
+    ):
+        assert label in rail_text, label
+    assert not re.search(r"\d\s*(?:Public paid hires|Internal canary)", rail_text)
+    assert hero.index("hero-copy") < hero.index("truth-rail")
+    assert (
+        home.index("case-hero") < home.index("truth-rail") < home.index('id="explore"')
+    )
 
 
 def test_decision_impact_copy_matches_the_report_rounding_and_denominators():
@@ -65,11 +79,11 @@ def test_decision_impact_copy_matches_the_report_rounding_and_denominators():
 
     assert notional["notional_usd"] == 10000.0
     assert notional["n_pools"] == 22
-    assert f'${notional["median_annual_overstatement_usd"]:.2f}' in home
-    assert f'n={notional["n_pools"]}' in home
-    assert f'{delay["median_days_later_than_gross_implies"]:.2f} days' in home
-    assert f'{reversals["numerator"]}/{reversals["denominator"]}' in home
-    assert f'({reversals["value"]:.2%})' in home
+    assert f"${notional['median_annual_overstatement_usd']:.2f}" in home
+    assert f"n={notional['n_pools']}" in home
+    assert f"{delay['median_days_later_than_gross_implies']:.2f} days" in home
+    assert f"{reversals['numerator']}/{reversals['denominator']}" in home
+    assert f"({reversals['value']:.2%})" in home
 
 
 def test_adverse_case_is_not_softened_into_a_scored_verdict():
@@ -79,9 +93,9 @@ def test_adverse_case_is_not_softened_into_a_scored_verdict():
         if family["spec_id"] == "v3-04-warden-security"
     )
     home = _home()
-    case = re.search(
-        r'<section[^>]+id="adverse-case".*?</section>', home, re.S
-    ).group(0)
+    case = re.search(r'<section[^>]+id="adverse-case".*?</section>', home, re.S).group(
+        0
+    )
 
     assert family["state"] == "complete_unscored"
     assert family["run_progress"] == {
@@ -110,7 +124,9 @@ def test_range_receipt_keeps_the_digest_and_reproduction_bound_together():
         / "sources"
         / "range-v5-enumerable-frame.json"
     )
-    receipt = re.search(r'<section[^>]+id="receipt".*?</section>', _home(), re.S).group(0)
+    receipt = re.search(r'<section[^>]+id="receipt".*?</section>', _home(), re.S).group(
+        0
+    )
     digest = "ea41a6391e2d40f15c394224d9c7b0699b3eeca4968a2de9f75c43df32469761"
 
     assert len(json.loads(frame.read_text(encoding="utf-8"))["rows"]) == 1024

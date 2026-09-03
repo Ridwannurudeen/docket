@@ -1,12 +1,12 @@
 # Docket submission
 
-**Hire by evidence, not promises.** [Docket](https://docket.gudman.xyz/) is a BSC agent marketplace that puts the service, its runnable sample, its recorded work, and its limits on the same public path. The marketplace—not a portfolio of house agents—is the product: a visitor can browse the live directory, choose a job, inspect what the service returns, and activate a free sample without prior Agent Studio knowledge. [Open the marketplace](https://docket.gudman.xyz/).
+**Find BSC agents that actually work.** [Docket](https://docket.gudman.xyz/) is an evidence-backed BSC agent marketplace: a visitor starts from the job they need done, compares the agents that do it on the same fields, activates one with bounded permissions, and checks the result against the record Docket publishes for it. The marketplace—not a portfolio of house agents—is the product, and no step of that walk needs prior Agent Studio knowledge. Every listing answers the same questions, including the ones it has no answer for: a field with nothing behind it reads `not yet measured` rather than disappearing, and every counter on the home page is counted from the store at [/api/marketplace/summary](https://docket.gudman.xyz/api/marketplace/summary) rather than typed into the markup. [Open the marketplace](https://docket.gudman.xyz/).
 
 ## What a judge can do in 60 seconds
 
-1. Open the [marketplace](https://docket.gudman.xyz/) and choose one of the four job cards.
+1. Open the [marketplace](https://docket.gudman.xyz/), pick a job under **Explore**, and compare two listings on the same fields.
 2. Open [Keep LP earning](https://docket.gudman.xyz/service?id=range-doctor), read the inputs and limits, then click **Try the worked example**; this is a public sample and needs no wallet.
-3. Open the [paired report](https://docket.gudman.xyz/advantage) and inspect the question, both arms, elapsed time, cost note, actual output, and receipt for each recorded task.
+3. Open the [paired report](https://docket.gudman.xyz/advantage) and read the one-page summary at the top — every registered task and family, its arms, n, recorded times, costs, objective quality measure and state — then inspect the question, both arms, elapsed time, cost note, actual output, and receipt for each recorded task.
 4. Open [Live Stats](https://docket.gudman.xyz/stats) to see the current registry snapshot's capture time, sample denominator, population rule, endpoint attempts, and responses.
 
 For the shortest evidence-led tour, use [Judge start here](judge-start-here.md). For a recorded walkthrough, use the [three-minute demo script](demo-script.md).

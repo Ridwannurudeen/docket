@@ -86,7 +86,13 @@ from ..marketplace.registry import (
 from ..refresh import LAST_REFRESH_FILENAME
 from ..signals import signals_for
 from ..store import Store
-from .advantage_pages import v1_page, v3_family_page, v3_landing, v3_topic_page
+from .advantage_pages import (
+    advantage_one_page,
+    v1_page,
+    v3_family_page,
+    v3_landing,
+    v3_topic_page,
+)
 from .models import (
     AgentDetail,
     AgentSummary,
@@ -104,6 +110,7 @@ from .models import (
     ServicesResponse,
     StatsResponse,
 )
+from .summary import home_page, listing_facts, marketplace_summary, summary_router
 from .web_pages import pancake_initial, service_initial, stats_page
 
 logger = logging.getLogger(__name__)
@@ -722,7 +729,6 @@ def create_app(
     # served must not change under them between two requests to the same process.
     advantage_v2 = advantage_v2_report()
     advantage_v1_shell = (WEB_DIR / "advantage.html").read_text(encoding="utf-8")
-    advantage_v1_page = v1_page(advantage_v1_shell)
     advantage_v2_shell = (WEB_DIR / "advantage-v2.html").read_text(encoding="utf-8")
     advantage_v2_page = fill_v2_page(advantage_v2_shell, advantage_v2)
     advantage_v2_pages = {
@@ -752,7 +758,30 @@ def create_app(
     advantage_v3_families = {
         family["spec_id"]: family for family in advantage_v3.get("families", [])
     }
+    # The one-page summary spans all three reports, so it is filled here — after v3 is
+    # reconstructed — and into the shell every v1 view is rendered from, so the landing
+    # and each task view carry the same table rather than two transcriptions of it.
+    advantage_v1_shell = advantage_one_page(
+        advantage_v1_shell,
+        experiments=experiments,
+        advantage_v2=advantage_v2,
+        advantage_v3=advantage_v3,
+    )
+    advantage_v1_page = v1_page(advantage_v1_shell)
     stats_shell = (WEB_DIR / "stats.html").read_text(encoding="utf-8")
+    # The home page's counters follow the same one-object boundary the reports do: counted
+    # once here and pinned, so two readers of one process never see two different totals.
+    # `GET /api/marketplace/summary` recounts per request, because an agent asking for the
+    # current state should be given the current state rather than the startup one.
+    marketplace_services = all_records()
+    home_shell = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    home = home_page(
+        home_shell,
+        marketplace_summary(
+            store, v3_report=advantage_v3, services=marketplace_services
+        ),
+        listing_facts(store, marketplace_services),
+    )
     # Unset means no recipient exists to name in a challenge, so the priced tier is
     # off and only the bounded free tier remains. Read once here rather than per
     # request: the terms a caller is quoted must not change under it mid-session.
@@ -914,7 +943,7 @@ def create_app(
         unchanged, so the machine contract is untouched by the human one."""
         response.headers["Vary"] = "Accept"
         if _prefers_html(request):
-            return FileResponse(WEB_DIR / "index.html", headers={"Vary": "Accept"})
+            return HTMLResponse(home, headers={"Vary": "Accept"})
         return {
             "service": "docket",
             "description": (
@@ -2650,5 +2679,6 @@ def create_app(
     def favicon() -> FileResponse:
         return FileResponse(WEB_DIR / "favicon.svg", media_type="image/svg+xml")
 
+    app.include_router(summary_router(store, advantage_v3, marketplace_services))
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
     return app

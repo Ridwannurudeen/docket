@@ -1283,7 +1283,8 @@ textarea {
   border-left: var(--border-w) solid var(--border);
 }
 
-.hero-finding h2 {
+.hero-finding h2,
+.hero-finding h3 {
   display: grid;
   gap: var(--s-2);
   max-width: 19ch;
@@ -1363,6 +1364,12 @@ textarea {
   margin-left: auto;
 }
 
+.rail-note {
+  flex-basis: 100%;
+  color: var(--fg-dim);
+  text-transform: none;
+}
+
 .case-section {
   display: grid;
   grid-column: 1 / -1;
@@ -1390,6 +1397,124 @@ textarea {
 
 .section-heading > :last-child {
   margin-bottom: 0;
+}
+
+/* The four jobs, and the listings under them. Same ruled surfaces as the evidence
+   sections below: a border and the muted ground, never a gradient or a shadow. */
+
+.goal-cards {
+  display: grid;
+  grid-column: 5 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-3);
+  align-content: start;
+}
+
+.goal-card {
+  display: grid;
+  gap: var(--s-2);
+  align-content: start;
+  padding: var(--s-4);
+  border: var(--border-w) solid var(--border);
+  background: var(--muted);
+  color: inherit;
+  text-decoration: none;
+}
+
+.goal-card:hover,
+.goal-card:focus-visible {
+  border-color: var(--fg);
+}
+
+.goal-title {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.goal-detail {
+  color: var(--fg-dim);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+
+.listing-heading {
+  grid-column: 1 / -1;
+  margin-top: var(--s-6);
+  padding-top: var(--s-4);
+  border-top: var(--border-w) solid var(--fg);
+}
+
+.listing-heading h3 {
+  font-size: var(--fs-xl);
+}
+
+.listing-grid {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+}
+
+.listing-card {
+  display: grid;
+  align-content: start;
+  padding: var(--s-4);
+  border: var(--border-w) solid var(--border);
+}
+
+.listing-card h3 {
+  margin-bottom: var(--s-3);
+  font-size: var(--fs-xl);
+}
+
+.listing-facts {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) 1fr;
+  gap: var(--s-1) var(--s-3);
+  margin: 0 0 var(--s-3);
+  font-size: var(--fs-xs);
+}
+
+.listing-facts dt {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.listing-facts dd {
+  margin: 0;
+  color: var(--fg-dim);
+  overflow-wrap: anywhere;
+}
+
+.listing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.listing-actions a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+}
+
+.activation-steps {
+  display: grid;
+  grid-column: 5 / -1;
+  gap: var(--s-3);
+  margin: 0;
+  padding-left: var(--s-4);
+  align-content: start;
+}
+
+.activation-steps li {
+  padding-left: var(--s-2);
+  line-height: 1.5;
 }
 
 .ruled-ledger {
@@ -1674,6 +1799,8 @@ textarea {
   .hero-copy,
   .hero-finding,
   .section-heading,
+  .goal-cards,
+  .activation-steps,
   .ruled-ledger,
   .adverse-grid,
   .receipt-digest,
@@ -1691,8 +1818,10 @@ textarea {
     grid-row: 2;
   }
 
+  /* The finding moved out of the hero and under the trust proposition, where it follows
+     that section's heading rather than holding a fixed row in the hero's own grid. */
   .hero-finding {
-    grid-row: 3;
+    grid-row: auto;
   }
 
   .hero-copy,
@@ -1717,6 +1846,20 @@ textarea {
   .service-ledger-row {
     grid-template-columns: 1fr;
     gap: var(--s-2);
+  }
+
+  .goal-cards,
+  .listing-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .listing-facts {
+    grid-template-columns: 1fr;
+    gap: var(--s-1);
+  }
+
+  .listing-facts dd {
+    margin-bottom: var(--s-2);
   }
 
   .experiment-row {
