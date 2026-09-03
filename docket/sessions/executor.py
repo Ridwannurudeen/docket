@@ -80,15 +80,25 @@ def _hex(value) -> str:
 def _record_pending(activation, entry: dict) -> None:
     """Keep one in-flight broadcast on the activation, keyed by its account nonce.
 
-    A transaction is written down before it is sent and updated when its receipt is read,
-    so a pass that dies between the two leaves a record naming what left rather than
-    nothing at all. Keyed by nonce because that is the one identifier that exists before
-    the hash does.
+    Written and PERSISTED before the transaction is sent, then updated when its receipt
+    is read, so a pass that dies between the two leaves a durable record naming what left
+    rather than nothing at all. Keyed by nonce, because that is the one identifier that
+    exists before the hash does — and it is the account nonce, so a later pass can tell a
+    send that landed from one that never left.
     """
     result = dict(activation.result or {})
     pending = dict(result.get("pending_sends") or {})
     key = str(entry["nonce"])
     pending[key] = {**(pending.get(key) or {}), **entry}
+    result["pending_sends"] = pending
+    activation.result = result
+
+
+def _forget_pending(activation, nonce) -> None:
+    """Drop a pending entry for a transaction that turned out never to be broadcast."""
+    result = dict(activation.result or {})
+    pending = dict(result.get("pending_sends") or {})
+    pending.pop(str(nonce), None)
     result["pending_sends"] = pending
     activation.result = result
 
@@ -116,6 +126,7 @@ def execute(
     policy,
     token_hints=None,
     slippage_bps=None,
+    persist=None,
     sleep=time.sleep,
 ) -> Receipt:
     """Simulate, check, sign, send, and wait — or fail loudly having sent nothing.
@@ -126,6 +137,13 @@ def execute(
     checked against eight times its own spend. `token_hints` carries only the two facts no
     calldata contains — a vToken's underlying and a v3 position's token pair — and a hint
     that is needed and missing refuses the call rather than charging it zero.
+
+    `persist` writes the activation to the database, and is called with the pending record
+    on it and BEFORE the transaction is broadcast. That order is the whole of this
+    function's crash-safety: a pass killed between the send and its receipt has already
+    left a durable record of what went out, so the next pass reconciles instead of sending
+    the same action a second time. A `persist` that refuses — another writer reached the
+    row first — refuses the send with it.
     """
     hints = dict(token_hints or {})
     vtoken = needs_underlying(prepared)
@@ -239,27 +257,61 @@ def execute(
                 "chainId": prepared.chain_id,
             }
         )
-        # Written down BEFORE the send. A broadcast whose receipt is never read is money
-        # that left with no record of leaving; the pending entry is what a later pass
-        # reconciles against, and it has to exist before the transaction can.
+        # Written down, and WRITTEN OUT, before the send. A broadcast whose receipt is
+        # never read is money that left with no record of leaving; a record that exists
+        # only in memory is not a record — a SIGTERM between the send and the end of the
+        # batch would take it with it, and the next pass would send the action again.
         _record_pending(
             activation,
             {
                 "nonce": nonce,
                 "purpose": prepared.purpose,
                 "amounts": {token: str(amount) for token, amount in charged.items()},
+                "estimated_fee_atomic": str(gas_limit * gas_price),
+                "gas_limit": gas_limit,
+                "gas_price_wei": str(gas_price),
                 "broadcast_at": _now(),
             },
         )
+    except Exception as exc:
+        fail(
+            f"{prepared.purpose}: the transaction could not be signed "
+            f"({type(exc).__name__}: {exc})"
+        )
+
+    if persist is not None:
+        # Outside the guard on purpose. A refusal here means another writer reached this
+        # activation first, and the right answer to that is to send nothing at all.
+        persist()
+
+    try:
         tx_hash = _hex(
             rpc(lambda w3: w3.eth.send_raw_transaction(signed.raw_transaction))
         )
-        _record_pending(activation, {"nonce": nonce, "tx_hash": tx_hash})
     except Exception as exc:
+        _forget_pending(activation, nonce)
+        if persist is not None:
+            try:
+                persist()
+            except Exception:
+                pass
         fail(
-            f"{prepared.purpose}: the transaction could not be signed or broadcast "
+            f"{prepared.purpose}: the transaction was not broadcast "
             f"({type(exc).__name__}: {exc})"
         )
+
+    _record_pending(activation, {"nonce": nonce, "tx_hash": tx_hash})
+    if persist is not None:
+        # The transaction is on the wire now, so a refusal here must not lose it and must
+        # not stop the pass: it is noted, and the merge at the end of the batch reconciles.
+        try:
+            persist()
+        except Exception as exc:
+            activation.note(
+                f"{prepared.purpose}: {tx_hash} was broadcast and its hash could not be "
+                f"written down immediately ({type(exc).__name__})",
+                actor="docket",
+            )
 
     receipt = None
     for attempt in range(RECEIPT_ATTEMPTS):

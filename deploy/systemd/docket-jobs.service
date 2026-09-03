@@ -20,10 +20,15 @@ EnvironmentFile=-/etc/docket/docket-sessions.conf
 ExecStart=/opt/docket/.venv/bin/python -P -m docket.jobs.tick
 
 # This box carries roughly eighteen other live projects, and a pass that is late is not a
-# pass that is wrong: the next timer is five minutes away.
+# pass that is wrong: the next timer is a minute away.
 Nice=10
 IOSchedulingClass=idle
-TimeoutStartSec=15min
+# Above the worst case a single pass can legitimately take: a batch of eight sends each
+# waiting up to 90 s for a receipt, plus a sweep waiting another 60 s, is twelve and a
+# half minutes for ONE activation. A timeout below that would SIGTERM a pass mid-batch,
+# which is exactly the kill the pending-send record exists to survive — survivable, but
+# not something to schedule.
+TimeoutStartSec=30min
 Restart=no
 UMask=0027
 CapabilityBoundingSet=

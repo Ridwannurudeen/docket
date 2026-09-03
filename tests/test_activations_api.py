@@ -766,3 +766,120 @@ def test_a_malformed_policy_does_not_cost_the_caller_its_signature(client):
 
     body["policy"] = {"expires_at": POLICY["expires_at"]}
     assert client.post("/api/activations", json=body).status_code == 201
+
+
+# -- bodies that used to reach a 500 ------------------------------------------
+
+
+def test_an_nft_approvals_field_that_is_not_a_list_is_a_422_not_a_500(client):
+    """`tuple(5)` is a TypeError, and a 500 for a body the caller could fix is the wrong
+    answer to a typo. Refused before the nonce is spent, like every other body error."""
+    for approvals in (5, True, {"contract": "0x1"}, "0xnope"):
+        response = _create(
+            client, kind="persistent", policy=POLICY, nft_approvals=approvals
+        )
+
+        assert response.status_code == 422, approvals
+        assert response.json()["error_code"] == "policy_violation"
+        assert set(response.json()) == {"error_code", "message"}
+
+
+def test_a_non_string_tx_hash_or_payment_id_is_a_422_before_the_nonce_is_spent(client):
+    created = _create(client).json()
+
+    for field, value in (("tx_hash", 5), ("payment_id", {"id": 1}), ("tx_hash", True)):
+        response = client.post(
+            f"/api/activations/{created['activation_id']}/approve",
+            json={
+                "nonce": created["auth_nonce"],
+                "owner_signature": "0x" + "00" * 65,
+                field: value,
+            },
+        )
+
+        assert response.status_code == 422, (field, value)
+        assert response.json()["error_code"] == "missing_field"
+
+    # The nonce was never spent, so the corrected call still works.
+    assert _act(client, created, "cancel").status_code == 200
+
+
+def test_a_body_carrying_both_tx_hash_and_payment_id_is_refused(client):
+    """Only one of the two is bound into the signed message. The other would travel
+    unsigned, and the unsigned one is the one a middle would edit."""
+    created = _create(client).json()
+
+    response = client.post(
+        f"/api/activations/{created['activation_id']}/approve",
+        json={
+            "nonce": created["auth_nonce"],
+            "owner_signature": _sign(
+                OWNER,
+                action_message(
+                    created["activation_id"], "approve", created["auth_nonce"], "0xabc"
+                ),
+            ),
+            "tx_hash": "0xabc",
+            "payment_id": "pay_1",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "missing_field"
+    assert "not both" in response.json()["message"]
+
+
+def test_the_signed_message_is_exactly_what_the_documentation_says(client):
+    """One string, single spaces, values verbatim. A message that differs by one
+    character does not verify, so the rule is pinned here as well as documented."""
+    created = _create(client).json()
+    aid = created["activation_id"]
+    nonce = created["auth_nonce"]
+
+    assert action_message(aid, "approve", nonce) == (
+        f"Docket activation {aid} approve {nonce}"
+    )
+    assert action_message(aid, "approve", nonce, "0xAbC") == (
+        f"Docket activation {aid} approve {nonce} 0xAbC"
+    )
+    # Verbatim: a hash is not lowercased or checksummed before it is signed or checked.
+    response = client.post(
+        f"/api/activations/{aid}/approve",
+        json={
+            "nonce": nonce,
+            "owner_signature": _sign(
+                OWNER, action_message(aid, "approve", nonce, "0xabc")
+            ),
+            "tx_hash": "0xAbC",
+        },
+    )
+    assert response.status_code == 403
+
+
+def test_the_policy_defaults_carry_the_v3_swap_router_for_every_position_category(
+    client,
+):
+    """Lane D2's migration route and Lane D1's thin-pair swaps both send it; a default
+    that omitted it refused every route the executor drafts."""
+    from docket.jobs.executors.allowlists import V3_SWAP_ROUTER
+    from docket.sessions.spend import EXACT_INPUT_SINGLE
+
+    for service_id in ("range-doctor", "yield-router"):
+        body = client.get(
+            f"/api/activations/policy-defaults?service_id={service_id}"
+        ).json()
+
+        assert V3_SWAP_ROUTER in body["policy"]["contract_allowlist"], service_id
+        assert EXACT_INPUT_SINGLE in body["policy"]["function_allowlist"], service_id
+        assert "0x0c49ccbe" in body["policy"]["function_allowlist"], service_id
+        assert "0xfc6f7865" in body["policy"]["function_allowlist"], service_id
+        assert "0x88316456" in body["policy"]["function_allowlist"], service_id
+
+
+def test_the_health_factor_defaults_carry_the_venus_underlying_map(client):
+    body = client.get(
+        "/api/activations/policy-defaults?service_id=health-guard"
+    ).json()
+
+    assert body["category"] == "health_factor"
+    assert body["token_hints"]["underlying"]

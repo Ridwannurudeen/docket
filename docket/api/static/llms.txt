@@ -1062,7 +1062,19 @@ signed with it:
 
 A signature over the shorter form authorises "approve this activation" and not "approve
 it against THIS transaction", so anything else could be substituted into the body
-afterwards. Sign what you are sending. For a create, the nonce
+afterwards. Sign what you are sending.
+
+The exact rule, because a message that differs by one character does not verify:
+
+    base    = "Docket activation " + activation_id + " " + action + " " + nonce
+    message = base + " " + tx_hash      if the body carries tx_hash
+            = base + " " + payment_id   if the body carries payment_id
+            = base                      if it carries neither
+
+Single ASCII spaces, no trailing space, values byte-for-byte as they appear in the body —
+a `tx_hash` is not lowercased, checksummed or 0x-normalised before it is signed or before
+it is checked. A body carrying BOTH `tx_hash` and `payment_id` is refused with 422
+`missing_field`: only one of them can be bound, and the other would travel unsigned. For a create, the nonce
 comes from GET /api/activations/nonce, which returns `{nonce, message, expires_at,
 expires_in_seconds}` and expires in 600 seconds; supply `service_id` on that call and the
 `message` it returns is the exact string to sign. For every other call the nonce is the

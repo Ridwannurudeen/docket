@@ -30,10 +30,12 @@ from ..hire.catalogue import SERVICES
 from ..sessions.executor import ExecutionFailed, execute
 from ..sessions.keys import SessionsUnavailable
 from ..sessions.policy import SessionPolicy
-from ..sessions.spend import UnmeasuredSpend, batch_spend
+from ..sessions.policy import NATIVE_TOKEN
+from ..sessions.spend import UnmeasuredSpend, batch_spend, received_tokens
 from ..sessions.sweep import SweepFailed, residual_balances, sweep
 from ..store import StaleActivation, Store
 from .executors import EXECUTORS, load_executors
+from .executors.allowlists import defaults_for
 from .models import PERSISTENT, NextAction
 from .service import ActivationService
 
@@ -98,15 +100,56 @@ def _record_decision(activation, decision) -> None:
 
 
 def _session_for(service, activation, rpc):
-    """The unlocked session, with the tokens a sweep has to look for filled in."""
+    """The unlocked session, with every token a sweep has to look for filled in.
+
+    Three sources, unioned, because each alone leaves money behind. The policy's own
+    allowlist is what the session may SPEND, which is not what it can hold. The union kept
+    on `session.received_tokens` is everything a past pass saw it receive — read from the
+    activation, not from the last decision, because the last decision is overwritten every
+    minute and a swap on one pass followed by a quiet pass would forget the output token
+    entirely. And the category's default token table catches anything a service is known
+    to touch that neither of the other two happened to name.
+    """
     session = service.open_session(activation)
     if session is None:
         return None
-    received = ((activation.result or {}).get("last_decision") or {}).get(
-        "evidence"
-    ) or {}
-    session.received_tokens = tuple(received.get("received_tokens") or ())
+    session.received_tokens = _sweepable_tokens(activation)
     return session
+
+
+def _sweepable_tokens(activation) -> tuple[str, ...]:
+    stored = (activation.session or {}).get("received_tokens") or ()
+    try:
+        defaults = defaults_for(activation.category)["token_allowlist"]
+    except KeyError:
+        defaults = ()
+    seen = []
+    for token in tuple(stored) + tuple(defaults):
+        if token != NATIVE_TOKEN and token not in seen:
+            seen.append(token)
+    return tuple(seen)
+
+
+def _remember_received(activation, decision, token_hints) -> None:
+    """Add whatever this decision would pay the session to the durable union.
+
+    From the executor's own evidence AND from the calldata, because an executor that
+    forgets to declare an output token would otherwise strand it: the bytes say where the
+    proceeds land whether or not anybody wrote it down.
+    """
+    found = list((activation.session or {}).get("received_tokens") or ())
+    named = list(decision.evidence.get("received_tokens") or ())
+    for call in decision.prepared:
+        try:
+            named.extend(received_tokens(call, token_hints=token_hints))
+        except Exception:
+            # A call whose bytes cannot be read is refused by `call_spend` a moment later
+            # with a reason. It must not take the sweep list down with it here.
+            continue
+    for token in named:
+        if token and token not in found:
+            found.append(token)
+    activation.session = {**(activation.session or {}), "received_tokens": found}
 
 
 def _close(service, activation, rpc) -> None:
@@ -160,6 +203,9 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
 
     decision = executor.evaluate(activation, reader=rpc)
     _record_decision(activation, decision)
+    _remember_received(
+        activation, decision, (decision.evidence.get("token_hints") or {})
+    )
     if decision.kind in ("noop", "alert"):
         if decision.kind == "alert":
             activation.note(
@@ -242,6 +288,22 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
         service.store.save_activation(activation, expected_updated_at=expected)
         return
 
+    # Rebound after every write, because `execute` persists before each broadcast and
+    # the row's `updated_at` moves with it.
+    checkpoint = {"at": expected}
+
+    def persist() -> None:
+        activation.session = {
+            **(activation.session or {}),
+            "spent_atomic": {
+                token: str(amount) for token, amount in session.spent_atomic.items()
+            },
+        }
+        service.store.save_activation(
+            activation, expected_updated_at=checkpoint["at"]
+        )
+        checkpoint["at"] = activation.updated_at
+
     failed = None
     for call in decision.prepared:
         try:
@@ -254,6 +316,7 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
                     policy=policy,
                     token_hints=token_hints,
                     slippage_bps=slippage_bps,
+                    persist=persist,
                 )
             )
         except ExecutionFailed as exc:
@@ -265,7 +328,7 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
             token: str(amount) for token, amount in session.spent_atomic.items()
         },
     }
-    _save_sends(service.store, activation, expected)
+    _save_sends(service.store, activation, checkpoint["at"])
     if failed is not None:
         raise failed
 
@@ -311,9 +374,14 @@ def _save_sends(store, activation, expected) -> None:
     for receipt in activation.receipts:
         if receipt.output_hash not in known:
             current.add_receipt(receipt)
+    received = list((current.session or {}).get("received_tokens") or ())
+    for token in (activation.session or {}).get("received_tokens") or ():
+        if token not in received:
+            received.append(token)
     current.session = {
         **(current.session or {}),
         "spent_atomic": (activation.session or {}).get("spent_atomic") or {},
+        "received_tokens": received,
     }
     current.note(
         "another writer reached this activation first; the transactions this pass "

@@ -267,6 +267,23 @@ fake-root mode for deterministic concurrency and failure tests. The live root-ow
 omitted because the fake bundle is intentionally owned by the test user. The test suite supplies
 a fake `curl` to exercise rollback.
 
+### Session keys and `docket-jobs.service`
+
+`docket-jobs.service` is the only unit that reads `DOCKET_SESSION_KEY_FILE`, and
+`docket.service` must never be given it: the web process is deliberately incapable of
+minting a session key or sweeping one. See `deploy/docket-sessions.conf.example`.
+
+While the key file is absent, persistent activations are still created and still
+readable. They stop at `awaiting_session`, and any that were closing stop at `revoking`.
+Both of those states **occupy one of the five open-activation slots an owner is allowed**,
+so an owner who tries repeatedly on a deployment with no key file installed will be
+refused with `too_many_activations` until the file arrives or they cancel. One-shot
+activations are unaffected.
+
+`TimeoutStartSec=30min` is above the worst case a single pass can legitimately take
+(eight sends each waiting up to 90 s for a receipt, plus a 60 s sweep wait). Lowering it
+would SIGTERM a pass mid-batch.
+
 ### V3 experiment-arm ledgers
 
 Experiment arms run on the workstation against the repository tree. The installed package is

@@ -112,6 +112,28 @@ SPEND_ABI = [
         "outputs": [],
     },
     {
+        "name": "exactInputSingle",
+        "type": "function",
+        "stateMutability": "payable",
+        "inputs": [
+            {
+                "name": "params",
+                "type": "tuple",
+                "components": [
+                    {"name": "tokenIn", "type": "address"},
+                    {"name": "tokenOut", "type": "address"},
+                    {"name": "fee", "type": "uint24"},
+                    {"name": "recipient", "type": "address"},
+                    {"name": "deadline", "type": "uint256"},
+                    {"name": "amountIn", "type": "uint256"},
+                    {"name": "amountOutMinimum", "type": "uint256"},
+                    {"name": "sqrtPriceLimitX96", "type": "uint160"},
+                ],
+            }
+        ],
+        "outputs": [{"name": "amountOut", "type": "uint256"}],
+    },
+    {
         "name": "increaseLiquidity",
         "type": "function",
         "stateMutability": "payable",
@@ -181,6 +203,9 @@ NPM_MINT = "0x88316456"
 NPM_INCREASE_LIQUIDITY = "0x219f5d17"
 NPM_DECREASE_LIQUIDITY = "0x0c49ccbe"
 NPM_COLLECT = "0xfc6f7865"
+# PancakeSwap's v3 SwapRouter, the eight-field Uniswap shape whose params carry a
+# deadline. Lane D2's migration route and Lane D1's thin-pair swaps both send it.
+EXACT_INPUT_SINGLE = "0x414bf389"
 # The native coin, keyed the way `sessions.policy` keys it.
 NATIVE_TOKEN = "BNB"
 
@@ -196,6 +221,7 @@ MEASURED_SELECTORS = frozenset(
         APPROVE,
         TRANSFER,
         SWAP_EXACT_TOKENS_FOR_TOKENS,
+        EXACT_INPUT_SINGLE,
         NPM_MINT,
         NPM_INCREASE_LIQUIDITY,
     }
@@ -308,6 +334,15 @@ def call_spend(
             )
         return _nonzero({_checksum(path[0]): int(arguments["amountIn"])})
 
+    if selector == EXACT_INPUT_SINGLE:
+        params = arguments["params"]
+        if not _recipient_is_ours(params["recipient"], owner, session):
+            raise UnmeasuredSpend(
+                f"this swap pays out to {params['recipient']}, which is neither the "
+                "session nor the owner"
+            )
+        return _nonzero({_checksum(params["tokenIn"]): int(params["amountIn"])})
+
     if selector in VTOKEN_SELECTORS:
         token = _checksum(underlying.get(target))
         if token is None:
@@ -320,10 +355,13 @@ def call_spend(
 
     params = arguments["params"]
     if selector == NPM_MINT:
-        if not _recipient_is_ours(params["recipient"], owner, session):
+        # The owner, and not the session. A minted position is an ERC-721 and the sweep
+        # returns fungible balances: a position minted to the session address would sit
+        # behind a revoked key with nothing able to move it.
+        if _checksum(params["recipient"]) != _checksum(owner) and owner is not None:
             raise UnmeasuredSpend(
-                f"this mint sends the position to {params['recipient']}, which is "
-                "neither the session nor the owner"
+                f"this mint sends the position to {params['recipient']}; a minted "
+                "position must go to the owner, because the sweep cannot return an NFT"
             )
         return _nonzero(
             {
@@ -354,6 +392,39 @@ def _nonzero(spend: dict) -> dict[str, int]:
                 f"this call moves {amount} of a token whose address could not be read"
             )
     return {token: amount for token, amount in spend.items() if token and amount}
+
+
+def received_tokens(call, *, token_hints=None) -> tuple[str, ...]:
+    """Tokens this call pays INTO the session, read out of its own bytes.
+
+    The allowlist bounds what a session may spend; it says nothing about what a session
+    ends up holding. A swap's output side, and the two sides of a position being closed,
+    arrive without ever being spendable — and a sweep that only looked at the spend side
+    would leave them behind a revoked key for ever.
+    """
+    hints = token_hints or {}
+    positions = {
+        str(key): value for key, value in (hints.get("position_tokens") or {}).items()
+    }
+    selector = call.selector
+    if selector not in MEASURED_SELECTORS:
+        return ()
+    _, arguments = _decoder.decode_function_input(call.data)
+    if selector == SWAP_EXACT_TOKENS_FOR_TOKENS:
+        path = arguments["path"]
+        return (_checksum(path[-1]),) if path else ()
+    if selector == EXACT_INPUT_SINGLE:
+        return (_checksum(arguments["params"]["tokenOut"]),)
+    if selector in WITHDRAWING_SELECTORS:
+        pair = positions.get(str(arguments["params"]["tokenId"]))
+        if not pair:
+            return ()
+        return tuple(token for token in (_checksum(item) for item in pair) if token)
+    if selector in VTOKEN_SELECTORS:
+        # A Venus mint pays the session in vTokens, which the underlying map does not
+        # name on this side: the vToken is the contract being called.
+        return (_checksum(call.to),) if selector == VTOKEN_MINT else ()
+    return ()
 
 
 def batch_spend(

@@ -414,12 +414,25 @@ class ActivationService:
         The key exists in one process, on one timer, behind one file the operator owns.
         """
         policy = SessionPolicy.from_dict(activation.policy)
-        address, keystore_json = create_session_key(self.master_password())
-        self.store.create_session(
-            activation.activation_id,
-            address=address,
-            keystore_json=keystore_json,
-        )
+        # A pass killed between writing the row and saving the activation leaves a key
+        # that exists and an activation that does not know about it. Minting a second one
+        # would strand the first for ever, so an unrevoked row is adopted, not replaced.
+        existing = self.store.get_session(activation.activation_id)
+        if existing and existing["revoked_at"] is None:
+            address = existing["address"]
+            activation.note(
+                f"adopting the session key {address}, which an earlier pass created "
+                "before it could record it",
+                actor="docket",
+                at=self.now(),
+            )
+        else:
+            address, keystore_json = create_session_key(self.master_password())
+            self.store.create_session(
+                activation.activation_id,
+                address=address,
+                keystore_json=keystore_json,
+            )
         activation.session = {
             "address": address,
             "funded_atomic": {},

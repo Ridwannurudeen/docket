@@ -358,6 +358,15 @@ def activations_router(
         inputs = payload.get("inputs") or {}
         if not isinstance(inputs, dict):
             return _error(400, "invalid_json", "inputs must be a JSON object.")
+        approvals = payload.get("nft_approvals") or ()
+        if isinstance(approvals, (str, bytes)) or not isinstance(
+            approvals, (list, tuple)
+        ):
+            # Checked before it is iterated: `tuple(5)` is a TypeError, and a 500 for a
+            # body the caller could fix is the wrong answer to a typo.
+            return _error(
+                422, "policy_violation", "nft_approvals must be a list of objects."
+            )
         oversized = _oversized(inputs, MAX_INPUTS_BYTES, "inputs") or _oversized(
             payload.get("policy"), MAX_POLICY_BYTES, "policy"
         )
@@ -394,7 +403,7 @@ def activations_router(
                     owner=owner,
                     inputs=inputs,
                     policy=payload.get("policy"),
-                    nft_approvals=tuple(payload.get("nft_approvals") or ()),
+                    nft_approvals=tuple(approvals),
                 )
             )
         except Exception as exc:
@@ -430,7 +439,7 @@ def activations_router(
                     owner=owner,
                     inputs=inputs,
                     policy=payload.get("policy"),
-                    nft_approvals=tuple(payload.get("nft_approvals") or ()),
+                    nft_approvals=tuple(approvals),
                 )
             )
         except Exception as exc:
@@ -471,6 +480,24 @@ def activations_router(
         # The evidence the call carries is part of what was signed. A signature over
         # "approve this activation" alone would authorise approving it against any
         # transaction hash a middle could substitute afterwards.
+        for field in ("tx_hash", "payment_id"):
+            value = payload.get(field)
+            if value is not None and not isinstance(value, str):
+                return _error(
+                    422,
+                    "missing_field",
+                    f"{field} must be a string when it is present.",
+                )
+        if payload.get("tx_hash") and payload.get("payment_id"):
+            # One call, one piece of evidence. Only one of the two ends up in the signed
+            # message, so a body carrying both would leave the other unsigned — and it is
+            # the unsigned one a middle would edit.
+            return _error(
+                422,
+                "missing_field",
+                "send tx_hash or payment_id, not both: only one is bound into the "
+                "signed message.",
+            )
         binds = str(payload.get("tx_hash") or payload.get("payment_id") or "")
         activation = await run_in_threadpool(store.get_activation, activation_id)
         if activation is None:

@@ -538,8 +538,10 @@ The message shapes are fixed and there are only two:
     Docket activation create {service_id} {nonce}
     Docket activation {activation_id} {action} {nonce}
 
-`{action}` is `approve`, `pause`, `cancel` or `revoke`, and a `tx_hash` or `payment_id`
-in the body is appended to the message and signed with it. The create nonce comes from
+`{action}` is `approve`, `pause`, `cancel` or `revoke`. A `tx_hash` or `payment_id` in the
+body is appended after a single space and signed with it — verbatim, not normalised — and
+a body carrying both is refused, because only one can be bound and the other would travel
+unsigned. The create nonce comes from
 `/api/activations/nonce` and lasts 600 seconds. Every other call signs the activation's
 own `auth_nonce`, which rotates after each accepted mutation — read the activation again
 before signing the next one. A nonce is single-use, so a replayed signature is

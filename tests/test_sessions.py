@@ -1055,3 +1055,116 @@ def test_a_swap_output_token_is_swept_even_though_it_was_never_spendable():
     sent = sweep(session, OWNER, FakeRpc(w3), sleep=lambda _: None)
 
     assert len(sent) == 1
+
+
+# -- the v3 SwapRouter --------------------------------------------------------
+
+SWAP_ROUTER = Web3.to_checksum_address("0x1b81D678ffb9C0263b24A97847620C99d213eB14")
+_router_v3 = Web3().eth.contract(
+    abi=[
+        {
+            "name": "exactInputSingle",
+            "type": "function",
+            "inputs": [
+                {
+                    "name": "params",
+                    "type": "tuple",
+                    "components": [
+                        {"name": "tokenIn", "type": "address"},
+                        {"name": "tokenOut", "type": "address"},
+                        {"name": "fee", "type": "uint24"},
+                        {"name": "recipient", "type": "address"},
+                        {"name": "deadline", "type": "uint256"},
+                        {"name": "amountIn", "type": "uint256"},
+                        {"name": "amountOutMinimum", "type": "uint256"},
+                        {"name": "sqrtPriceLimitX96", "type": "uint160"},
+                    ],
+                }
+            ],
+            "outputs": [{"name": "amountOut", "type": "uint256"}],
+        }
+    ]
+)
+
+
+def _exact_input_single(recipient, *, amount_in=31 * 10**18, token_in=USDT, token_out=WBNB):
+    return _bare(
+        SWAP_ROUTER,
+        _router_v3.encode_abi(
+            "exactInputSingle",
+            args=[(token_in, token_out, 500, recipient, 9, amount_in, 1, 0)],
+        ),
+    )
+
+
+def test_a_v3_swap_is_charged_on_its_own_token_in():
+    from docket.sessions.spend import EXACT_INPUT_SINGLE
+
+    call = _exact_input_single(OWNER)
+
+    assert call.selector == EXACT_INPUT_SINGLE
+    assert call_spend(call, owner=OWNER, session=OWNER) == {USDT: 31 * 10**18}
+
+
+def test_a_v3_swap_paying_out_to_a_stranger_is_refused():
+    stranger = Web3.to_checksum_address("0x" + "77" * 20)
+
+    with pytest.raises(UnmeasuredSpend, match="neither the session nor the owner"):
+        call_spend(_exact_input_single(stranger), owner=OWNER, session=OWNER)
+
+
+def test_a_v3_swaps_output_token_is_remembered_for_the_sweep():
+    from docket.sessions.spend import received_tokens
+
+    assert received_tokens(_exact_input_single(OWNER)) == (WBNB,)
+
+
+def test_a_v2_swaps_output_token_is_the_last_hop_of_its_path():
+    from docket.sessions.spend import received_tokens
+
+    call = _bare(ROUTER, _swap_data(10 * 10**18, route=(USDT, WBNB)))
+
+    assert received_tokens(call) == (WBNB,)
+
+
+def test_closing_a_position_names_both_of_its_tokens_as_received():
+    from docket.sessions.spend import received_tokens
+
+    collect = _bare(
+        NPM, _npm.encode_abi("collect", args=[(7141050, OWNER, 2**127, 2**127)])
+    )
+
+    assert received_tokens(collect) == ()
+    assert received_tokens(
+        collect, token_hints={"position_tokens": {"7141050": [USDT, WBNB]}}
+    ) == (USDT, WBNB)
+
+
+def test_a_minted_position_must_go_to_the_owner_and_not_the_session():
+    """The sweep returns fungible balances. A position minted to the session address
+    would sit behind a revoked key with nothing able to move it."""
+    session_address = Web3.to_checksum_address("0x" + "66" * 20)
+    call = _bare(
+        NPM,
+        _npm.encode_abi(
+            "mint",
+            args=[
+                (
+                    USDT,
+                    WBNB,
+                    500,
+                    -100,
+                    100,
+                    11 * 10**18,
+                    2 * 10**18,
+                    1,
+                    1,
+                    session_address,
+                    9,
+                )
+            ],
+        ),
+    )
+
+    with pytest.raises(UnmeasuredSpend, match="must go to the owner"):
+        call_spend(call, owner=OWNER, session=session_address)

@@ -643,10 +643,12 @@ def test_a_pass_that_broadcast_is_merged_rather_than_dropped_when_the_row_moved(
     real_save = store.save_activation
 
     def racing_save(row, *, expected_updated_at):
-        # The first save of the evaluating pass loses to another writer, exactly once —
-        # which is the save that carries the record of what was already broadcast.
+        # The pass now writes three times: the pending record before the broadcast, the
+        # hash after it, and the settled batch at the end. The third is the one that
+        # carries the receipt, and it is the one raced here — a race on the first is a
+        # refused send and is covered separately.
         saves["n"] += 1
-        if saves["n"] == 1:
+        if saves["n"] == 3:
             other = store.get_activation(row.activation_id)
             other.note("another writer got here first", actor="user")
             real_save(other, expected_updated_at=expected_updated_at)
@@ -677,3 +679,218 @@ def test_a_broadcast_is_written_down_before_it_is_sent(tmp_path, sessions_key):
     assert settled[-1]["status"] == 1
     assert settled[-1]["tx_hash"] == rpc.sent[0]
     assert int(settled[-1]["gas_atomic"]) > 0
+
+
+# -- durability, against a node that behaves like one --------------------------
+
+
+class NodeRpc:
+    """The audit's fake node, wired the way the tick wires a real one."""
+
+    def __init__(self, node):
+        self.node = node
+
+    def __call__(self, do):
+        return do(self.node.w3)
+
+
+def _node_active(store, node, *, bnb=10**17, usdt=500 * 10**18):
+    from tests.test_jobs_service import _funding_transaction
+
+    service = _service(store, NodeRpc(node))
+    created = service.create(
+        "range-doctor",
+        kind="persistent",
+        owner=OWNER,
+        inputs={"wallet": OWNER},
+        policy=POLICY,
+    )
+    expected = created.updated_at
+    service.mint_session(created)
+    store.save_activation(created, expected_updated_at=expected)
+    address = created.session["address"]
+    tx_hash = "0x" + "ab" * 32
+    node.receipts[tx_hash] = _transfer_receipt(address)
+    node.txs[tx_hash] = _funding_transaction(address)
+    service.approve(created.activation_id, tx_hash=tx_hash)
+    node.bnb[address] = bnb
+    node.tokens.setdefault(USDT, {})[address] = usdt
+    return service, store.get_activation(created.activation_id)
+
+
+def test_a_kill_between_the_send_and_the_receipt_leaves_the_record_on_disk(
+    tmp_path, sessions_key, monkeypatch
+):
+    """The transaction is on the wire. If the only record of it lives in memory, the pass
+    that dies takes it with it and the next pass sends the same action again."""
+    from tests.fakenode import Node
+
+    monkeypatch.setattr("docket.sessions.executor.RECEIPT_PAUSE_S", 0)
+    store = Store(tmp_path / "tick.sqlite3")
+    node = Node(estimate=180_000)
+    _, activation = _node_active(store, node)
+    register("rebalancing", ActionExecutor())
+
+    def die(n):
+        raise KeyboardInterrupt("SIGTERM between the send and its receipt")
+
+    node.on_receipt = die
+    with pytest.raises(KeyboardInterrupt):
+        tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key)
+
+    assert len(node.pending) == 1
+    stored = store.get_activation(activation.activation_id)
+    pending = stored.result["pending_sends"]
+    assert len(pending) == 1
+    entry = next(iter(pending.values()))
+    assert entry["tx_hash"] == node.pending[0]["hash"]
+    assert entry["purpose"] == "recenter the position"
+    assert int(entry["estimated_fee_atomic"]) > 0
+    assert entry["amounts"][USDT] == str(10 * 10**18)
+
+
+def test_a_send_is_refused_when_another_writer_reached_the_row_first(
+    tmp_path, sessions_key, monkeypatch
+):
+    """The persist before the broadcast is also the last chance to notice a concurrent
+    writer. Its refusal must stop the send, not follow it."""
+    from tests.fakenode import Node
+
+    monkeypatch.setattr("docket.sessions.executor.RECEIPT_PAUSE_S", 0)
+    store = Store(tmp_path / "tick.sqlite3")
+    node = Node(estimate=180_000)
+    _, activation = _node_active(store, node)
+    aid = activation.activation_id
+    register("rebalancing", ActionExecutor())
+    other = Store(tmp_path / "tick.sqlite3")
+
+    real_save = store.save_activation
+    saves = {"n": 0}
+
+    def racing_save(row, *, expected_updated_at):
+        saves["n"] += 1
+        if saves["n"] == 1:
+            competitor = other.get_activation(aid)
+            competitor.note("another writer", actor="user")
+            real_save(competitor, expected_updated_at=expected_updated_at)
+        return real_save(row, expected_updated_at=expected_updated_at)
+
+    store.save_activation = racing_save
+    errors = tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key)
+    store.save_activation = real_save
+
+    assert errors == 1
+    assert node.pending == []
+    assert node.mined_order == []
+
+
+def test_a_token_received_on_an_earlier_pass_is_still_swept_after_a_quiet_one(
+    tmp_path, sessions_key, monkeypatch
+):
+    """The stranded-token scenario: a swap on pass N, a noop on N+1, then revoke. The
+    union lives on the activation, so the quiet pass cannot forget the output token."""
+    from docket.jobs.executors.base import Decision
+    from tests.fakenode import Node
+
+    monkeypatch.setattr("docket.sessions.executor.RECEIPT_PAUSE_S", 0)
+    monkeypatch.setattr("docket.sessions.sweep.RECEIPT_PAUSE_S", 0)
+    store = Store(tmp_path / "tick.sqlite3")
+    node = Node()
+    node.automine_on_receipt = True
+    service, activation = _node_active(store, node, usdt=0, bnb=5 * 10**16)
+    aid = activation.activation_id
+    address = activation.session["address"]
+    node.tokens.setdefault(WBNB, {})[address] = 3 * 10**18
+
+    class Received(NoopExecutor):
+        def evaluate(self, activation, *, reader=None):
+            return Decision(
+                kind="noop",
+                summary="swapped earlier; holding WBNB",
+                prepared=(),
+                evidence={"received_tokens": [WBNB]},
+                observed_at="t",
+                block=1,
+            )
+
+    register("rebalancing", Received("rebalancing"))
+    assert tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key) == 0
+    assert WBNB in store.get_activation(aid).session["received_tokens"]
+
+    EXECUTORS.clear()
+    register("rebalancing", NoopExecutor("rebalancing"))
+    assert tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key) == 0
+    # The last decision has forgotten it; the activation has not.
+    evidence = store.get_activation(aid).result["last_decision"]["evidence"]
+    assert "received_tokens" not in evidence
+    assert WBNB in store.get_activation(aid).session["received_tokens"]
+
+    service.revoke(aid)
+    for _ in range(3):
+        tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key)
+        node.mine()
+
+    assert store.get_activation(aid).state == "revoked"
+    assert node.tokens[WBNB].get(address, 0) == 0
+    assert node.tokens[WBNB][OWNER] == 3 * 10**18
+
+
+def test_a_swap_output_is_remembered_from_the_calldata_even_if_nobody_declared_it(
+    tmp_path, sessions_key, monkeypatch
+):
+    from tests.fakenode import Node
+
+    monkeypatch.setattr("docket.sessions.executor.RECEIPT_PAUSE_S", 0)
+    store = Store(tmp_path / "tick.sqlite3")
+    node = Node(estimate=180_000)
+    node.automine_on_receipt = True
+    _, activation = _node_active(store, node)
+    register("rebalancing", ActionExecutor())
+
+    assert tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key) == 0
+
+    # The executor's evidence names no received token; the swap's own path does.
+    stored = store.get_activation(activation.activation_id)
+    assert WBNB in stored.session["received_tokens"]
+
+
+def test_a_key_created_before_the_save_is_adopted_rather_than_replaced(
+    tmp_path, sessions_key
+):
+    """A pass killed between writing the sessions row and saving the activation left a
+    key that exists and an activation that did not know about it. Minting a second one
+    would strand the first for ever."""
+    from tests.fakenode import Node
+
+    store = Store(tmp_path / "tick.sqlite3")
+    node = Node()
+    service = _service(store, NodeRpc(node))
+    created = service.create(
+        "range-doctor",
+        kind="persistent",
+        owner=OWNER,
+        inputs={"wallet": OWNER},
+        policy=POLICY,
+    )
+    aid = created.activation_id
+    real_save = store.save_activation
+    calls = {"n": 0}
+
+    def dying_save(row, *, expected_updated_at):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise KeyboardInterrupt("killed after the sessions row was written")
+        return real_save(row, expected_updated_at=expected_updated_at)
+
+    store.save_activation = dying_save
+    with pytest.raises(KeyboardInterrupt):
+        tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key)
+    store.save_activation = real_save
+    orphan = store.get_session(aid)["address"]
+
+    assert tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key) == 0
+
+    stored = store.get_activation(aid)
+    assert stored.session["address"] == orphan
+    assert stored.next_action.kind == "fund_session"
+    assert any("adopting the session key" in e.reason for e in stored.events)
