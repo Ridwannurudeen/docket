@@ -26,8 +26,10 @@ from web3 import Web3
 from docket.agents.grid.lifecycle import (
     DEADLINE_S,
     GAS_CEILING,
+    MAX_LEVELS,
     NO_RESTING_ORDERS,
     Fill,
+    Fired,
     GridRefused,
     GridSpec,
     GridState,
@@ -61,16 +63,45 @@ def frozen_clock(monkeypatch):
 
 
 class Reader:
-    """A router that prices one pair, and counts what it was asked."""
+    """A router that prices one pair, an allowance, and a count of what it was asked.
 
-    def __init__(self, price: int, *, gas: int = 180_000, fail_estimate: bool = False):
+    `allowance` defaults to unlimited so most tests exercise the settled case, where the
+    session has already approved the router and one swap is the whole batch. Setting it
+    short is what draws the exact-amount approval out in front.
+    """
+
+    def __init__(
+        self,
+        price: int,
+        *,
+        gas: int = 180_000,
+        fail_estimate: bool = False,
+        allowance: int | None = 2**255,
+        receipts: dict | None = None,
+    ):
         self.price = price
         self.gas = gas
         self.fail_estimate = fail_estimate
+        self.allowance = allowance
+        self.receipts = receipts or {}
         self.estimates: list[tuple] = []
+        self.reads: list[tuple] = []
 
     def block_number(self) -> int:
         return BLOCK
+
+    def call(self, sender, target, calldata):
+        self.reads.append((sender, target, calldata))
+        assert (
+            calldata[:4].hex()
+            == Web3.keccak(text="allowance(address,address)")[:4].hex()
+        )
+        if self.allowance is None:
+            raise RuntimeError("the node did not answer")
+        return self.allowance.to_bytes(32, "big")
+
+    def transaction_receipt(self, tx_hash):
+        return self.receipts.get(tx_hash)
 
     def amounts_out(self, amount_in, route):
         route = tuple(Web3.to_checksum_address(hop) for hop in route)
@@ -109,6 +140,11 @@ def _observed(price: int) -> Observation:
 
 def _decode_swap(call):
     return _decoder.decode_function_input(call.data)[1]
+
+
+def _swap(decision):
+    """The swap is always the last call in a fire: an approval only ever precedes it."""
+    return decision.prepared[-1]
 
 
 # ------------------------------------------------------------------ the spec itself
@@ -235,7 +271,7 @@ def test_a_price_inside_the_band_that_reaches_nothing_waits():
 
     assert decision.kind == "noop"
     assert "waiting" in decision.reason
-    assert decision.prepared is None
+    assert decision.prepared == ()
 
 
 def test_a_level_that_already_filled_is_not_drafted_again():
@@ -284,16 +320,16 @@ def test_the_drafted_swap_carries_the_live_quote_less_exactly_the_stated_slippag
     )
 
     quoted = 25 * E18 * E18 // (540 * E18)
-    args = _decode_swap(decision.prepared)
+    args = _decode_swap(_swap(decision))
     assert args["amountIn"] == 25 * E18
     assert args["amountOutMin"] == quoted * (10_000 - 125) // 10_000
     assert args["amountOutMin"] > 0
     assert args["path"] == [USDT, WBNB]
     assert args["to"] == SESSION
     assert args["deadline"] == FROZEN_NOW + DEADLINE_S
-    assert decision.prepared.to == PANCAKE_V2_ROUTER
-    assert decision.prepared.gas_ceiling == GAS_CEILING
-    assert decision.prepared.value_atomic == "0"
+    assert _swap(decision).to == PANCAKE_V2_ROUTER
+    assert _swap(decision).gas_ceiling == GAS_CEILING
+    assert _swap(decision).value_atomic == "0"
 
 
 def test_the_prepared_call_records_the_simulation_that_ran_and_its_block():
@@ -308,7 +344,7 @@ def test_the_prepared_call_records_the_simulation_that_ran_and_its_block():
         now=FROZEN_NOW,
     )
 
-    simulation = decision.prepared.simulation
+    simulation = _swap(decision).simulation
     assert simulation["ok"] is True
     assert simulation["gas_estimate"] == 180_000
     assert simulation["revert_reason"] is None
@@ -331,8 +367,8 @@ def test_a_swap_the_chain_refuses_comes_back_as_an_alert_and_never_as_a_fire():
     )
 
     assert decision.kind == "alert"
-    assert decision.prepared.simulation["ok"] is False
-    assert "TRANSFER_FROM_FAILED" in decision.prepared.simulation["revert_reason"]
+    assert _swap(decision).simulation["ok"] is False
+    assert "TRANSFER_FROM_FAILED" in _swap(decision).simulation["revert_reason"]
     assert decision.state.spent_atomic == 0
 
 
@@ -351,7 +387,7 @@ def test_a_quote_too_small_to_leave_a_floor_is_refused_rather_than_floored_to_ze
 
     assert decision.kind == "alert"
     assert "no floor at all" in decision.reason
-    assert decision.prepared is None
+    assert decision.prepared == ()
 
 
 def test_every_fired_summary_repeats_that_nothing_rested_on_chain():
@@ -368,7 +404,7 @@ def test_every_fired_summary_repeats_that_nothing_rested_on_chain():
 
     assert decision.evidence["no_resting_orders"] == NO_RESTING_ORDERS
     assert decision.as_record()["no_resting_orders"] == NO_RESTING_ORDERS
-    assert "No order rests on chain" in decision.prepared.purpose
+    assert "No order rests on chain" in _swap(decision).purpose
 
 
 # ------------------------------------------------------------------ the four stops
@@ -387,7 +423,7 @@ def test_the_stop_price_cancels_the_remaining_levels_and_sends_nothing():
     )
 
     assert decision.kind == "cancel"
-    assert decision.prepared is None
+    assert decision.prepared == ()
     assert decision.state.cancelled is True
     assert decision.state.open_levels == ()
     assert decision.state.revoked is False
@@ -425,7 +461,7 @@ def test_expiry_reaches_the_revoke_path_on_its_own():
 
     assert decision.kind == "revoke"
     assert decision.state.revoked is True
-    assert decision.prepared is None
+    assert decision.prepared == ()
 
 
 def test_expiry_still_revokes_a_grid_that_was_paused_or_cancelled_first():
@@ -519,7 +555,7 @@ def test_a_level_past_the_total_cap_is_refused_rather_than_trimmed_to_what_is_le
 
     assert decision.kind == "noop"
     assert "refused rather than trimmed" in decision.reason
-    assert decision.prepared is None
+    assert decision.prepared == ()
 
 
 def test_the_cap_moves_when_a_level_fires_and_not_when_it_fills():
@@ -684,3 +720,208 @@ def test_byte_shaped_topics_and_hashes_decode_the_same_as_hex_ones():
     assert fill.side == "buy"
     assert fill.amount_in == 25 * E18
     assert fill.tx_hash == "0x" + "ab" * 32
+
+
+# ------------------------------------------- a fired level does not fire again
+
+
+def _fire(state, reader, spec=None):
+    return evaluate(
+        state,
+        _observed(540 * E18),
+        spec or _spec(),
+        reader=reader,
+        session_address=SESSION,
+        now=FROZEN_NOW,
+    )
+
+
+def test_a_fired_level_is_out_of_play_before_its_receipt_is_read():
+    """The defect this closes: a level whose swap is in flight read as open, so the next
+    pass drafted it again, and the one after that, until the cap ran out."""
+    reader = Reader(price=540 * E18)
+    first = _fire(GridState(reference_price=620 * E18), reader)
+
+    assert first.kind == "fire"
+    assert first.level.index == 2
+    assert [entry.level for entry in first.state.fired] == [2]
+    assert first.state.fired[0].intent_key
+    assert first.state.fired[0].tx_hash is None
+    assert 2 not in first.state.open_levels
+
+    second = _fire(first.state, reader)
+    assert second.kind == "fire"
+    assert second.level.index == 1
+
+    # 540 has crossed the levels at 600 and 550 and no others, so with both of them out
+    # of play the grid waits — where before this it fired 600 again, and again.
+    for state in (second.state,) * 3:
+        waiting = _fire(state, reader)
+        assert waiting.kind == "noop"
+        assert "waiting" in waiting.reason
+
+
+def test_a_confirmed_fill_moves_a_level_from_fired_to_filled_permanently():
+    fired = GridState(
+        reference_price=620 * E18,
+        spent_atomic=25 * E18,
+        fired=(Fired(level=2, intent_key="0xkey", tx_hash="0xfeed"),),
+        open_levels=(0, 1, 3, 4),
+    )
+
+    settled = record_fills(
+        fired,
+        [Fill(2, "buy", 25 * E18, 46 * 10**15, "0xfeed", BLOCK)],
+        notional_atomic=25 * E18,
+    )
+
+    assert settled.fired == ()
+    assert settled.filled_levels == (2,)
+    assert settled.closed_levels == (2,)
+    assert settled.spent_atomic == 25 * E18
+    assert 2 not in settled.open_levels
+
+
+def test_a_reverted_swap_puts_its_level_back_and_gives_the_cap_back():
+    """A swap that reverted traded nothing, so keeping it charged against the cap would
+    spend the session's allowance on transactions that never happened."""
+    fired = GridState(
+        reference_price=620 * E18,
+        spent_atomic=25 * E18,
+        fired=(Fired(level=2, intent_key="0xkey", tx_hash="0xdead"),),
+        open_levels=(0, 1, 3, 4),
+    )
+
+    reopened = record_fills(fired, [], reverted=[2], notional_atomic=25 * E18)
+
+    assert reopened.fired == ()
+    assert reopened.filled_levels == ()
+    assert 2 in reopened.open_levels
+    assert reopened.spent_atomic == 0
+
+    again = _fire(reopened, Reader(price=540 * E18))
+    assert again.kind == "fire"
+    assert again.level.index == 2
+
+
+def test_a_level_still_in_flight_is_neither_reopened_nor_filled():
+    fired = GridState(
+        reference_price=620 * E18,
+        fired=(
+            Fired(level=2, intent_key="0xkey", tx_hash="0xpending"),
+            Fired(level=1, intent_key="0xkey2", tx_hash=None),
+        ),
+    )
+
+    unchanged = record_fills(fired, [], notional_atomic=25 * E18)
+
+    assert [entry.level for entry in unchanged.fired] == [2, 1]
+    assert unchanged.closed_levels == (1, 2)
+
+
+# ------------------------------------------- the allowance the router needs
+
+
+def test_a_short_allowance_puts_an_exact_approval_in_front_of_the_swap():
+    """Without it the swap reverts as TransferHelper: TRANSFER_FROM_FAILED — a
+    transaction drafted, simulated, broadcast and paid for that could never have worked."""
+    decision = _fire(
+        GridState(reference_price=620 * E18), Reader(price=540 * E18, allowance=0)
+    )
+
+    assert decision.kind == "fire"
+    assert len(decision.prepared) == 2
+    approval, swap = decision.prepared
+    assert approval.to == USDT
+    assert approval.data.startswith("0x095ea7b3")
+    assert Web3.to_checksum_address("0x" + approval.data[10:74][-40:]) == (
+        PANCAKE_V2_ROUTER
+    )
+    amount = int(approval.data[74:138], 16)
+    assert amount == 25 * E18
+    assert amount != 2**256 - 1
+    assert swap.to == PANCAKE_V2_ROUTER
+    assert decision.evidence["approval_drafted"] is True
+    assert decision.evidence["router_allowance"] == "0"
+
+
+def test_an_allowance_that_already_covers_the_level_drafts_no_approval():
+    decision = _fire(
+        GridState(reference_price=620 * E18),
+        Reader(price=540 * E18, allowance=25 * E18),
+    )
+
+    assert len(decision.prepared) == 1
+    assert decision.prepared[0].to == PANCAKE_V2_ROUTER
+    assert decision.evidence["approval_drafted"] is False
+
+
+def test_the_swap_is_deferred_rather_than_failed_while_the_allowance_is_short():
+    """`ok: None` is a third state from True and False, and the honest one here: what
+    could be checked passed, and the estimate that could not is named with what lifts it."""
+    reader = Reader(price=540 * E18, allowance=0)
+    decision = _fire(GridState(reference_price=620 * E18), reader)
+    swap = decision.prepared[-1]
+
+    assert swap.simulation["ok"] is None
+    assert swap.simulation["revert_reason"] is None
+    assert "allowance" in swap.simulation["deferred"][0]
+    assert "eth_estimateGas" not in swap.simulation["checks"]
+    assert all(target == USDT for _sender, target, _data in reader.estimates)
+
+
+def test_an_unreadable_allowance_drafts_the_approval_and_says_it_was_unreadable():
+    """Zero and unknown are different: both draft the approval, which is the safe
+    direction, but only one of them is a fact about the chain."""
+    decision = _fire(
+        GridState(reference_price=620 * E18), Reader(price=540 * E18, allowance=None)
+    )
+
+    assert len(decision.prepared) == 2
+    assert decision.evidence["router_allowance"] is None
+    assert decision.evidence["approval_drafted"] is True
+
+
+def test_each_call_carries_its_own_deadline_a_window_further_out():
+    decision = _fire(
+        GridState(reference_price=620 * E18), Reader(price=540 * E18, allowance=0)
+    )
+    approval, swap = decision.prepared
+
+    assert approval.deadline == FROZEN_NOW + DEADLINE_S
+    assert swap.deadline == FROZEN_NOW + 2 * DEADLINE_S
+    assert _decode_swap(swap)["deadline"] == swap.deadline
+
+
+# ------------------------------------------- the remaining minors
+
+
+def test_a_ladder_longer_than_the_ceiling_is_refused():
+    with pytest.raises(GridRefused, match="above the ceiling"):
+        _spec(levels=MAX_LEVELS + 1).validate()
+    assert _spec(levels=MAX_LEVELS).validate().levels == MAX_LEVELS
+
+
+def test_the_spec_record_can_leave_the_derived_ladder_out():
+    spec = _spec()
+
+    assert "level_prices" in spec.as_record()
+    assert "level_prices" not in spec.as_record(with_levels=False)
+    assert spec.as_record(with_levels=False)["price_lower"] == str(500 * E18)
+
+
+def test_a_transfer_whose_hex_ends_in_zeros_is_not_read_as_nothing():
+    """`text.strip("0x")` strips every leading and trailing 0 and x, so a value whose hex
+    ends in zeros answered "nothing to parse" and a real transfer read as none."""
+    receipt = _receipt(
+        [
+            _transfer_log(USDT, SESSION, POOL, 16**8),
+            _transfer_log(WBNB, POOL, SESSION, 10**18),
+        ],
+        level=1,
+    )
+
+    (fill,) = detect_fills([receipt], _spec(), recipient=SESSION)
+
+    assert fill.amount_in == 16**8
+    assert fill.amount_out == 10**18

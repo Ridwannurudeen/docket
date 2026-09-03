@@ -70,6 +70,12 @@ DEADLINE_S = 600
 # A V2 token-to-token swap costs well under this. A ceiling, not an estimate — the
 # simulation supplies the estimate and refuses if it exceeds this.
 GAS_CEILING = 300_000
+# An ERC-20 approval is a single storage write. The ceiling is generous for one and still
+# refuses anything that is not one.
+APPROVE_GAS_CEILING = 120_000
+# Every level is quoted and drafted on every pass, so the ladder needs a bound or one
+# request body turns a five-minute tick into an unbounded one.
+MAX_LEVELS = 64
 # What Docket will trade in either direction. One list, shared with the yield router,
 # because two allowlists over the same three BSC assets is one list that goes stale.
 GRID_ASSETS = MOVE_ASSETS
@@ -89,8 +95,109 @@ STOP_IS_NOT_A_STOP_ORDER = (
 )
 
 
+# The two ERC-20 functions the grid needs beyond the router's own. Written out here
+# rather than imported, because these four bytes are what the session is allowed to send
+# and they should be readable next to the call that builds them.
+ERC20_ABI = [
+    {
+        "name": "approve",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "spender", "type": "address"},
+            {"name": "amount", "type": "uint256"},
+        ],
+        "outputs": [{"name": "", "type": "bool"}],
+    },
+    {
+        "name": "allowance",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [
+            {"name": "owner", "type": "address"},
+            {"name": "spender", "type": "address"},
+        ],
+        "outputs": [{"name": "", "type": "uint256"}],
+    },
+]
+_erc20 = Web3().eth.contract(abi=ERC20_ABI)
+APPROVE_SELECTOR = "0x" + Web3.keccak(text="approve(address,uint256)")[:4].hex()
+
+
 class GridRefused(ValueError):
     """A spec that cannot be run as written. Raised at validation, never at fire time."""
+
+
+def _approve_calldata(spender: str, amount: int) -> bytes:
+    return bytes.fromhex(
+        _erc20.encode_abi(
+            "approve", args=[Web3.to_checksum_address(spender), int(amount)]
+        )[2:]
+    )
+
+
+def _allowance(reader, *, token: str, owner: str, spender: str) -> int | None:
+    """What the router may already pull, or `None` when the read did not answer.
+
+    `None` and zero are different and are kept apart: zero is the chain saying there is
+    no allowance, `None` is Docket not having got an answer. Both draft the approval —
+    the safe direction, since a redundant exact approval costs one storage write and a
+    missing one costs a reverted swap — but only one of them is a fact about the chain,
+    and the evidence says which it was.
+    """
+    if not hasattr(reader, "call"):
+        return None
+    data = bytes.fromhex(
+        _erc20.encode_abi(
+            "allowance",
+            args=[Web3.to_checksum_address(owner), Web3.to_checksum_address(spender)],
+        )[2:]
+    )
+    try:
+        raw = reader.call(owner, token, data)
+    except Exception:
+        return None
+    if not raw:
+        return None
+    return int.from_bytes(bytes(raw)[-32:], "big")
+
+
+def _approve_simulation(
+    reader, *, sender: str, token: str, calldata: bytes, seen: dict
+) -> dict:
+    """The preflight for one approval. It needs no balance, so it is a live check."""
+    record = {
+        "ok": True,
+        "gas_estimate": None,
+        "revert_reason": None,
+        "observed_at": seen["source"],
+        "block": seen["block_number"],
+        "checks": ["an ERC-20 approval sets an allowance and needs no balance"],
+        "deferred": [],
+    }
+    if not hasattr(reader, "estimate_gas"):
+        return record
+    try:
+        gas = int(reader.estimate_gas(sender, token, calldata))
+    except Exception as exc:
+        return record | {
+            "ok": False,
+            "revert_reason": f"{type(exc).__name__}: {exc}",
+            "checks": record["checks"] + ["eth_estimateGas"],
+        }
+    if gas > APPROVE_GAS_CEILING:
+        return record | {
+            "ok": False,
+            "gas_estimate": gas,
+            "revert_reason": (
+                f"estimated {gas} gas, above the ceiling of {APPROVE_GAS_CEILING}"
+            ),
+            "checks": record["checks"] + ["eth_estimateGas"],
+        }
+    return record | {
+        "gas_estimate": gas,
+        "checks": record["checks"] + ["eth_estimateGas"],
+    }
 
 
 @dataclass(frozen=True)
@@ -197,6 +304,12 @@ class GridSpec:
             )
         if self.levels < 2:
             raise GridRefused("grid: a grid needs at least two levels — its two ends")
+        if self.levels > MAX_LEVELS:
+            raise GridRefused(
+                f"grid: {self.levels} levels is above the ceiling of {MAX_LEVELS}. Each "
+                "level is quoted and drafted on every pass, so a ladder without a bound "
+                "is a tick that never finishes"
+            )
         if self.amount_per_level_atomic <= 0:
             raise GridRefused("grid: amount_per_level_atomic must be positive")
         if self.total_cap_atomic < self.amount_per_level_atomic:
@@ -243,7 +356,15 @@ class GridSpec:
     def spec_hash(self) -> str:
         return canonical_hash(self.as_record())
 
-    def as_record(self) -> dict:
+    def as_record(self, *, with_levels: bool = True) -> dict:
+        """The spec as plain JSON. `with_levels=False` leaves the ladder out.
+
+        The ladder is derived from four fields already in the record, and a grid may hold
+        up to `MAX_LEVELS` of them. Repeating it on every tick's evidence would write the
+        same derivation into the activation row every five minutes for the life of the
+        grid; the hash still covers it, because a change in how levels are derived has to
+        change the digest even when every typed input is identical.
+        """
         return {
             "base": self.base,
             "quote": self.quote,
@@ -257,8 +378,37 @@ class GridSpec:
             "stop_price": None if self.stop_price is None else str(self.stop_price),
             "direction_rule": self.direction_rule,
             "base_decimals": self.base_decimals,
-            "level_prices": [str(price) for price in self.level_prices()],
             "no_resting_orders": NO_RESTING_ORDERS,
+        } | (
+            {"level_prices": [str(price) for price in self.level_prices()]}
+            if with_levels
+            else {}
+        )
+
+
+@dataclass(frozen=True)
+class Fired:
+    """A level whose swap has been broadcast and whose fill has not been read back yet.
+
+    This is the record that stops a grid firing the same level on every pass. A fill is
+    only known once its receipt has been read, and on an AMM that is one tick later at
+    best — so between the send and the read the level is neither open nor filled, and
+    without somewhere to say that it reads as open and goes again.
+
+    `tx_hash` is absent until the session executor has broadcast it. A `Fired` with no
+    hash is a level Docket drafted and has not yet seen leave; it still blocks a re-fire,
+    because drafting the same level twice in one pass would be the same defect.
+    """
+
+    level: int
+    intent_key: str
+    tx_hash: str | None = None
+
+    def as_record(self) -> dict:
+        return {
+            "level": self.level,
+            "intent_key": self.intent_key,
+            "tx_hash": self.tx_hash,
         }
 
 
@@ -271,10 +421,16 @@ class GridState:
     because it is an observation, not a parameter — and because a grid whose sides
     re-derived themselves against every new observation would never fire anything: a
     level below the current price only becomes a buy once "current" stops moving with it.
+
+    A level is out of play while it is in `fired` **or** in `fills`. The two are
+    different states and both have to exclude it: `fired` is sent and unconfirmed,
+    `fills` is confirmed. A level that was fired and whose transaction reverted is put
+    back to open by `record_fills`, because a reverted swap traded nothing.
     """
 
     open_levels: tuple[int, ...] = ()
     fills: tuple[Fill, ...] = ()
+    fired: tuple[Fired, ...] = ()
     spent_atomic: int = 0
     paused: bool = False
     cancelled: bool = False
@@ -285,10 +441,20 @@ class GridState:
     def filled_levels(self) -> tuple[int, ...]:
         return tuple(fill.level for fill in self.fills if fill.level is not None)
 
+    @property
+    def fired_levels(self) -> tuple[int, ...]:
+        return tuple(entry.level for entry in self.fired)
+
+    @property
+    def closed_levels(self) -> tuple[int, ...]:
+        """Every level that must not be drafted again on this pass."""
+        return tuple(sorted(set(self.filled_levels) | set(self.fired_levels)))
+
     def as_record(self) -> dict:
         return {
             "open_levels": list(self.open_levels),
             "fills": [fill.as_record() for fill in self.fills],
+            "fired": [entry.as_record() for entry in self.fired],
             "spent_atomic": str(self.spent_atomic),
             "paused": self.paused,
             "cancelled": self.cancelled,
@@ -307,7 +473,7 @@ class GridDecision:
     reason: str
     observation: dict
     level: GridLevel | None = None
-    prepared: PreparedCall | None = None
+    prepared: tuple[PreparedCall, ...] = ()
     state: GridState | None = None
     evidence: dict = field(default_factory=dict)
 
@@ -317,7 +483,7 @@ class GridDecision:
             "reason": self.reason,
             "observation": self.observation,
             "level": None if self.level is None else self.level.as_record(),
-            "prepared": None if self.prepared is None else self.prepared.to_dict(),
+            "prepared": [call.to_dict() for call in self.prepared],
             "state": None if self.state is None else self.state.as_record(),
             "evidence": self.evidence,
             "no_resting_orders": NO_RESTING_ORDERS,
@@ -418,7 +584,7 @@ def evaluate(
         else replace(state, reference_price=reference)
     )
 
-    if spec.stop_price is not None and _stop_reached(spec, reference, price):
+    if spec.stop_price is not None and _stop_reached(spec, price):
         return GridDecision(
             kind="cancel",
             reason=(
@@ -441,14 +607,16 @@ def evaluate(
         reference=reference,
         side_rule=spec.direction_rule,
     )
+    closed = set(working.closed_levels)
     open_levels = tuple(
-        level.index
-        for level in plan.levels
-        if level.index not in set(working.filled_levels)
+        level.index for level in plan.levels if level.index not in closed
     )
     working = replace(working, open_levels=open_levels)
 
-    level = next_action(plan, price, working.filled_levels)
+    # `closed_levels`, not `filled_levels`: a level whose swap was broadcast last pass
+    # and whose receipt has not been read yet is not open, and treating it as open is
+    # what made a fired level fire again on every tick until the cap ran out.
+    level = next_action(plan, price, working.closed_levels)
     if level is None:
         return GridDecision(
             kind="noop",
@@ -495,7 +663,46 @@ def evaluate(
             state=working,
         )
 
-    deadline = now + DEADLINE_S
+    # The router pulls `token_in` out of the session with `transferFrom`, so without an
+    # allowance the swap reverts as `TransferHelper: TRANSFER_FROM_FAILED` — the grid
+    # would have drafted, simulated and broadcast a transaction that could never work.
+    # The approval is exact and per level rather than unlimited, and it is only drafted
+    # when the session is actually short.
+    allowance = _allowance(
+        reader, token=level.token_in, owner=session_address, spender=PANCAKE_V2_ROUTER
+    )
+    needs_approval = allowance is None or allowance < level.size
+    calls: list[PreparedCall] = []
+    if needs_approval:
+        approve_data = _approve_calldata(PANCAKE_V2_ROUTER, level.size)
+        calls.append(
+            PreparedCall(
+                to=level.token_in,
+                data="0x" + approve_data.hex(),
+                value_atomic="0",
+                gas_ceiling=APPROVE_GAS_CEILING,
+                deadline=now + DEADLINE_S,
+                purpose=(
+                    f"grid level {level.index}: approve the router for exactly "
+                    f"{level.size} of {level.token_in}, the amount the swap below pulls "
+                    "and not one wei more. The session holds "
+                    f"{'no readable allowance' if allowance is None else str(allowance)} "
+                    "today, so the swap cannot settle without this"
+                ),
+                simulation=_approve_simulation(
+                    reader,
+                    sender=session_address,
+                    token=level.token_in,
+                    calldata=approve_data,
+                    seen=seen,
+                ),
+            )
+        )
+
+    # One deadline per call, each a window further out than the one before it, because
+    # they are mined in order and a later call carrying the earlier one's deadline is a
+    # call that expires while it is still waiting its turn.
+    deadline = now + DEADLINE_S * (len(calls) + 1)
     calldata = swap_calldata(
         amount_in=level.size,
         min_output=min_output,
@@ -522,33 +729,56 @@ def evaluate(
         policy_version=POLICY_VERSION,
         evidence_block=int(observation.block_number),
     )
+    # Estimating gas on a swap the session cannot yet pay for reverts on the allowance
+    # rather than on anything about the swap, so while the approval above is pending the
+    # estimate is not attempted and the simulation says `ok: None` — deferred, with the
+    # call that lifts it named. That is a third state from True and False and it is the
+    # honest one: what could be checked passed, and what could not is not being guessed.
     result = simulate(
-        intent, calldata, reader=reader, sender=session_address, now_override=now
+        intent,
+        calldata,
+        reader=reader,
+        sender=None if needs_approval else session_address,
+        now_override=now,
     )
-    prepared = PreparedCall(
-        to=PANCAKE_V2_ROUTER,
-        data="0x" + calldata.hex(),
-        value_atomic="0",
-        gas_ceiling=GAS_CEILING,
-        deadline=deadline,
-        purpose=(
-            f"grid level {level.index}: {level.side} at {level.price}, one "
-            "PancakeSwap V2 exact-input swap. No order rests on chain — this is the "
-            "swap the crossing fired"
-        ),
-        simulation={
-            "ok": result.agrees,
-            "gas_estimate": result.gas,
-            "revert_reason": None if result.agrees else result.reason,
-            "observed_at": seen["source"],
-            "block": result.block_number if result.block_number is not None else 0,
-            "expected_output": (
-                None if result.expected_output is None else str(result.expected_output)
+    deferred = needs_approval and result.agrees
+    calls.append(
+        PreparedCall(
+            to=PANCAKE_V2_ROUTER,
+            data="0x" + calldata.hex(),
+            value_atomic="0",
+            gas_ceiling=GAS_CEILING,
+            deadline=deadline,
+            purpose=(
+                f"grid level {level.index}: {level.side} at {level.price}, one "
+                "PancakeSwap V2 exact-input swap. No order rests on chain — this is the "
+                "swap the crossing fired"
             ),
-            "min_output": str(min_output),
-            "checks": list(result.checks),
-        },
+            simulation={
+                "ok": None if deferred else result.agrees,
+                "gas_estimate": result.gas,
+                "revert_reason": None if result.agrees else result.reason,
+                "observed_at": seen["source"],
+                "block": result.block_number if result.block_number is not None else 0,
+                "expected_output": (
+                    None
+                    if result.expected_output is None
+                    else str(result.expected_output)
+                ),
+                "min_output": str(min_output),
+                "checks": list(result.checks),
+                "deferred": (
+                    [
+                        "eth_estimateGas: the session's allowance to the router is short "
+                        "until the approval drafted above this call has landed"
+                    ]
+                    if deferred
+                    else []
+                ),
+            },
+        )
     )
+    prepared = tuple(calls)
     evidence = {
         "intent": intent.as_record(),
         "intent_key": intent.idempotency_key,
@@ -556,6 +786,8 @@ def evaluate(
         "quoted_output": str(quoted),
         "min_output": str(min_output),
         "open_levels": list(open_levels),
+        "router_allowance": None if allowance is None else str(allowance),
+        "approval_drafted": needs_approval,
         "no_resting_orders": NO_RESTING_ORDERS,
     }
     if not result.agrees:
@@ -575,18 +807,30 @@ def evaluate(
         kind="fire",
         reason=(
             f"level {level.index} ({level.side} at {level.price}) was crossed at {price}. "
-            f"One bounded swap of {level.size} is drafted with a floor of {min_output}; "
-            f"{result.reason}"
+            f"{len(prepared)} bounded call(s) drafted for {level.size} with a floor of "
+            f"{min_output}; {result.reason}"
         ),
         observation=seen,
         level=level,
         prepared=prepared,
-        state=replace(working, spent_atomic=committed),
+        # The level is marked fired here, before anything has been broadcast, so the very
+        # next pass cannot draft it again while its transaction is still in flight. It
+        # stays fired until `record_fills` sees a receipt for it — a confirmed one moves
+        # it to `fills`, a reverted one puts it back to open.
+        state=replace(
+            working,
+            spent_atomic=committed,
+            fired=working.fired
+            + (Fired(level=level.index, intent_key=intent.idempotency_key),),
+            open_levels=tuple(
+                index for index in working.open_levels if index != level.index
+            ),
+        ),
         evidence=evidence,
     )
 
 
-def _stop_reached(spec: GridSpec, reference: int, price: int) -> bool:
+def _stop_reached(spec: GridSpec, price: int) -> bool:
     """Whether an observation has passed the shutdown threshold.
 
     `validate` already refuses a threshold inside the band, so it sits on exactly one
@@ -729,13 +973,46 @@ def revoke(state: GridState) -> GridState:
     return replace(state, revoked=True, cancelled=True, paused=False, open_levels=())
 
 
-def record_fills(state: GridState, fills) -> GridState:
-    """Add observed fills. The cap is not touched here, and that is deliberate.
+def record_fills(
+    state: GridState, fills, *, reverted=(), notional_atomic: int = 0
+) -> GridState:
+    """Reconcile what was sent against what the chain did with it.
 
-    `spent_atomic` moves when a level fires, not when it fills: the commitment is made
-    the moment the swap is sent, and counting it again on the way back would let a grid
-    fire twice against a cap it had already used. It is carried in the quote token, so
-    a sell's base-denominated `amount_in` could not be added to it anyway — the level's
-    stated notional is what the cap was written about, and that is what `evaluate` adds.
+    Three things happen here and they are the close of the fire loop:
+
+    - an observed fill is added to `fills`, and its level leaves `fired`. It is now
+      permanently out of play.
+    - a level named in `reverted` leaves `fired` and goes back to open, and its notional
+      comes back off `spent_atomic`. A swap that reverted traded nothing, so a grid that
+      kept charging it against the cap would spend its allowance on transactions that
+      never happened.
+    - everything else stays `fired`: sent, unconfirmed, and not to be drafted again.
+
+    `spent_atomic` does not move for a *successful* fill. The commitment is made when the
+    swap is sent, and counting it again on the way back would let one level spend the cap
+    twice. It is carried in the quote token, so a sell's base-denominated `amount_in`
+    could not be added to it in any case.
     """
-    return replace(state, fills=state.fills + tuple(fills))
+    observed = tuple(fills)
+    landed = {fill.level for fill in observed if fill.level is not None}
+    lost = {int(level) for level in reverted}
+    refunded = sum(
+        1 for entry in state.fired if entry.level in lost and entry.level not in landed
+    )
+    remaining = tuple(
+        entry
+        for entry in state.fired
+        if entry.level not in landed and entry.level not in lost
+    )
+    reopened = tuple(
+        sorted(
+            set(state.open_levels) | {level for level in lost if level not in landed}
+        )
+    )
+    return replace(
+        state,
+        fills=state.fills + observed,
+        fired=remaining,
+        open_levels=reopened,
+        spent_atomic=max(0, state.spent_atomic - refunded * int(notional_atomic)),
+    )
