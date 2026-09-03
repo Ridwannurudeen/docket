@@ -1035,6 +1035,7 @@ move appends to `events` with `from_state`, `to_state`, a reason, and an `actor`
 `user`, `docket` or `chain`, so an activation is its own audit trail rather than a
 current state with the history discarded.
 
+    GET  /api/activations/policy-defaults?service_id=range-doctor
     GET  /api/activations/nonce?owner=0x..&service_id=range-doctor
     POST /api/activations
     GET  /api/activations?owner=0x..&state=..&limit=..&offset=..    # owner required
@@ -1133,6 +1134,20 @@ key, encrypts it immediately into a keystore, and stores only the keystore; the 
 password comes from a file the operator installs and there is no default, so a deployment
 without one refuses persistent activations with `sessions_unavailable` rather than
 running them under a password published in this source.
+
+You do not have to compose the allowlists yourself, and you are not expected to know
+them. `GET /api/activations/policy-defaults?service_id=..` returns the skeleton for that
+service's category — the contracts its session must call, the selectors it may send, the
+tokens it may spend, and small starting caps — with `expires_at` left for you, because how
+long a session may run is the one bound Docket will not choose on an owner's behalf. Send
+it back as `policy` with an expiry added, or omit `contract_allowlist`,
+`function_allowlist` and `token_allowlist` from your own policy and Docket fills those
+three from the same table its executors act against. The activation records which happened
+in `policy.policy_source`: `owner`, `docket_defaults`, or `mixed`. Caps, slippage and gas
+price you do set are kept as sent and validated as sent.
+
+The whole policy is validated BEFORE the nonce is spent, so a malformed one costs you an
+error and not a signature: the same nonce is still good for the corrected request.
 
 The policy is required at create time and bounds the session: `contract_allowlist`,
 `function_allowlist` (4-byte selectors), `token_allowlist`, `per_action_limit_atomic` and

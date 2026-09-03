@@ -32,7 +32,7 @@ from ..sessions.keys import SessionsUnavailable
 from ..sessions.policy import SessionPolicy
 from ..sessions.spend import UnmeasuredSpend, batch_spend
 from ..sessions.sweep import SweepFailed, residual_balances, sweep
-from ..store import Store
+from ..store import StaleActivation, Store
 from .executors import EXECUTORS, load_executors
 from .models import PERSISTENT, NextAction
 from .service import ActivationService
@@ -265,9 +265,62 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
             token: str(amount) for token, amount in session.spent_atomic.items()
         },
     }
-    service.store.save_activation(activation, expected_updated_at=expected)
+    _save_sends(service.store, activation, expected)
     if failed is not None:
         raise failed
+
+
+def _save_sends(store, activation, expected) -> None:
+    """Write back a pass that broadcast transactions, never dropping what it sent.
+
+    A `StaleActivation` here is the one case where losing the write would lose money: the
+    transactions are already on chain, and their record lives on the row this save was
+    refused. So the row is re-read and the send records, receipts and spend are merged
+    onto whatever the other writer left, rather than the whole pass being discarded.
+    """
+    try:
+        store.save_activation(activation, expected_updated_at=expected)
+        return
+    except StaleActivation as exc:
+        stale = exc
+    current = store.get_activation(activation.activation_id)
+    if current is None:
+        # The row was deleted underneath the pass. There is nothing to merge onto, and
+        # the original refusal is the honest thing to report — a bare `raise` here would
+        # be a RuntimeError about no active exception, which says nothing at all.
+        raise stale
+    # Captured before anything is merged onto it: the note below moves `updated_at`, and
+    # writing the moved value back as the expectation would refuse the merge itself.
+    current_updated_at = current.updated_at
+    merged = dict(current.result or {})
+    ours = dict(activation.result or {})
+    merged["pending_sends"] = {
+        **(merged.get("pending_sends") or {}),
+        **(ours.get("pending_sends") or {}),
+    }
+    settled = list(merged.get("settled_sends") or ())
+    seen = {entry.get("tx_hash") for entry in settled}
+    for entry in ours.get("settled_sends") or ():
+        if entry.get("tx_hash") not in seen:
+            settled.append(entry)
+    merged["settled_sends"] = settled
+    if "last_decision" in ours:
+        merged["last_decision"] = ours["last_decision"]
+    current.result = merged
+    known = {receipt.to_dict().get("output_hash") for receipt in current.receipts}
+    for receipt in activation.receipts:
+        if receipt.output_hash not in known:
+            current.add_receipt(receipt)
+    current.session = {
+        **(current.session or {}),
+        "spent_atomic": (activation.session or {}).get("spent_atomic") or {},
+    }
+    current.note(
+        "another writer reached this activation first; the transactions this pass "
+        "broadcast were merged onto its record rather than dropped",
+        actor="docket",
+    )
+    store.save_activation(current, expected_updated_at=current_updated_at)
 
 
 def _note_failure(store, activation_id, exc) -> None:

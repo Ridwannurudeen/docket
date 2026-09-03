@@ -691,3 +691,78 @@ def test_nft_approvals_must_be_a_list_of_objects(client):
 
         assert response.status_code in (409, 422), approvals
         assert response.json()["error_code"] == "policy_violation"
+
+
+# -- policy defaults ----------------------------------------------------------
+
+
+def test_policy_defaults_returns_a_skeleton_a_browser_can_send_back(client):
+    """A browser cannot know which contracts a rebalancing session must call, so it asks
+    rather than guessing or being refused for guessing wrong."""
+    response = client.get("/api/activations/policy-defaults?service_id=range-doctor")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["category"] == "rebalancing"
+    assert body["you_must_add"] == ["expires_at"]
+    assert body["policy"]["contract_allowlist"]
+    assert body["policy"]["function_allowlist"]
+    assert body["policy"]["token_allowlist"]
+
+    created = _create(
+        client,
+        kind="persistent",
+        policy={**body["policy"], "expires_at": POLICY["expires_at"]},
+    )
+
+    assert created.status_code == 201
+
+
+def test_policy_defaults_needs_a_service_it_declares_a_category_for(client):
+    assert client.get("/api/activations/policy-defaults").status_code == 422
+    assert (
+        client.get(
+            "/api/activations/policy-defaults?service_id=solvent-signal"
+        ).status_code
+        == 404
+    )
+    assert (
+        client.get("/api/activations/policy-defaults?service_id=nope").status_code == 404
+    )
+
+
+def test_a_persistent_create_may_omit_the_allowlists_entirely(client):
+    """The failure Lane C hit: a browser that cannot compose an allowlist was refused
+    after its nonce had already been spent."""
+    response = _create(
+        client, kind="persistent", policy={"expires_at": POLICY["expires_at"]}
+    )
+
+    body = response.json()
+    assert response.status_code == 201
+    assert body["policy"]["policy_source"] == "docket_defaults"
+    assert body["policy"]["contract_allowlist"]
+
+
+def test_a_malformed_policy_does_not_cost_the_caller_its_signature(client):
+    """Validated before the nonce is spent, so the same nonce is still good for the
+    corrected request and the owner does not have to sign twice for one mistake."""
+    nonce = client.get(
+        f"/api/activations/nonce?owner={OWNER.address}&service_id=range-doctor"
+    ).json()
+    body = {
+        "service_id": "range-doctor",
+        "kind": "persistent",
+        "owner": OWNER.address,
+        "nonce": nonce["nonce"],
+        "owner_signature": _sign(OWNER, nonce["message"]),
+        "inputs": {"wallet": OWNER.address},
+        "policy": {"expires_at": POLICY["expires_at"], "max_slippage_bps": 99_999},
+    }
+
+    refused = client.post("/api/activations", json=body)
+    assert refused.status_code == 422
+    assert refused.json()["error_code"] == "policy_violation"
+
+    body["policy"] = {"expires_at": POLICY["expires_at"]}
+    assert client.post("/api/activations", json=body).status_code == 201

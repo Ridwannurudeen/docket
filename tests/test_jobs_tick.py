@@ -484,9 +484,9 @@ def test_the_tick_mints_a_key_for_an_activation_the_web_process_could_not(
     minted = store.get_activation(created.activation_id)
     assert minted.state == "awaiting_session"
     assert minted.next_action.kind == "fund_session"
-    assert minted.session["address"] == store.get_session(created.activation_id)[
-        "address"
-    ]
+    assert (
+        minted.session["address"] == store.get_session(created.activation_id)["address"]
+    )
 
 
 def test_a_close_that_cannot_open_the_keystore_stays_revoking_for_the_next_pass(
@@ -627,3 +627,53 @@ def test_a_prepared_call_must_carry_its_own_simulation():
             purpose="p",
             simulation={"ok": True},
         )
+
+
+def test_a_pass_that_broadcast_is_merged_rather_than_dropped_when_the_row_moved(
+    tmp_path, sessions_key
+):
+    """The one case where losing a write loses money: the transactions are already on
+    chain, and the record of them lives on the row the save was refused."""
+    store = Store(tmp_path / "tick.sqlite3")
+    rpc = SendingRpc()
+    _, activation = _active(store, rpc)
+    register("rebalancing", ActionExecutor())
+
+    saves = {"n": 0}
+    real_save = store.save_activation
+
+    def racing_save(row, *, expected_updated_at):
+        # The first save of the evaluating pass loses to another writer, exactly once —
+        # which is the save that carries the record of what was already broadcast.
+        saves["n"] += 1
+        if saves["n"] == 1:
+            other = store.get_activation(row.activation_id)
+            other.note("another writer got here first", actor="user")
+            real_save(other, expected_updated_at=expected_updated_at)
+        return real_save(row, expected_updated_at=expected_updated_at)
+
+    store.save_activation = racing_save
+    tick.run_once(store, rpc=rpc, environment=sessions_key)
+    store.save_activation = real_save
+
+    stored = store.get_activation(activation.activation_id)
+    assert len(rpc.sent) == 1
+    assert stored.receipts[-1].execution["tx_hash"] == rpc.sent[0]
+    assert stored.result["settled_sends"][-1]["tx_hash"] == rpc.sent[0]
+    assert any("merged onto its record" in event.reason for event in stored.events)
+
+
+def test_a_broadcast_is_written_down_before_it_is_sent(tmp_path, sessions_key):
+    store = Store(tmp_path / "tick.sqlite3")
+    rpc = SendingRpc()
+    _, activation = _active(store, rpc)
+    register("rebalancing", ActionExecutor())
+
+    tick.run_once(store, rpc=rpc, environment=sessions_key)
+
+    stored = store.get_activation(activation.activation_id)
+    settled = stored.result["settled_sends"]
+    assert stored.result["pending_sends"] == {}
+    assert settled[-1]["status"] == 1
+    assert settled[-1]["tx_hash"] == rpc.sent[0]
+    assert int(settled[-1]["gas_atomic"]) > 0

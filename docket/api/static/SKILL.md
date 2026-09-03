@@ -565,6 +565,12 @@ Three things to carry into any answer built on this layer:
   yet proved returned) both resolve on the next pass of a timer that runs every minute.
   Poll rather than treating either as an error, and never report `revoking` as closed:
   `revoked` and `expired` are only reached from balances that read zero.
+- **Ask for the allowlists rather than composing them.**
+  `GET /api/activations/policy-defaults?service_id=..` returns the session policy skeleton
+  for that service's category; add `expires_at` and send it as `policy`, or omit the three
+  allowlists from your own and Docket fills them from the same table its executors act
+  against. `policy.policy_source` on the activation says which happened. The policy is
+  validated before the nonce is spent, so a malformed one does not cost a signature.
 - **A persistent activation's policy is a second gate, not the limit.** `kind:
   "persistent"` requires a policy naming `contract_allowlist`, `function_allowlist`,
   `token_allowlist`, `per_action_limit_atomic`, `total_cap_atomic`, `max_slippage_bps`,

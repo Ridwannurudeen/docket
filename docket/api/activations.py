@@ -36,7 +36,9 @@ from ..jobs.auth import (
     same_address,
     verify_owner_signature,
 )
+from ..jobs.executors.allowlists import defaults_for, token_hints_for
 from ..jobs.models import KINDS
+from ..marketplace.registry import get_record
 from ..jobs.service import (
     ActivationExpired,
     ActivationNotFound,
@@ -236,6 +238,54 @@ def activations_router(
             },
         )
 
+    @router.get("/api/activations/policy-defaults", response_model=None)
+    async def policy_defaults(request: Request) -> JSONResponse:
+        """The session policy skeleton for one service's category.
+
+        A browser has no way to know which contracts a category's session must call, so
+        it asks. What comes back validates as-is once `expires_at` is added, and the caps
+        are a starting point an owner is expected to raise knowingly rather than a
+        recommendation.
+        """
+        service_id = request.query_params.get("service_id", "").strip()
+        if not service_id:
+            return _error(
+                422,
+                "missing_field",
+                "service_id is required: /api/activations/policy-defaults?service_id=…",
+            )
+        record = get_record(service_id)
+        if record is None or record.category is None:
+            return _error(
+                404,
+                "service_not_found",
+                f"No activatable service {service_id!r}.",
+            )
+        try:
+            defaults = defaults_for(record.category.value)
+        except KeyError:
+            return _error(
+                404,
+                "service_not_found",
+                f"Docket publishes no session defaults for {record.category.value}.",
+            )
+        return JSONResponse(
+            status_code=200,
+            content={
+                "service_id": service_id,
+                "category": record.category.value,
+                "policy": defaults,
+                "token_hints": token_hints_for(record.category.value),
+                "you_must_add": ["expires_at"],
+                "note": (
+                    "Send this as `policy` with an `expires_at` added, or omit the three "
+                    "allowlists from your own policy and Docket fills them from here. "
+                    "The caps are a small starting point, not a recommendation: the loss "
+                    "ceiling of a session is the float you fund it with."
+                ),
+            },
+        )
+
     @router.get("/api/activations", response_model=None)
     async def list_activations(request: Request) -> JSONResponse:
         # Checksummed before it becomes a filter: an activation is stored under its
@@ -334,16 +384,43 @@ def activations_router(
                 "bad_signature",
                 f"owner_signature did not recover to {owner} over {message!r}.",
             )
-        if not await run_in_threadpool(
+        # Validated before the nonce is spent: a malformed body must not cost the caller
+        # its signature and a fresh round-trip to the wallet.
+        try:
+            await run_in_threadpool(
+                lambda: _service().validate_request(
+                    service_id,
+                    kind=kind,
+                    owner=owner,
+                    inputs=inputs,
+                    policy=payload.get("policy"),
+                    nft_approvals=tuple(payload.get("nft_approvals") or ()),
+                )
+            )
+        except Exception as exc:
+            return _service_error(exc)
+
+        spent, issued_message = await run_in_threadpool(
             store.consume_activation_nonce,
             str(payload["nonce"]),
             _checksum_or_none(owner) or owner,
-        ):
+        )
+        if not spent:
             return _error(
                 409,
                 "stale_nonce",
                 "That nonce was already spent or has expired. Ask "
                 "/api/activations/nonce for another and sign the message it returns.",
+            )
+        # A nonce issued against one service may not be spent on another. The server
+        # recorded exactly what it told the caller to sign; if that named a service, that
+        # is the service this nonce buys.
+        if issued_message and issued_message != message:
+            return _error(
+                409,
+                "stale_nonce",
+                f"That nonce was issued for {issued_message!r} and cannot be spent on "
+                f"{message!r}.",
             )
         try:
             activation = await run_in_threadpool(

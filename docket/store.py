@@ -1247,17 +1247,29 @@ class Store:
 
     def consume_activation_nonce(
         self, nonce: str, owner: str, now: datetime | None = None
-    ) -> bool:
-        """Spend a create nonce. The DELETE is the single-use guarantee: two concurrent
-        requests holding the same signature cannot both see a rowcount of one."""
+    ) -> tuple[bool, str]:
+        """Spend a create nonce, and hand back the message it was issued against.
+
+        The DELETE is the single-use guarantee: two concurrent requests holding the same
+        signature cannot both see a rowcount of one. The message comes back with it so the
+        caller can check that the sentence being signed is the sentence this nonce was
+        issued for — a nonce taken out for one service must not be spendable on another.
+        """
         moment = datetime.now(timezone.utc) if now is None else now
         with self._conn() as conn:
+            row = conn.execute(
+                """SELECT message FROM activation_nonces
+                   WHERE nonce = ? AND owner = ? AND expires_at > ?""",
+                (nonce, owner, moment.isoformat()),
+            ).fetchone()
             cursor = conn.execute(
                 """DELETE FROM activation_nonces
                    WHERE nonce = ? AND owner = ? AND expires_at > ?""",
                 (nonce, owner, moment.isoformat()),
             )
-        return cursor.rowcount == 1
+        if cursor.rowcount != 1:
+            return False, ""
+        return True, (row["message"] if row else "")
 
     def create_session(
         self, activation_id: str, *, address: str, keystore_json: str

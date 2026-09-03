@@ -28,6 +28,7 @@ import os
 from datetime import datetime, timezone
 
 from web3 import Web3
+from web3.exceptions import TransactionNotFound
 
 from ..hire.receipts import build_receipt, canonical_hash
 from ..marketplace.registry import get_record
@@ -41,6 +42,10 @@ from ..sessions.keys import (
 from ..sessions.policy import SessionPolicy
 from ..store import StaleActivation
 from .auth import new_nonce
+from .executors.allowlists import (
+    FILLABLE_FIELDS,
+    defaults_for,
+)
 from .executors.base import PreparedCall
 from .models import (
     ONE_SHOT,
@@ -103,6 +108,23 @@ def _log_field(value) -> str:
         return "0x" + bytes(value).hex()
     text = str(value)
     return (text if text.startswith("0x") else "0x" + text).lower()
+
+
+def _receipt_or_none(tx_hash):
+    """A reader that answers None for a transaction the chain has not mined.
+
+    Returned as a closure so the `TransactionNotFound` is swallowed inside the retrying
+    wrapper rather than outside it: not-yet-mined is an answer, not an outage, and it
+    must not cost a walk over every endpoint to hear.
+    """
+
+    def read(w3):
+        try:
+            return w3.eth.get_transaction_receipt(tx_hash)
+        except TransactionNotFound:
+            return None
+
+    return read
 
 
 def _topic_address(topic: str) -> str:
@@ -192,14 +214,11 @@ class ActivationService:
             raise MissingFields(service_id, missing)
 
         session_policy = None
+        policy_source = None
         if kind == PERSISTENT:
-            if policy is None:
-                raise PolicyViolation(
-                    "a persistent activation acts on chain and cannot exist without a "
-                    "policy bounding what it may call and spend"
-                )
-            session_policy = SessionPolicy.from_dict(policy)
-            session_policy.validate()
+            session_policy, policy_source = self.resolve_policy(
+                record.category.value, policy
+            )
         elif policy is not None:
             raise PolicyViolation(
                 "a one-shot activation reads and returns; it holds no session key, so a "
@@ -236,7 +255,11 @@ class ActivationService:
             owner=Web3.to_checksum_address(owner),
             state="quoted",
             quote=quote,
-            policy=None if session_policy is None else session_policy.to_dict(),
+            policy=(
+                None
+                if session_policy is None
+                else {**session_policy.to_dict(), "policy_source": policy_source}
+            ),
             session=None,
             inputs=inputs,
             result=None,
@@ -251,6 +274,60 @@ class ActivationService:
             updated_at=moment,
             expires_at=None if session_policy is None else session_policy.expires_at,
         )
+
+    def resolve_policy(self, category, policy) -> tuple[SessionPolicy, str]:
+        """The bounds this session will run under, and where they came from.
+
+        A browser cannot compose a `contract_allowlist` for a category it did not write:
+        which contracts a rebalancing session has to call is a property of the work Docket
+        does, not of the owner's intentions. So a body that leaves the three allowlists out
+        gets this category's own, from the same table the executors act against, and the
+        activation records that they were Docket's rather than the owner's.
+
+        Everything else the caller sent is kept and validated as sent. Filling in an
+        allowlist is answering a question the caller could not have answered; overriding a
+        cap they did set would be answering one they already had.
+        """
+        if policy is None:
+            policy = {}
+        if not isinstance(policy, dict):
+            raise PolicyViolation("policy must be a JSON object")
+        try:
+            defaults = defaults_for(category)
+        except KeyError as exc:
+            raise PolicyViolation(
+                f"Docket publishes no session defaults for {category}"
+            ) from exc
+        filled = [field for field in FILLABLE_FIELDS if not policy.get(field)]
+        merged = {**{field: defaults[field] for field in filled}, **policy}
+        for field, value in defaults.items():
+            merged.setdefault(field, value)
+        if "expires_at" not in merged:
+            raise PolicyViolation(
+                "a session policy must say when it expires; Docket does not choose how "
+                "long to hold somebody's money"
+            )
+        session_policy = SessionPolicy.from_dict(merged)
+        session_policy.validate()
+        source = "docket_defaults" if len(filled) == len(FILLABLE_FIELDS) else (
+            "owner" if not filled else "mixed"
+        )
+        return session_policy, source
+
+    def validate_request(
+        self, service_id, *, kind, owner, inputs, policy=None, nft_approvals=()
+    ) -> None:
+        """Everything `create` would refuse, checked without writing anything.
+
+        Called before the nonce is spent. A malformed body used to cost the caller its
+        signature: the nonce was consumed, then the policy was rejected, and the owner had
+        to sign again for a mistake the server could have caught first.
+        """
+        activation = self.quote(service_id, kind, owner, inputs, policy)
+        if kind == PERSISTENT:
+            self._checked_approvals(
+                SessionPolicy.from_dict(activation.policy), nft_approvals
+            )
 
     def create(
         self, service_id, *, kind, owner, inputs, policy=None, nft_approvals=()
@@ -667,9 +744,12 @@ class ActivationService:
         genuinely indistinguishable.
         """
         try:
-            receipt = self._require_rpc()(
-                lambda w3: w3.eth.get_transaction_receipt(tx_hash)
-            )
+            # `TransactionNotFound` is caught inside the callable, not outside it. The
+            # failover in `escrow.chain.Rpc` retries every endpoint on any exception, so
+            # letting it out here would walk four nodes with pauses between them to
+            # rediscover the ordinary answer "not mined yet" — on the request path, while
+            # an owner waits.
+            receipt = self._require_rpc()(_receipt_or_none(tx_hash))
         except SessionsUnavailable:
             raise
         except Exception as exc:

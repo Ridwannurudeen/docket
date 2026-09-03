@@ -26,7 +26,8 @@ from docket.jobs.service import (
     SimulationFailed,
     UnknownService,
 )
-from docket.sessions.policy import NATIVE_TOKEN
+from docket.sessions.policy import NATIVE_TOKEN, SessionPolicy
+from docket.sessions.spend import MEASURED_SELECTORS
 from docket.store import StaleActivation, Store
 
 OWNER = Web3.to_checksum_address("0x451871a1753903fb8fdd64a6b838e95ab8d5b80f")
@@ -290,11 +291,85 @@ def test_a_request_missing_a_required_input_names_the_field(store):
     assert raised.value.fields == ["wallet"]
 
 
-def test_a_persistent_activation_without_a_policy_is_refused(store):
-    with pytest.raises(PolicyViolation, match="cannot exist without a"):
+def test_a_persistent_activation_must_still_say_when_it_expires(store):
+    """The allowlists are Docket's to supply — a browser cannot know which contracts a
+    rebalancing session must call. How long the session may run is not: that is the one
+    bound only the owner can set, so there is no default for it."""
+    with pytest.raises(PolicyViolation, match="must say when it expires"):
         _service(store).quote(
             "range-doctor", "persistent", OWNER, {"wallet": OWNER}, None
         )
+
+
+def test_a_policy_that_omits_the_allowlists_is_filled_from_the_categorys_own(store):
+    activation = _service(store).quote(
+        "range-doctor",
+        "persistent",
+        OWNER,
+        {"wallet": OWNER},
+        {"expires_at": FAR_FUTURE},
+    )
+
+    assert activation.policy["policy_source"] == "docket_defaults"
+    assert NFPM in activation.policy["contract_allowlist"]
+    assert "0x88316456" in activation.policy["function_allowlist"]
+    assert USDT in activation.policy["token_allowlist"]
+    assert activation.policy["max_slippage_bps"] == 100
+
+
+def test_a_cap_the_owner_did_set_is_kept_when_the_allowlists_are_filled(store):
+    """Filling in an allowlist answers a question the caller could not have answered.
+    Overriding a cap would answer one they already had."""
+    activation = _service(store).quote(
+        "range-doctor",
+        "persistent",
+        OWNER,
+        {"wallet": OWNER},
+        {
+            "expires_at": FAR_FUTURE,
+            "per_action_limit_atomic": {USDT: "1000000000000000000"},
+            "total_cap_atomic": {USDT: "2000000000000000000"},
+            "max_slippage_bps": 25,
+        },
+    )
+
+    assert activation.policy["policy_source"] == "docket_defaults"
+    assert activation.policy["per_action_limit_atomic"] == {USDT: "1000000000000000000"}
+    assert activation.policy["max_slippage_bps"] == 25
+
+
+def test_a_policy_the_owner_wrote_in_full_is_recorded_as_theirs(store):
+    activation = _service(store).quote(
+        "range-doctor", "persistent", OWNER, {"wallet": OWNER}, POLICY
+    )
+
+    assert activation.policy["policy_source"] == "owner"
+    assert activation.policy["contract_allowlist"] == [ROUTER, NFPM]
+
+
+def test_every_category_publishes_defaults_that_validate():
+    from docket.jobs.executors.allowlists import (
+        CATEGORY_POLICY_DEFAULTS,
+        defaults_for,
+    )
+    from docket.marketplace.models import Category
+
+    assert set(CATEGORY_POLICY_DEFAULTS) == {c.value for c in Category}
+    for category in CATEGORY_POLICY_DEFAULTS:
+        policy = SessionPolicy.from_dict(
+            {**defaults_for(category), "expires_at": FAR_FUTURE}
+        )
+        policy.validate()
+        # Nothing a session could send that nothing could measure the spend of.
+        assert set(policy.function_allowlist) <= MEASURED_SELECTORS
+
+
+def test_the_defaults_are_a_copy_a_caller_cannot_mutate():
+    from docket.jobs.executors.allowlists import defaults_for
+
+    defaults_for("rebalancing")["contract_allowlist"].append("0xdeadbeef")
+
+    assert "0xdeadbeef" not in defaults_for("rebalancing")["contract_allowlist"]
 
 
 def test_a_one_shot_activation_with_a_policy_is_refused(store):
@@ -966,12 +1041,14 @@ def test_a_create_nonce_is_single_use_and_expires(store):
     now = datetime(2026, 9, 3, tzinfo=timezone.utc)
     store.issue_activation_nonce(nonce="n1", owner=OWNER, message="m", now=now)
 
-    assert store.consume_activation_nonce("n1", OWNER, now)
-    assert not store.consume_activation_nonce("n1", OWNER, now)
+    assert store.consume_activation_nonce("n1", OWNER, now) == (True, "m")
+    assert store.consume_activation_nonce("n1", OWNER, now) == (False, "")
 
     store.issue_activation_nonce(nonce="n2", owner=OWNER, message="m", now=now)
-    assert not store.consume_activation_nonce("n2", STRANGER, now)
-    assert not store.consume_activation_nonce("n2", OWNER, now + timedelta(seconds=601))
+    assert store.consume_activation_nonce("n2", STRANGER, now) == (False, "")
+    assert store.consume_activation_nonce(
+        "n2", OWNER, now + timedelta(seconds=601)
+    ) == (False, "")
 
 
 def test_activations_are_listed_newest_first_and_filtered_by_owner_and_state(store):
@@ -1037,5 +1114,18 @@ def test_one_owner_cannot_hold_an_unbounded_number_of_live_create_nonces(store):
     for index in range(25):
         store.issue_activation_nonce(nonce=f"n{index}", owner=OWNER, message="m")
 
-    assert store.consume_activation_nonce("n24", OWNER)
-    assert not store.consume_activation_nonce("n0", OWNER)
+    assert store.consume_activation_nonce("n24", OWNER)[0]
+    assert not store.consume_activation_nonce("n0", OWNER)[0]
+
+
+def test_a_nonce_issued_for_one_service_cannot_be_spent_on_another(store):
+    """The server recorded exactly what it told the caller to sign; if that named a
+    service, that is the service this nonce buys."""
+    store.issue_activation_nonce(
+        nonce="n1", owner=OWNER, message="Docket activation create range-doctor n1"
+    )
+
+    spent, message = store.consume_activation_nonce("n1", OWNER)
+
+    assert spent
+    assert message == "Docket activation create range-doctor n1"
