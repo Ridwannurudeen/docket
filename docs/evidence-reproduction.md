@@ -107,7 +107,7 @@ report summary states that rather than discarding it.
 
 ## V3
 
-V3 has exactly seven stage-one specifications:
+V3 has exactly nine stage-one specifications:
 
 | Spec | Stage-one protocol hash | Current spec hash |
 |---|---|---|
@@ -118,6 +118,8 @@ V3 has exactly seven stage-one specifications:
 | `v3-05-range-doctor`, locked not run | `0x2a83c1a331d579e5cef461d52c539711b4fa2bba6dd397aaad1bf38b6b47f9ab` | `0x2a15b50e88b164ff57a7256aa9e35bdfb539cb02549e9c1374641fef92b4a43a` |
 | `v3-06-yield-router-assisted`, waiting for inputs | `0x3dffb6610ac22f5e7b86d4f27e200a6168ad7ab4f91eb9a8c14d5d7ef4267350` | `0xa7cfadfe301f4b81d4142aa902635e72e7b38a27bff31a849fe7eef56d0ace64` |
 | `v3-07-range-doctor`, waiting for inputs | `0x3305b8b3dd15ba3933dedc6b50ef94c4d2ea1f1a6cb26666ba84dd4ec45e67f5` | `0x90e1460ef5764d80c6b120d2552db3481d01b22b1f04edc6ac3098a64779b9da` |
+| `v3-08-yield-router`, waiting for inputs | `0x250a7fadca72a93383b928d469e01ab54529bf52fa1e8613b0f4805d0e14ea91` | `0xa52c6a8e7ee12ae863326adc8e2792899fe7a31371daf5f4f1579c33fd15aa0e` |
+| `v3-09-health-guard`, waiting for inputs | `0x5c5dc57de1e640d0c79d017e3c5d5dafdbe3ee1057b746ae3bf9940c177bf9f6` | `0xa0dfeb40bfcbe9a8747f70fe830cda12b91f825d7886dfb0889d7e5c264b1815` |
 
 At the source-artifact observation on 2026-08-30, three families have locked inputs:
 v3-02 digest `55d419a1b70910f76f334be417188901bfaa3d35adf795f1048c223e38719181`,
@@ -134,6 +136,19 @@ stage-one protocol hash, so it draws a different sample and cannot reuse v3-05's
 committed frame. It is `registered_waiting_for_inputs` with an empty input digest
 until its scheduled 2026-09-05 capture. It does not replace, retry or relabel v3-05,
 whose registration, locked input and ledger remain separate and unchanged.
+V3-08 and v3-09 are newly registered families rather than successors: each corrects no
+unlocked draft and answers no published ledger, so neither carries a protocol correction,
+pilot provenance or successor provenance, and neither changes any earlier family's state.
+Both are `registered_waiting_for_inputs` with empty input digests. V3-08 puts a human
+operator against the deployed Yield Router on three pools drawn from a top-pools response
+captured at its registered 2026-09-06 moment; that is the arm v3-06 does not have, because
+v3-06 registered a disclosed Codex-assisted baseline and made no human-versus-agent claim.
+V3-09 puts a human operator against the deployed Health Guard on three Venus Core Pool
+accounts drawn from a borrower frame pinned at BSC block 119627412, whose number, hash and
+timestamp were read identically from the three public endpoints its registration names.
+Its frame is collected by `python -m docket.advantage.v3.venus_capture`, which refuses
+without `DOCKET_ARCHIVE_RPC` and refuses to overwrite an existing artifact; collecting it
+is an operator action, not part of read-only reproduction.
 
 Do not call `lock_inputs`, alter an input, or run an arm as part of reproduction. Those are
 operator actions, not read-only verification.

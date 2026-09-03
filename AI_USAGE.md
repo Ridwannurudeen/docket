@@ -24,13 +24,12 @@ denominators, and explicit limitations where those artifacts exist.
 
 The v3 evaluator roster names two model seats operated by one owner. Prompt-level blinding
 and the committed calibration artifacts do not make those seats independent evaluators. At
-the committed-artifact observation on 2026-08-29, the committed v3 artifacts contain 7
-families: `v3-02-yield-router` is `abandoned_after_failed_primary`;
-`v3-04-warden-security` is `complete_unscored`; `v3-05-range-doctor` is
-`locked_not_run`; `v3-06-yield-router-assisted` and
-`v3-07-range-doctor` are `registered_waiting_for_inputs`;
-`v3-01-range-doctor` and `v3-03-warden-security` are
-`superseded_before_input_lock`. The v3-02 failed-primary ledger is preserved, v3-05 is
+the committed-artifact observation on 2026-08-29, the committed v3 artifacts contain 9
+families: `v3-02-yield-router` is `abandoned_after_failed_primary`; `v3-04-warden-security`
+is `complete_unscored`; `v3-05-range-doctor` is `locked_not_run`;
+`v3-06-yield-router-assisted` and `v3-07-range-doctor` and `v3-08-yield-router` and
+`v3-09-health-guard` are `registered_waiting_for_inputs`; `v3-01-range-doctor` and
+`v3-03-warden-security` are `superseded_before_input_lock`. The v3-02 failed-primary ledger is preserved, v3-05 is
 locked with no claimed primary, and v3-06 awaits its future capture and input lock. V3-04 has a locked input and all 24
 primaries terminal (23 succeeded; manual `w4-ho-01` failed with `invoke_error` /
 `JSONDecodeError`). Its rubric is permanently unscored because seat B (Claude) returned no

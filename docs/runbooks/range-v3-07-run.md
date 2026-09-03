@@ -1,4 +1,4 @@
-# Range v3-07 registration, capture and run — Sep 4-8
+# Range v3-07 registration, capture and run — Sep 4-7
 
 > v3-07 is a **distinct successor** to v3-05, not a retry of it. v3-05's ledger, inputs and
 > published state are never read, edited, relabelled or deleted by anything in this runbook.
@@ -54,14 +54,34 @@ registered frame, and deploying or enabling the timer remains an owner action.
 | Sep 5 11:50 | `docket-v3-range-v7-capture.timer` arms; capture at 12:00 | Timer |
 | Sep 5 after 12:03:06 | Stages 4 and 5, copy, bind, lock | Operator |
 | Sep 6 | Stage 6, three manual primaries; stage 7, three settled hires | Owner |
-| Sep 7 | Stages 8-10, seats, import, mapping, report | Operator |
-| Sep 8 | Review before requesting any commit | Owner |
+| Sep 6, after stage 7 | Stages 8-10, seats, import, mapping, report | Operator |
+| Sep 7 | Review before requesting any commit | Owner |
 
-`deploy/release.sh` refuses releases in three windows: `2026-08-26T12:02:54Z` to
-`2026-08-26T12:10:06Z`, `2026-09-03T11:49:54Z` to `2026-09-03T12:03:06Z` and
-`2026-09-05T11:49:54Z` to `2026-09-05T12:03:06Z`. Do not run v3-06 and v3-07 arms on the same
-day: the Claude seat adapter is what left v3-04 permanently `complete_unscored`, and one
-family per day is the rule that came out of it.
+`deploy/release.sh` refuses releases in four windows: `2026-08-26T12:02:54Z` to
+`2026-08-26T12:10:06Z`, `2026-09-03T11:49:54Z` to `2026-09-03T12:03:06Z`,
+`2026-09-05T11:49:54Z` to `2026-09-05T12:03:06Z` and `2026-09-06T11:49:54Z` to
+`2026-09-06T12:03:06Z`. The last belongs to v3-08.
+
+**One family per day, and calibration seats are seats.** The rule is about the adapters, not
+about which stage happens to be running: a calibration seat and a scoring seat go through the
+same `docket.advantage.v3.seats.*` adapter, and the Claude one is what returned no first
+scoring response and left v3-04 permanently `complete_unscored`. Two families' seats on one
+day is the condition that produced that outcome, whichever stage each family is at.
+
+That is why stages 8-10 moved from Sep 7 to Sep 6, after stage 7: **same-family, same-day is
+allowed** — v3-07's primaries and v3-07's scoring seats do not compete with each other — while
+Sep 7 belongs to v3-08's calibration seats. A capture is neither an arm nor a seat and does
+not compete for anything, so v3-08's Sep 6 timer may fire on a day v3-07 owns.
+
+Every family owns whole days, and both kinds of evaluator seat count:
+
+| Day (UTC) | Family that owns the adapters | What may also happen |
+|---|---|---|
+| Sep 4-5 | v3-07 frame, calibration seats, capture, lock | — |
+| Sep 6 | v3-07 primaries **and** v3-07 scoring seats | v3-08's capture: a timer, not an arm or a seat |
+| Sep 7 | v3-08 calibration seats and lock | — |
+| Sep 8 | v3-08 primaries and v3-08 scoring seats | — |
+| Sep 9 | v3-09 seats, lock and primaries, if there is room | — |
 
 ## 0. Immutable state and preflight
 
