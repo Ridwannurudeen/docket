@@ -36,10 +36,19 @@ def create_message(service_id: str, nonce: str) -> str:
     return f"Docket activation create {service_id} {nonce}"
 
 
-def action_message(activation_id: str, action: str, nonce: str) -> str:
+def action_message(activation_id: str, action: str, nonce: str, binds: str = "") -> str:
+    """The exact sentence a mutating call has to be signed over.
+
+    `binds` is the evidence the call carries — a transaction hash, or a payment id — and
+    it is part of the signed text rather than an unsigned field beside it. Without it a
+    signature authorises "approve this activation" and not "approve this activation
+    against THIS transaction", and anything else could be substituted into the body
+    after the owner signed.
+    """
     if action not in ACTIONS:
         raise ValueError(f"unknown activation action {action!r}; expected {ACTIONS}")
-    return f"Docket activation {activation_id} {action} {nonce}"
+    message = f"Docket activation {activation_id} {action} {nonce}"
+    return f"{message} {binds}" if binds else message
 
 
 def recover_signer(message: str, signature: str) -> str | None:

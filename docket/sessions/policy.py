@@ -42,6 +42,15 @@ def _token_key(token: str) -> str:
     return NATIVE_TOKEN if token == NATIVE_TOKEN else _checksum(token, "token")
 
 
+def token_key(token: str) -> str:
+    """One spelling for a token, so a lowercase key and a checksummed one are one cap.
+
+    Public because `sessions.executor` accumulates spend under these keys and two
+    spellings of one address there would be two caps, each half the size the owner set.
+    """
+    return _token_key(token)
+
+
 @dataclass(frozen=True)
 class SessionPolicy:
     """What one session may call, spend, and for how long."""
@@ -279,6 +288,42 @@ class SessionPolicy:
         """
         if not isinstance(payload, dict):
             raise ValueError("a session policy must be a JSON object")
+        for field in ("contract_allowlist", "function_allowlist", "token_allowlist"):
+            value = payload.get(field)
+            if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)):
+                raise ValueError(f"{field} must be a list of strings")
+            if any(not isinstance(item, str) for item in value):
+                raise ValueError(f"{field} must be a list of strings")
+        for field in ("per_action_limit_atomic", "total_cap_atomic"):
+            value = payload.get(field)
+            if not isinstance(value, dict):
+                raise ValueError(f"{field} must be an object keyed by token")
+            for token, amount in value.items():
+                if not isinstance(token, str):
+                    raise ValueError(f"{field} must be keyed by token address")
+                if isinstance(amount, bool) or not isinstance(amount, (int, str)):
+                    raise ValueError(
+                        f"{field}: {token} must be a whole number of atomic units, "
+                        "written as a string"
+                    )
+                try:
+                    int(amount)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"{field}: {token} is not a whole number of atomic units"
+                    ) from exc
+        for field in ("max_slippage_bps", "max_gas_price_wei"):
+            value = payload.get(field)
+            if isinstance(value, bool) or not isinstance(value, (int, str)):
+                raise ValueError(f"{field} must be a whole number")
+            try:
+                int(value)
+            except ValueError as exc:
+                raise ValueError(f"{field} must be a whole number") from exc
+        if not isinstance(payload["expires_at"], str):
+            raise ValueError("expires_at must be an ISO-8601 string with a UTC offset")
+        if not isinstance(payload.get("emergency_pause", False), bool):
+            raise ValueError("emergency_pause must be true or false")
         missing = sorted(
             {
                 "contract_allowlist",

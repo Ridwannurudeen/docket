@@ -1,8 +1,8 @@
 [Unit]
-Description=Advance Docket's live persistent activations every five minutes
+Description=Advance Docket's live persistent activations every minute
 
 [Timer]
-OnCalendar=*:0/5
+OnCalendar=*-*-* *:*:00
 # A missed pass should run after downtime rather than be skipped: an activation whose
 # policy expired while the box was down still has a float to sweep back.
 Persistent=true

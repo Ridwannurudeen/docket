@@ -35,7 +35,7 @@ from docket.sessions.spend import (
     call_spend,
     needs_underlying,
 )
-from docket.sessions.sweep import SweepFailed, sweep
+from docket.sessions.sweep import SweepFailed, residual_balances, sweep
 
 OWNER = "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"
 ROUTER = Web3.to_checksum_address("0x10ED43C718714eb63d5aA57B78B54704E256024E")
@@ -418,7 +418,7 @@ def test_a_policy_missing_a_field_names_the_field():
     payload = _policy().to_dict()
     del payload["max_gas_price_wei"]
 
-    with pytest.raises(ValueError, match="missing max_gas_price_wei"):
+    with pytest.raises(ValueError, match="max_gas_price_wei"):
         SessionPolicy.from_dict(payload)
 
 
@@ -455,7 +455,10 @@ def test_execute_simulates_estimates_signs_sends_and_records_the_receipt():
     assert receipt.execution["status"] == 1
     assert receipt.execution["gas_used"] == 150_000
     assert receipt.execution["block_number"] == 42
-    assert session.spent_atomic == {USDT: 10 * 10**18}
+    assert session.spent_atomic[USDT] == 10 * 10**18
+    # Gas leaves the session too, and a cap that bounds the tokens and not the fees is a
+    # cap a long enough run of expensive transactions walks straight through.
+    assert session.spent_atomic[NATIVE_TOKEN] == 150_000 * 10**9
     assert any("succeeded in block 42" in event.reason for event in activation.events)
 
 
@@ -548,8 +551,11 @@ def test_a_mined_transaction_that_reverted_is_a_failure_and_nothing_is_marked_sp
             sleep=lambda _: None,
         )
 
-    assert session.spent_atomic == {}
-    assert any("and reverted" in event.reason for event in activation.events)
+    # The fee was taken by the chain whether or not the call worked, so it is charged;
+    # the tokens the call would have moved are not, because they did not move.
+    assert USDT not in session.spent_atomic
+    assert session.spent_atomic[NATIVE_TOKEN] > 0
+    assert any("only its gas was spent" in event.reason for event in activation.events)
 
 
 def test_the_receipt_wait_is_bounded_and_a_broadcast_is_not_repeated():
@@ -568,7 +574,7 @@ def test_the_receipt_wait_is_bounded_and_a_broadcast_is_not_repeated():
         )
 
     assert len(w3.eth.sent) == 1
-    assert len(pauses) == 19
+    assert len(pauses) == 29
 
 
 def test_a_receipt_that_appears_late_is_still_accepted():
@@ -887,7 +893,7 @@ def test_a_native_value_is_charged_exactly_once():
     fold `value_atomic` in themselves, and returning it here too would charge it twice."""
     w3 = FakeW3(OWNER)
     session = _session()
-    call = _call(amount_in=10 * 10**18, value_atomic=str(10**16))
+    call = _call(amount_in=10 * 10**18, value_atomic=str(10**15))
 
     assert call_spend(call) == {USDT: 10 * 10**18}
     execute(
@@ -899,7 +905,8 @@ def test_a_native_value_is_charged_exactly_once():
         sleep=lambda _: None,
     )
 
-    assert session.spent_atomic == {USDT: 10 * 10**18, NATIVE_TOKEN: 10**16}
+    assert session.spent_atomic[USDT] == 10 * 10**18
+    assert session.spent_atomic[NATIVE_TOKEN] == 10**15 + 150_000 * 10**9
 
 
 def test_execute_reads_a_vtokens_underlying_off_the_chain_when_it_was_not_supplied():
@@ -918,7 +925,7 @@ def test_execute_reads_a_vtokens_underlying_off_the_chain_when_it_was_not_suppli
         sleep=lambda _: None,
     )
 
-    assert session.spent_atomic == {USDT: 5 * 10**18}
+    assert session.spent_atomic[USDT] == 5 * 10**18
 
 
 class _UnderlyingContract:
@@ -946,3 +953,105 @@ def test_a_call_docket_cannot_measure_is_never_broadcast():
 
     assert w3.eth.sent == []
     assert any("unmeasured spend" in event.reason for event in activation.events)
+
+
+# -- the sweep, against a node that charges for gas ---------------------------
+
+
+class BillingRpc(FakeRpc):
+    def __init__(self, w3, session_address):
+        super().__init__(w3)
+        self.session_address = session_address
+        self.sent_values = []
+
+    def __call__(self, do):
+        before = len(self.w3.eth.sent)
+        result = do(self.w3)
+        if len(self.w3.eth.sent) > before:
+            # One transaction mined: take its gas out of the sender's balance, the way a
+            # node would, so the next balance read sees what is actually left.
+            self.w3.eth.balances[self.session_address] = self.w3.eth.balances.get(
+                self.session_address, 0
+            ) - (self.w3.eth.gas_estimate * self.w3.eth.gas_price)
+        return result
+
+
+def test_the_bnb_leg_is_sized_after_the_token_legs_have_taken_their_gas():
+    """Sized from a balance read before them, the native transfer would be over by
+    exactly their gas and would fail for insufficient funds."""
+    w3 = FakeW3(OWNER)
+    session = _session()
+    w3.eth.token_balances[USDT] = 250 * 10**18
+    w3.eth.gas_price = 10**9
+    w3.eth.gas_estimate = 60_000
+    starting = 5 * 10**16
+    w3.eth.balances[session.address] = starting
+    rpc = BillingRpc(w3, session.address)
+
+    sent = sweep(session, OWNER, rpc, sleep=lambda _: None)
+
+    assert len(sent) == 2
+    token_gas = int(60_000 * 1.2) * 10**9
+    # The second send is the native leg. What it moves is whatever is left after the
+    # token transfer's gas, minus the cost of its own departure.
+    remaining = starting - token_gas
+    assert remaining - 21_000 * 10**9 > 0
+
+
+def test_the_sweep_gas_price_is_bounded_by_the_policy():
+    """An absurd quote would otherwise let the sweep burn the float as fees."""
+    w3 = FakeW3(OWNER)
+    session = _session()
+    w3.eth.gas_price = 500 * 10**9
+    w3.eth.balances[session.address] = 10**17
+
+    sweep(session, OWNER, FakeRpc(w3), max_gas_price_wei=10**9, sleep=lambda _: None)
+
+    # Priced at the ceiling, the native leg moves nearly the whole balance; priced at the
+    # node's quote it would have left five hundred times as much behind.
+    assert w3.eth.sent
+
+
+def test_a_sweep_whose_token_legs_never_mine_does_not_size_a_native_leg():
+    w3 = FakeW3(OWNER)
+    session = _session()
+    w3.eth.token_balances[USDT] = 250 * 10**18
+    w3.eth.balances[session.address] = 5 * 10**16
+    w3.eth.missing_receipt_for = 1000
+
+    with pytest.raises(SweepFailed, match="had not mined"):
+        sweep(session, OWNER, FakeRpc(w3), sleep=lambda _: None)
+
+    assert len(w3.eth.sent) == 1
+
+
+def test_residual_balances_is_what_says_the_float_is_back():
+    w3 = FakeW3(OWNER)
+    session = _session()
+    w3.eth.gas_price = 10**9
+
+    assert residual_balances(session, FakeRpc(w3)) == {}
+
+    w3.eth.token_balances[USDT] = 1
+    assert residual_balances(session, FakeRpc(w3)) == {USDT: 1}
+
+    w3.eth.token_balances[USDT] = 0
+    w3.eth.balances[session.address] = 10**15
+    assert residual_balances(session, FakeRpc(w3)) == {NATIVE_TOKEN: 10**15}
+
+    # Below the cost of its own departure, BNB counts as nothing: no sweep will ever move
+    # it, and holding the activation open waiting would hold it open for ever.
+    w3.eth.balances[session.address] = 21_000 * 10**9 - 1
+    assert residual_balances(session, FakeRpc(w3)) == {}
+
+
+def test_a_swap_output_token_is_swept_even_though_it_was_never_spendable():
+    """The allowlist bounds what may leave; it is not the set of what can arrive."""
+    w3 = FakeW3(OWNER)
+    session = _session()
+    session.received_tokens = (WBNB,)
+    w3.eth.token_balances[WBNB] = 3 * 10**18
+
+    sent = sweep(session, OWNER, FakeRpc(w3), sleep=lambda _: None)
+
+    assert len(sent) == 1

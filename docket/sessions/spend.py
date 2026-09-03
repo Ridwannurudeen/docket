@@ -181,6 +181,8 @@ NPM_MINT = "0x88316456"
 NPM_INCREASE_LIQUIDITY = "0x219f5d17"
 NPM_DECREASE_LIQUIDITY = "0x0c49ccbe"
 NPM_COLLECT = "0xfc6f7865"
+# The native coin, keyed the way `sessions.policy` keys it.
+NATIVE_TOKEN = "BNB"
 
 # Calls whose amount is denominated in the underlying of the vToken they are sent to. The
 # vToken does not carry that address in its calldata, so it is read from the chain or
@@ -224,7 +226,25 @@ def needs_underlying(call) -> str | None:
     return None
 
 
-def call_spend(call, *, token_allowlist=(), token_hints=None) -> dict[str, int]:
+def _recipient_is_ours(recipient, owner, session) -> bool:
+    """Whether a call's payout lands somewhere the owner still controls.
+
+    A swap that routes its output to a stranger, or a `collect` that pays fees to one, is
+    inside every cap this policy sets and still empties the session: the cap bounds what
+    goes in, not where the proceeds come out. So the destination is checked against the
+    only two addresses that are not a loss.
+    """
+    if owner is None and session is None:
+        return True
+    destination = _checksum(recipient)
+    return destination is not None and destination in {
+        address for address in (_checksum(owner), _checksum(session)) if address
+    }
+
+
+def call_spend(
+    call, *, token_allowlist=(), token_hints=None, owner=None, session=None
+) -> dict[str, int]:
     """What this one call moves out of the session, keyed by token address.
 
     `token_hints` carries the two facts no calldata contains:
@@ -258,10 +278,19 @@ def call_spend(call, *, token_allowlist=(), token_hints=None) -> dict[str, int]:
             )
         return {}
 
-    if selector in WITHDRAWING_SELECTORS:
-        return {}
-
     _, arguments = _decoder.decode_function_input(call.data)
+
+    if selector in WITHDRAWING_SELECTORS:
+        # Nothing is spent, but something is received, and a `collect` naming a stranger
+        # as its recipient hands the fees straight out of the session.
+        if selector == NPM_COLLECT and not _recipient_is_ours(
+            arguments["params"]["recipient"], owner, session
+        ):
+            raise UnmeasuredSpend(
+                f"this collect pays out to {arguments['params']['recipient']}, which is "
+                "neither the session nor the owner"
+            )
+        return {}
 
     if selector in (APPROVE, TRANSFER):
         if target is None:
@@ -272,6 +301,11 @@ def call_spend(call, *, token_allowlist=(), token_hints=None) -> dict[str, int]:
         path = arguments["path"]
         if not path:
             raise UnmeasuredSpend("a swap with an empty path spends an unnamed token")
+        if not _recipient_is_ours(arguments["to"], owner, session):
+            raise UnmeasuredSpend(
+                f"this swap pays out to {arguments['to']}, which is neither the session "
+                "nor the owner: its whole output would leave inside every cap"
+            )
         return _nonzero({_checksum(path[0]): int(arguments["amountIn"])})
 
     if selector in VTOKEN_SELECTORS:
@@ -286,6 +320,11 @@ def call_spend(call, *, token_allowlist=(), token_hints=None) -> dict[str, int]:
 
     params = arguments["params"]
     if selector == NPM_MINT:
+        if not _recipient_is_ours(params["recipient"], owner, session):
+            raise UnmeasuredSpend(
+                f"this mint sends the position to {params['recipient']}, which is "
+                "neither the session nor the owner"
+            )
         return _nonzero(
             {
                 _checksum(params["token0"]): int(params["amount0Desired"]),
@@ -317,16 +356,43 @@ def _nonzero(spend: dict) -> dict[str, int]:
     return {token: amount for token, amount in spend.items() if token and amount}
 
 
-def batch_spend(calls, *, token_allowlist=(), token_hints=None) -> dict[str, int]:
+def batch_spend(
+    calls, *, token_allowlist=(), token_hints=None, owner=None, session=None
+) -> dict[str, int]:
     """The whole batch's spend, so the total can be put to the cap once before any of it
-    is sent. A batch refused halfway leaves a position half-rebalanced."""
+    is sent. A batch refused halfway leaves a position half-rebalanced.
+
+    An `approve` is counted here and NOT charged when the call is sent. An approval is an
+    authorisation, not a payment: charging the approval and then the transfer that uses it
+    would bill the same money twice and halve every cap. Counting it in the total is still
+    right — an approval the session cannot cover is a batch that cannot complete — so it
+    is folded in as a maximum rather than added.
+    """
     total: dict[str, int] = {}
     for call in calls:
         for token, amount in call_spend(
-            call, token_allowlist=token_allowlist, token_hints=token_hints
+            call,
+            token_allowlist=token_allowlist,
+            token_hints=token_hints,
+            owner=owner,
+            session=session,
         ).items():
-            total[token] = total.get(token, 0) + amount
+            if call.selector == APPROVE:
+                total[token] = max(total.get(token, 0), amount)
+            else:
+                total[token] = total.get(token, 0) + amount
         value = int(call.value_atomic)
         if value:
-            total["BNB"] = total.get("BNB", 0) + value
+            total[NATIVE_TOKEN] = total.get(NATIVE_TOKEN, 0) + value
     return total
+
+
+def is_authorisation_only(call) -> bool:
+    """Whether this call grants a spend rather than making one.
+
+    `approve` moves nothing. It is checked against the cap in the batch total, because a
+    session that cannot cover the approval cannot complete the batch, but it is not
+    charged when it is sent — the transfer that follows it is the payment, and charging
+    both would bill one movement twice.
+    """
+    return call.selector == APPROVE

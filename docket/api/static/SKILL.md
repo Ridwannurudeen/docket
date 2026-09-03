@@ -538,7 +538,8 @@ The message shapes are fixed and there are only two:
     Docket activation create {service_id} {nonce}
     Docket activation {activation_id} {action} {nonce}
 
-`{action}` is `approve`, `pause`, `cancel` or `revoke`. The create nonce comes from
+`{action}` is `approve`, `pause`, `cancel` or `revoke`, and a `tx_hash` or `payment_id`
+in the body is appended to the message and signed with it. The create nonce comes from
 `/api/activations/nonce` and lasts 600 seconds. Every other call signs the activation's
 own `auth_nonce`, which rotates after each accepted mutation — read the activation again
 before signing the next one. A nonce is single-use, so a replayed signature is
@@ -556,7 +557,14 @@ Three things to carry into any answer built on this layer:
   `{"error": {"code", "message"}}` envelope every other Docket route uses. The codes are
   `bad_signature`, `not_owner`, `stale_nonce`, `illegal_transition`, `policy_violation`,
   `simulation_failed`, `expired`, `activation_not_found`, `service_not_found`,
-  `missing_field`, `invalid_json`, `sessions_unavailable`, checked in that order.
+  `missing_field`, `invalid_json`, `sessions_unavailable`, `too_many_activations`,
+  checked in that order. `GET /api/activations` requires `owner`.
+- **Two states mean "Docket's job runner is doing something only it can do".** The web
+  process holds no session key and never reads the master password, so
+  `awaiting_session` (no key yet, `session` is `null`) and `revoking` (closing, float not
+  yet proved returned) both resolve on the next pass of a timer that runs every minute.
+  Poll rather than treating either as an error, and never report `revoking` as closed:
+  `revoked` and `expired` are only reached from balances that read zero.
 - **A persistent activation's policy is a second gate, not the limit.** `kind:
   "persistent"` requires a policy naming `contract_allowlist`, `function_allowlist`,
   `token_allowlist`, `per_action_limit_atomic`, `total_cap_atomic`, `max_slippage_bps`,
@@ -570,7 +578,8 @@ Three things to carry into any answer built on this layer:
 
 `pause` stops Docket sending anything and `approve` resumes it. `cancel` ends a one-shot
 that has not run as `refunded` — nothing was charged and the state says so rather than
-implying money moved — and ends a persistent one as `revoked` with its float swept back.
+implying money moved — and moves a persistent one to `revoking`, which becomes `revoked`
+once the job runner has swept the float back and read the balances to prove it.
 
 
 ## What Docket will not give you

@@ -39,7 +39,6 @@ from ..sessions.keys import (
     unlock,
 )
 from ..sessions.policy import SessionPolicy
-from ..sessions.sweep import SweepFailed, sweep
 from ..store import StaleActivation
 from .auth import new_nonce
 from .executors.base import PreparedCall
@@ -62,6 +61,9 @@ APPROVAL_TOPIC = "0x" + Web3.keccak(text="Approval(address,address,uint256)").he
 # 0.01 BNB, which covers roughly a hundred router calls at the 0.05 gwei BSC has been
 # settling at and is a small enough float to lose.
 DEFAULT_GAS_ALLOWANCE_WEI = 10**16
+# How long a browser is told to wait between polls while the tick does something it
+# alone can do. The job timer runs every minute, so this is a poll, not a deadline.
+SESSION_POLL_SECONDS = 5
 
 
 class ActivationNotFound(LookupError):
@@ -274,17 +276,35 @@ class ActivationService:
             at=moment,
         )
 
-        keystore_json = None
         if kind == PERSISTENT:
-            session_policy = SessionPolicy.from_dict(activation.policy)
-            address, keystore_json = create_session_key(self.master_password())
-            activation.session = {
-                "address": address,
-                "funded_atomic": {},
-                "spent_atomic": {},
-            }
-            activation.next_action = self._funding_action(
-                activation, session_policy, nft_approvals
+            # No key is minted here, and this process could not mint one: it never reads
+            # the session master password. The tick does, on its next pass. Until then the
+            # activation says so rather than showing an address that does not exist.
+            activation.transition(
+                "awaiting_session",
+                reason=(
+                    "the owner authorized a session; Docket's job runner will create the "
+                    "key on its next pass"
+                ),
+                actor="docket",
+                at=moment,
+            )
+            activation.session = None
+            activation.next_action = NextAction(
+                "wait",
+                {
+                    "reason": "session being created",
+                    "poll_seconds": SESSION_POLL_SECONDS,
+                    "nft_approvals": [
+                        {
+                            "contract": approval["contract"],
+                            "token_id": str(approval["token_id"]),
+                        }
+                        for approval in self._checked_approvals(
+                            SessionPolicy.from_dict(activation.policy), nft_approvals
+                        )
+                    ],
+                },
             )
         elif activation.quote.payment_scheme == "x402-exact":
             activation.next_action = NextAction(
@@ -307,13 +327,35 @@ class ActivationService:
             )
 
         self.store.create_activation(activation)
-        if keystore_json is not None:
-            self.store.create_session(
-                activation.activation_id,
-                address=activation.session["address"],
-                keystore_json=keystore_json,
-            )
         return activation
+
+    def mint_session(self, activation) -> None:
+        """Give one `awaiting_session` activation its key. Runs only in the tick.
+
+        The whole point of the split: a web process that never holds the master password
+        cannot be made to hand out a session key, however it is talked into misbehaving.
+        The key exists in one process, on one timer, behind one file the operator owns.
+        """
+        policy = SessionPolicy.from_dict(activation.policy)
+        address, keystore_json = create_session_key(self.master_password())
+        self.store.create_session(
+            activation.activation_id,
+            address=address,
+            keystore_json=keystore_json,
+        )
+        activation.session = {
+            "address": address,
+            "funded_atomic": {},
+            "spent_atomic": {},
+        }
+        approvals = (activation.next_action.detail or {}).get("nft_approvals") or ()
+        activation.next_action = self._funding_action(activation, policy, approvals)
+        activation.note(
+            f"the session key {address} was created; it holds only what the owner funds "
+            "it with",
+            actor="docket",
+            at=self.now(),
+        )
 
     # -- mutating --------------------------------------------------------------
 
@@ -366,7 +408,12 @@ class ActivationService:
         """
         activation, expected = self._load_open(activation_id)
         if activation.kind == PERSISTENT:
-            self._revoke(activation)
+            self._begin_closing(
+                activation,
+                closing_to="revoked",
+                reason="the owner cancelled the session",
+                actor="user",
+            )
         else:
             activation.transition(
                 "refunded",
@@ -383,12 +430,17 @@ class ActivationService:
 
     def revoke(self, activation_id) -> Activation:
         activation, expected = self._load_open(activation_id)
-        self._revoke(activation)
+        self._begin_closing(
+            activation,
+            closing_to="revoked",
+            reason="the owner revoked the session",
+            actor="user",
+        )
         self.store.save_activation(activation, expected_updated_at=expected)
         return activation
 
     def expire(self, activation_id) -> Activation:
-        """Close a session whose policy has run out, sweeping it back on the way."""
+        """Mark a session whose policy has run out for closing. The tick sweeps it."""
         activation, expected = self._load_open(activation_id, check_expiry=False)
         self._expire(activation)
         self.store.save_activation(activation, expected_updated_at=expected)
@@ -419,64 +471,65 @@ class ActivationService:
         )
 
     def _expire(self, activation) -> None:
-        swept = self._sweep_if_funded(activation)
-        activation.transition(
-            "expired",
-            reason=(
-                f"the session policy expired at {activation.expires_at}"
-                + (f"; swept back in {len(swept)} transactions" if swept else "")
-            ),
+        self._begin_closing(
+            activation,
+            closing_to="expired",
+            reason=f"the session policy expired at {activation.expires_at}",
             actor="docket",
-            at=self.now(),
         )
-        activation.next_action = NextAction("none", {})
 
-    def _revoke(self, activation) -> None:
-        swept = self._sweep_if_funded(activation)
-        activation.transition(
-            "revoked",
-            reason=(
-                "the owner revoked the session"
-                + (f"; swept back in {len(swept)} transactions" if swept else "")
-            ),
-            actor="user",
-            at=self.now(),
-        )
-        activation.next_action = NextAction("none", {})
+    def _begin_closing(self, activation, *, closing_to, reason, actor) -> None:
+        """Record that closing was asked for. It is not the end of the story.
 
-    def _sweep_if_funded(self, activation) -> list[str]:
-        """Return the float, and never let a failed sweep block the revocation.
-
-        A sweep that cannot reach the chain is a real problem and it is recorded as one.
-        It is not a reason to leave the session marked live: the owner asked for it to
-        stop, and stopping is the part Docket can do unilaterally.
+        Nothing is swept here. This runs in the web process, which holds no key and can
+        open no session, so it would be free to say "revoked" while the float sat at an
+        address nobody could reach. The activation goes to `revoking` instead, and the
+        tick has to prove the balances are back before it may say anything stronger.
         """
-        session = self.open_session(activation)
-        if session is None:
-            return []
-        try:
-            sent = sweep(session, activation.owner, self._require_rpc())
-        except SweepFailed as exc:
+        activation.transition(
+            "revoking",
+            reason=f"{reason}; the float is swept and verified before this closes",
+            actor=actor,
+            at=self.now(),
+        )
+        activation.next_action = NextAction(
+            "wait",
+            {
+                "reason": "returning the session float to the owner",
+                "poll_seconds": SESSION_POLL_SECONDS,
+                "closing_to": closing_to,
+            },
+        )
+
+    def finish_closing(self, activation, residual) -> bool:
+        """Close a `revoking` activation, but only against balances that read zero.
+
+        `residual` is what the session still holds, read at a block after the sweep. A
+        sweep that was broadcast is not a sweep that landed, and "we sent it" is the
+        weaker claim of the two — so the state that means "your money is back" is only
+        reachable from a reading that says it is.
+        """
+        closing_to = (activation.next_action.detail or {}).get("closing_to") or "revoked"
+        if residual:
             activation.note(
-                f"the session was not fully swept: {exc}", actor="docket", at=self.now()
-            )
-            sent = exc.sent
-        except Exception as exc:
-            activation.note(
-                f"the session could not be swept ({type(exc).__name__}: {exc}); the "
-                "float is still at the session address",
-                actor="docket",
-                at=self.now(),
-            )
-            sent = []
-        self.store.mark_session_revoked(activation.activation_id)
-        if sent:
-            activation.note(
-                "swept back to the owner in " + ", ".join(sent),
+                "still holding "
+                + ", ".join(
+                    f"{amount} of {token}" for token, amount in sorted(residual.items())
+                )
+                + "; the sweep is retried on the next pass",
                 actor="chain",
                 at=self.now(),
             )
-        return sent
+            return False
+        self.store.mark_session_revoked(activation.activation_id)
+        activation.transition(
+            closing_to,
+            reason="the session holds nothing: every balance read zero after the sweep",
+            actor="chain",
+            at=self.now(),
+        )
+        activation.next_action = NextAction("none", {})
+        return True
 
     def open_session(self, activation) -> Session | None:
         row = self.store.get_session(activation.activation_id)
@@ -520,9 +573,6 @@ class ActivationService:
         policy's own contract allowlist, so an activation cannot ask an owner to approve
         a contract its session may not call.
         """
-        allowed = {
-            Web3.to_checksum_address(address) for address in policy.contract_allowlist
-        }
         requirements = [
             {
                 "kind": "fund_session",
@@ -534,34 +584,55 @@ class ActivationService:
             for token, amount in sorted(policy.total_cap_atomic.items())
             if token != "BNB"
         ]
-        for approval in nft_approvals:
-            if (
-                not isinstance(approval, dict)
-                or not {
-                    "contract",
-                    "token_id",
-                }
-                <= approval.keys()
-            ):
-                raise PolicyViolation(
-                    "every nft approval must name a contract and a token_id"
-                )
-            contract = Web3.to_checksum_address(approval["contract"])
-            if contract not in allowed:
-                raise PolicyViolation(
-                    f"{contract} is not in the policy's contract allowlist, so the "
-                    "session could not use an approval on it"
-                )
+        for approval in self._checked_approvals(policy, nft_approvals):
             requirements.append(
                 {
                     "kind": "approve_nft",
-                    "contract": contract,
+                    "contract": approval["contract"],
                     "token_id": str(approval["token_id"]),
                     "satisfied": False,
                     "tx_hash": None,
                 }
             )
         return self._pending_funding(activation, requirements)
+
+    def _checked_approvals(self, policy, nft_approvals) -> list[dict]:
+        """Every NFT approval the caller asked for, checked against the policy.
+
+        Checked at create time rather than when the tick builds the funding step, so a
+        caller learns its request is impossible in the response to that request instead of
+        a minute later in an event nobody is watching.
+        """
+        if isinstance(nft_approvals, (str, bytes)) or not isinstance(
+            nft_approvals, (list, tuple)
+        ):
+            raise PolicyViolation("nft_approvals must be a list of objects")
+        allowed = {
+            Web3.to_checksum_address(address) for address in policy.contract_allowlist
+        }
+        checked = []
+        for approval in nft_approvals:
+            if not isinstance(approval, dict) or not {
+                "contract",
+                "token_id",
+            } <= approval.keys():
+                raise PolicyViolation(
+                    "every nft approval must name a contract and a token_id"
+                )
+            try:
+                contract = Web3.to_checksum_address(approval["contract"])
+                token_id = int(approval["token_id"])
+            except Exception as exc:
+                raise PolicyViolation(
+                    f"nft approval {approval!r} does not name a contract and a token id"
+                ) from exc
+            if contract not in allowed:
+                raise PolicyViolation(
+                    f"{contract} is not in the policy's contract allowlist, so the "
+                    "session could not use an approval on it"
+                )
+            checked.append({"contract": contract, "token_id": token_id})
+        return checked
 
     def _pending_funding(self, activation, requirements) -> NextAction:
         outstanding = [item for item in requirements if not item["satisfied"]]
@@ -706,8 +777,9 @@ class ActivationService:
             raise PolicyViolation(
                 f"{tx_hash} did not succeed on chain, so the action did not happen"
             )
-        moment = self.now()
         prepared = activation.next_action.detail.get("calls", ())
+        self._proves_a_prepared_call(activation, tx_hash, prepared)
+        moment = self.now()
         activation.add_receipt(
             Receipt(
                 service=activation.service_id,
@@ -741,6 +813,42 @@ class ActivationService:
         )
         activation.next_action = NextAction(
             "wait", {"then": "Docket's tick evaluates this session on its next pass"}
+        )
+
+    def _proves_a_prepared_call(self, activation, tx_hash, prepared) -> None:
+        """Whether this transaction is one of the calls Docket actually asked for.
+
+        A mined, successful transaction is not evidence on its own: any transaction the
+        owner happened to send would satisfy that, including one to somewhere else
+        entirely. So the sender, the target and the calldata are read back and compared
+        against what was handed over to be signed. Docket asked for a specific action; a
+        different action is a different thing, however well it succeeded.
+        """
+        if not prepared:
+            return
+        transaction = self._require_rpc()(
+            lambda w3: w3.eth.get_transaction(tx_hash)
+        )
+        if transaction is None:
+            raise PolicyViolation(
+                f"{tx_hash} has a receipt and no transaction body, so what it did cannot "
+                "be checked against what was asked for"
+            )
+        sender = _log_field(transaction["from"])
+        target = _log_field(transaction["to"])
+        data = _log_field(transaction["input"])
+        if sender != _log_field(activation.owner):
+            raise PolicyViolation(
+                f"{tx_hash} was sent by {transaction['from']}, not by this activation's "
+                "owner"
+            )
+        for call in prepared:
+            if target == _log_field(call["to"]) and data == _log_field(call["data"]):
+                return
+        raise PolicyViolation(
+            f"{tx_hash} calls {transaction['to']} with bytes that are not any of the "
+            f"{len(prepared)} calls Docket prepared, so it is not the action that was "
+            "approved"
         )
 
     def _log_satisfies(self, requirement, logs, session_address) -> bool:

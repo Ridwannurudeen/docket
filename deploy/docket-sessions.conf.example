@@ -3,17 +3,18 @@
 # with a leading `-`, so a deployment that has not installed it starts normally and
 # refuses persistent activations.
 #
-# docket.service does NOT read this file: its unit pins an exact directive set and takes
-# no EnvironmentFile. Until an operator adds the variable to the API process — a
-# systemd drop-in under /etc/systemd/system/docket.service.d/ is the way to do it without
-# editing the tracked unit — the API answers 503 sessions_unavailable to
-# `POST /api/activations` with kind=persistent. One-shot activations need nothing here.
+# docket.service does NOT read this file and MUST NOT. The web process is deliberately
+# incapable of minting a session key or sweeping one, so a compromise of it cannot reach
+# anybody's float. Creating a persistent activation needs no password: it lands in
+# `awaiting_session` and docket-jobs.service mints the key on its next pass, at most a
+# minute later. Do not add this variable to the API process.
 
 # The file holding the master password that encrypts every session keystore. There is no
 # default and no fallback: while this is unset, or names a file that is missing or empty,
-# `docket.sessions.keys` raises SessionsUnavailable, a persistent activation is refused
-# rather than created, and the tick records the failure against the activation instead of
-# opening a key. One-shot activations are unaffected.
+# `docket.sessions.keys` raises SessionsUnavailable and the tick records the failure
+# against each waiting activation rather than opening a key. Activations are still created
+# and still readable; they simply never leave `awaiting_session`, and any that were
+# closing stay `revoking` until the file is installed.
 #
 # Create it once, on the box, and never in a tracked file:
 #

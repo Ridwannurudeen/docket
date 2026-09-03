@@ -26,13 +26,25 @@ from datetime import datetime, timezone
 
 from ..hire.receipts import canonical_hash
 from ..jobs.models import Receipt
-from .spend import UnmeasuredSpend, call_spend, needs_underlying
+from .policy import NATIVE_TOKEN, token_key
+from .spend import (
+    UnmeasuredSpend,
+    call_spend,
+    is_authorisation_only,
+    needs_underlying,
+)
 
 # Twenty attempts three seconds apart. BSC blocks land in about 0.75 s and a receipt that
 # has not appeared in a minute is not appearing on this tick; the bound exists so a tick
 # unit cannot hang past its timer.
-RECEIPT_ATTEMPTS = 20
+# Ninety seconds, and then the pass gives up and says so. BSC blocks land in about
+# 0.75 s; a receipt that has not appeared in a minute and a half is not appearing on
+# this pass, and the timer comes back in another minute.
+RECEIPT_ATTEMPTS = 30
 RECEIPT_PAUSE_S = 3.0
+# How many settled sends stay on the activation. Enough to reconcile a run of passes
+# against the chain; not so many that one row grows without bound.
+SETTLED_SENDS_KEPT = 50
 # A margin over the estimate, because the state an estimate is taken against is one block
 # older than the state the transaction executes in.
 GAS_MARGIN_NUMERATOR = 12
@@ -63,6 +75,36 @@ def _hex(value) -> str:
         return "0x" + bytes(value).hex()
     text = str(value)
     return text if text.startswith("0x") else "0x" + text
+
+
+def _record_pending(activation, entry: dict) -> None:
+    """Keep one in-flight broadcast on the activation, keyed by its account nonce.
+
+    A transaction is written down before it is sent and updated when its receipt is read,
+    so a pass that dies between the two leaves a record naming what left rather than
+    nothing at all. Keyed by nonce because that is the one identifier that exists before
+    the hash does.
+    """
+    result = dict(activation.result or {})
+    pending = dict(result.get("pending_sends") or {})
+    key = str(entry["nonce"])
+    pending[key] = {**(pending.get(key) or {}), **entry}
+    result["pending_sends"] = pending
+    activation.result = result
+
+
+def _settle_pending(activation, nonce, *, tx_hash, status, gas_atomic) -> None:
+    """Move one in-flight broadcast into the settled record, with its outcome."""
+    result = dict(activation.result or {})
+    pending = dict(result.get("pending_sends") or {})
+    entry = pending.pop(str(nonce), {"nonce": nonce})
+    result["pending_sends"] = pending
+    settled = list(result.get("settled_sends") or ())
+    settled.append(
+        {**entry, "tx_hash": tx_hash, "status": status, "gas_atomic": gas_atomic}
+    )
+    result["settled_sends"] = settled[-SETTLED_SENDS_KEPT:]
+    activation.result = result
 
 
 def execute(
@@ -109,11 +151,16 @@ def execute(
         hints["underlying"] = {**(hints.get("underlying") or {}), vtoken: resolved}
 
     try:
-        amounts = call_spend(
-            prepared,
-            token_allowlist=policy.token_allowlist,
-            token_hints=hints,
-        )
+        amounts = {
+            token_key(token): int(amount)
+            for token, amount in call_spend(
+                prepared,
+                token_allowlist=policy.token_allowlist,
+                token_hints=hints,
+                owner=activation.owner,
+                session=session.address,
+            ).items()
+        }
     except UnmeasuredSpend as exc:
         activation.note(
             f"{prepared.purpose}: refused as unmeasured spend — {exc}",
@@ -161,20 +208,26 @@ def execute(
             f"({type(exc).__name__}: {exc})"
         )
 
+    gas_limit = min(
+        prepared.gas_ceiling,
+        estimated * GAS_MARGIN_NUMERATOR // GAS_MARGIN_DENOMINATOR,
+    )
+    # Gas leaves the session like anything else. A cap that bounds the tokens and not the
+    # fees is a cap a long enough run of expensive no-op transactions walks straight
+    # through, so the fee this call can cost is charged against the native cap with it.
+    charged = dict(amounts)
+    charged[NATIVE_TOKEN] = charged.get(NATIVE_TOKEN, 0) + gas_limit * gas_price
+
     permitted, reason = policy.allows(
         prepared,
         spent=session.spent_atomic,
-        token_amounts=amounts,
+        token_amounts=charged,
         gas_price_wei=gas_price,
         slippage_bps=slippage_bps,
     )
     if not permitted:
         fail(f"{prepared.purpose}: refused by the session policy — {reason}")
 
-    gas_limit = min(
-        prepared.gas_ceiling,
-        estimated * GAS_MARGIN_NUMERATOR // GAS_MARGIN_DENOMINATOR,
-    )
     try:
         nonce = int(rpc(lambda w3: w3.eth.get_transaction_count(session.address)))
         signed = session.account.sign_transaction(
@@ -186,9 +239,22 @@ def execute(
                 "chainId": prepared.chain_id,
             }
         )
+        # Written down BEFORE the send. A broadcast whose receipt is never read is money
+        # that left with no record of leaving; the pending entry is what a later pass
+        # reconciles against, and it has to exist before the transaction can.
+        _record_pending(
+            activation,
+            {
+                "nonce": nonce,
+                "purpose": prepared.purpose,
+                "amounts": {token: str(amount) for token, amount in charged.items()},
+                "broadcast_at": _now(),
+            },
+        )
         tx_hash = _hex(
             rpc(lambda w3: w3.eth.send_raw_transaction(signed.raw_transaction))
         )
+        _record_pending(activation, {"nonce": nonce, "tx_hash": tx_hash})
     except Exception as exc:
         fail(
             f"{prepared.purpose}: the transaction could not be signed or broadcast "
@@ -226,19 +292,38 @@ def execute(
         "session": session.address,
         "token_amounts": {token: str(amount) for token, amount in amounts.items()},
     }
+    # The fee is taken whether or not the call succeeded, so it is charged either way.
+    spent_gas = gas_used * gas_price
+    session.spent_atomic[NATIVE_TOKEN] = (
+        session.spent_atomic.get(NATIVE_TOKEN, 0) + spent_gas
+    )
     if status != 1:
+        _settle_pending(
+            activation, nonce, tx_hash=tx_hash, status=0, gas_atomic=str(spent_gas)
+        )
         activation.note(
             f"{prepared.purpose}: {tx_hash} was mined in block {block_number} and "
-            "reverted",
+            "reverted; only its gas was spent",
             actor="chain",
         )
         raise ExecutionFailed(f"{tx_hash} reverted on chain")
 
-    for token, amount in amounts.items():
-        session.spent_atomic[token] = session.spent_atomic.get(token, 0) + int(amount)
-    value = int(prepared.value_atomic)
-    if value:
-        session.spent_atomic["BNB"] = session.spent_atomic.get("BNB", 0) + value
+    # An approval moves nothing. It was counted in the batch total, because a session that
+    # cannot cover it cannot complete the batch, but charging it here as well as the
+    # transfer it authorises would bill one movement twice.
+    if not is_authorisation_only(prepared):
+        for token, amount in amounts.items():
+            session.spent_atomic[token] = session.spent_atomic.get(token, 0) + int(
+                amount
+            )
+        value = int(prepared.value_atomic)
+        if value:
+            session.spent_atomic[NATIVE_TOKEN] = (
+                session.spent_atomic.get(NATIVE_TOKEN, 0) + value
+            )
+    _settle_pending(
+        activation, nonce, tx_hash=tx_hash, status=1, gas_atomic=str(spent_gas)
+    )
 
     activation.note(
         f"{prepared.purpose}: {tx_hash} succeeded in block {block_number} using "

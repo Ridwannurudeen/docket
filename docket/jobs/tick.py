@@ -1,18 +1,24 @@
-"""One pass over every persistent activation, run by a timer every five minutes.
+"""One pass over every live persistent activation, run by a timer every minute.
 
-The shape is chosen for the failure it has to survive: one owner's activation going wrong
-must not stop the next owner's. Each activation is taken on its own, its failure is logged
-and recorded on the activation, and the loop carries on. What the exit code says is
-whether any of them errored, so the systemd unit shows red for a real fault and green for
-a pass where nothing needed doing.
+This process is the only one that reads `DOCKET_SESSION_KEY_FILE`. The web process holds
+no master password and can therefore mint no key, open no session and sweep nothing: it
+records what the owner asked for and leaves the three things that need a key here. That is
+the whole reason `awaiting_session` and `revoking` exist as states rather than as moments
+inside a request.
 
-A category with no executor registered is not an error. Lane D's executors land after this
-loop does, and a tick that died on the gap would take every activation down with it for
-the days in between. It is recorded as an `alert` event on the activation instead, which
-is what an owner reading the activation should see: nothing is watching this yet.
+So a pass does four things, in this order:
 
-Nothing here holds a key. The session is opened by `ActivationService` and handed to
-`docket.sessions.executor.execute`, which is the only code in Docket that signs.
+  * `revoking` — sweep the float back, then read the balances again. The activation
+    closes only when they read zero. "We broadcast the sweep" is the weaker claim and is
+    never served as the end of the story.
+  * expired — a policy past its own expiry is moved to `revoking`, wherever it was.
+  * `awaiting_session` — mint the keystore and ask the owner to fund the address.
+  * `active` — evaluate, and send what the policy permits.
+
+One owner's activation going wrong must not stop the next owner's. Each is taken on its
+own, its failure is written onto it and logged, and the loop carries on. The exit code
+says whether any of them errored, so the unit shows red for a real fault and green for a
+pass where nothing needed doing.
 """
 
 import argparse
@@ -22,21 +28,40 @@ import os
 from ..escrow.chain import Rpc
 from ..hire.catalogue import SERVICES
 from ..sessions.executor import ExecutionFailed, execute
+from ..sessions.keys import SessionsUnavailable
 from ..sessions.policy import SessionPolicy
 from ..sessions.spend import UnmeasuredSpend, batch_spend
+from ..sessions.sweep import SweepFailed, residual_balances, sweep
 from ..store import Store
-from .executors import EXECUTORS
+from .executors import EXECUTORS, load_executors
 from .models import PERSISTENT, NextAction
 from .service import ActivationService
 
 logger = logging.getLogger("docket.jobs.tick")
 
-# One page of work per pass. A tick that fell behind would otherwise try to catch up in a
-# single run and hold the writer for the whole of it; the next pass is five minutes away.
-TICK_BATCH = 200
-# States a persistent activation can be in and still be the tick's business. `paused` is
-# here so an expiry is still noticed while paused; nothing else happens to it.
-LIVE_STATES = ("active", "paused", "needs_approval")
+# One page at a time, and every page: a tick that has fallen behind still has to reach the
+# activation at the end of the queue, and holding the writer for the whole backlog in one
+# statement is what a page size is for.
+TICK_PAGE = 100
+MAX_TICK_PAGES = 50
+# States a persistent activation can be in and still be the tick's business.
+LIVE_STATES = ("revoking", "awaiting_session", "active", "paused", "needs_approval")
+
+
+def _live_activations(store):
+    """Every live persistent activation, oldest state first, paginated."""
+    for state in LIVE_STATES:
+        offset = 0
+        for _ in range(MAX_TICK_PAGES):
+            page = store.list_activations(state=state, limit=TICK_PAGE, offset=offset)
+            if not page:
+                break
+            for activation in page:
+                if activation.kind == PERSISTENT:
+                    yield activation
+            if len(page) < TICK_PAGE:
+                break
+            offset += TICK_PAGE
 
 
 def _record_decision(activation, decision) -> None:
@@ -72,6 +97,54 @@ def _record_decision(activation, decision) -> None:
         )
 
 
+def _session_for(service, activation, rpc):
+    """The unlocked session, with the tokens a sweep has to look for filled in."""
+    session = service.open_session(activation)
+    if session is None:
+        return None
+    received = ((activation.result or {}).get("last_decision") or {}).get(
+        "evidence"
+    ) or {}
+    session.received_tokens = tuple(received.get("received_tokens") or ())
+    return session
+
+
+def _close(service, activation, rpc) -> None:
+    """Sweep a `revoking` session and close it only against balances that read zero."""
+    expected = activation.updated_at
+    session = _session_for(service, activation, rpc)
+    if session is None:
+        # Nothing was ever minted, or the key is already closed. There is no float to
+        # return, so the reading is trivially empty and the activation may close.
+        service.finish_closing(activation, {})
+        service.store.save_activation(activation, expected_updated_at=expected)
+        return
+    policy = SessionPolicy.from_dict(activation.policy)
+    try:
+        sent = sweep(
+            session,
+            activation.owner,
+            rpc,
+            max_gas_price_wei=policy.max_gas_price_wei,
+        )
+        if sent:
+            activation.note(
+                "swept back to the owner in " + ", ".join(sent), actor="chain"
+            )
+    except SweepFailed as exc:
+        activation.note(f"the session was not fully swept: {exc}", actor="docket")
+    residual = residual_balances(session, rpc)
+    service.finish_closing(activation, residual)
+    service.store.save_activation(activation, expected_updated_at=expected)
+
+
+def _mint(service, activation) -> None:
+    """Give one `awaiting_session` activation its key and ask the owner to fund it."""
+    expected = activation.updated_at
+    service.mint_session(activation)
+    service.store.save_activation(activation, expected_updated_at=expected)
+
+
 def _evaluate(service: ActivationService, activation, rpc) -> None:
     """Advance one active activation as far as its executor and policy allow."""
     executor = EXECUTORS.get(activation.category)
@@ -96,7 +169,7 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
         return
 
     permitted, reason = executor.within_policy(activation, decision)
-    session = service.open_session(activation) if permitted else None
+    session = _session_for(service, activation, rpc) if permitted else None
     if not permitted or session is None:
         activation.transition(
             "needs_approval",
@@ -133,6 +206,8 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
             decision.prepared,
             token_allowlist=policy.token_allowlist,
             token_hints=token_hints,
+            owner=activation.owner,
+            session=session.address,
         )
     except UnmeasuredSpend as exc:
         activation.note(
@@ -195,8 +270,30 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
         raise failed
 
 
+def _note_failure(store, activation_id, exc) -> None:
+    """Write the failure onto the activation it happened to.
+
+    An error that only reaches the journal is an error the owner reading their own
+    activation cannot see, and "nothing has happened for six hours" is exactly the state
+    a session must never be able to reach silently. Re-read first, because whatever failed
+    may have left the in-memory copy half-changed.
+    """
+    try:
+        activation = store.get_activation(activation_id)
+        if activation is None or activation.is_terminal:
+            return
+        expected = activation.updated_at
+        activation.note(
+            f"this pass did not complete: {type(exc).__name__}: {exc}", actor="docket"
+        )
+        store.save_activation(activation, expected_updated_at=expected)
+    except Exception:
+        logger.exception("could not record the failure on %s", activation_id)
+
+
 def run_once(store: Store, *, rpc=None, services=None, environment=None) -> int:
     """Advance every live persistent activation. Returns how many errored."""
+    load_executors()
     service = ActivationService(
         store,
         services=SERVICES if services is None else services,
@@ -204,26 +301,31 @@ def run_once(store: Store, *, rpc=None, services=None, environment=None) -> int:
         environment=environment,
     )
     errors = 0
-    for state in LIVE_STATES:
-        for activation in store.list_activations(state=state, limit=TICK_BATCH):
-            if activation.kind != PERSISTENT:
+    for activation in _live_activations(store):
+        try:
+            if activation.state == "revoking":
+                _close(service, activation, rpc)
                 continue
-            try:
-                if service.has_expired(activation):
-                    service.expire(activation.activation_id)
-                    logger.info("expired activation %s", activation.activation_id)
-                    continue
-                if activation.state != "active":
-                    continue
-                _evaluate(service, activation, rpc)
-            except Exception as exc:
-                errors += 1
-                logger.error(
-                    "activation %s failed this pass: %s: %s",
-                    activation.activation_id,
-                    type(exc).__name__,
-                    exc,
+            if service.has_expired(activation):
+                service.expire(activation.activation_id)
+                logger.info(
+                    "activation %s expired and is closing", activation.activation_id
                 )
+                continue
+            if activation.state == "awaiting_session":
+                _mint(service, activation)
+                continue
+            if activation.state == "active":
+                _evaluate(service, activation, rpc)
+        except Exception as exc:
+            errors += 1
+            logger.error(
+                "activation %s failed this pass: %s: %s",
+                activation.activation_id,
+                type(exc).__name__,
+                exc,
+            )
+            _note_failure(store, activation.activation_id, exc)
     return errors
 
 
@@ -249,3 +351,6 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+__all__ = ["SessionsUnavailable", "main", "run_once"]

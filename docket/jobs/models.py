@@ -47,10 +47,20 @@ PERSISTENT_STATES = (
     "quoted",
     "awaiting_wallet",
     "authorized",
+    # The owner has signed and no session key exists yet. The web process never holds the
+    # master password, so it cannot mint one: the tick does, on its next pass, and the
+    # activation waits here. `next_action` says which half of the wait it is in — `wait`
+    # while the key is being made, `fund_session` once there is an address to fund.
+    "awaiting_session",
     "funded",
     "active",
     "paused",
     "needs_approval",
+    # Closing has been asked for and the float has not yet been proved returned. Every
+    # close goes through here — revoke, cancel and expiry alike — because "we sent the
+    # sweep" and "the money is back" are different facts and only one of them may be
+    # served as the end of the story.
+    "revoking",
     "revoked",
     "expired",
 )
@@ -77,11 +87,16 @@ TRANSITIONS: dict[str, dict[str, tuple[str, ...]]] = {
     PERSISTENT: {
         "quoted": ("awaiting_wallet",),
         "awaiting_wallet": ("authorized",),
-        "authorized": ("funded", "revoked", "expired"),
-        "funded": ("active", "revoked", "expired"),
-        "active": ("paused", "needs_approval", "revoked", "expired"),
-        "paused": ("active", "revoked", "expired"),
-        "needs_approval": ("active", "paused", "revoked", "expired"),
+        "authorized": ("awaiting_session", "revoking"),
+        "awaiting_session": ("funded", "revoking"),
+        "funded": ("active", "revoking"),
+        "active": ("paused", "needs_approval", "revoking"),
+        "paused": ("active", "revoking"),
+        "needs_approval": ("active", "paused", "revoking"),
+        # Which of the two a close ends in is carried in `next_action.detail`: an expiry
+        # ends `expired`, everything else `revoked`. Neither is reachable without going
+        # through the sweep first.
+        "revoking": ("revoked", "expired"),
         "revoked": (),
         "expired": (),
     },
@@ -377,7 +392,20 @@ class Activation:
         keeping and neither is a move. They go in the same list as the transitions, so an
         activation has one history rather than two half-histories a reader has to
         interleave by timestamp.
+
+        A note identical to the last one is dropped. The tick runs every minute, and a
+        condition that persists — no executor registered, a sweep that cannot reach the
+        chain — would otherwise write the same sentence 1,440 times a day and bury the
+        history it was meant to record. The first time it happened is the useful one.
         """
+        if self.events:
+            last = self.events[-1]
+            if (
+                last.from_state == last.to_state == self.state
+                and last.reason == reason
+                and last.actor == actor
+            ):
+                return
         moment = _now() if at is None else at
         self.events = self.events + (
             Event(

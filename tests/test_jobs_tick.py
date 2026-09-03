@@ -26,6 +26,7 @@ from tests.test_jobs_service import (
     USDT,
     WBNB,
     FakeRpc,
+    _funding_transaction,
     _transfer_receipt,
 )
 
@@ -149,7 +150,11 @@ def _service(store, rpc):
 
 
 def _active(store, rpc, *, policy=None):
-    """One funded, active persistent activation, walked there through the real path."""
+    """One funded, active persistent activation, walked there through the real path.
+
+    Including the tick's own minting step: `create` leaves it in `awaiting_session` with
+    no key, because the web process holds no master password.
+    """
     service = _service(store, rpc)
     created = service.create(
         "range-doctor",
@@ -158,8 +163,12 @@ def _active(store, rpc, *, policy=None):
         inputs={"wallet": OWNER},
         policy=POLICY if policy is None else policy,
     )
+    expected = created.updated_at
+    service.mint_session(created)
+    store.save_activation(created, expected_updated_at=expected)
     tx_hash = "0x" + f"{len(rpc.w3.eth.receipts) + 1:064x}"
     rpc.w3.eth.receipts[tx_hash] = _transfer_receipt(created.session["address"])
+    rpc.w3.eth.transactions[tx_hash] = _funding_transaction(created.session["address"])
     service.approve(created.activation_id, tx_hash=tx_hash)
     return service, store.get_activation(created.activation_id)
 
@@ -300,7 +309,9 @@ def test_an_action_inside_the_policy_is_sent_by_the_session_and_receipted(
     assert stored.state == "active"
     assert len(rpc.sent) == 1
     assert stored.receipts[-1].execution["tx_hash"] == rpc.sent[0]
-    assert stored.session["spent_atomic"] == {USDT: str(10 * 10**18)}
+    # The fee is a spend like any other and is charged under the native key beside it.
+    assert stored.session["spent_atomic"][USDT] == str(10 * 10**18)
+    assert int(stored.session["spent_atomic"]["BNB"]) > 0
 
 
 def test_a_batch_is_charged_once_per_call_and_not_once_per_call_times_the_batch(
@@ -323,7 +334,7 @@ def test_a_batch_is_charged_once_per_call_and_not_once_per_call_times_the_batch(
 
     stored = store.get_activation(activation.activation_id)
     assert len(rpc.sent) == 8
-    assert stored.session["spent_atomic"] == {USDT: str(400 * 10**18)}
+    assert stored.session["spent_atomic"][USDT] == str(400 * 10**18)
     assert 8 * 400 * 10**18 > int(POLICY["total_cap_atomic"][USDT])
     assert len(stored.receipts) == 8
 
@@ -430,6 +441,8 @@ def test_a_paused_activation_is_left_alone(tmp_path):
 
 
 def test_an_expired_policy_is_closed_and_swept_by_the_tick(tmp_path, sessions_key):
+    """Two passes, and the second is the one that may say the money is back: the first
+    marks it for closing and sweeps, the second reads the balances and closes."""
     store = Store(tmp_path / "tick.sqlite3")
     rpc = SendingRpc()
     soon = (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat()
@@ -442,10 +455,54 @@ def test_an_expired_policy_is_closed_and_swept_by_the_tick(tmp_path, sessions_ke
     register("rebalancing", ActionExecutor())
 
     assert tick.run_once(store, rpc=rpc, environment=sessions_key) == 0
+    marked = store.get_activation(activation.activation_id)
+    assert marked.state == "revoking"
+    assert store.get_session(activation.activation_id)["revoked_at"] is None
 
+    assert tick.run_once(store, rpc=rpc, environment=sessions_key) == 0
     closed = store.get_activation(activation.activation_id)
     assert closed.state == "expired"
     assert store.get_session(activation.activation_id)["revoked_at"] is not None
+
+
+def test_the_tick_mints_a_key_for_an_activation_the_web_process_could_not(
+    tmp_path, sessions_key
+):
+    store = Store(tmp_path / "tick.sqlite3")
+    service = _service(store, FakeRpc())
+    created = service.create(
+        "range-doctor",
+        kind="persistent",
+        owner=OWNER,
+        inputs={"wallet": OWNER},
+        policy=POLICY,
+    )
+    assert created.session is None
+
+    assert tick.run_once(store, rpc=FakeRpc(), environment=sessions_key) == 0
+
+    minted = store.get_activation(created.activation_id)
+    assert minted.state == "awaiting_session"
+    assert minted.next_action.kind == "fund_session"
+    assert minted.session["address"] == store.get_session(created.activation_id)[
+        "address"
+    ]
+
+
+def test_a_close_that_cannot_open_the_keystore_stays_revoking_for_the_next_pass(
+    tmp_path, sessions_key
+):
+    """Never left `active`, and never closed on a reading nobody could take."""
+    store = Store(tmp_path / "tick.sqlite3")
+    rpc = SendingRpc()
+    service, activation = _active(store, rpc)
+    service.revoke(activation.activation_id)
+
+    assert tick.run_once(store, rpc=rpc, environment={}) == 1
+
+    stored = store.get_activation(activation.activation_id)
+    assert stored.state == "revoking"
+    assert any("did not complete" in event.reason for event in stored.events)
 
 
 def test_one_activation_failing_never_stops_the_next(tmp_path):

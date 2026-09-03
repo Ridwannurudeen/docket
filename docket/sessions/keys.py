@@ -18,10 +18,22 @@ revoke, and it is never serialised.
 
 import json
 import os
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from eth_account import Account
+
+# scrypt at n=2**14 rather than eth_account's 2**18 default. The default is sized for a
+# password a person chose and costs about 256 MiB and half a second per call, which is a
+# denial-of-service surface on a box carrying eighteen other projects. What this encrypts
+# is 48 bytes from /dev/urandom — the work factor is protecting a key nobody can guess in
+# the first place, and the memory is the part that actually hurts here.
+KDF = "scrypt"
+KDF_ITERATIONS = 2**14
+# Two at a time. Even at 2**14 an unbounded burst of keystore work would hold the whole
+# box; the tick is a batch job and can wait its turn.
+_kdf_seats = threading.Semaphore(2)
 
 
 class SessionsUnavailable(RuntimeError):
@@ -43,6 +55,10 @@ class Session:
     funded_atomic: dict[str, int] = field(default_factory=dict)
     spent_atomic: dict[str, int] = field(default_factory=dict)
     token_allowlist: tuple[str, ...] = ()
+    # Tokens the session can end up holding without ever being allowed to spend them — a
+    # swap's output side. The allowlist bounds what may leave; this is what has to be
+    # swept back, and the two are different sets.
+    received_tokens: tuple[str, ...] = ()
 
 
 def master_password_from_env(environment=None) -> str:
@@ -84,7 +100,10 @@ def create_session_key(master_password: str) -> tuple[str, str]:
     if not master_password:
         raise SessionsUnavailable("a session key cannot be encrypted with no password")
     account = Account.create()
-    keystore = Account.encrypt(account.key, master_password)
+    with _kdf_seats:
+        keystore = Account.encrypt(
+            account.key, master_password, kdf=KDF, iterations=KDF_ITERATIONS
+        )
     return account.address, json.dumps(keystore, sort_keys=True, ensure_ascii=False)
 
 
@@ -97,4 +116,6 @@ def unlock(keystore_json: str, master_password: str):
     """
     if not master_password:
         raise SessionsUnavailable("a session key cannot be opened with no password")
-    return Account.from_key(Account.decrypt(json.loads(keystore_json), master_password))
+    with _kdf_seats:
+        key = Account.decrypt(json.loads(keystore_json), master_password)
+    return Account.from_key(key)

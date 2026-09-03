@@ -69,12 +69,13 @@ def _create(
 
 
 def _act(client, activation, action, account=OWNER, **extra):
+    binds = str(extra.get("tx_hash") or extra.get("payment_id") or "")
     body = {
         "nonce": activation["auth_nonce"],
         "owner_signature": _sign(
             account,
             action_message(
-                activation["activation_id"], action, activation["auth_nonce"]
+                activation["activation_id"], action, activation["auth_nonce"], binds
             ),
         ),
     }
@@ -260,8 +261,23 @@ def test_an_activation_can_be_read_back_and_listed_by_its_owner(client):
     listed = client.get(f"/api/activations?owner={OWNER.address}").json()
     assert listed["total"] == 1
     assert listed["activations"][0]["activation_id"] == created["activation_id"]
-    assert client.get("/api/activations").json()["total"] == 2
-    assert client.get("/api/activations?state=completed").json()["total"] == 0
+    assert (
+        client.get(
+            f"/api/activations?owner={OWNER.address}&state=completed"
+        ).json()["total"]
+        == 0
+    )
+
+
+def test_the_listing_will_not_enumerate_the_whole_site(client):
+    """Without an owner this route is a directory of who is running what."""
+    _create(client)
+
+    unfiltered = client.get("/api/activations")
+
+    assert unfiltered.status_code == 422
+    assert unfiltered.json()["error_code"] == "missing_field"
+    assert client.get("/api/activations?state=authorized").status_code == 422
 
 
 def test_an_unknown_activation_is_a_404_in_the_activation_error_shape(client):
@@ -425,13 +441,49 @@ def test_a_call_the_chain_refused_is_answered_as_simulation_failed(client, tmp_p
 # -- persistent ---------------------------------------------------------------
 
 
-def test_a_persistent_activation_is_refused_where_no_master_password_is_installed(
-    client,
-):
+def test_the_api_needs_no_master_password_to_create_a_persistent_activation(client):
+    """The architecture, from the outside: the web process holds no key, so it cannot
+    mint one and does not need to. It records the request and the tick does the rest."""
     response = _create(client, kind="persistent", policy=POLICY)
 
-    assert response.status_code == 503
-    assert response.json()["error_code"] == "sessions_unavailable"
+    body = response.json()
+    assert response.status_code == 201
+    assert body["state"] == "awaiting_session"
+    assert body["session"] is None
+    assert body["next_action"] == {
+        "kind": "wait",
+        "detail": {
+            "reason": "session being created",
+            "poll_seconds": 5,
+            "nft_approvals": [],
+        },
+    }
+
+
+def test_every_route_serves_with_no_session_key_file_configured(client, monkeypatch):
+    """The whole API surface, with the master password absent. Nothing in the web process
+    may need it: if one route did, an operator who had not installed the file would find
+    that out from a 500 in front of a user."""
+    monkeypatch.delenv("DOCKET_SESSION_KEY_FILE", raising=False)
+    created = _create(client, kind="persistent", policy=POLICY).json()
+    one_shot = _create(client).json()
+
+    assert client.get(f"/api/activations?owner={OWNER.address}").status_code == 200
+    assert client.get(f"/api/activations/{created['activation_id']}").status_code == 200
+    assert (
+        client.get(
+            f"/api/activations/{created['activation_id']}/prepared"
+        ).status_code
+        == 200
+    )
+    assert (
+        client.get(f"/api/activations/nonce?owner={OWNER.address}").status_code == 200
+    )
+    assert _act(client, created, "pause").status_code == 409
+    # The failed pause spent the nonce, so the next call reads the fresh one.
+    created = client.get(f"/api/activations/{created['activation_id']}").json()
+    assert _act(client, created, "revoke").status_code == 200
+    assert _act(client, one_shot, "approve").status_code == 200
 
 
 def test_a_persistent_activation_with_a_master_password_asks_the_owner_to_fund_it(
@@ -445,9 +497,9 @@ def test_a_persistent_activation_with_a_master_password_asks_the_owner_to_fund_i
 
     body = _create(client, kind="persistent", policy=POLICY).json()
 
-    assert body["state"] == "authorized"
-    assert body["next_action"]["kind"] == "fund_session"
-    assert set(body["session"]) == {"address", "funded_atomic", "spent_atomic"}
+    assert body["state"] == "awaiting_session"
+    assert body["next_action"]["kind"] == "wait"
+    assert body["session"] is None
     assert body["policy"]["max_slippage_bps"] == 100
     assert body["expires_at"] == POLICY["expires_at"]
 
@@ -501,7 +553,10 @@ def test_an_expired_policy_closes_the_activation_and_answers_expired(
     assert response.status_code == 409
     assert response.json()["error_code"] == "expired"
     read_back = client.get(f"/api/activations/{created['activation_id']}").json()
-    assert read_back["state"] == "expired"
+    # `revoking`, not `expired`: the web process cannot sweep, and the state that means
+    # "your money is back" is only reachable from a reading that says it is.
+    assert read_back["state"] == "revoking"
+    assert read_back["next_action"]["detail"]["closing_to"] == "expired"
 
 
 def test_an_owner_is_the_same_owner_however_the_wallet_spells_it(client):
@@ -546,3 +601,93 @@ def test_registering_the_router_leaves_every_existing_route_working(client):
     assert client.get("/static/style.css").status_code == 200
     # The rest of the API keeps its own error envelope; only these routes use the other.
     assert set(client.get("/agents/nope").json()) == {"error"}
+
+
+def test_the_signed_message_binds_the_evidence_the_call_carries(client, tmp_path):
+    """A signature over "approve this activation" alone would authorise approving it
+    against any transaction hash substituted into the body afterwards."""
+    created = _create(client).json()
+    unbound = _sign(
+        OWNER,
+        action_message(created["activation_id"], "approve", created["auth_nonce"]),
+    )
+
+    response = client.post(
+        f"/api/activations/{created['activation_id']}/approve",
+        json={
+            "nonce": created["auth_nonce"],
+            "owner_signature": unbound,
+            "payment_id": "pay_substituted",
+        },
+    )
+
+    # A readable signature over a different sentence recovers to a different address, so
+    # it is reported as somebody else's signature rather than as an unreadable one.
+    assert response.status_code == 403
+    assert response.json()["error_code"] == "not_owner"
+
+
+def test_a_signature_replayed_after_a_failed_call_is_still_stale(client):
+    """The nonce is spent when it is presented, not when the work succeeds. Otherwise a
+    call that failed would leave its signature live for a second attempt."""
+    created = _create(client).json()
+    assert _act(client, created, "pause").status_code == 409
+
+    replayed = _act(client, created, "cancel")
+
+    assert replayed.status_code == 409
+    assert replayed.json()["error_code"] == "stale_nonce"
+    assert (
+        client.get(f"/api/activations/{created['activation_id']}").json()["auth_nonce"]
+        != created["auth_nonce"]
+    )
+
+
+def test_an_owner_may_not_hold_more_open_activations_than_the_cap(client):
+    for _ in range(5):
+        assert _create(client).status_code == 201
+
+    refused = _create(client)
+
+    assert refused.status_code == 422
+    assert refused.json()["error_code"] == "too_many_activations"
+
+    # Finishing one frees the slot: the cap is on what is open, not on what was ever made.
+    listed = client.get(f"/api/activations?owner={OWNER.address}").json()
+    _act(client, listed["activations"][0], "cancel")
+    assert _create(client).status_code == 201
+
+
+def test_an_oversized_inputs_or_policy_is_refused_before_it_is_stored(client):
+    response = _create(client, inputs={"wallet": OWNER.address, "pad": "x" * 20_000})
+
+    assert response.status_code == 413
+    assert response.json()["error_code"] == "invalid_json"
+
+    padded = {**POLICY, "note": "y" * 9_000}
+    assert _create(client, kind="persistent", policy=padded).status_code == 413
+
+
+def test_a_policy_field_of_the_wrong_type_is_a_422_and_never_a_500(client):
+    for policy in (
+        {**POLICY, "contract_allowlist": "0xnot-a-list"},
+        {**POLICY, "per_action_limit_atomic": []},
+        {**POLICY, "max_slippage_bps": {"bad": 1}},
+        {**POLICY, "expires_at": 1234},
+        {**POLICY, "emergency_pause": "yes"},
+        {**POLICY, "total_cap_atomic": {"0x1": "not-a-number"}},
+    ):
+        response = _create(client, kind="persistent", policy=policy)
+
+        assert response.status_code == 422, policy
+        assert response.json()["error_code"] == "policy_violation"
+
+
+def test_nft_approvals_must_be_a_list_of_objects(client):
+    for approvals in ("0xnope", [1, 2], [{"contract": "0x1"}]):
+        response = _create(
+            client, kind="persistent", policy=POLICY, nft_approvals=approvals
+        )
+
+        assert response.status_code in (409, 422), approvals
+        assert response.json()["error_code"] == "policy_violation"

@@ -192,6 +192,12 @@ CREATE TABLE IF NOT EXISTS activation_nonces (
 # prompt, short enough that a nonce left open in a tab is not still open tomorrow.
 ACTIVATION_NONCE_TTL_SECONDS = 600
 MAX_ACTIVATION_PAGE = 200
+# How many create nonces one owner may hold at once, and how many open persistent
+# activations. Both bound work a stranger can ask this process to do on an address
+# they do not control: a nonce costs a row, an open session costs a keystore and a
+# slice of every tick.
+MAX_LIVE_NONCES_PER_OWNER = 20
+MAX_OPEN_ACTIVATIONS_PER_OWNER = 5
 
 
 def _now() -> str:
@@ -208,7 +214,9 @@ class StaleActivation(ValueError):
     """The stored activation moved between the read and the write, so nothing was written."""
 
 
-def _activation_row(activation: Activation) -> tuple:
+def _activation_row(activation: Activation, *, with_nonce: bool = True) -> tuple:
+    """The row, in column order. `with_nonce=False` drops `auth_nonce` for the update
+    statement, which must never write it — see `save_activation`."""
     return (
         activation.activation_id,
         activation.service_id,
@@ -224,7 +232,7 @@ def _activation_row(activation: Activation) -> tuple:
         dumps([receipt.to_dict() for receipt in activation.receipts]),
         dumps([event.to_dict() for event in activation.events]),
         dumps(activation.next_action.to_dict()),
-        activation.auth_nonce,
+        *((activation.auth_nonce,) if with_nonce else ()),
         activation.created_at,
         activation.updated_at,
         activation.expires_at,
@@ -1155,6 +1163,12 @@ class Store:
         already been broadcast. The read-modify-write is made safe by the row's own
         `updated_at` rather than by a lock the API would have to hold across a chain call.
 
+        `auth_nonce` is deliberately NOT in the SET. `rotate_auth_nonce` is its only
+        writer, and it runs before the work this saves — so writing the in-memory copy
+        back here would restore the nonce that request just spent, and a replayed
+        signature would be accepted a second time. The one column this statement must not
+        touch is the one that makes a signature single-use.
+
         The bound this carries, stated rather than left to be discovered: the guard is a
         timestamp, so two writers whose mutations land inside the same microsecond are
         indistinguishable to it and the second would overwrite the first. Every write to
@@ -1168,11 +1182,11 @@ class Store:
                    SET service_id = ?, category = ?, kind = ?, owner = ?, state = ?,
                        quote_json = ?, policy_json = ?, session_json = ?,
                        inputs_json = ?, result_json = ?, receipts_json = ?,
-                       events_json = ?, next_action_json = ?, auth_nonce = ?,
+                       events_json = ?, next_action_json = ?,
                        created_at = ?, updated_at = ?, expires_at = ?
                    WHERE activation_id = ? AND updated_at = ?""",
                 (
-                    *_activation_row(activation)[1:],
+                    *_activation_row(activation, with_nonce=False)[1:],
                     activation.activation_id,
                     expected_updated_at,
                 ),
@@ -1211,6 +1225,17 @@ class Store:
             conn.execute(
                 "DELETE FROM activation_nonces WHERE expires_at <= ?",
                 (moment.isoformat(),),
+            )
+            # One owner cannot hold an unbounded number of live nonces: the route is
+            # unauthenticated by design — anyone may ask for one — so the oldest are
+            # dropped rather than left to accumulate a row per request.
+            conn.execute(
+                """DELETE FROM activation_nonces
+                   WHERE owner = ? AND nonce NOT IN (
+                       SELECT nonce FROM activation_nonces WHERE owner = ?
+                       ORDER BY issued_at DESC, nonce DESC LIMIT ?
+                   )""",
+                (owner, owner, MAX_LIVE_NONCES_PER_OWNER - 1),
             )
             conn.execute(
                 """INSERT INTO activation_nonces
@@ -1264,6 +1289,17 @@ class Store:
                 (_now(), activation_id),
             )
         return cursor.rowcount == 1
+
+    def open_activation_count(self, owner: str, states) -> int:
+        """How many of this owner's activations are in any of `states`."""
+        placeholders = ",".join("?" for _ in states)
+        with self._conn() as conn:
+            row = conn.execute(
+                f"""SELECT COUNT(*) AS n FROM activations
+                    WHERE owner = ? AND state IN ({placeholders})""",
+                (owner, *states),
+            ).fetchone()
+        return int(row["n"])
 
     def activations_by_state(self) -> dict[str, int]:
         """How many activations stand in each state. Empty where none exist."""

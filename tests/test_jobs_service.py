@@ -61,9 +61,13 @@ POLICY = {
 class FakeEth:
     def __init__(self):
         self.receipts = {}
+        self.transactions = {}
 
     def get_transaction_receipt(self, tx_hash):
         return self.receipts.get(tx_hash)
+
+    def get_transaction(self, tx_hash):
+        return self.transactions.get(tx_hash)
 
     def gas_price_property(self):
         return 10**9
@@ -119,6 +123,16 @@ class FakeRpc:
 
 def _topic(address: str) -> str:
     return "0x" + "00" * 12 + address.removeprefix("0x").lower()
+
+
+def _funding_transaction(session_address, *, to=USDT, sender=OWNER):
+    """What `eth_getTransaction` answers for a funding transfer the owner sent."""
+    return {
+        "from": sender,
+        "to": to,
+        "input": "0xa9059cbb",
+        "value": 0,
+    }
 
 
 def _transfer_receipt(session_address, *, token=USDT, amount=500 * 10**18, status=1):
@@ -471,7 +485,14 @@ def test_an_unsettled_or_missing_payment_is_a_policy_violation(store):
 # -- persistent ---------------------------------------------------------------
 
 
-def _persistent(store, rpc=None):
+def _persistent(store, rpc=None, *, nft_approvals=(), mint=True):
+    """One persistent activation, walked the way production walks it.
+
+    The web process mints nothing, so `create` leaves the activation in
+    `awaiting_session` with no address. `mint_session` is the tick's job and is called
+    here explicitly, because a test that skipped it would be testing a flow that no
+    longer exists.
+    """
     service = _service(store, rpc=rpc)
     created = service.create(
         "range-doctor",
@@ -479,13 +500,30 @@ def _persistent(store, rpc=None):
         owner=OWNER,
         inputs={"wallet": OWNER},
         policy=POLICY,
+        nft_approvals=nft_approvals,
     )
-    return service, created
+    if not mint:
+        return service, created
+    expected = created.updated_at
+    service.mint_session(created)
+    store.save_activation(created, expected_updated_at=expected)
+    return service, store.get_activation(created.activation_id)
 
 
-def test_a_persistent_create_makes_a_session_key_and_keeps_the_keystore_out_of_it(
-    store,
-):
+def test_a_persistent_create_mints_no_key_because_the_web_process_holds_none(store):
+    """The architecture in one test: the process that answers the request cannot make a
+    session key, so it says so instead of showing an address that does not exist."""
+    service, created = _persistent(store, mint=False)
+
+    assert created.state == "awaiting_session"
+    assert created.session is None
+    assert store.get_session(created.activation_id) == {}
+    assert created.next_action.kind == "wait"
+    assert created.next_action.detail["reason"] == "session being created"
+    assert created.next_action.detail["poll_seconds"] == 5
+
+
+def test_the_tick_mints_the_key_and_asks_the_owner_to_fund_the_address(store):
     service, created = _persistent(store)
 
     row = store.get_session(created.activation_id)
@@ -497,6 +535,7 @@ def test_a_persistent_create_makes_a_session_key_and_keeps_the_keystore_out_of_i
         "funded_atomic",
         "spent_atomic",
     }
+    assert created.state == "awaiting_session"
     assert created.next_action.kind == "fund_session"
     assert [item["token"] for item in created.next_action.detail["requirements"]] == [
         USDT
@@ -515,20 +554,25 @@ def test_the_native_gas_allowance_is_not_a_funding_requirement(store):
     )
 
 
-def test_no_master_password_refuses_a_persistent_activation_outright(store, tmp_path):
+def test_a_web_process_with_no_master_password_still_creates_the_activation(store):
+    """It never needed one. Creating is the web process's job; minting is the tick's, and
+    that is the only step a missing master password can stop."""
     service = ActivationService(
         store, services={"range-doctor": get_service("range-doctor")}, environment={}
     )
 
+    created = service.create(
+        "range-doctor",
+        kind="persistent",
+        owner=OWNER,
+        inputs={"wallet": OWNER},
+        policy=POLICY,
+    )
+
+    assert created.state == "awaiting_session"
+    assert store.count_activations() == 1
     with pytest.raises(SessionsUnavailable):
-        service.create(
-            "range-doctor",
-            kind="persistent",
-            owner=OWNER,
-            inputs={"wallet": OWNER},
-            policy=POLICY,
-        )
-    assert store.count_activations() == 0
+        service.mint_session(created)
 
 
 def test_a_matching_funding_transfer_moves_the_session_to_active(store):
@@ -536,6 +580,7 @@ def test_a_matching_funding_transfer_moves_the_session_to_active(store):
     service, created = _persistent(store, rpc=rpc)
     tx_hash = "0x" + "11" * 32
     rpc.w3.eth.receipts[tx_hash] = _transfer_receipt(created.session["address"])
+    rpc.w3.eth.transactions[tx_hash] = _funding_transaction(created.session["address"])
 
     activation = service.approve(created.activation_id, tx_hash=tx_hash)
 
@@ -556,7 +601,7 @@ def test_a_transaction_that_did_not_succeed_funds_nothing(store):
     with pytest.raises(PolicyViolation, match="did not succeed on chain"):
         service.approve(created.activation_id, tx_hash=tx_hash)
 
-    assert store.get_activation(created.activation_id).state == "authorized"
+    assert store.get_activation(created.activation_id).state == "awaiting_session"
 
 
 def test_a_transfer_to_somebody_else_or_short_of_the_cap_funds_nothing(store):
@@ -577,7 +622,7 @@ def test_a_transfer_to_somebody_else_or_short_of_the_cap_funds_nothing(store):
         with pytest.raises(PolicyViolation, match="carries no log matching"):
             service.approve(created.activation_id, tx_hash=tx_hash)
 
-    assert store.get_activation(created.activation_id).state == "authorized"
+    assert store.get_activation(created.activation_id).state == "awaiting_session"
 
 
 def test_a_transaction_the_chain_has_not_mined_is_refused_rather_than_a_crash(store):
@@ -598,7 +643,7 @@ def test_a_transaction_the_chain_has_not_mined_is_refused_rather_than_a_crash(st
     with pytest.raises(PolicyViolation, match="not mined yet, or no node answered"):
         service.approve(created.activation_id, tx_hash="0x" + "99" * 32)
 
-    assert store.get_activation(created.activation_id).state == "authorized"
+    assert store.get_activation(created.activation_id).state == "awaiting_session"
 
 
 def test_a_transaction_with_no_receipt_at_all_is_refused(store):
@@ -607,7 +652,7 @@ def test_a_transaction_with_no_receipt_at_all_is_refused(store):
     with pytest.raises(PolicyViolation, match="has no receipt on chain"):
         service.approve(created.activation_id, tx_hash="0x" + "98" * 32)
 
-    assert store.get_activation(created.activation_id).state == "authorized"
+    assert store.get_activation(created.activation_id).state == "awaiting_session"
 
 
 def test_approving_a_persistent_activation_with_no_transaction_is_refused(store):
@@ -619,21 +664,16 @@ def test_approving_a_persistent_activation_with_no_transaction_is_refused(store)
 
 def test_an_nft_approval_requirement_is_matched_by_its_own_erc721_log(store):
     rpc = FakeRpc()
-    service = _service(store, rpc=rpc)
-    created = service.create(
-        "range-doctor",
-        kind="persistent",
-        owner=OWNER,
-        inputs={"wallet": OWNER},
-        policy=POLICY,
-        nft_approvals=({"contract": NFPM, "token_id": 7141050},),
+    service, created = _persistent(
+        store, rpc=rpc, nft_approvals=({"contract": NFPM, "token_id": 7141050},)
     )
     assert len(created.next_action.detail["requirements"]) == 2
 
     funding = "0x" + "21" * 32
     rpc.w3.eth.receipts[funding] = _transfer_receipt(created.session["address"])
+    rpc.w3.eth.transactions[funding] = _funding_transaction(created.session["address"])
     partly = service.approve(created.activation_id, tx_hash=funding)
-    assert partly.state == "authorized"
+    assert partly.state == "awaiting_session"
     assert partly.next_action.kind == "approve_nft"
 
     approval = "0x" + "22" * 32
@@ -662,6 +702,7 @@ def test_pause_stops_the_session_and_approve_resumes_it(store):
     service, created = _persistent(store, rpc=rpc)
     tx_hash = "0x" + "31" * 32
     rpc.w3.eth.receipts[tx_hash] = _transfer_receipt(created.session["address"])
+    rpc.w3.eth.transactions[tx_hash] = _funding_transaction(created.session["address"])
     service.approve(created.activation_id, tx_hash=tx_hash)
 
     paused = service.pause(created.activation_id)
@@ -672,35 +713,39 @@ def test_pause_stops_the_session_and_approve_resumes_it(store):
     assert "resumed the session" in resumed.events[-1].reason
 
 
-def test_revoke_sweeps_the_session_and_closes_the_key(store):
+def test_revoke_records_the_intent_and_does_not_claim_the_money_is_back(store):
+    """The web process holds no key, so it cannot sweep and must not say it did. It
+    records `revoking`; the tick proves the balances are zero before anything closes."""
     rpc = FakeRpc()
     service, created = _persistent(store, rpc=rpc)
 
     activation = service.revoke(created.activation_id)
 
-    assert activation.state == "revoked"
-    assert store.get_session(created.activation_id)["revoked_at"] is not None
+    assert activation.state == "revoking"
+    assert activation.next_action.detail["closing_to"] == "revoked"
+    assert store.get_session(created.activation_id)["revoked_at"] is None
 
 
-def test_cancelling_a_persistent_activation_revokes_it(store):
+def test_cancelling_a_persistent_activation_starts_the_same_closing(store):
     service, created = _persistent(store, rpc=FakeRpc())
 
     activation = service.cancel(created.activation_id)
 
-    assert activation.state == "revoked"
+    assert activation.state == "revoking"
+    assert activation.next_action.detail["closing_to"] == "revoked"
 
 
-def test_a_sweep_that_fails_is_recorded_and_does_not_block_the_revocation(store):
-    class BrokenRpc(FakeRpc):
-        def __call__(self, do):
-            raise RuntimeError("every endpoint failed")
+def test_a_session_still_holding_a_balance_does_not_close(store):
+    service, created = _persistent(store, rpc=FakeRpc())
+    closing = service.revoke(created.activation_id)
 
-    service, created = _persistent(store, rpc=BrokenRpc())
+    assert service.finish_closing(closing, {USDT: 5}) is False
+    assert closing.state == "revoking"
+    assert any("still holding" in event.reason for event in closing.events)
 
-    activation = service.revoke(created.activation_id)
-
-    assert activation.state == "revoked"
-    assert any("could not be swept" in event.reason for event in activation.events)
+    assert service.finish_closing(closing, {}) is True
+    assert closing.state == "revoked"
+    assert store.get_session(created.activation_id)["revoked_at"] is not None
 
 
 def test_an_expired_policy_closes_the_activation_and_refuses_the_call(store):
@@ -718,8 +763,8 @@ def test_an_expired_policy_closes_the_activation_and_refuses_the_call(store):
         service.pause(created.activation_id)
 
     stored = store.get_activation(created.activation_id)
-    assert stored.state == "expired"
-    assert stored.next_action.kind == "none"
+    assert stored.state == "revoking"
+    assert stored.next_action.detail["closing_to"] == "expired"
 
 
 # -- prepared calls -----------------------------------------------------------
@@ -730,6 +775,7 @@ def _needs_approval(store, simulation):
     service, created = _persistent(store, rpc=rpc)
     tx_hash = "0x" + "41" * 32
     rpc.w3.eth.receipts[tx_hash] = _transfer_receipt(created.session["address"])
+    rpc.w3.eth.transactions[tx_hash] = _funding_transaction(created.session["address"])
     service.approve(created.activation_id, tx_hash=tx_hash)
     activation = store.get_activation(created.activation_id)
     expected = activation.updated_at
@@ -788,12 +834,62 @@ def test_an_owner_signed_action_returns_the_session_to_active(store):
         "blockNumber": 200,
         "logs": [],
     }
+    service.rpc.w3.eth.transactions[tx_hash] = {
+        "from": OWNER,
+        "to": ROUTER,
+        "input": "0x38ed1739" + "00" * 32,
+        "value": 0,
+    }
 
     activation = service.approve(created.activation_id, tx_hash=tx_hash)
 
     assert activation.state == "active"
     assert activation.receipts[-1].execution["signed_by"] == "owner"
     assert activation.receipts[-1].execution["gas_used"] == 210_000
+
+
+def test_a_transaction_that_is_not_the_prepared_call_does_not_close_the_loop(store):
+    """A mined, successful transaction is not evidence on its own: any transaction the
+    owner happened to send would satisfy that. The bytes have to be the bytes."""
+    service, created = _needs_approval(store, {"ok": True, "gas_estimate": 180_000})
+    tx_hash = "0x" + "53" * 32
+    service.rpc.w3.eth.receipts[tx_hash] = {
+        "status": 1,
+        "gasUsed": 21_000,
+        "blockNumber": 202,
+        "logs": [],
+    }
+    service.rpc.w3.eth.transactions[tx_hash] = {
+        "from": OWNER,
+        "to": USDT,
+        "input": "0xa9059cbb" + "00" * 32,
+        "value": 0,
+    }
+
+    with pytest.raises(PolicyViolation, match="not any of the 1 calls Docket prepared"):
+        service.approve(created.activation_id, tx_hash=tx_hash)
+
+    assert store.get_activation(created.activation_id).state == "needs_approval"
+
+
+def test_a_transaction_somebody_else_sent_does_not_close_the_loop(store):
+    service, created = _needs_approval(store, {"ok": True, "gas_estimate": 180_000})
+    tx_hash = "0x" + "54" * 32
+    service.rpc.w3.eth.receipts[tx_hash] = {
+        "status": 1,
+        "gasUsed": 21_000,
+        "blockNumber": 203,
+        "logs": [],
+    }
+    service.rpc.w3.eth.transactions[tx_hash] = {
+        "from": STRANGER,
+        "to": ROUTER,
+        "input": "0x38ed1739" + "00" * 32,
+        "value": 0,
+    }
+
+    with pytest.raises(PolicyViolation, match="not by this activation's owner"):
+        service.approve(created.activation_id, tx_hash=tx_hash)
 
 
 def test_an_owner_signed_action_that_reverted_leaves_the_activation_waiting(store):
@@ -804,6 +900,12 @@ def test_an_owner_signed_action_that_reverted_leaves_the_activation_waiting(stor
         "gasUsed": 210_000,
         "blockNumber": 201,
         "logs": [],
+    }
+    service.rpc.w3.eth.transactions[tx_hash] = {
+        "from": OWNER,
+        "to": ROUTER,
+        "input": "0x38ed1739" + "00" * 32,
+        "value": 0,
     }
 
     with pytest.raises(PolicyViolation, match="the action did not happen"):
@@ -907,3 +1009,33 @@ def test_an_activation_id_cannot_be_created_twice(store):
 
     with pytest.raises(ValueError, match="already exists"):
         store.create_activation(created)
+
+
+def test_a_stale_save_cannot_resurrect_a_spent_nonce(store):
+    """`rotate_auth_nonce` is the only writer of that column. If `save_activation` wrote
+    it too, the request that had just spent a nonce would put it back on its way out and
+    a replayed signature would be accepted a second time."""
+    service = _service(store)
+    created = service.create(
+        "range-doctor", kind="one_shot", owner=OWNER, inputs={"wallet": OWNER}
+    )
+    stale = store.get_activation(created.activation_id)
+    assert store.rotate_auth_nonce(
+        created.activation_id, expected_nonce=created.auth_nonce, new_nonce="fresh"
+    )
+
+    stale.transition("refunded", reason="a later writer", actor="user")
+    store.save_activation(stale, expected_updated_at=created.updated_at)
+
+    assert store.get_activation(created.activation_id).auth_nonce == "fresh"
+    assert not store.rotate_auth_nonce(
+        created.activation_id, expected_nonce=created.auth_nonce, new_nonce="again"
+    )
+
+
+def test_one_owner_cannot_hold_an_unbounded_number_of_live_create_nonces(store):
+    for index in range(25):
+        store.issue_activation_nonce(nonce=f"n{index}", owner=OWNER, message="m")
+
+    assert store.consume_activation_nonce("n24", OWNER)
+    assert not store.consume_activation_nonce("n0", OWNER)

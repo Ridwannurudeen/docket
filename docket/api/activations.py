@@ -49,11 +49,37 @@ from ..jobs.service import (
     StaleActivation,
     UnknownService,
 )
-from ..store import ACTIVATION_NONCE_TTL_SECONDS, MAX_ACTIVATION_PAGE
+from ..store import (
+    ACTIVATION_NONCE_TTL_SECONDS,
+    MAX_ACTIVATION_PAGE,
+    MAX_OPEN_ACTIVATIONS_PER_OWNER,
+)
 
 # One megabyte, the same ceiling `POST /hire/{service_id}` reads a body under. An
 # activation body is a service request plus a policy; nothing legitimate approaches it.
 MAX_BODY_BYTES = 1_048_576
+# A service request body and a session policy, each bounded on its own. The whole-body
+# ceiling above is generous because it is shared with the hire route; these two are
+# the fields an activation actually stores and serves back, forever, to anyone who
+# reads the activation.
+MAX_INPUTS_BYTES = 16_384
+MAX_POLICY_BYTES = 8_192
+# States in which an activation is still Docket's problem: it occupies a slot, and for
+# a persistent one a keystore and a slice of every tick.
+OPEN_STATES = (
+    "quoted",
+    "awaiting_wallet",
+    "authorized",
+    "awaiting_session",
+    "paid_or_reserved",
+    "queued",
+    "running",
+    "needs_approval",
+    "funded",
+    "active",
+    "paused",
+    "revoking",
+)
 
 
 def _error(status_code: int, error_code: str, message: str) -> JSONResponse:
@@ -101,6 +127,23 @@ async def _read_json(request: Request):
     if not isinstance(payload, dict):
         return None, _error(400, "invalid_json", "The body must be a JSON object.")
     return payload, None
+
+
+def _oversized(value, ceiling: int, field: str):
+    """Refuse a field that would be stored and served back for ever, before storing it."""
+    if value is None:
+        return None
+    try:
+        size = len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
+    except (TypeError, ValueError):
+        return _error(400, "invalid_json", f"{field} is not JSON Docket can store.")
+    if size > ceiling:
+        return _error(
+            413,
+            "invalid_json",
+            f"{field} is {size} bytes; the limit is {ceiling}.",
+        )
+    return None
 
 
 def _service_error(exc: Exception) -> JSONResponse:
@@ -198,7 +241,18 @@ def activations_router(
         # Checksummed before it becomes a filter: an activation is stored under its
         # checksummed owner, and a wallet that hands back a lowercase address would
         # otherwise be told it owns nothing.
+        # Required, not optional. Without it this route enumerates every activation on
+        # the site, which is a directory of who is running what — and the plan writes the
+        # route as `?owner=0x..` for that reason. A `state=` filter alone is not a
+        # narrowing anybody is entitled to.
         owner = _checksum_or_none(request.query_params.get("owner"))
+        if owner is None:
+            return _error(
+                422,
+                "missing_field",
+                "owner is required and must be an address: "
+                "/api/activations?owner=0x…",
+            )
         state = request.query_params.get("state") or None
         try:
             limit = int(request.query_params.get("limit", 50))
@@ -254,6 +308,24 @@ def activations_router(
         inputs = payload.get("inputs") or {}
         if not isinstance(inputs, dict):
             return _error(400, "invalid_json", "inputs must be a JSON object.")
+        oversized = _oversized(inputs, MAX_INPUTS_BYTES, "inputs") or _oversized(
+            payload.get("policy"), MAX_POLICY_BYTES, "policy"
+        )
+        if oversized is not None:
+            return oversized
+        open_activations = await run_in_threadpool(
+            store.open_activation_count,
+            _checksum_or_none(owner) or owner,
+            OPEN_STATES,
+        )
+        if open_activations >= MAX_OPEN_ACTIVATIONS_PER_OWNER:
+            return _error(
+                422,
+                "too_many_activations",
+                f"This owner already has {open_activations} activations that have not "
+                f"finished; the limit is {MAX_OPEN_ACTIVATIONS_PER_OWNER}. Cancel or "
+                "revoke one before starting another.",
+            )
 
         message = create_message(service_id, str(payload["nonce"]))
         if not verify_owner_signature(owner, message, str(payload["owner_signature"])):
@@ -319,12 +391,16 @@ def activations_router(
                 "missing_field",
                 "owner_signature and nonce are required on every mutating call.",
             )
+        # The evidence the call carries is part of what was signed. A signature over
+        # "approve this activation" alone would authorise approving it against any
+        # transaction hash a middle could substitute afterwards.
+        binds = str(payload.get("tx_hash") or payload.get("payment_id") or "")
         activation = await run_in_threadpool(store.get_activation, activation_id)
         if activation is None:
             return _error(
                 404, "activation_not_found", f"No activation {activation_id!r}."
             )
-        message = action_message(activation_id, action, nonce)
+        message = action_message(activation_id, action, nonce, binds)
         recovered = recover_signer(message, signature)
         if recovered is None:
             return _error(
