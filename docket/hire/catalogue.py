@@ -572,17 +572,50 @@ def _run_grid_operator(payload: dict) -> dict:
     )
 
 
+def _observation_block(payload: dict) -> int | None:
+    """The block a caller pinned this read to, validated the way the range read is.
+
+    A paired experiment needs both arms answering about the same chain state, and "latest"
+    moves between them. v3-09 records an answer about a different block as a blocked
+    contract rather than a worse answer, so the block travels into every call rather than
+    being accepted and ignored.
+    """
+    raw = payload.get("observation_block")
+    if isinstance(raw, bool):
+        raise ValueError("observation_block must be a positive integer block number")
+    try:
+        block = None if raw is None else int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "observation_block must be a positive integer block number"
+        ) from exc
+    if block is not None and (
+        block <= 0 or (isinstance(raw, float) and raw != block)
+    ):
+        raise ValueError("observation_block must be a positive integer block number")
+    return block
+
+
 def _run_health_guard(payload: dict) -> dict:
-    """A preview, and structurally only a preview.
+    """A bounded read of one Venus account, at the head or at a block the caller pinned.
 
     `HealthGuardPreview` is the only class in its module: there is no armed counterpart to
-    construct by mistake, and this build ships no path that submits a Venus call at all.
-    The caps below bound what the drafted actions may commit; the trigger is the shortfall
-    Venus has to be reporting before anything is drafted.
+    construct by mistake, and this path submits no Venus call at all. The caps below bound
+    what the drafted actions may commit; the trigger is the shortfall Venus has to be
+    reporting before anything is drafted.
+
+    A pinned read needs an archive endpoint and is refused without one. Answering from the
+    head instead would be the one failure the registered contract is written to catch, and
+    it would look exactly like success.
     """
+    from ..agents.pancake.positions import PrunedStateError
     from ..agents.venus.guard import GuardPolicy, HealthGuardPreview, MarketPolicy
     from ..agents.venus.markets import VenusReader
 
+    observation_block = _observation_block(payload)
+    source_refs = payload.get("source_refs")
+    if source_refs is not None and not isinstance(source_refs, list):
+        raise ValueError("source_refs must be a list of typed source references")
     trigger = payload.get("trigger_shortfall_usd")
     policy = GuardPolicy(
         markets=(
@@ -601,9 +634,22 @@ def _run_health_guard(payload: dict) -> dict:
         ),
         trigger_shortfall_usd=GUARD_TRIGGER_USD if trigger is None else int(trigger),
     )
-    return HealthGuardPreview(reader=VenusReader(), policy=policy).preview(
-        payload["wallet"]
-    )
+    reader = VenusReader()
+    try:
+        result = HealthGuardPreview(reader=reader, policy=policy).preview(
+            payload["wallet"], observation_block=observation_block
+        )
+    except PrunedStateError as exc:
+        raise ValueError(
+            f"observation_block {observation_block} could not be read: {exc}"
+        ) from exc
+    # Stated rather than inferred: a caller that asked about a block has to be able to see
+    # which block it was answered about without re-deriving it from the rows.
+    result["requested_observation_block"] = observation_block
+    result["as_of_block"] = result["account"]["as_of_block"]
+    result["address"] = result["account"]["address"]
+    result["sources"] = source_refs
+    return result
 
 
 def _run_yield_router(payload: dict) -> dict:
@@ -1138,6 +1184,33 @@ SERVICES: dict[str, Service] = {
                 "description": (
                     "the shortfall Venus has to be reporting, 1e18-scaled USD as the "
                     "comptroller reports it, before any action is drafted; zero is refused"
+                ),
+            },
+            "observation_block": {
+                "type": "integer",
+                "required": False,
+                "advanced": True,
+                "description": (
+                    "read this account at this BSC block instead of the latest one. Every "
+                    "call behind the answer is pinned to it — the comptroller, each "
+                    "vToken's snapshot, the collateral factors and the oracle prices — so "
+                    "two readers at different times get the same result. Give it when the "
+                    "answer has to be reproducible. Public dataseeds prune, so a "
+                    "deployment without an archive endpoint refuses a pinned read with "
+                    "observation_block_unsupported rather than answering about the head, "
+                    "and a block the reachable nodes no longer hold is a stated read "
+                    "failure rather than an empty account"
+                ),
+            },
+            "source_refs": {
+                "type": "array",
+                "items": {"type": "object"},
+                "required": False,
+                "advanced": True,
+                "description": (
+                    "the frozen typed source references bound to this observation. They "
+                    "are echoed back under sources so a recorded pair carries the "
+                    "evidence it was answered against"
                 ),
             },
             "min_collateral_ratio": {

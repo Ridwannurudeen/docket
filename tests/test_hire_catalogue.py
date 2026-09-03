@@ -431,8 +431,12 @@ def test_only_mapped_warden_and_yield_runners_gain_measured_value(monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
-        def preview(self, wallet):
-            return {"kind": "health", "wallet": wallet}
+        def preview(self, wallet, *, observation_block=None):
+            return {
+                "kind": "health",
+                "wallet": wallet,
+                "account": {"as_of_block": 1, "address": wallet},
+            }
 
     class Record:
         def __init__(self, **kwargs):
@@ -466,7 +470,14 @@ def test_only_mapped_warden_and_yield_runners_gain_measured_value(monkeypatch):
     solvent = get_service("solvent-signal").run({})
 
     assert grid == {"kind": "grid", "filled": []}
-    assert health == {"kind": "health", "wallet": "0xwallet"}
+    # The runner adds the four fields v3-09 reads: which block it answered about, the
+    # address it answered for, and the source references it was handed.
+    assert health["kind"] == "health"
+    assert health["wallet"] == "0xwallet"
+    assert health["requested_observation_block"] is None
+    assert health["as_of_block"] == 1
+    assert health["address"] == "0xwallet"
+    assert health["sources"] is None
     assert solvent == {"regime": "neutral"}
     assert "measured_value" not in grid | health | solvent
     assert warden["measured_value"] == {

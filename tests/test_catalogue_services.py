@@ -7,6 +7,8 @@ The vocabulary ban lives with the other catalogue tests, where it covers every
 service at once.
 """
 
+import pytest
+
 from docket.hire.catalogue import SERVICES, get_service
 
 OFFERED = ("range-doctor", "solvent-signal", "warden-scan")
@@ -55,6 +57,9 @@ def test_the_two_shelves_stocked_last_are_hireable_and_wired_to_their_previews()
 
     assert get_service("health-guard").run is _run_health_guard
     assert get_service("yield-router").run is _run_yield_router
+
+
+CONTROLLED = "0xe55816904796341bf8535e25f6c8b647927fc946"
 
 
 def test_the_health_guard_reads_one_address_and_takes_nothing_else_required():
@@ -151,3 +156,71 @@ def test_every_service_has_a_one_clause_job_summary():
     assert {
         service_id: service.job_summary for service_id, service in SERVICES.items()
     } == expected
+
+
+def test_the_health_guard_answers_about_the_block_it_was_asked_about():
+    """v3-09's agent contract is "the endpoint must answer about that account at that
+    block". The harness posts observation_block and source_refs, so the runner has to
+    carry both into the read and back into the response — an answer about a different
+    block is a blocked contract rather than a worse answer."""
+    from docket.hire import catalogue
+
+    seen = {}
+
+    class _Preview:
+        def __init__(self, *, reader, policy):
+            seen["policy"] = policy
+
+        def preview(self, wallet, *, observation_block=None):
+            seen["wallet"] = wallet
+            seen["block"] = observation_block
+            return {
+                "account": {"as_of_block": observation_block or 9, "address": wallet},
+                "actions": [],
+            }
+
+    import docket.agents.venus.guard as guard_module
+
+    saved = guard_module.HealthGuardPreview
+    guard_module.HealthGuardPreview = _Preview
+    try:
+        refs = [{"kind": "venus_frame", "url": "https://example/frame"}]
+        result = catalogue._run_health_guard(
+            {
+                "wallet": CONTROLLED,
+                "observation_block": 119_627_412,
+                "source_refs": refs,
+            }
+        )
+    finally:
+        guard_module.HealthGuardPreview = saved
+
+    assert seen["block"] == 119_627_412
+    assert result["requested_observation_block"] == 119_627_412
+    assert result["as_of_block"] == 119_627_412
+    assert result["address"] == CONTROLLED
+    assert result["sources"] == refs
+
+
+@pytest.mark.parametrize("bad", [0, -1, "latest", 1.5, True])
+def test_a_block_that_is_not_a_positive_integer_is_refused(bad):
+    from docket.hire import catalogue
+
+    with pytest.raises(ValueError, match="positive integer block number"):
+        catalogue._observation_block({"observation_block": bad})
+
+
+def test_source_refs_must_be_a_list_of_references():
+    from docket.hire import catalogue
+
+    with pytest.raises(ValueError, match="source_refs must be a list"):
+        catalogue._run_health_guard(
+            {"wallet": CONTROLLED, "source_refs": {"kind": "venus_frame"}}
+        )
+
+
+def test_the_pinned_inputs_are_marked_for_the_advanced_disclosure():
+    schema = get_service("health-guard").input_schema
+    advanced = {name for name, field in schema.items() if field.get("advanced")}
+    assert advanced == {"observation_block", "source_refs"}
+    assert "observation_block_unsupported" in schema["observation_block"]["description"]
