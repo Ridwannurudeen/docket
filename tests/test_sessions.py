@@ -12,6 +12,7 @@ import pytest
 from eth_account import Account
 from web3 import Web3
 
+from docket.execution.simulate import swap_calldata
 from docket.jobs.executors.base import PreparedCall
 from docket.jobs.models import (
     Activation,
@@ -28,6 +29,12 @@ from docket.sessions.keys import (
     unlock,
 )
 from docket.sessions.policy import NATIVE_TOKEN, SessionPolicy
+from docket.sessions.spend import (
+    UnmeasuredSpend,
+    batch_spend,
+    call_spend,
+    needs_underlying,
+)
 from docket.sessions.sweep import SweepFailed, sweep
 
 OWNER = "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"
@@ -56,10 +63,25 @@ def _policy(**overrides) -> SessionPolicy:
     return SessionPolicy(**fields)
 
 
-def _call(**overrides) -> PreparedCall:
+def _swap_data(amount_in: int, route=(USDT, WBNB)) -> str:
+    """Real router calldata, built by the shipped builder.
+
+    The spend a session is charged is now read out of these bytes, so a fixture carrying
+    a selector and thirty-two zeroes would be testing a decoder against something no
+    router would ever be sent."""
+    return "0x" + swap_calldata(
+        amount_in=amount_in,
+        min_output=1,
+        route=route,
+        recipient=OWNER,
+        deadline=4_102_444_800,
+    ).hex()
+
+
+def _call(amount_in: int = 10 * 10**18, **overrides) -> PreparedCall:
     fields = {
         "to": ROUTER,
-        "data": SWAP_SELECTOR + "00" * 32,
+        "data": _swap_data(amount_in),
         "value_atomic": "0",
         "gas_ceiling": 300_000,
         "deadline": 4_102_444_800,
@@ -425,7 +447,6 @@ def test_execute_simulates_estimates_signs_sends_and_records_the_receipt():
         session=session,
         rpc=FakeRpc(w3),
         policy=_policy(),
-        token_amounts={USDT: 10 * 10**18},
         sleep=lambda _: None,
     )
 
@@ -481,11 +502,10 @@ def test_a_call_outside_the_policy_is_never_sent_and_the_reason_is_recorded():
     with pytest.raises(ExecutionFailed, match="refused by the session policy"):
         execute(
             activation,
-            _call(),
+            _call(amount_in=200 * 10**18),
             session=_session(),
             rpc=FakeRpc(w3),
             policy=_policy(),
-            token_amounts={USDT: 200 * 10**18},
             sleep=lambda _: None,
         )
 
@@ -525,7 +545,6 @@ def test_a_mined_transaction_that_reverted_is_a_failure_and_nothing_is_marked_sp
             session=session,
             rpc=FakeRpc(w3),
             policy=_policy(),
-            token_amounts={USDT: 10 * 10**18},
             sleep=lambda _: None,
         )
 
@@ -621,3 +640,309 @@ def test_a_sweep_of_an_empty_session_sends_nothing():
     w3 = FakeW3(OWNER)
 
     assert sweep(_session(), OWNER, FakeRpc(w3)) == []
+
+
+# -- deriving what a call spends ----------------------------------------------
+
+VUSDT = Web3.to_checksum_address("0xfD5840Cd36d94D7229439859C0112a4185BC0255")
+NPM = Web3.to_checksum_address("0x46A15B0b27311cedF172AB29E4f4766fbE7F4364")
+_erc20 = Web3().eth.contract(
+    abi=[
+        {
+            "name": "approve",
+            "type": "function",
+            "inputs": [
+                {"name": "spender", "type": "address"},
+                {"name": "amount", "type": "uint256"},
+            ],
+            "outputs": [{"name": "", "type": "bool"}],
+        },
+        {
+            "name": "transfer",
+            "type": "function",
+            "inputs": [
+                {"name": "to", "type": "address"},
+                {"name": "amount", "type": "uint256"},
+            ],
+            "outputs": [{"name": "", "type": "bool"}],
+        },
+    ]
+)
+_venus = Web3().eth.contract(
+    abi=[
+        {
+            "name": "repayBorrow",
+            "type": "function",
+            "inputs": [{"name": "repayAmount", "type": "uint256"}],
+            "outputs": [{"name": "", "type": "uint256"}],
+        },
+        {
+            "name": "repayBorrowBehalf",
+            "type": "function",
+            "inputs": [
+                {"name": "borrower", "type": "address"},
+                {"name": "repayAmount", "type": "uint256"},
+            ],
+            "outputs": [{"name": "", "type": "uint256"}],
+        },
+    ]
+)
+_npm = Web3().eth.contract(
+    abi=[
+        {
+            "name": "mint",
+            "type": "function",
+            "inputs": [
+                {
+                    "name": "params",
+                    "type": "tuple",
+                    "components": [
+                        {"name": "token0", "type": "address"},
+                        {"name": "token1", "type": "address"},
+                        {"name": "fee", "type": "uint24"},
+                        {"name": "tickLower", "type": "int24"},
+                        {"name": "tickUpper", "type": "int24"},
+                        {"name": "amount0Desired", "type": "uint256"},
+                        {"name": "amount1Desired", "type": "uint256"},
+                        {"name": "amount0Min", "type": "uint256"},
+                        {"name": "amount1Min", "type": "uint256"},
+                        {"name": "recipient", "type": "address"},
+                        {"name": "deadline", "type": "uint256"},
+                    ],
+                }
+            ],
+            "outputs": [],
+        },
+        {
+            "name": "increaseLiquidity",
+            "type": "function",
+            "inputs": [
+                {
+                    "name": "params",
+                    "type": "tuple",
+                    "components": [
+                        {"name": "tokenId", "type": "uint256"},
+                        {"name": "amount0Desired", "type": "uint256"},
+                        {"name": "amount1Desired", "type": "uint256"},
+                        {"name": "amount0Min", "type": "uint256"},
+                        {"name": "amount1Min", "type": "uint256"},
+                        {"name": "deadline", "type": "uint256"},
+                    ],
+                }
+            ],
+            "outputs": [],
+        },
+        {
+            "name": "collect",
+            "type": "function",
+            "inputs": [
+                {
+                    "name": "params",
+                    "type": "tuple",
+                    "components": [
+                        {"name": "tokenId", "type": "uint256"},
+                        {"name": "recipient", "type": "address"},
+                        {"name": "amount0Max", "type": "uint128"},
+                        {"name": "amount1Max", "type": "uint128"},
+                    ],
+                }
+            ],
+            "outputs": [],
+        },
+    ]
+)
+
+
+def _bare(to, data, value="0") -> PreparedCall:
+    return PreparedCall(
+        to=to,
+        data=data,
+        value_atomic=value,
+        gas_ceiling=300_000,
+        deadline=4_102_444_800,
+        purpose="a call",
+        simulation={"ok": True},
+    )
+
+
+def test_an_erc20_approval_and_transfer_are_denominated_in_the_contract_they_call():
+    approval = _bare(USDT, _erc20.encode_abi("approve", args=[ROUTER, 25 * 10**18]))
+    transfer = _bare(USDT, _erc20.encode_abi("transfer", args=[OWNER, 7 * 10**18]))
+
+    assert call_spend(approval) == {USDT: 25 * 10**18}
+    assert call_spend(transfer) == {USDT: 7 * 10**18}
+
+
+def test_a_swap_is_denominated_in_the_first_hop_of_its_own_path():
+    call = _bare(ROUTER, _swap_data(31 * 10**18, route=(USDT, WBNB)))
+
+    assert call_spend(call) == {USDT: 31 * 10**18}
+
+
+def test_a_venus_repay_is_denominated_in_the_vtokens_underlying():
+    behalf = _bare(
+        VUSDT, _venus.encode_abi("repayBorrowBehalf", args=[OWNER, 4 * 10**18])
+    )
+    direct = _bare(VUSDT, _venus.encode_abi("repayBorrow", args=[5 * 10**18]))
+    hints = {"underlying": {VUSDT: USDT}}
+
+    assert needs_underlying(behalf) == VUSDT
+    assert call_spend(behalf, token_hints=hints) == {USDT: 4 * 10**18}
+    assert call_spend(direct, token_hints=hints) == {USDT: 5 * 10**18}
+
+
+def test_a_venus_call_with_no_underlying_supplied_is_unmeasured_not_zero():
+    call = _bare(VUSDT, _venus.encode_abi("repayBorrow", args=[5 * 10**18]))
+
+    with pytest.raises(UnmeasuredSpend, match="its underlying was not supplied"):
+        call_spend(call)
+
+
+def test_an_npm_mint_names_both_of_its_own_tokens():
+    call = _bare(
+        NPM,
+        _npm.encode_abi(
+            "mint",
+            args=[(USDT, WBNB, 500, -100, 100, 11 * 10**18, 2 * 10**18, 1, 1, OWNER, 9)],
+        ),
+    )
+
+    assert call_spend(call) == {USDT: 11 * 10**18, WBNB: 2 * 10**18}
+
+
+def test_increase_liquidity_names_a_position_and_no_tokens_so_it_needs_the_pair():
+    call = _bare(
+        NPM,
+        _npm.encode_abi(
+            "increaseLiquidity", args=[(7141050, 3 * 10**18, 4 * 10**18, 1, 1, 9)]
+        ),
+    )
+
+    with pytest.raises(UnmeasuredSpend, match="token0 and token1 were not supplied"):
+        call_spend(call)
+    assert call_spend(
+        call, token_hints={"position_tokens": {"7141050": [USDT, WBNB]}}
+    ) == {USDT: 3 * 10**18, WBNB: 4 * 10**18}
+
+
+def test_taking_liquidity_out_spends_nothing():
+    collect = _bare(
+        NPM, _npm.encode_abi("collect", args=[(7141050, OWNER, 2**127, 2**127)])
+    )
+
+    assert call_spend(collect) == {}
+
+
+def test_a_selector_docket_cannot_read_is_refused_where_it_could_be_spending():
+    with pytest.raises(UnmeasuredSpend, match="not a selector Docket can derive"):
+        call_spend(_bare(ROUTER, "0xdeadbeef", value=str(10**15)))
+    with pytest.raises(UnmeasuredSpend, match="not a selector Docket can derive"):
+        call_spend(_bare(USDT, "0xdeadbeef"), token_allowlist=(USDT, NATIVE_TOKEN))
+    # Nothing to spend and nothing to spend it on: not every call moves money.
+    assert call_spend(_bare(ROUTER, "0xdeadbeef"), token_allowlist=(USDT,)) == {}
+
+
+def test_a_zero_leg_is_dropped_rather_than_charged():
+    call = _bare(
+        NPM,
+        _npm.encode_abi(
+            "mint", args=[(USDT, WBNB, 500, -100, 100, 11 * 10**18, 0, 1, 1, OWNER, 9)]
+        ),
+    )
+
+    assert call_spend(call) == {USDT: 11 * 10**18}
+
+
+def test_a_batch_total_is_the_sum_of_its_calls_including_the_native_legs():
+    calls = [
+        _bare(ROUTER, _swap_data(10 * 10**18)),
+        _bare(ROUTER, _swap_data(15 * 10**18)),
+        _bare(ROUTER, _swap_data(5 * 10**18), value=str(10**16)),
+    ]
+
+    assert batch_spend(calls) == {USDT: 30 * 10**18, NATIVE_TOKEN: 10**16}
+
+
+def test_a_batch_total_and_the_session_cap_are_asked_once():
+    policy = _policy()
+
+    permitted, reason = policy.allows_total(
+        spent={}, token_amounts={USDT: 400 * 10**18}
+    )
+    assert permitted, reason
+
+    permitted, reason = policy.allows_total(
+        spent={USDT: 200 * 10**18}, token_amounts={USDT: 400 * 10**18}
+    )
+    assert not permitted
+    assert "past the session cap" in reason
+
+    permitted, reason = policy.allows_total(spent={}, token_amounts={WBNB: 1})
+    assert not permitted
+    assert "not in the token allowlist" in reason
+
+
+def test_a_native_value_is_charged_exactly_once():
+    """`call_spend` deliberately leaves the native leg out: `allows` and `execute` each
+    fold `value_atomic` in themselves, and returning it here too would charge it twice."""
+    w3 = FakeW3(OWNER)
+    session = _session()
+    call = _call(amount_in=10 * 10**18, value_atomic=str(10**16))
+
+    assert call_spend(call) == {USDT: 10 * 10**18}
+    execute(
+        _activation(),
+        call,
+        session=session,
+        rpc=FakeRpc(w3),
+        policy=_policy(),
+        sleep=lambda _: None,
+    )
+
+    assert session.spent_atomic == {USDT: 10 * 10**18, NATIVE_TOKEN: 10**16}
+
+
+def test_execute_reads_a_vtokens_underlying_off_the_chain_when_it_was_not_supplied():
+    w3 = FakeW3(OWNER)
+    w3.eth.contract = lambda address=None, abi=None: _UnderlyingContract(USDT)
+    session = _session()
+    policy = _policy(contract_allowlist=(VUSDT,), function_allowlist=("0x0e752702",))
+    call = _bare(VUSDT, _venus.encode_abi("repayBorrow", args=[5 * 10**18]))
+
+    execute(
+        _activation(),
+        call,
+        session=session,
+        rpc=FakeRpc(w3),
+        policy=policy,
+        sleep=lambda _: None,
+    )
+
+    assert session.spent_atomic == {USDT: 5 * 10**18}
+
+
+class _UnderlyingContract:
+    def __init__(self, token):
+        self.token = token
+        self.functions = self
+
+    def underlying(self):
+        return FakeCall(self.token)
+
+
+def test_a_call_docket_cannot_measure_is_never_broadcast():
+    w3 = FakeW3(OWNER)
+    activation = _activation()
+
+    with pytest.raises(ExecutionFailed, match="unmeasured spend"):
+        execute(
+            activation,
+            _bare(ROUTER, "0xdeadbeef", value=str(10**15)),
+            session=_session(),
+            rpc=FakeRpc(w3),
+            policy=_policy(),
+            sleep=lambda _: None,
+        )
+
+    assert w3.eth.sent == []
+    assert any("unmeasured spend" in event.reason for event in activation.events)

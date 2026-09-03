@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from web3 import Web3
 
+from docket.execution.simulate import swap_calldata
 from docket.hire.catalogue import get_service
 from docket.jobs import tick
 from docket.jobs.executors import EXECUTORS, NoopExecutor, register
@@ -23,6 +24,7 @@ from tests.test_jobs_service import (
     POLICY,
     ROUTER,
     USDT,
+    WBNB,
     FakeRpc,
     _transfer_receipt,
 )
@@ -48,35 +50,48 @@ def clean_registry():
     EXECUTORS.update(saved)
 
 
+def _swap(amount_in: int) -> PreparedCall:
+    """Real router calldata: the spend is now read out of these bytes."""
+    return PreparedCall(
+        to=ROUTER,
+        data="0x"
+        + swap_calldata(
+            amount_in=amount_in,
+            min_output=1,
+            route=(USDT, WBNB),
+            recipient=OWNER,
+            deadline=4_102_444_800,
+        ).hex(),
+        value_atomic="0",
+        gas_ceiling=300_000,
+        deadline=4_102_444_800,
+        purpose="recenter the position",
+        simulation={"ok": True, "gas_estimate": 180_000, "block": 900},
+    )
+
+
 class ActionExecutor:
-    """One prepared swap, and a `within_policy` the test can flip."""
+    """One or more prepared swaps, and a `within_policy` the test can flip."""
 
     category = "rebalancing"
 
-    def __init__(self, *, permitted=True, kind="action", token_amount=10 * 10**18):
+    def __init__(
+        self, *, permitted=True, kind="action", token_amount=10 * 10**18, calls=1
+    ):
         self.permitted = permitted
         self.kind = kind
         self.token_amount = token_amount
+        self.calls = calls
         self.seen = []
 
     def evaluate(self, activation, *, reader=None):
         self.seen.append(activation.activation_id)
-        prepared = (
-            PreparedCall(
-                to=ROUTER,
-                data="0x38ed1739" + "00" * 32,
-                value_atomic="0",
-                gas_ceiling=300_000,
-                deadline=4_102_444_800,
-                purpose="recenter the position",
-                simulation={"ok": True, "gas_estimate": 180_000, "block": 900},
-            ),
-        )
+        prepared = tuple(_swap(self.token_amount) for _ in range(self.calls))
         return Decision(
             kind=self.kind,
             summary="the position is out of range",
             prepared=prepared if self.kind == "action" else (),
-            evidence={"token_amounts": {USDT: self.token_amount}},
+            evidence={"observed_ticks": 1},
             observed_at="2026-09-03T00:00:00+00:00",
             block=900,
         )
@@ -85,6 +100,33 @@ class ActionExecutor:
         return self.permitted, (
             "inside the policy" if self.permitted else "above the per-action limit"
         )
+
+
+class CarryOverExecutor:
+    """Reads its own prior evidence back and counts how many passes it has seen.
+
+    This is the shape every persistent executor has: constructed, asked once, dropped.
+    If the tick does not persist `evidence`, `passes` is 1 for ever.
+    """
+
+    category = "rebalancing"
+
+    def evaluate(self, activation, *, reader=None):
+        previous = ((activation.result or {}).get("last_decision") or {}).get(
+            "evidence"
+        ) or {}
+        passes = int(previous.get("passes", 0)) + 1
+        return Decision(
+            kind="noop",
+            summary=f"seen {passes} passes",
+            prepared=(),
+            evidence={"passes": passes, "first_seen": previous.get("first_seen", "t0")},
+            observed_at="2026-09-03T00:00:00+00:00",
+            block=900,
+        )
+
+    def within_policy(self, activation, decision):
+        return False, "a noop proposes nothing"
 
 
 class ExplodingExecutor:
@@ -161,7 +203,7 @@ def test_a_category_with_no_executor_is_an_alert_rather_than_a_crash(tmp_path):
     )
 
 
-def test_a_noop_decision_changes_nothing_at_all(tmp_path):
+def test_a_noop_records_its_observation_without_moving_the_activation(tmp_path):
     store = Store(tmp_path / "tick.sqlite3")
     _, activation = _active(store, FakeRpc())
     register("rebalancing", NoopExecutor("rebalancing"))
@@ -169,8 +211,66 @@ def test_a_noop_decision_changes_nothing_at_all(tmp_path):
     assert tick.run_once(store, rpc=FakeRpc()) == 0
 
     stored = store.get_activation(activation.activation_id)
-    assert stored.updated_at == activation.updated_at
-    assert stored.events == activation.events
+    assert stored.state == "active"
+    assert [event.to_state for event in stored.events[len(activation.events) :]] == [
+        "active"
+    ]
+    assert stored.result["last_decision"]["kind"] == "noop"
+    assert stored.result["last_decision"]["evidence"]["read"].startswith("none")
+
+
+def test_an_executor_reads_its_own_prior_evidence_back_on_the_next_pass(tmp_path):
+    """The defect this closes: evidence was computed and thrown away, so an executor that
+    measures anything over time — how long a position has been out of range, which rung
+    of a grid is filled — started every pass blind."""
+    store = Store(tmp_path / "tick.sqlite3")
+    _, activation = _active(store, FakeRpc())
+    register("rebalancing", CarryOverExecutor())
+
+    assert tick.run_once(store, rpc=FakeRpc()) == 0
+    first = store.get_activation(activation.activation_id)
+    assert first.result["last_decision"]["evidence"] == {
+        "passes": 1,
+        "first_seen": "t0",
+    }
+
+    assert tick.run_once(store, rpc=FakeRpc()) == 0
+    second = store.get_activation(activation.activation_id)
+    assert second.result["last_decision"]["evidence"]["passes"] == 2
+    assert second.result["last_decision"]["summary"] == "seen 2 passes"
+
+
+def test_a_kind_that_does_not_change_does_not_repeat_its_note(tmp_path):
+    """A pass every five minutes would otherwise write an event every five minutes."""
+    store = Store(tmp_path / "tick.sqlite3")
+    _, activation = _active(store, FakeRpc())
+    register("rebalancing", CarryOverExecutor())
+
+    tick.run_once(store, rpc=FakeRpc())
+    after_first = len(store.get_activation(activation.activation_id).events)
+    tick.run_once(store, rpc=FakeRpc())
+    tick.run_once(store, rpc=FakeRpc())
+
+    assert len(store.get_activation(activation.activation_id).events) == after_first
+
+
+def test_a_one_shot_result_is_not_overwritten_by_a_decision(tmp_path):
+    """`result` carries a one-shot's own output under its own keys. The tick writes only
+    `last_decision`, and a persistent activation never has the other keys — but the field
+    is shared, so the merge is what keeps them from colliding."""
+    store = Store(tmp_path / "tick.sqlite3")
+    _, activation = _active(store, FakeRpc())
+    stored = store.get_activation(activation.activation_id)
+    expected = stored.updated_at
+    stored.result = {"positions": [{"token_id": 1}]}
+    store.save_activation(stored, expected_updated_at=expected)
+    register("rebalancing", NoopExecutor("rebalancing"))
+
+    tick.run_once(store, rpc=FakeRpc())
+
+    result = store.get_activation(activation.activation_id).result
+    assert result["positions"] == [{"token_id": 1}]
+    assert result["last_decision"]["kind"] == "noop"
 
 
 def test_an_alert_decision_is_recorded_without_moving_the_activation(tmp_path):
@@ -183,6 +283,7 @@ def test_an_alert_decision_is_recorded_without_moving_the_activation(tmp_path):
     stored = store.get_activation(activation.activation_id)
     assert stored.state == "active"
     assert "alert: the position is out of range (block 900)" in stored.events[-1].reason
+    assert stored.result["last_decision"]["evidence"] == {"observed_ticks": 1}
 
 
 def test_an_action_inside_the_policy_is_sent_by_the_session_and_receipted(
@@ -200,6 +301,85 @@ def test_an_action_inside_the_policy_is_sent_by_the_session_and_receipted(
     assert len(rpc.sent) == 1
     assert stored.receipts[-1].execution["tx_hash"] == rpc.sent[0]
     assert stored.session["spent_atomic"] == {USDT: str(10 * 10**18)}
+
+
+def test_a_batch_is_charged_once_per_call_and_not_once_per_call_times_the_batch(
+    tmp_path, sessions_key
+):
+    """The defect this closes: the batch total from the evidence was passed to every
+    call, and `allows` accumulates per call, so eight calls of 50 USDT were charged as
+    eight times the batch — 3,200 against a 500 cap — and the batch was refused. Charged
+    per call from its own calldata, the same eight calls total 400 and go out.
+
+    The regression guard is the arithmetic beside it: 8 x 400 is 3,200, which is past the
+    cap, so a run under the old behaviour could not reach these assertions.
+    """
+    store = Store(tmp_path / "tick.sqlite3")
+    rpc = SendingRpc()
+    _, activation = _active(store, rpc)
+    register("rebalancing", ActionExecutor(token_amount=50 * 10**18, calls=8))
+
+    assert tick.run_once(store, rpc=rpc, environment=sessions_key) == 0
+
+    stored = store.get_activation(activation.activation_id)
+    assert len(rpc.sent) == 8
+    assert stored.session["spent_atomic"] == {USDT: str(400 * 10**18)}
+    assert 8 * 400 * 10**18 > int(POLICY["total_cap_atomic"][USDT])
+    assert len(stored.receipts) == 8
+
+
+def test_a_batch_whose_total_passes_the_cap_is_refused_before_anything_is_sent(
+    tmp_path, sessions_key
+):
+    """Refused at zero transactions rather than three, which would leave the position
+    half-rebalanced and the owner holding a state nobody chose."""
+    store = Store(tmp_path / "tick.sqlite3")
+    rpc = SendingRpc()
+    _, activation = _active(store, rpc)
+    register("rebalancing", ActionExecutor(token_amount=100 * 10**18, calls=8))
+
+    assert tick.run_once(store, rpc=rpc, environment=sessions_key) == 0
+
+    stored = store.get_activation(activation.activation_id)
+    assert rpc.sent == []
+    assert stored.state == "needs_approval"
+    assert stored.next_action.detail["batch_spend_atomic"] == {USDT: str(800 * 10**18)}
+    assert "past the session cap" in stored.events[-1].reason
+
+
+def test_a_call_whose_spend_cannot_be_derived_is_refused(tmp_path, sessions_key):
+    store = Store(tmp_path / "tick.sqlite3")
+    rpc = SendingRpc()
+    _, activation = _active(store, rpc)
+
+    class OpaqueExecutor(ActionExecutor):
+        def evaluate(self, activation, *, reader=None):
+            decision = super().evaluate(activation, reader=reader)
+            opaque = PreparedCall(
+                to=ROUTER,
+                data="0xdeadbeef",
+                value_atomic=str(10**15),
+                gas_ceiling=300_000,
+                deadline=4_102_444_800,
+                purpose="something Docket did not build",
+                simulation={"ok": True, "gas_estimate": 100_000, "block": 900},
+            )
+            return Decision(
+                kind="action",
+                summary=decision.summary,
+                prepared=(opaque,),
+                evidence=decision.evidence,
+                observed_at=decision.observed_at,
+                block=decision.block,
+            )
+
+    register("rebalancing", OpaqueExecutor())
+
+    assert tick.run_once(store, rpc=rpc, environment=sessions_key) == 1
+
+    stored = store.get_activation(activation.activation_id)
+    assert rpc.sent == []
+    assert any("unmeasured spend" in event.reason for event in stored.events)
 
 
 def test_an_action_outside_the_policy_is_handed_to_the_owner_to_sign(tmp_path):

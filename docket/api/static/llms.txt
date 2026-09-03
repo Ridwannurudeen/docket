@@ -1131,6 +1131,22 @@ the transaction hash, gas and status. Where it is not — or where no session ke
 available — the activation moves to `needs_approval` with `next_action.kind:
 "sign_transaction"` and the prepared calls, and the owner signs it themselves.
 
+Every pass, including one that decided to do nothing, writes what it observed to
+`result.last_decision`: `{kind, summary, observed_at, block, evidence}`. That is the
+running record of what has been watched and it is the only state carried between passes,
+so a `noop` there is a real observation rather than an absence of one. A one-shot's own
+output lives in the other keys of `result` and is never touched by it.
+
+What a session may spend is read out of the calldata Docket is about to broadcast, per
+call, never from a figure supplied alongside it. The functions Docket can read are the
+ones its own agents build — ERC-20 `approve` and `transfer`, PancakeSwap V2
+`swapExactTokensForTokens`, Venus `repayBorrow`, `repayBorrowBehalf` and `mint`, and the
+v3 position manager's `mint`, `increaseLiquidity`, `decreaseLiquidity` and `collect`. A
+call outside that list which carries value, or is aimed at a token the session may spend,
+is refused rather than charged zero: an action inside no cap is worse than an action
+refused. A batch is put to the session cap once, as a total, before any of it is sent, so
+a batch that would be refused three transactions in is refused at zero instead.
+
 `pause` stops Docket sending anything; `approve` resumes it. `revoke` and `cancel` end
 the activation and sweep every allowlisted token balance and the spare BNB back to the
 owner. A sweep that cannot reach the chain is recorded on the activation and does not

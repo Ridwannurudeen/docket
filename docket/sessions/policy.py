@@ -134,6 +134,40 @@ class SessionPolicy:
         moment = datetime.now(timezone.utc) if now is None else now
         return moment >= self.expiry()
 
+    def allows_total(self, *, spent: dict, token_amounts: dict) -> tuple[bool, str]:
+        """Whether a whole batch's total would stay inside the session cap.
+
+        Asked once, before the first call of a batch goes out. The per-action limit is
+        deliberately not checked here — that is a question about one call — and neither
+        is any selector. What this catches is the batch that would be refused three
+        transactions in, leaving a position half-rebalanced and the owner holding a
+        state nobody chose.
+        """
+        if self.emergency_pause:
+            return False, "the policy is emergency-paused"
+        if self.has_expired():
+            return False, f"the policy expired at {self.expires_at}"
+        allowed_tokens = {_token_key(token) for token in self.token_allowlist}
+        already = {_token_key(token): int(amount) for token, amount in spent.items()}
+        total = {
+            _token_key(token): int(amount)
+            for token, amount in self.total_cap_atomic.items()
+        }
+        for token, amount in sorted(
+            (_token_key(token), int(amount)) for token, amount in token_amounts.items()
+        ):
+            if token not in allowed_tokens:
+                return False, f"{token} is not in the token allowlist"
+            cap = total.get(token)
+            running = already.get(token, 0) + amount
+            if cap is None or running > cap:
+                return (
+                    False,
+                    f"the batch would take total spend of {token} to {running}, past "
+                    f"the session cap of {cap}",
+                )
+        return True, "the batch total is inside the session cap"
+
     def allows(
         self,
         call: PreparedCall,

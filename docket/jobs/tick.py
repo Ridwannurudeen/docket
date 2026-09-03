@@ -23,6 +23,7 @@ from ..escrow.chain import Rpc
 from ..hire.catalogue import SERVICES
 from ..sessions.executor import ExecutionFailed, execute
 from ..sessions.policy import SessionPolicy
+from ..sessions.spend import UnmeasuredSpend, batch_spend
 from ..store import Store
 from .executors import EXECUTORS
 from .models import PERSISTENT, NextAction
@@ -36,6 +37,39 @@ TICK_BATCH = 200
 # States a persistent activation can be in and still be the tick's business. `paused` is
 # here so an expiry is still noticed while paused; nothing else happens to it.
 LIVE_STATES = ("active", "paused", "needs_approval")
+
+
+def _record_decision(activation, decision) -> None:
+    """Carry the executor's own observations forward onto the activation.
+
+    A persistent executor is stateless between passes: the tick constructs it, asks it
+    once, and drops it. Anything it measured — how long a position has been out of range,
+    what the last price was, which rung of a grid is filled — has to live on the
+    activation or it does not live anywhere, and the next pass starts blind.
+
+    So `result.last_decision.evidence` is the executor's carry-over state and is written
+    on EVERY pass, including a noop: a pass that observed nothing worth acting on still
+    observed something, and it is usually the run of quiet observations that the next
+    decision is made from. Other keys of `result` are left alone, because a one-shot's
+    result lives in the same field.
+    """
+    previous = dict(activation.result or {})
+    was = (previous.get("last_decision") or {}).get("kind")
+    previous["last_decision"] = {
+        "kind": decision.kind,
+        "summary": decision.summary,
+        "observed_at": decision.observed_at,
+        "block": decision.block,
+        "evidence": decision.evidence,
+    }
+    activation.result = previous
+    if was != decision.kind:
+        activation.note(
+            f"the executor's reading changed from "
+            f"{was or 'nothing observed yet'} to {decision.kind}: {decision.summary} "
+            f"(block {decision.block})",
+            actor="docket",
+        )
 
 
 def _evaluate(service: ActivationService, activation, rpc) -> None:
@@ -52,12 +86,12 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
         return
 
     decision = executor.evaluate(activation, reader=rpc)
-    if decision.kind == "noop":
-        return
-    if decision.kind == "alert":
-        activation.note(
-            f"alert: {decision.summary} (block {decision.block})", actor="docket"
-        )
+    _record_decision(activation, decision)
+    if decision.kind in ("noop", "alert"):
+        if decision.kind == "alert":
+            activation.note(
+                f"alert: {decision.summary} (block {decision.block})", actor="docket"
+            )
         service.store.save_activation(activation, expected_updated_at=expected)
         return
 
@@ -86,8 +120,53 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
         return
 
     policy = SessionPolicy.from_dict(activation.policy)
-    token_amounts = decision.evidence.get("token_amounts") or {}
+    token_hints = decision.evidence.get("token_hints") or {}
     slippage_bps = decision.evidence.get("slippage_bps")
+
+    # One question about the whole batch before any of it goes out. Asked from the same
+    # derived numbers each call will be charged, so the answer here and the answers
+    # inside `execute` cannot disagree — and a batch that would be refused three
+    # transactions in is refused at zero instead, rather than leaving a position
+    # half-rebalanced.
+    try:
+        total = batch_spend(
+            decision.prepared,
+            token_allowlist=policy.token_allowlist,
+            token_hints=token_hints,
+        )
+    except UnmeasuredSpend as exc:
+        activation.note(
+            f"the batch was not sent: unmeasured spend — {exc}", actor="docket"
+        )
+        service.store.save_activation(activation, expected_updated_at=expected)
+        raise
+    within_cap, cap_reason = policy.allows_total(
+        spent=session.spent_atomic, token_amounts=total
+    )
+    if not within_cap:
+        activation.transition(
+            "needs_approval",
+            reason=(
+                f"{decision.summary}; the batch of {len(decision.prepared)} calls was "
+                f"not sent because {cap_reason}, so the owner is asked to sign it"
+            ),
+            actor="docket",
+        )
+        activation.next_action = NextAction(
+            "sign_transaction",
+            {
+                "purpose": decision.summary,
+                "observed_at": decision.observed_at,
+                "block": decision.block,
+                "batch_spend_atomic": {
+                    token: str(amount) for token, amount in total.items()
+                },
+                "calls": [call.to_dict() for call in decision.prepared],
+            },
+        )
+        service.store.save_activation(activation, expected_updated_at=expected)
+        return
+
     failed = None
     for call in decision.prepared:
         try:
@@ -98,7 +177,7 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
                     session=session,
                     rpc=rpc,
                     policy=policy,
-                    token_amounts=token_amounts,
+                    token_hints=token_hints,
                     slippage_bps=slippage_bps,
                 )
             )

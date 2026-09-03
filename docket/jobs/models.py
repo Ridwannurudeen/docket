@@ -292,6 +292,18 @@ class Activation:
     Mutable, unlike most of this codebase: an activation is the one object here whose
     whole purpose is to change, and a frozen record replaced wholesale on every event
     would make the optimistic write in the store harder to read rather than easier.
+
+    `result` holds two different things and the key says which. A one-shot's `result` is
+    the service's own output. A persistent activation's `result["last_decision"]` is
+    **the executor's carry-over state**:
+
+        {"kind", "summary", "observed_at", "block", "evidence"}
+
+    written by `docket.jobs.tick` on every pass, including a pass that decided to do
+    nothing. An executor is constructed, asked once and dropped, so `evidence` is the only
+    place a measurement survives to the next pass — time a position has spent out of
+    range, the rung of a grid last filled, the price a comparison was made against. An
+    executor reads its own prior `evidence` back from here; nothing else writes that key.
     """
 
     activation_id: str

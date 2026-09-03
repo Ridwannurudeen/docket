@@ -24,8 +24,9 @@ that says why, because the owner is still reading it as live.
 import time
 from datetime import datetime, timezone
 
-from ..jobs.models import Receipt
 from ..hire.receipts import canonical_hash
+from ..jobs.models import Receipt
+from .spend import UnmeasuredSpend, call_spend, needs_underlying
 
 # Twenty attempts three seconds apart. BSC blocks land in about 0.75 s and a receipt that
 # has not appeared in a minute is not appearing on this tick; the bound exists so a tick
@@ -36,6 +37,16 @@ RECEIPT_PAUSE_S = 3.0
 # older than the state the transaction executes in.
 GAS_MARGIN_NUMERATOR = 12
 GAS_MARGIN_DENOMINATOR = 10
+# The one view a vToken has to answer before an amount sent to it can be given a token.
+VTOKEN_ABI = [
+    {
+        "name": "underlying",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [],
+        "outputs": [{"name": "", "type": "address"}],
+    }
+]
 
 
 class ExecutionFailed(RuntimeError):
@@ -61,19 +72,57 @@ def execute(
     session,
     rpc,
     policy,
-    token_amounts=None,
+    token_hints=None,
     slippage_bps=None,
     sleep=time.sleep,
 ) -> Receipt:
     """Simulate, check, sign, send, and wait — or fail loudly having sent nothing.
 
-    `token_amounts` is what this call spends, keyed by token address, and the caller
-    supplies it because the calldata alone does not say: a router swap's input is inside
-    ABI-encoded bytes this module deliberately does not decode. The tick loop reads it out
-    of the decision's own evidence, so the number the policy checks is the number the
-    executor reasoned about.
+    What this call spends is DERIVED, from the bytes about to be broadcast, by
+    `docket.sessions.spend.call_spend`. It is never taken from a caller: the batch total
+    the tick used to pass was charged once per call, so an eight-call rebalance was
+    checked against eight times its own spend. `token_hints` carries only the two facts no
+    calldata contains — a vToken's underlying and a v3 position's token pair — and a hint
+    that is needed and missing refuses the call rather than charging it zero.
     """
-    amounts = {} if token_amounts is None else dict(token_amounts)
+    hints = dict(token_hints or {})
+    vtoken = needs_underlying(prepared)
+    if vtoken is not None and vtoken not in (hints.get("underlying") or {}):
+        # One read, and only where the calldata genuinely cannot say. `underlying()` is a
+        # view on the vToken itself, so the answer comes from the contract being paid
+        # rather than from a table that could name the wrong token.
+        try:
+            resolved = rpc(
+                lambda w3: w3.eth.contract(address=vtoken, abi=VTOKEN_ABI)
+                .functions.underlying()
+                .call()
+            )
+        except Exception as exc:
+            activation.note(
+                f"{prepared.purpose}: {vtoken} is a vToken and its underlying could not "
+                f"be read ({type(exc).__name__}), so nothing was sent",
+                actor="docket",
+            )
+            raise ExecutionFailed(
+                f"{prepared.purpose}: the underlying of {vtoken} could not be read"
+            ) from exc
+        hints["underlying"] = {**(hints.get("underlying") or {}), vtoken: resolved}
+
+    try:
+        amounts = call_spend(
+            prepared,
+            token_allowlist=policy.token_allowlist,
+            token_hints=hints,
+        )
+    except UnmeasuredSpend as exc:
+        activation.note(
+            f"{prepared.purpose}: refused as unmeasured spend — {exc}",
+            actor="docket",
+        )
+        raise ExecutionFailed(
+            f"{prepared.purpose}: unmeasured spend — {exc}"
+        ) from exc
+
     transaction = {
         "from": session.address,
         "to": prepared.to,
