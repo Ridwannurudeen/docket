@@ -395,7 +395,8 @@ def test_the_document_is_rate_limited_per_peer_and_the_page_is_not(tmp_path):
     assert refused.json()["error_code"] == "status_rate_limited"
     assert str(STATUS_ALLOWANCE) in refused.json()["message"]
     assert str(STATUS_WINDOW_S) in refused.json()["message"]
-    assert 0 < int(refused.headers["Retry-After"]) <= STATUS_WINDOW_S
+    # spend_window rounds up, so a window that has barely started resets in w + 1 at most.
+    assert 0 < int(refused.headers["Retry-After"]) <= STATUS_WINDOW_S + 1
     # The page costs a render of a reading already taken, and a person who has just hit a
     # bound is exactly the person who needs to read it.
     assert client.get("/status").status_code == 200
