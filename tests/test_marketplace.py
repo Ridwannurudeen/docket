@@ -509,14 +509,26 @@ def test_the_health_factor_card_says_venus_publishes_no_health_factor():
     for phrase in (
         "venus publishes no health factor",
         "derived here rather than read",
-        "structurally only a preview",
-        "no execution path for a venus call exists here",
         "repay and supply-collateral only",
         "borrowing and withdrawing are not encoded",
         "a liquidation that did not happen",
         "single recorded read; no paired run against a person",
+        # Custody, stated rather than implied.
+        "docket never holds a key to your wallet",
+        "revoking it sweeps its balance back to you at any time",
+        "never transferred to docket",
+        "always yours to sign",
+        "exact amount and never unlimited",
+        "not rules a chain enforces",
+        "how much you fund the session with",
+        # What a mined transaction does not prove.
+        "not by itself evidence of how much was retired",
     ):
         assert phrase in lowered, phrase
+    # The preview posture is gone rather than merely outweighed: this service prepares
+    # calls, and a card still calling itself structurally only a preview would be wrong.
+    for gone in ("structurally only a preview", "no execution path for a venus call"):
+        assert gone not in lowered, gone
     assert record.activation == "one_shot"
     assert record.agent_id is not None
 
@@ -789,9 +801,35 @@ def test_warden_card_recomputes_both_dated_corpus_measurements():
 
 
 def test_range_doctor_states_the_limits_its_own_audit_named():
+    """The audit-named limits stay; the custody model is stated beside them.
+
+    "read-only" left this card when the watch gained prepared calls. What replaces it is
+    not softer — it is the specific shape of the authority: no key to the wallet, a
+    session the owner grants and revokes, and a position NFT that never moves to Docket.
+    """
     limitations = SERVICES["range-doctor"].limitations.lower()
-    for phrase in ("v3", "read-only", "tokensowed", "ticks rather than prices"):
+    for phrase in (
+        "v3",
+        "tokensowed",
+        "ticks rather than prices",
+        # Custody, stated rather than implied.
+        "docket never holds a key to your wallet",
+        "revoking it sweeps its balance back to you at any time",
+        "no position nft is ever transferred to docket",
+        # The caps are Docket's own checks, not a chain's. Saying otherwise would make a
+        # Python gate read as a guarantee the chain stands behind.
+        "not rules a chain enforces",
+        "how much you fund the session with",
+        "stay there until you revoke",
+        # What the watch cannot know.
+        "realises impermanent loss",
+        "a departure between two reads is not dated",
+        "not a forecast",
+        "single recorded read; no paired run against a person",
+    ):
         assert phrase in limitations, phrase
+    # The old posture is gone rather than merely outweighed: this service prepares calls.
+    assert "read-only: nothing is signed" not in limitations
 
 
 def test_solvent_signal_is_sold_as_a_dated_record_rather_than_a_live_one():
