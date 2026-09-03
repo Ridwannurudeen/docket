@@ -1083,6 +1083,19 @@ SERVICES: dict[str, Service] = {
                     "second rule has to be added deliberately"
                 ),
             },
+            "session_policy_note": {
+                "type": "string",
+                "required": False,
+                "advanced": True,
+                "description": (
+                    "activation only, and not a field to send: the session this grid runs "
+                    "under has to allow approve (0x095ea7b3) as well as "
+                    "swapExactTokensForTokens (0x38ed1739), and both the base and the "
+                    "quote token. The router pulls the input token out of the session "
+                    "with transferFrom, so a session granted the swap and not the "
+                    "approval can draft a level it can never settle"
+                ),
+            },
         },
         typical_seconds=25,
         price_display=HIRE_PRICE_DISPLAY,
@@ -1335,6 +1348,20 @@ SERVICES: dict[str, Service] = {
                     "activation only: the bound applied to the withdrawal minimums, every "
                     "swap leg's floor and the mint's own minimums, in basis points, 1 to "
                     "500. No step in the route carries a minimum of zero"
+                ),
+            },
+            "session_policy_note": {
+                "type": "string",
+                "required": False,
+                "advanced": True,
+                "description": (
+                    "activation only, and not a field to send: before any of this runs "
+                    "the owner signs approve(session, tokenId) on the position manager "
+                    "themselves, scoped to the one position. That is the one authority a "
+                    "session cannot grant itself and it is a precondition rather than a "
+                    "step — the route reads it and refuses to build without it. The "
+                    "session itself has to allow the position manager and the router, "
+                    "and the four calls this route makes on them"
                 ),
             },
         },

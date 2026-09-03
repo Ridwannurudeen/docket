@@ -856,3 +856,76 @@ def test_the_grid_takes_its_expiry_from_the_activation_not_the_request_body():
     assert decision.kind == "alert"
     assert decision.evidence["grid_decision"] == "revoke"
     assert "expired" in decision.summary
+
+
+def test_a_stop_and_a_cancel_stay_stopped_across_passes():
+    """The decision's own state is what gets persisted, so a stop is sticky by
+    construction — and a grid that forgot it had been stopped would resume trading."""
+    stopped = _grid().evaluate(
+        _grid_activation(inputs={"stop_price": str(490 * E18)}),
+        reader=GridReader(price=480 * E18),
+    )
+    assert stopped.evidence["grid_state"]["cancelled"] is True
+
+    resumed = _grid_activation(inputs={"stop_price": str(490 * E18)})
+    resumed.result = {"last_decision": {"evidence": stopped.evidence}}
+    later = _grid().evaluate(resumed, reader=GridReader(price=540 * E18))
+
+    assert later.kind == "noop"
+    assert "cancelled" in later.summary
+    assert later.evidence["grid_state"]["cancelled"] is True
+    assert later.evidence["token_amounts"] == {}
+
+
+def test_a_revoked_grid_stays_revoked_across_passes():
+    revoked = _grid_activation()
+    revoked.result = {
+        "last_decision": {
+            "evidence": {
+                "grid_state": {"reference_price": str(620 * E18), "revoked": True}
+            }
+        }
+    }
+
+    decision = _grid().evaluate(revoked, reader=GridReader(price=540 * E18))
+
+    assert decision.kind == "noop"
+    assert "revoked" in decision.summary
+    assert decision.prepared == ()
+
+
+def test_a_route_that_has_already_moved_is_not_planned_a_second_time():
+    """A finished move leaves a burned position and a mint receipt. Read live, because
+    the executor holds no state between passes and would otherwise send the whole route
+    again against a position with nothing left in it."""
+    from types import SimpleNamespace
+
+    activation = _yield_activation()
+    activation.receipts = (
+        SimpleNamespace(
+            execution={
+                "tx_hash": "0x" + "ef" * 32,
+                "status": 1,
+                "purpose": "mint into 0xdest over ticks",
+            }
+        ),
+    )
+
+    decision = _yield().evaluate(activation, reader=YieldReader(liquidity=0))
+
+    assert decision.kind == "noop"
+    assert "has already happened" in decision.summary
+    assert decision.evidence["already_moved"] is True
+    assert decision.prepared == ()
+
+
+def test_a_burned_position_with_no_mint_receipt_resumes_instead_of_stopping():
+    """Burned alone means halfway through, not finished."""
+    decision = _yield().evaluate(
+        _yield_activation(),
+        reader=YieldReader(liquidity=0, balances={USDT: 5_000 * E18}),
+    )
+
+    assert decision.kind == "action"
+    assert not [c for c in decision.prepared if "burn all" in c.purpose]
+    assert decision.evidence["disclosure"]["resumed_from_chain"] is True

@@ -66,6 +66,28 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _already_moved(activation, position, reader) -> bool:
+    """Whether the move this activation was created for has already happened.
+
+    Two facts have to agree, and neither alone is enough. A burned position could be one
+    a route is halfway through, so on its own it means resume rather than stop; a mint
+    receipt could belong to a route whose position was never burned. Together they are a
+    finished move, and planning another one would send a route against a position that
+    holds nothing.
+    """
+    minted = any(
+        str((receipt.execution or {}).get("purpose", "")).startswith("mint into")
+        and int((receipt.execution or {}).get("status", 0)) == 1
+        for receipt in getattr(activation, "receipts", ()) or ()
+    )
+    if not minted:
+        return False
+    liquidity = yield_migration.position_liquidity(
+        reader, int(position["token_id"]), owner=activation.owner
+    )
+    return liquidity == 0
+
+
 def _universe_from(inputs: dict):
     """The eligible set this activation compares within, built from its own inputs.
 
@@ -227,6 +249,24 @@ class YieldRouteExecutor:
                 ),
                 prepared=(),
                 evidence=comparison,
+                observed_at=_utc_now(),
+                block=0,
+            )
+
+        # A finished route leaves a burned position and a mint receipt. Read live rather
+        # than remembered: the executor holds no state of its own between passes, and a
+        # route that had already moved would otherwise be planned and sent all over again
+        # on the next tick — from a position with nothing left in it.
+        if _already_moved(activation, position, chain):
+            return Decision(
+                kind="noop",
+                summary=(
+                    f"position {position.get('token_id')} holds no liquidity and this "
+                    "activation carries a mint receipt, so the move it was created for "
+                    "has already happened. Nothing further is planned"
+                ),
+                prepared=(),
+                evidence=comparison | {"already_moved": True},
                 observed_at=_utc_now(),
                 block=0,
             )
