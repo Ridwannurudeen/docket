@@ -57,6 +57,7 @@ def _offline_rpc() -> dict:
         "ok": True,
         "block_number": 1,
         "latency_ms": 1,
+        "reason": None,
     }
 
 

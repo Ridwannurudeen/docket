@@ -62,14 +62,20 @@ GET /api/status
     readings: `db` (reachable, SQLite journal mode, and the database file with its
     directory), `latest_refresh` (the newest snapshot's observation time, its age in whole
     seconds, and whether the sweep reached the end of its population), `latest_canary`
-    (newest recorded verdict, when it finished, its age), `rpc` (one eth_blockNumber with a
-    5s per-request timeout over the failover list: the endpoint host that answered, ok,
-    block_number, latency_ms), and `probes` (passed and failed synthetic probe runs in the
-    last 24 hours, and when the newest started). Nothing is cached: each request takes its
-    own readings, so a BSC outage makes this route slow rather than wrong. "down" means only
-    that the store could not be read; every other reading comes out of it, so treat them as
-    absent rather than zero. No parameters. The same document is rendered as a page at
-    /status, with each reading's tolerance beside it.
+    (newest recorded verdict, when it finished, its age), `rpc` (one eth_blockNumber against
+    one endpoint, one attempt, 5s: endpoint_host, ok, block_number, latency_ms, and `reason`
+    naming what happened when ok is false), and `probes` (passed and failed synthetic probe
+    runs in the last 24 hours, and when the newest started). "down" means only that the store
+    could not be read; every other reading comes out of it, so treat them as absent rather
+    than zero. No parameters.
+
+    A reading is taken at most once every 60 seconds per process and served until it
+    expires, so `generated_at` is when the figures were observed rather than when you asked
+    for them: polling faster returns the same document, byte for byte. This route also
+    carries a per-peer allowance of 60 reads per 3600 seconds and answers 429 with
+    {error_code: "status_rate_limited", message} and a Retry-After header beyond it. The
+    same document is rendered as a page at /status, with each reading's tolerance beside it;
+    that page is not metered.
 
     curl -s "$DOCKET/api/status"
 

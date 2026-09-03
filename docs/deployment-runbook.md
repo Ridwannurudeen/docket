@@ -594,8 +594,17 @@ snapshot contains every configured id.
 
 Two surfaces answer "is this deployment working", and they are the same document twice.
 `GET /api/status` serves it as JSON; `GET /status` renders it as a page with every reading's
-observation time and the tolerance it is judged against beside it. Neither is cached: each
-request takes its own readings, so a stale answer is impossible and a slow answer is honest.
+observation time and the tolerance it is judged against beside it.
+
+Both routes are public and one of the readings is an outbound chain read, so the reading is
+bounded rather than the requests. **A reading is taken at most once every 60 seconds per
+process** and served until it expires; `generated_at` is when the figures were observed, not
+when they were asked for, so a reader can see the staleness instead of being told a held
+document is current. `/api/status` additionally carries a per-peer allowance of **60 reads per
+3600 seconds**, the same shape the free hire and on-demand probe routes use, and answers `429`
+with `{error_code: "status_rate_limited", message}` and a `Retry-After` header beyond it. The
+page is not metered: it costs a render of a reading already taken. Restarting `docket.service`
+empties both the held reading and the allowances.
 
 The document carries `status` (`ok`, `degraded` or `down`), `deployed_commit`, and five
 readings:
@@ -609,9 +618,12 @@ readings:
 - `latest_canary` — the newest recorded canary verdict and when it finished. Only `failed`
   counts against the deployment: `not_yet_exercised` is what the canary records when its paid
   limbs are unconfigured, and the timer is deliberately disabled between exercises.
-- `rpc` — one `eth_blockNumber` with a 5s per-request timeout, failing over the endpoints in
-  `docket/escrow/constants.py`. A total BSC outage therefore bounds this route at roughly 45s
-  (5s x 2 attempts x 4 endpoints); the probe's own timeout allows for that.
+- `rpc` — one `eth_blockNumber`, one attempt, against the first endpoint in
+  `docket/escrow/constants.py`, capped at 5s, with `reason` naming what happened when it did
+  not answer. Deliberately no failover: `escrow/chain.py::Rpc` walks four endpoints twice each
+  because a job that cannot read the chain cannot proceed, whereas a status reading that could
+  not read the chain has read something true. A BSC outage therefore costs one 5s wait per
+  60s window, not eight connections per request.
 - `probes` — how many `docket-probe.service` runs passed and failed in the last 24 hours,
   and when the newest one started. Any failure in the window is out of tolerance.
 

@@ -8,6 +8,7 @@ about.
 import re
 import sqlite3
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlsplit
 
 import pytest
 from fastapi import FastAPI
@@ -17,6 +18,11 @@ from docket.api import create_app
 from docket.api import status as status_module
 from docket.api.status import (
     REFRESH_MAX_AGE_SECONDS,
+    REPORT_TTL_S,
+    RPC_ENDPOINT,
+    STATUS_ALLOWANCE,
+    STATUS_WINDOW_S,
+    bounded_rpc_probe,
     deployed_commit,
     router,
     status_page,
@@ -31,10 +37,11 @@ CHECK_NAMES = ("home", "services", "api_status", "advantage_v3", "free_tier_hire
 
 def _rpc(ok: bool = True) -> dict:
     return {
-        "endpoint_host": "bsc-dataseed.example" if ok else None,
+        "endpoint_host": "bsc-dataseed.example",
         "ok": ok,
         "block_number": 119_000_000 if ok else None,
         "latency_ms": 180,
+        "reason": None if ok else "ConnectTimeout: the endpoint did not answer",
     }
 
 
@@ -179,10 +186,11 @@ def test_a_chain_read_that_found_no_endpoint_is_degraded(tmp_path, commit_file):
     report = _report(_healthy_store(tmp_path), commit_path=commit_file, rpc_ok=False)
 
     assert report["rpc"] == {
-        "endpoint_host": None,
+        "endpoint_host": "bsc-dataseed.example",
         "ok": False,
         "block_number": None,
         "latency_ms": 180,
+        "reason": "ConnectTimeout: the endpoint did not answer",
     }
     assert report["status"] == "degraded"
 
@@ -305,3 +313,134 @@ def test_the_application_serves_the_status_routes(tmp_path, monkeypatch):
         "generated_at",
     }
     assert client.get("/status").status_code == 200
+
+
+class _Clock:
+    """A monotonic clock that only moves when a test moves it."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _routed(store: Store, tmp_path, *, probe, clock=None, ttl_s=REPORT_TTL_S) -> TestClient:
+    app = FastAPI()
+    app.include_router(
+        router(
+            store,
+            release_commit_path=tmp_path / "absent.txt",
+            rpc_probe=probe,
+            ttl_s=ttl_s,
+            **({"clock": clock} if clock is not None else {}),
+        )
+    )
+    return TestClient(app)
+
+
+def test_one_reading_stands_for_the_window_and_is_retaken_after_it(tmp_path):
+    """Both routes are public and one reading is an outbound chain read, so the reading is
+    what is bounded rather than the requests. The document carries the instant it was taken,
+    which is how a caller inside the window can tell it is being served a held reading."""
+    readings = []
+    clock = _Clock()
+    client = _routed(
+        _healthy_store(tmp_path),
+        tmp_path,
+        probe=lambda: (readings.append(1), _rpc(True))[1],
+        clock=clock,
+    )
+
+    first = client.get("/api/status").json()
+    clock.now += REPORT_TTL_S - 1
+    held = client.get("/api/status").json()
+    page = client.get("/status")
+    clock.now += 1
+    retaken = client.get("/api/status").json()
+
+    assert held == first
+    assert held["generated_at"] == first["generated_at"]
+    assert first["generated_at"] in page.text
+    assert retaken["generated_at"] != first["generated_at"]
+    assert len(readings) == 2, "the chain was read once per window, not once per request"
+
+
+def test_the_page_is_served_from_the_same_reading_as_the_document(tmp_path):
+    readings = []
+    client = _routed(
+        _healthy_store(tmp_path),
+        tmp_path,
+        probe=lambda: (readings.append(1), _rpc(True))[1],
+        clock=_Clock(),
+    )
+
+    document = client.get("/api/status").json()
+    for _ in range(5):
+        client.get("/status")
+
+    assert len(readings) == 1
+    assert document["generated_at"] in client.get("/status").text
+
+
+def test_the_document_is_rate_limited_per_peer_and_the_page_is_not(tmp_path):
+    client = _routed(_healthy_store(tmp_path), tmp_path, probe=lambda: _rpc(True))
+
+    for _ in range(STATUS_ALLOWANCE):
+        assert client.get("/api/status").status_code == 200
+    refused = client.get("/api/status")
+
+    assert refused.status_code == 429
+    assert set(refused.json()) == {"error_code", "message"}
+    assert refused.json()["error_code"] == "status_rate_limited"
+    assert str(STATUS_ALLOWANCE) in refused.json()["message"]
+    assert str(STATUS_WINDOW_S) in refused.json()["message"]
+    assert 0 < int(refused.headers["Retry-After"]) <= STATUS_WINDOW_S
+    # The page costs a render of a reading already taken, and a person who has just hit a
+    # bound is exactly the person who needs to read it.
+    assert client.get("/status").status_code == 200
+
+
+def test_the_chain_reading_makes_one_attempt_against_one_endpoint(monkeypatch):
+    """`escrow/chain.py::Rpc` would try four endpoints twice each. That is right for a job
+    that must get an answer and wrong for a public route, where it turns one request into
+    eight outbound connections."""
+    attempted = []
+
+    def refuse(url):
+        attempted.append(url)
+        raise ConnectionError("connection refused")
+
+    monkeypatch.setattr(status_module, "_session", refuse)
+
+    reading = bounded_rpc_probe()
+
+    assert attempted == [RPC_ENDPOINT]
+    assert reading["ok"] is False
+    assert reading["block_number"] is None
+    assert reading["endpoint_host"] == urlsplit(RPC_ENDPOINT).hostname
+    assert "ConnectionError" in reading["reason"]
+
+
+def test_the_chain_reading_names_the_block_and_no_reason_when_it_answers(monkeypatch):
+    attempted = []
+
+    class _Session:
+        eth = type("_Eth", (), {"block_number": 119_700_000})()
+
+    def answer(url):
+        attempted.append(url)
+        return _Session()
+
+    monkeypatch.setattr(status_module, "_session", answer)
+
+    reading = bounded_rpc_probe()
+
+    assert attempted == [RPC_ENDPOINT]
+    assert reading == {
+        "endpoint_host": urlsplit(RPC_ENDPOINT).hostname,
+        "ok": True,
+        "block_number": 119_700_000,
+        "latency_ms": reading["latency_ms"],
+        "reason": None,
+    }

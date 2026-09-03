@@ -17,32 +17,51 @@ Three deliberate refusals:
     paid limbs are configuration-gated and its timer is deliberately disabled between
     exercises, so counting silence as a fault would leave this page permanently degraded and
     therefore permanently unread. A recorded `failed` verdict is counted.
+
+Both routes are public, and one of the readings is an outbound chain read, so neither may be
+taken per request. The report is built at most once per `REPORT_TTL_S` per process and served
+from that reading until it expires — carrying the instant it was taken, so a reader sees the
+staleness rather than being told a cached document is current. The chain read behind it is one
+attempt against one endpoint: `escrow/chain.py::Rpc` fails over because a job that cannot read
+the chain cannot proceed, whereas a status reading that cannot read the chain has read
+something true and should say so in one connection rather than eight. `/api/status` also
+carries the same per-peer allowance the rest of this application's free work does, so the
+cache cannot be the only thing standing between a caller and this deployment's RPC budget.
 """
 
 import html
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
+from collections import OrderedDict
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware
 
 from ..escrow import constants as escrow_constants
-from ..escrow.chain import Rpc
 from ..store import COMPLETE_STOP_REASON, PROBE_WINDOW_HOURS, Store
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 STATUS_CONTENT_MARKER = "<!-- status-content -->"
 
-# One request per endpoint, so a status read cannot outlive the page a person is waiting on
-# by more than the failover list allows: RPC_TIMEOUT_S x ATTEMPTS_PER_RPC x len(RPC_URLS).
+# One connection, once per window, so the worst case a person waits is the timeout itself.
 RPC_TIMEOUT_S = 5
+RPC_ENDPOINT = escrow_constants.RPC_URLS[0]
+# How long one reading stands. Long enough that a poll cannot drive the chain read, short
+# enough that an operator watching a deploy is never more than a minute behind it.
+REPORT_TTL_S = 60
+# Sixty reads an hour per peer: sixty times what a human refresh needs and ten times what the
+# probe timer spends, so the bound is only ever reached by something that is not reading it.
+STATUS_ALLOWANCE = 60
+STATUS_WINDOW_S = 3600
+MAX_ALLOWANCE_CLIENTS = 10_000
 # `docket-refresh.timer` fires every six hours. Two scheduled windows is the boundary between
 # a run that has not landed yet and a refresh that is not running, and the second is the one
 # an operator has to act on.
@@ -178,24 +197,93 @@ def _session(url: str) -> Web3:
 
 
 def bounded_rpc_probe() -> dict:
-    """One `eth_blockNumber` through the shared failover list, capped at RPC_TIMEOUT_S per
-    request. `latency_ms` is the whole call including any failover, so a slow reading and a
-    reading that took three endpoints to obtain are not published as the same number."""
-    rpc = Rpc(session_factory=_session)
+    """One `eth_blockNumber`, one endpoint, one attempt, capped at RPC_TIMEOUT_S.
+
+    No failover, deliberately. `escrow/chain.py::Rpc` walks four endpoints twice each because
+    a job that cannot read the chain cannot proceed; here a chain that did not answer is the
+    reading, and eight outbound connections would make a public route into a way to spend this
+    deployment's RPC budget. `reason` names what happened instead, so `ok: false` is a finding
+    an operator can act on rather than a bare flag.
+    """
     started = time.monotonic()
     try:
-        block_number = int(rpc(lambda w3: w3.eth.block_number))
-    # Every endpoint failing raises RuntimeError, but a socket, a proxy or a malformed
-    # response can arrive as anything; none of them is this process being wrong.
-    except Exception:
+        block_number = int(_session(RPC_ENDPOINT).eth.block_number)
+        reason = None
+    # A socket, a proxy, a throttle or a malformed response can arrive as anything, and none
+    # of them is this process being wrong.
+    except Exception as exc:
         block_number = None
-    latency_ms = round((time.monotonic() - started) * 1000)
+        reason = f"{type(exc).__name__}: {exc}"[:200]
     return {
-        "endpoint_host": urlsplit(rpc.used).hostname if rpc.used else None,
+        "endpoint_host": urlsplit(RPC_ENDPOINT).hostname,
         "ok": block_number is not None,
         "block_number": block_number,
-        "latency_ms": latency_ms,
+        "latency_ms": round((time.monotonic() - started) * 1000),
+        "reason": reason,
     }
+
+
+class _ReportCache:
+    """One reading per window per process, taken under a lock.
+
+    The lock is held across the build rather than around a double check, deliberately: a
+    lock-free cache lets every concurrent first request miss together and make the outbound
+    read this cache exists to bound. Waiting behind one reading in flight is the cheaper
+    failure, and FastAPI runs these routes on its threadpool, so nothing else is blocked.
+
+    The document it hands back carries the `generated_at` of the reading, not of the request,
+    so a caller can see how stale the answer is instead of being told it is current.
+    """
+
+    def __init__(self, build, *, ttl_s: int = REPORT_TTL_S, clock=time.monotonic) -> None:
+        self._build = build
+        self._ttl_s = ttl_s
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._report: dict | None = None
+        self._taken_at = 0.0
+
+    def __call__(self) -> dict:
+        with self._lock:
+            now = self._clock()
+            if self._report is None or now - self._taken_at >= self._ttl_s:
+                self._report = self._build()
+                self._taken_at = now
+            return self._report
+
+
+def spend_window(
+    windows: OrderedDict[str, tuple[float, int]],
+    client_ip: str,
+    *,
+    attempts: int,
+    window_seconds: int,
+    clock=time.monotonic,
+) -> int | None:
+    """Take one attempt from a peer's window, or return the seconds until it resets.
+
+    The same shape `create_app` uses for free hires and on-demand probes, and keyed the same
+    way: on the peer address only. `X-Forwarded-For` is caller-controlled, and reading it here
+    would turn the bound into a header anyone can rewrite.
+    """
+    now = clock()
+    while windows:
+        _, (oldest_started, _) = next(iter(windows.items()))
+        if now - oldest_started < window_seconds:
+            break
+        windows.popitem(last=False)
+    current = windows.get(client_ip)
+    if current is None:
+        if len(windows) >= MAX_ALLOWANCE_CLIENTS:
+            windows.popitem(last=False)
+        started, used = now, 0
+        windows[client_ip] = (started, used)
+    else:
+        started, used = current
+    if used >= attempts:
+        return int(window_seconds - (now - started)) + 1
+    windows[client_ip] = (started, used + 1)
+    return None
 
 
 def refresh_out_of_tolerance(refresh: dict) -> bool:
@@ -312,8 +400,8 @@ def status_page(shell: str, report: dict) -> str:
                 else f"no endpoint answered in {rpc['latency_ms']:,}ms"
             ),
             _display(rpc["endpoint_host"]),
-            f"one eth_blockNumber, {RPC_TIMEOUT_S}s per request, failing over "
-            f"{len(escrow_constants.RPC_URLS)} endpoints",
+            f"one eth_blockNumber against {_esc(urlsplit(RPC_ENDPOINT).hostname)}, "
+            f"one attempt, {RPC_TIMEOUT_S}s",
             not rpc["ok"],
         ),
         (
@@ -363,9 +451,12 @@ def status_page(shell: str, report: dict) -> str:
         '<section aria-labelledby="method-heading">'
         '<h2 id="method-heading">How this page was produced</h2>'
         '<div class="panel"><p>Every field on this page is the JSON at '
-        '<a href="/api/status">/api/status</a>, rendered. The database readings come from '
-        "the same store the API serves from; the BSC reading is made when the page is "
-        "requested; the probe counts are rows written by "
+        '<a href="/api/status">/api/status</a>, rendered — the same reading, not a second '
+        f"one. A reading is taken at most once every {REPORT_TTL_S} seconds and stands "
+        "until it expires, so the time above is when these figures were observed rather "
+        "than when this page was requested. The database readings come from "
+        "the same store the API serves from; the BSC reading is one attempt against one "
+        "endpoint; the probe counts are rows written by "
         '<span class="mono">docket-probe.service</span>, which exercises this deployment '
         "from outside the application. <strong>down</strong> means the database could not be "
         "read, <strong>degraded</strong> means at least one reading above is out of "
@@ -382,21 +473,30 @@ def router(
     release_commit_path: Path | str | None = None,
     rpc_probe=None,
     canary_service_id: str = "range-doctor",
+    ttl_s: int = REPORT_TTL_S,
+    clock=time.monotonic,
 ) -> APIRouter:
-    """The status routes, built against one store and one release identity.
+    """The status routes, built against one store, one release identity and one cache.
 
     The shell is read once here rather than per request, for the reason every other page in
     this application is: a missing file should fail the process that ships it, not the one
-    request that happened to ask for it. `rpc_probe` is resolved per request rather than
+    request that happened to ask for it. `rpc_probe` is resolved per reading rather than
     bound here, so a caller that supplied none reaches whatever `bounded_rpc_probe` is at
-    the moment of the read instead of a copy taken at import.
+    the moment of the read instead of a copy taken at import. `ttl_s` and `clock` are here
+    so the window can be exercised without waiting out a real minute.
+
+    Per process, not per worker set: two uvicorn workers hold two caches and two allowances,
+    which doubles the bound rather than removing it. This deployment runs one.
     """
     if release_commit_path is None:
         release_commit_path = default_release_commit_path()
     shell = (WEB_DIR / "status.html").read_text(encoding="utf-8")
+    # Ordered by window start, which keeps expired-window eviction bounded to the expired
+    # prefix — the same structure and the same reason as `create_app`'s hire allowances.
+    allowances: OrderedDict[str, tuple[float, int]] = OrderedDict()
     api = APIRouter()
 
-    def _report() -> dict:
+    def _build() -> dict:
         return status_report(
             store,
             release_commit_path=release_commit_path,
@@ -405,12 +505,38 @@ def router(
             canary_service_id=canary_service_id,
         )
 
-    @api.get("/api/status")
-    def api_status() -> dict:
-        return _report()
+    reading = _ReportCache(_build, ttl_s=ttl_s, clock=clock)
 
+    @api.get("/api/status", response_model=None)
+    def api_status(request: Request) -> JSONResponse | dict:
+        client_ip = request.client.host if request.client else "unknown"
+        resets_in = spend_window(
+            allowances,
+            client_ip,
+            attempts=STATUS_ALLOWANCE,
+            window_seconds=STATUS_WINDOW_S,
+            clock=clock,
+        )
+        if resets_in is not None:
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(resets_in)},
+                content={
+                    "error_code": "status_rate_limited",
+                    "message": (
+                        f"This caller has used its allowance of {STATUS_ALLOWANCE} status "
+                        f"reads per {STATUS_WINDOW_S} seconds; it resets in {resets_in}s. "
+                        f"One reading stands for {ttl_s}s, so polling faster than that "
+                        "returns the same document."
+                    ),
+                },
+            )
+        return reading()
+
+    # Unmetered, because it costs a render of a reading that has already been taken and a
+    # person who has hit a bound is exactly the person who needs to see this page.
     @api.get("/status", response_class=HTMLResponse, include_in_schema=False)
     def status_html() -> str:
-        return status_page(shell, _report())
+        return status_page(shell, reading())
 
     return api
