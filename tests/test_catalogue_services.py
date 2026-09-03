@@ -133,10 +133,12 @@ def test_every_service_has_a_one_clause_job_summary():
     expected = {
         "grid-operator": "Builds a read-only PancakeSwap V2 grid preview for one wallet.",
         "health-guard": (
-            "Reads one wallet's Venus Core Pool position and drafts bounded protective actions."
+            "Watches one Venus Core Pool position and prepares the least remedy that "
+            "restores its ratio."
         ),
         "range-doctor": (
-            "Diagnoses one wallet's PancakeSwap v3 position range and fee economics."
+            "Watches one PancakeSwap v3 position and prepares the reset when its range "
+            "is left."
         ),
         "solvent-signal": (
             "Relays SOLVENT's last published historical regime signal and provenance."

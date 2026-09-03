@@ -754,20 +754,38 @@ def _run_yield_router(payload: dict) -> dict:
 SERVICES: dict[str, Service] = {
     "range-doctor": Service(
         id="range-doctor",
-        name="Range Doctor",
+        name="Range Keeper",
         job_summary=(
-            "Diagnoses one wallet's PancakeSwap v3 position range and fee economics."
+            "Watches one PancakeSwap v3 position and prepares the reset when its range "
+            "is left."
         ),
         what_you_get=(
-            "A read-only diagnosis of the PancakeSwap v3 liquidity positions a BSC wallet holds "
-            "or has staked: for each one, whether the current tick sits inside its range and "
-            "where in that range it sits, the pool's gross and protocol-adjusted net 24h fee "
-            "rates when its reported figures clear a plausibility gate, and conditional wait "
-            "and recenter paths. Name one token id and declare its USD value and estimated "
-            "recenter cost to add fixed-notional dollar effects and cost-only break-even; those "
-            "two inputs are labelled as the caller's rather than derived from an unverified "
-            "price feed. Every finding carries the numbers it was computed from, so you can "
-            "check it against the chain yourself. Nothing is signed, approved, or moved."
+            "A persistent watch over one PancakeSwap v3 liquidity position, and the read-only "
+            "diagnosis it is built on. Each cycle Docket reads the position and its pool at one "
+            "BSC block and states whether the current tick sits inside the range, where in that "
+            "range it sits, and the pool's gross and protocol-adjusted net 24h fee rates when its "
+            "reported figures clear a plausibility gate. Declare the position's USD value and a "
+            "BNB price to add fixed-notional dollar effects, cost-only break-even, and the reset "
+            "arithmetic below; both are labelled as the caller's rather than derived from an "
+            "unverified price feed. When the position has been observed outside its range for "
+            "longer than your policy waits, you get an alert carrying that arithmetic in full: "
+            "how long it has been out, the fee recovery projected over a stated window against "
+            "the whole cost of acting — gas ceilings at the observed gas price, and the swap a "
+            "recentred range needs — and the multiple between them. If that multiple clears the "
+            "one you set, the reset is prepared as exact calls: close the position, collect what "
+            "it holds, and mint a replacement whose position NFT is issued to your own address "
+            "and never to Docket. One step in that sequence is priced but not prepared. A "
+            "position that left its range holds one token and a range drawn around the current "
+            "tick needs both, so about half of it has to be traded between the collect and the "
+            "mint; that trade is counted in the cost you are shown and is yours to make, and "
+            "the mint is sized against the inventory you hold after it. Each call is put to the "
+            "chain as an eth_call and a gas estimate "
+            "before it is offered, and a batch the chain refuses comes back as an alert rather "
+            "than reaching a signer. You sign the calls yourself, or grant a bounded session — a "
+            "contract allowlist, a per-token cap, a gas ceiling and an expiry — and let Docket "
+            "send them under it. Pause the watch or revoke the session whenever you choose; "
+            "revoking sweeps the session balance back to you. Every finding carries the numbers "
+            "it was computed from, so you can check it against the chain yourself."
         ),
         input_schema={
             "wallet": {
@@ -819,6 +837,56 @@ SERVICES: dict[str, Service] = {
                     "the caller-declared non-negative USD cost of recentering the exact "
                     "token_id, including every gas, swap fee and price-impact component the "
                     "caller wants counted. Requires token_id and is not derived by Docket"
+                ),
+            },
+            "bnb_usd": {
+                "type": "number",
+                "required": False,
+                "default": 900.0,
+                "description": (
+                    "the caller-declared USD price of BNB, used only to convert the gas "
+                    "ceilings of a reset into dollars. Docket derives no token price, so a "
+                    "reset is never priced against a figure the caller did not state"
+                ),
+            },
+            "out_of_range_minutes": {
+                "type": "integer",
+                "required": False,
+                "default": 60,
+                "description": (
+                    "how long the position has to be OBSERVED outside its range before a "
+                    "reset is priced. Only time between observations counts: a position "
+                    "that was inside at the last read and outside at this one has been out "
+                    "for no observed time, and no departure moment is invented between them"
+                ),
+            },
+            "min_net_benefit_multiple": {
+                "type": "number",
+                "required": False,
+                "default": 2.0,
+                "description": (
+                    "how many times the projected fee recovery has to exceed the whole cost "
+                    "of the reset before one is offered. Below 1 the policy would authorise "
+                    "a reset whose projection does not cover its own cost, and it is refused"
+                ),
+            },
+            "band_width_ticks": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "the half-width in ticks of the new range, so the band spans twice it. "
+                    "Omit it to keep the width the position already has. The bounds are "
+                    "snapped outward to the pool's own tick spacing, so the band is never "
+                    "returned narrower than asked for"
+                ),
+            },
+            "max_notional_usd": {
+                "type": "number",
+                "required": False,
+                "default": 1000.0,
+                "description": (
+                    "the largest declared position value a reset may be prepared for. A "
+                    "position above it is reported rather than acted on"
                 ),
             },
             "observation_block": {
@@ -992,29 +1060,37 @@ SERVICES: dict[str, Service] = {
     ),
     "health-guard": Service(
         id="health-guard",
-        name="Venus Health Guard Preview",
+        name="Health Shield",
         job_summary=(
-            "Reads one wallet's Venus Core Pool position and drafts bounded protective actions."
+            "Watches one Venus Core Pool position and prepares the least remedy that "
+            "restores its ratio."
         ),
         what_you_get=(
-            "A read-only report on what Venus Core Pool publishes about one BSC address's "
-            "lending position, and on what can honestly be derived from it. Venus publishes "
-            "liquidity and shortfall in USD and publishes no health factor at all — so you "
-            "get its own two figures verbatim, with the call and the block they came from, "
-            "and a collateral ratio computed here whose exact formula, inputs and scales are "
-            "stated inline beside it, together with a cross-check of that derivation against "
-            "Venus's own liquidity figure so you can see whether the two agree. For every "
-            "market the account has entered: supplied and borrowed balances, the collateral "
-            "factor, the exchange rate and the oracle price, each labelled with the call that "
-            "produced it. Where Venus reports a shortfall, you also get conservative draft "
-            "actions — repay and supply-collateral only, never borrow and never withdraw — "
-            "each fully bounded, with the exact contract and function, a hash of the calldata "
-            "that binds it, a cap, a floor, a deadline and a gas ceiling. Nothing is signed, "
-            "approved, submitted or held: the object that produces this holds no session key, "
-            "no signer and no submitter, it has no armed counterpart class in this build, and "
-            "no execution path for a Venus call exists here at all. Every figure comes back "
-            "with the block it was read at, so you can check any of it against the chain "
-            "yourself."
+            "A persistent watch over one BSC address's Venus Core Pool lending position, and "
+            "the read-only report it is built on. Venus publishes liquidity and shortfall in USD "
+            "and publishes no health factor at all — so you get its own two figures verbatim, "
+            "with the call and the block they came from, and a collateral ratio computed here "
+            "whose exact formula, inputs and scales are stated inline beside it, together with a "
+            "cross-check of that derivation against Venus's own liquidity figure so you can see "
+            "whether the two agree. For every market the account has entered: supplied and "
+            "borrowed balances, the collateral factor, the exchange rate and the oracle price, "
+            "each labelled with the call that produced it. Each cycle the derived ratio is "
+            "compared against the floor you set, and when it falls below you get an alert "
+            "carrying the smallest remedy that returns it above the line — a repay in one "
+            "borrowed market, or a collateral add — with the integer arithmetic that sized it "
+            "and the ratio recomputed after it. The remedy is prepared as exact calls: an "
+            "approval for the exact amount and never unlimited, then repayBorrowBehalf on the "
+            "vToken, which is the one Venus function a third party may call on a borrower's "
+            "account. Supplying collateral has no such form, so it is offered for you to sign "
+            "from your own wallet and says why on the call itself. Borrow and withdraw are "
+            "encoded nowhere in this service. Each call is put to the chain as an eth_call and a "
+            "gas estimate before it is offered, and a batch the chain refuses comes back as an "
+            "alert rather than reaching a signer. You sign the calls yourself, or grant a "
+            "bounded session — a contract allowlist, a per-token cap, a gas ceiling and an "
+            "expiry — and let Docket send them under it. Pause the watch or revoke the session "
+            "whenever you choose; revoking sweeps the session balance back to you. Every figure "
+            "comes back with the block it was read at, so you can check any of it against the "
+            "chain yourself."
         ),
         input_schema={
             "wallet": {
@@ -1037,6 +1113,51 @@ SERVICES: dict[str, Service] = {
                 "description": (
                     "the shortfall Venus has to be reporting, 1e18-scaled USD as the "
                     "comptroller reports it, before any action is drafted; zero is refused"
+                ),
+            },
+            "min_collateral_ratio": {
+                "type": "number",
+                "required": False,
+                "default": 1.25,
+                "description": (
+                    "the floor the watch holds the DERIVED collateral ratio to, as a "
+                    "multiple of the debt. Venus publishes no health factor; this is "
+                    "Docket's own ratio, and the formula that computes it travels with "
+                    "every answer. 1.0 is the point at which the weighted collateral "
+                    "exactly covers the debt"
+                ),
+            },
+            "mode": {
+                "type": "string",
+                "required": False,
+                "default": "repay",
+                "description": (
+                    "which remedy to size: repay, add_collateral, or either. Under either "
+                    "a repay is tried first, because it is the only one of the two a "
+                    "bounded session can complete for you — supplying collateral credits "
+                    "whoever sends it, so it is always yours to sign"
+                ),
+            },
+            "allowed_vtokens": {
+                "type": "array",
+                "items": {"type": "string"},
+                "required": False,
+                "default": [VENUS_VUSDT, VENUS_VUSDC],
+                "description": (
+                    "the Venus Core Pool vTokens a remedy may be sized in. The native "
+                    "market is refused: vBNB takes repayBorrowBehalf(address) with the "
+                    "amount as BNB value, which is a different function from the one this "
+                    "service encodes"
+                ),
+            },
+            "max_rescue_atomic": {
+                "type": "object",
+                "required": False,
+                "default": {VENUS_USDT: GUARD_CAP, VENUS_USDC: GUARD_CAP},
+                "description": (
+                    "the largest remedy permitted per underlying token, keyed by that "
+                    "token's address in its own atomic units. A remedy above the cap is "
+                    "reported with the amount that was refused rather than trimmed to fit"
                 ),
             },
         },
