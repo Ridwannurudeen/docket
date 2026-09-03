@@ -285,3 +285,71 @@ the existing shells) so the page stays complete without JavaScript.
 
 Integration order (supervisor): B -> D1/D2 -> A -> C -> E -> F -> G, one PR per lane onto
 `build/pivot-integration`, then one PR to `main`. Fable audits each lane before it merges.
+
+## Integration and deploy checklist (supervisor; added 2026-09-03 14:00Z)
+
+Merge order onto `build/pivot-integration`: A (done) -> B -> D1 -> D2 -> E -> C -> F -> G. Every
+merge is followed by the full suite in the integration worktree; a lane merges only after its
+Fable audit's blockers and majors are closed. Reconcile at integration:
+
+1. Commit hygiene: no `Claude-Session:` or `Co-Authored-By` trailers survive (cherry-pick and
+   reword where a lane's commit carries one).
+2. `docket/jobs/executors/__init__.py` (Lane B's copy is the reference) must load the concrete
+   executors — `range`, `health`, `grid`, `yield_router` — through Lane B's `load_executors()`
+   without the import ring D1/D2 avoided.
+3. Systemd unit count: B +2 (`docket-jobs`), F +2 (`docket-v3-yield-v8-capture`), G +2
+   (`docket-probe`) => `deploy/systemd/` holds **21** files; `release.sh` and `preflight.sh`
+   arrays, `tests/test_release_scripts.py` (`len(expected) == 21`), and
+   `docs/deployment-runbook.md` ("all twenty-one tracked unit", exactly twice) all agree;
+   `TIMER_NAMES` holds 10.
+4. `docket/marketplace/registry.py`: `activation` for `range-doctor` and `health-guard` flips
+   `one_shot` -> `policy_action` (and `tests/test_marketplace.py:501,569`) once Lane B's session
+   executor is in the tree; grid-operator / yield-router likewise if D2's executors land.
+5. `tests/test_web_w40.py`: Lane A's single nav for all pages, Lane C's `PIVOT_PAGES` split and
+   Lane G's `status.html` exceptions collapse into ONE expectation (the plan's chrome contract,
+   `?v=13`, on every page).
+6. `index.html` experiment register: rows for `v3-08-yield-router` and `v3-09-health-guard`
+   (or derive the rows from `report()` as the heading already is) so Lane A's register test
+   passes with nine families; README/demo/submission custody sentences describe the integrated
+   model (Lane A's follow-up text).
+7. Judge-facing v3 sentence: Lane F's nine-family regeneration wins over Lane A's seven-family
+   copy in the six docs; re-run `tests/test_judge_facing_state.py`.
+8. Admission docs: with Lane D2's derived limbs, `fresh_paired_benchmark` reads true for
+   range-doctor and solvent-signal until 2026-09-07 and for warden-scan until 2026-09-26. Every
+   present-tense sentence that says the limb is false (`docs/api-and-payment-semantics.md:119-123`,
+   `docs/submission/claims-checklist.md:78`, `docs/deployment-runbook.md:396-398,546-547`,
+   `docs/submission/demo-script.md:21`) becomes a dated observation or is rewritten to the
+   derived rule; `docs/operational-evidence.md` gets a new dated record after the deploy.
+9. Lane E's `external_listings` table/level column names must match what
+   `docket/api/summary.py::marketplace_summary` reads for `external_listings_by_level`.
+10. Lane C's `api.js` must match Lane B's final auth message format and state names
+    (`awaiting_session`, `revoking`) and Lane E's routes; re-run the Playwright suite against the
+    integrated app (not mocks) before the PR.
+11. `ruff check . --fix` after all lanes (Lane G linted the pre-pivot tree only); `pip-audit`
+    on the final lock; `uv lock` if any dependency moved.
+12. `llms.txt` / `SKILL.md`: every OpenAPI path documented (Lane A's summary route, Lane B's
+    activations, Lane E's marketplace, Lane G's status); `test_llms_txt_documents_every_path_the_spec_declares`.
+13. One PR from `build/pivot-integration` to `main`, merged with a merge commit (never squash:
+    the v3-08/v3-09 registration witnesses are the lane commits). CI must be green on the head.
+
+Deploy (Sep 4, outside every refusal window; Sep 5 11:49:54Z–12:03:06Z and Sep 6
+11:49:54Z–12:03:06Z are refused):
+
+- Host prerequisites BEFORE the release: `/etc/docket/docket-sessions.key` (48 random bytes,
+  `0640 root:docket`) and `/etc/docket/docket-sessions.conf` (`DOCKET_SESSION_KEY_FILE=...`)
+  for `docket-jobs.service` only — the web process never receives it; the existing
+  `docket.service.d/archive.conf` already supplies `DOCKET_ARCHIVE_RPC` for pinned-block reads.
+- `deploy/preflight.sh` (re-derive the nginx warn count), then `deploy/release.sh` with the CI-green
+  commit; verify the smoke (`/services` still six ids, `/advantage/v3.json` nine families,
+  `/api/status` `deployed_commit` == release), timers: `docket-jobs.timer` every minute,
+  `docket-probe.timer` every 10 minutes, `docket-v3-yield-v8-capture.timer` armed for
+  2026-09-06 11:50 UTC, `docket-v3-range-v7-capture.timer` still armed for 2026-09-05 11:50 UTC.
+- Append dated records to `docs/operational-evidence.md` and `docs/source-deploy-manifest.md`.
+- Tag `v1.0.0-hackathon` with `deploy/tag-release.sh` only after the deployed commit is verified.
+
+Experiment schedule after the deploy: v3-07 stage 1 done (frame collected 2026-09-03); Sep 5
+12:00Z pool-truth capture -> copy; Sep 7 (Codex back) v3-07 seats + lock + three owner manual
+primaries + three settled agent primaries; v3-08 capture Sep 6 12:00Z -> copy; Sep 7 evening
+v3-08 seats + lock (seats of a second family on the same day are permitted once the first
+family's seats both passed); Sep 8 v3-08 primaries, v3-07 scoring seats, report; v3-09 frame
+collection any day, its seats/lock/primaries after submission unless a day frees up.
