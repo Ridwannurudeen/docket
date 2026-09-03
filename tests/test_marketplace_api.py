@@ -640,8 +640,9 @@ def test_a_submission_without_a_signature_is_refused(client):
     assert refused.json()["error_code"] == "invalid_claim"
 
 
-def test_a_declared_sample_from_a_provider_is_what_verification_sends(client):
-    """The full two-sided loop: an owner claims, declares a sample, and Docket runs it."""
+def test_a_provider_sample_is_run_and_published_but_the_level_is_dockets_own(client):
+    """The full two-sided loop: an owner claims, declares a sample, Docket runs it — and
+    the level still comes from Docket's own sample rather than from the seller's."""
     issued = client.post("/api/providers/claim", json={"agent_id": AGENT}).json()
     signature = Account.sign_message(
         encode_defunct(text=issued["message"]), private_key=OWNER.key
