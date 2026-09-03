@@ -8,12 +8,12 @@ Three separations are load-bearing here, and each is a field rather than a conve
 
 `declared_category` and `classified_category` are kept apart. The first is what the
 registration itself says; the second is what Docket's rule table read out of the
-capability text. `capability_source` names which one the category came from, so a
-label Docket inferred can never be quoted as one the agent declared. This is the one
-place Docket does put a category on somebody else's agent, and it is why the source
-travels with it: `registry.CATEGORY_DECLARATION` says Docket assigns no category to a
-third-party agent, and that sentence describes the six-service inventory, not this
-table. A classified category is a reading of published text, labelled as a reading.
+capability text. `capability_source` names which one the category came from, so a label
+Docket inferred can never be quoted as one the agent declared. This is the one place
+Docket does put a category on somebody else's agent, and it is why the source travels
+with it. `registry.CATEGORY_DECLARATION` is the sentence that describes both layers to a
+reader, and it names this one explicitly: a classified category is a reading of published
+text, labelled as a reading.
 
 `classify` never guesses past its rule table. The table is data, printed below; a term
 that is not in it does not match; and where two categories both match, the decision is
@@ -24,6 +24,13 @@ every rationale names the losing side, so a reader can see what the rule decided
 seen in the registry index, nothing observed — and moves only when
 `verification.verify_listing` records evidence for a level. `hireable` is False until
 `docket_tested`, so a listing cannot be sold on the strength of having been indexed.
+
+Inside that object, `payment_tested` is its own boolean and is never inferred from the
+level. `docket_tested` means one thing only — a sample invocation came back as a
+schema-valid structured result — and it hangs off `live` rather than off
+`payment_tested`, so a listing can stand at `docket_tested` with `payment_tested: false`.
+That is not a contradiction; it is two facts a single ordered level cannot state
+together, so both are serialised, together with the evidence row behind the boolean.
 """
 
 import json
@@ -355,6 +362,24 @@ def unverified() -> dict:
     return {"level": None, "evidence": [], "verified_at": None}
 
 
+def payment_reading(verification: dict) -> tuple[bool, dict | None]:
+    """Whether an x402 challenge was actually read from this agent, and the row saying so.
+
+    Derived from the evidence on every serialisation rather than stored beside it, so the
+    boolean cannot drift from the run that produced it and a hand-edited listing cannot
+    assert a payment reading it has no evidence for.
+
+    False covers two different situations and the row is what tells them apart: a row with
+    `ok: false` means the endpoint was asked and answered without an x402 challenge; no row
+    at all means the level was never attempted, because nothing has been verified yet.
+    Both are published — a boolean alone would let "never asked" read as "asked and none".
+    """
+    for row in verification.get("evidence") or ():
+        if isinstance(row, dict) and row.get("level") == "payment_tested":
+            return bool(row.get("ok")), row
+    return False, None
+
+
 @dataclass(frozen=True)
 class ExternalListing:
     """One third-party agent as Docket's marketplace shows it.
@@ -414,8 +439,18 @@ class ExternalListing:
     def invocable_endpoints(self) -> tuple[dict, ...]:
         return tuple(row for row in self.endpoints if row["kind"] in INVOCABLE_KINDS)
 
+    @property
+    def payment_tested(self) -> bool:
+        """Whether an x402 challenge was read from this agent. Never inferred from `level`.
+
+        `docket_tested` hangs off `live`, not off `payment_tested`, so the level cannot be
+        read as evidence about payment either way. This is the fact, on its own.
+        """
+        return payment_reading(self.verification)[0]
+
     def to_json(self) -> dict:
         category = self.category
+        payment_tested, payment_evidence = payment_reading(self.verification)
         return {
             "agent_id": self.agent_id,
             "chain_id": self.chain_id,
@@ -439,6 +474,12 @@ class ExternalListing:
             "output_schema": self.output_schema,
             "verification": {
                 "level": self.verification.get("level"),
+                # Carried as its own boolean on every payload, never left to be inferred
+                # from the level. `docket_tested` hangs off `live`, so a listing can be at
+                # `docket_tested` with `payment_tested: false` — that is not a contradiction,
+                # it is the two facts a level alone cannot say together.
+                "payment_tested": payment_tested,
+                "payment_tested_evidence": payment_evidence,
                 "evidence": list(self.verification.get("evidence") or []),
                 "verified_at": self.verification.get("verified_at"),
             },
@@ -452,6 +493,17 @@ class ExternalListing:
         def as_category(value):
             return Category(value) if value else None
 
+        # The derived fields are dropped on the way in. `verification` on the object is
+        # the observation — level, evidence, when — and `to_json` recomputes everything
+        # read off it. Carrying them back would make a stored copy a second source for a
+        # fact that has exactly one, and a hand-edited or forged value would survive the
+        # round trip instead of being recomputed from the evidence.
+        verification = {
+            key: value
+            for key, value in (payload.get("verification") or unverified()).items()
+            if key not in ("payment_tested", "payment_tested_evidence")
+        }
+
         return cls(
             agent_id=payload["agent_id"],
             chain_id=int(payload["chain_id"]),
@@ -464,7 +516,7 @@ class ExternalListing:
             capability_source=payload["capability_source"],
             price=payload.get("price"),
             payment_method=payload.get("payment_method"),
-            verification=payload.get("verification") or unverified(),
+            verification=verification,
             hireable=bool(payload.get("hireable")),
             capabilities=payload.get("capabilities") or "",
             classification_rationale=payload.get("classification_rationale") or "",

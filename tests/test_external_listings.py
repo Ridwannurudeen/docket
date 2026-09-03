@@ -235,6 +235,97 @@ def test_a_level_outside_the_vocabulary_is_refused_at_the_constructor():
         )
 
 
+def _verified(level: str, evidence: list) -> ExternalListing:
+    return ExternalListing(
+        agent_id="56:0xreg:43129",
+        chain_id=56,
+        name="A",
+        owner=None,
+        registration_uri=None,
+        endpoints=(),
+        declared_category=None,
+        classified_category=None,
+        capability_source="docket_classified",
+        price=None,
+        payment_method=None,
+        verification={
+            "level": level,
+            "evidence": evidence,
+            "verified_at": "2026-09-03T00:00:00+00:00",
+        },
+        hireable=at_least(level, "docket_tested"),
+    )
+
+
+def test_a_docket_tested_listing_serialises_both_facts_and_neither_implies_the_other():
+    """`docket_tested` hangs off `live`, so it says a sample invocation returned a
+    schema-valid result and says nothing about payment. The listing has to carry both
+    facts: a reader who saw only the level would have to guess, and the guess a shop front
+    invites is the flattering one."""
+    row = {
+        "level": "payment_tested",
+        "ok": False,
+        "at": "2026-09-03T00:00:00+00:00",
+        "detail": {
+            "message": "the endpoint answered without an x402 payment challenge"
+        },
+    }
+    payload = _verified(
+        "docket_tested",
+        [row, {"level": "docket_tested", "ok": True, "at": "x", "detail": {}}],
+    ).to_json()
+
+    assert payload["verification"]["level"] == "docket_tested"
+    assert payload["verification"]["payment_tested"] is False
+    assert payload["verification"]["payment_tested_evidence"] == row
+    assert payload["hireable"] is True
+
+
+def test_payment_tested_is_true_only_where_its_own_evidence_row_passed():
+    passed = _verified(
+        "payment_tested",
+        [{"level": "payment_tested", "ok": True, "at": "x", "detail": {"paid": False}}],
+    ).to_json()
+
+    assert passed["verification"]["payment_tested"] is True
+    assert passed["verification"]["payment_tested_evidence"]["detail"]["paid"] is False
+
+
+def test_a_listing_with_no_evidence_says_false_and_shows_no_row_to_back_it():
+    """False covers "asked and none" and "never asked", and only the row tells them apart.
+    A boolean alone would let a listing nothing was ever run against read as one that was
+    asked for a price and had none."""
+    payload = listing_from_registry(_card("A", "Grid agent.")).to_json()
+
+    assert payload["verification"]["level"] is None
+    assert payload["verification"]["payment_tested"] is False
+    assert payload["verification"]["payment_tested_evidence"] is None
+
+
+def test_the_payment_boolean_is_derived_from_evidence_not_read_from_the_input():
+    """Stored beside the evidence it would drift from it. A listing asserting a payment
+    reading its own evidence does not support must not serialise that assertion."""
+    lying = _verified(
+        "live",
+        [{"level": "payment_tested", "ok": False, "at": "x", "detail": {}}],
+    )
+    forged = dict(lying.verification, payment_tested=True)
+    payload = ExternalListing.from_json(
+        {**lying.to_json(), "verification": forged}
+    ).to_json()
+
+    assert payload["verification"]["payment_tested"] is False
+
+
+def test_every_seeded_listing_carries_the_payment_boolean_beside_its_level():
+    for listing in load_seed(SEED):
+        payload = listing.to_json()
+        assert isinstance(payload["verification"]["payment_tested"], bool)
+        assert payload["verification"]["payment_tested"] == listing.payment_tested
+        if payload["verification"]["payment_tested"]:
+            assert payload["verification"]["payment_tested_evidence"]["ok"] is True
+
+
 def test_a_listing_survives_a_round_trip_through_json():
     original = listing_from_registry(
         _card("A", "Grid agent.", services={"a2a": {"endpoint": "https://a.test/a2a"}})
@@ -286,6 +377,34 @@ def test_the_seed_carries_its_own_method_and_never_claims_docket_verified():
     assert not any(
         row["verification"]["level"] == "docket_verified" for row in payload["listings"]
     )
+
+
+def test_both_agent_facing_documents_say_what_docket_tested_does_not_mean():
+    """The wording is the whole safeguard for a client that reads a level and stops there.
+    Pinned in both documents, because a reader arrives at one or the other."""
+    static = Path(__file__).resolve().parents[1] / "docket" / "api" / "static"
+    for name in ("llms.txt", "SKILL.md"):
+        body = " ".join((static / name).read_text(encoding="utf-8").split())
+        assert "schema-valid structured result" in body, name
+        assert "does not mean a payment was tested" in body.lower(), name
+        assert "payment_tested_evidence" in body, name
+        assert "payment_tested: false" in body.lower(), name
+
+
+def test_the_census_document_states_the_same_thing_about_its_one_tested_agent():
+    doc = " ".join(
+        (
+            Path(__file__).resolve().parents[1]
+            / "docs"
+            / "marketplace"
+            / "verification-2026-09-03.md"
+        )
+        .read_text(encoding="utf-8")
+        .split()
+    )
+
+    assert "does not imply a payment was tested" in doc
+    assert "payment_tested: false" in doc
 
 
 def test_the_seed_loads_into_an_empty_store_and_is_queryable_by_category(tmp_path):

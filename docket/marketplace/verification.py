@@ -35,11 +35,16 @@ look" and "the chain says no".
 
 **`docket_tested` requires `live`, not `payment_tested`.** The plan orders the levels by
 strength of evidence, and read literally that would mean an endpoint answering a real
-request for free can never be tested — which would rank a service that only quotes a
-price above one that actually did the work. So the prerequisite table below is explicit:
-`payment_tested` and `docket_tested` both hang off `live`, and a listing reported at
-`docket_tested` still carries its own `payment_tested: false` evidence row, so nobody can
-read the level as a claim that a payment path was exercised.
+request for free can never be tested — which would put a service that only quotes a price
+above one that actually did the work. So the prerequisite table below is explicit:
+`payment_tested` and `docket_tested` both hang off `live`.
+
+`docket_tested` therefore means exactly one thing: **a sample invocation returned a
+schema-valid structured result.** It says nothing whatever about payment. A listing at
+`docket_tested` still carries its own `payment_tested` boolean and the evidence row behind
+it — `ExternalListing.to_json` derives both from this run's evidence on every
+serialisation — so the level can never be read as a claim that a payment path was
+exercised, in either direction.
 """
 
 import json

@@ -1492,9 +1492,13 @@ def create_app(
     def categories() -> CategoryResponse:
         """BNB's four jobs, each with what it gets done and how many services stand in it.
 
-        A zero here is the honest answer and not a gap being papered over: Docket lists a
-        service where it runs the work and can show a recorded run behind it, and it will
-        not stock a shelf with registry agents whose job nothing on chain states.
+        A zero here is the honest answer and not a gap being papered over: this route
+        counts only services Docket runs the work for and can show a recorded run behind,
+        so a bare shelf here is a bare shelf of Docket's own stock. Third-party registry
+        agents carrying one of these four categories are a separate layer served at
+        /api/agents, with a capability_source and a verification level on every listing;
+        `EMPTY_CATEGORY` points a reader there rather than letting a zero read as "nobody
+        on BSC does this job".
         """
         listings = []
         for entry in CATEGORIES:

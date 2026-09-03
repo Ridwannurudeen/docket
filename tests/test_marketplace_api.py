@@ -309,6 +309,43 @@ def test_verify_runs_the_ladder_and_updates_the_stored_listing(client):
     assert body["listing"]["hireable"] is True
 
 
+def test_a_docket_tested_listing_serves_payment_tested_false_beside_its_level(client):
+    """The condition on `docket_tested` hanging off `live`: every payload that carries the
+    level carries the payment fact too, on its own, with the row that decided it. A client
+    reading only the level would have to infer payment, and the inference a shop front
+    invites is the flattering one."""
+    verified = client.post(f"/api/agents/{AGENT}/verify", json={}).json()
+
+    for payload in (
+        verified["listing"]["verification"],
+        client.get(f"/api/agents/{AGENT}").json()["listing"]["verification"],
+        client.get(f"/api/agents/{AGENT}/verification").json()["verification"],
+        next(
+            item
+            for item in client.get("/api/agents?limit=100").json()["items"]
+            if item["agent_id"] == AGENT
+        )["verification"],
+    ):
+        assert payload["level"] == "docket_tested"
+        assert payload["payment_tested"] is False
+        assert payload["payment_tested_evidence"]["level"] == "payment_tested"
+        assert payload["payment_tested_evidence"]["ok"] is False
+        assert (
+            "without an x402 payment challenge"
+            in (payload["payment_tested_evidence"]["detail"]["message"])
+        )
+
+
+def test_a_listing_with_nothing_observed_serves_the_boolean_with_no_row_behind_it(
+    client,
+):
+    listing = client.get("/api/agents?q=grid").json()["items"][0]["verification"]
+
+    assert listing["level"] is None
+    assert listing["payment_tested"] is False
+    assert listing["payment_tested_evidence"] is None
+
+
 def test_verify_refuses_a_body_that_is_not_an_empty_object(client):
     refused = client.post(f"/api/agents/{AGENT}/verify", json={"force": True})
 

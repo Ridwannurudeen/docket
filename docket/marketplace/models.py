@@ -21,9 +21,13 @@ a site that makes none.
 limitations. The first keeps the two halves joined; the second is the sentence a
 marketplace is most tempted to leave out.
 
-What is NOT enforced here is a category on anything Docket does not run. The ERC-8004
-record carries nothing that says what job an agent does, so Docket declares a category
-for its own services and assigns none to anybody else's — see `CATEGORY_DECLARATION`.
+What is NOT enforced here is a category on anything Docket does not run. `ServiceRecord`
+covers the services Docket runs, and for those a category is Docket's own declaration.
+The ERC-8004 record carries nothing that says what job an agent does, so a third-party
+agent's category is never read off its registration alone: `external.ExternalListing`
+carries one only with a `capability_source` saying whether its owner declared it, its
+registration declared it, or Docket's printed rule table read it out of the capability
+text — see `CATEGORY_DECLARATION`, which describes both layers.
 """
 
 import re

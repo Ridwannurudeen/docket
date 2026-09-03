@@ -52,23 +52,43 @@ _HEALTH_OBSERVATION = _HEALTH_OUTPUT["observation"]
 _GRID_OBSERVATION = _GRID_OUTPUT["observation"]
 _YIELD_OBSERVATION = _YIELD_OUTPUT["observation"]
 
-# Said wherever a category is shown. The ERC-8004 record carries nothing that states
-# what job an agent does, so a category is a label Docket puts on its own work and
-# never a property it measured on somebody else's.
+# Said wherever a category is shown. Two layers now use the same four names, and the
+# sentence has to separate them or a reader takes one for the other.
+#
+# This text said, until the marketplace layer existed, that Docket "assigns none to a
+# third-party registry agent". That was true of the whole site and is now true of only
+# half of it: /categories and /services still describe the six services Docket runs, but
+# /api/agents does put a category on somebody else's agent. Leaving the old sentence in
+# place would have been the more comfortable choice and the dishonest one — a reader on
+# /categories would have been told Docket does not do a thing Docket does two routes away.
+# So the declaration names both layers, and it names how the second one is arrived at.
 CATEGORY_DECLARATION = (
-    "A category here is Docket's own declaration about a service Docket runs: the job we "
-    "say it does. It is not read from chain and it is not measured. An ERC-8004 "
-    "registration records nothing about what job an agent does, so Docket declares "
-    "categories for its own services and assigns none to a third-party registry agent."
+    "Docket serves two layers under these same four names, and they are not the same "
+    "claim. On /categories and /services a category is Docket's own declaration about a "
+    "service Docket runs: the job we say it does, not read from chain and not measured. "
+    "On /api/agents a third-party agent from the BSC registry may also carry one, and "
+    "every such listing states where it came from in capability_source: "
+    "provider_declared where the agent's on-chain owner signed a claim saying so, "
+    "registration_metadata where the ERC-8004 registration's own fields say so, or "
+    "docket_classified where Docket's published keyword rule table read the agent's own "
+    "capability text. A docket_classified category is a reading of published prose, "
+    "labelled as a reading, and it is never a property Docket measured. Each of those "
+    "listings also carries a verification level and the evidence behind it, and no "
+    "registry entry is offered as hireable until Docket has run a sample invocation "
+    "against it and had a schema-valid result come back."
 )
 
-# Said on a category with nothing in it. It states why the shelf is empty and stops
-# there — no placeholder card, and no date nobody has committed to.
+# Said on a category with nothing in it. It states why the shelf is empty, points at the
+# layer that may not be empty, and stops there — no placeholder card, and no date nobody
+# has committed to.
 EMPTY_CATEGORY = (
-    "No service here yet. Docket lists a service only where it runs the work itself and "
-    "can show a recorded run behind it, and it has none for this job. It does not stock "
-    "the shelf with agents from the registry, because nothing in an ERC-8004 record says "
-    "what job an agent does — the registry is browsable in full under Research."
+    "No service here yet. Docket lists a service under one of these four jobs only where "
+    "it runs the work itself and can show a recorded run behind it, and it has none for "
+    "this job. Third-party agents describing this job may still exist on chain: they are "
+    "listed separately at /api/agents, each one carrying where its category came from and "
+    "what Docket has actually observed of its endpoint. None of them is offered as "
+    "hireable on the strength of being in the registry, and this shelf holds no "
+    "placeholder standing in for one."
 )
 
 # Said above the services that are not in any of the four.
@@ -86,9 +106,7 @@ SERVICES: dict[str, ServiceRecord] = {
         # an invented ratio under the label the shelf is named after is the exact
         # fabrication this inventory exists to refuse.
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311259",
-        registration_uri=(
-            "https://docket.gudman.xyz/registrations/health-guard.json"
-        ),
+        registration_uri=("https://docket.gudman.xyz/registrations/health-guard.json"),
         activation="one_shot",
         evidence_modality="live_read",
         metrics=(
@@ -146,9 +164,7 @@ SERVICES: dict[str, ServiceRecord] = {
         # superlative: the comparison names the set it is a comparison within, and the set
         # names its source, its moment and everything it turned away.
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311257",
-        registration_uri=(
-            "https://docket.gudman.xyz/registrations/yield-router.json"
-        ),
+        registration_uri=("https://docket.gudman.xyz/registrations/yield-router.json"),
         activation="one_shot",
         evidence_modality="live_read",
         metrics=(
@@ -203,9 +219,7 @@ SERVICES: dict[str, ServiceRecord] = {
         # says in its first breath that a hire previews rather than trades, because a
         # category filled with an overstatement is worse than one left honestly empty.
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311255",
-        registration_uri=(
-            "https://docket.gudman.xyz/registrations/grid-operator.json"
-        ),
+        registration_uri=("https://docket.gudman.xyz/registrations/grid-operator.json"),
         # `one_shot` and not `policy_action`, which is the tempting one. A hire runs once
         # and hands back a preview; it does not act on chain within a policy, and saying
         # it did would be claiming the half of this service that needs a session nobody
@@ -267,9 +281,7 @@ SERVICES: dict[str, ServiceRecord] = {
         # Lowercased exactly as a snapshot stores an agent_id, following the SOLVENT
         # binding below so /agents/{agent_id} can resolve it when the snapshot holds it.
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311253",
-        registration_uri=(
-            "https://docket.gudman.xyz/registrations/range-doctor.json"
-        ),
+        registration_uri=("https://docket.gudman.xyz/registrations/range-doctor.json"),
         activation="one_shot",
         evidence_modality="live_read",
         metrics=(

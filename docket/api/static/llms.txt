@@ -916,14 +916,16 @@ saying whether the check passed, when, and what was read.
                      challenge. READ ONLY. Docket reads the challenge and never presents a
                      payment, so this level says a price exists and says nothing about
                      whether paying it works.
-  docket_tested      one sample invocation came back as a schema-valid structured result.
-                     Evidence: the request sent, the SHA-256 of the result, and the schema
-                     it was checked against. Docket has exactly one default sample and it
-                     is the MCP tools/list capability query, which is read-only and calls
-                     no listed tool. A listing whose provider declares its own
-                     sample_input is invoked with that instead. An A2A endpoint with no
-                     declared sample cannot reach this level: fetching an agent card is a
-                     description of an agent, not a result it produced.
+  docket_tested      one sample invocation came back as a schema-valid structured result,
+                     and NOTHING ELSE. It does not mean a payment was tested, it does not
+                     mean one was not, and it is not a statement about price, safety or
+                     fitness. Evidence: the request sent, the SHA-256 of the result, and
+                     the schema it was checked against. Docket has exactly one default
+                     sample and it is the MCP tools/list capability query, which is
+                     read-only and calls no listed tool. A listing whose provider declares
+                     its own sample_input is invoked with that instead. An A2A endpoint
+                     with no declared sample cannot reach this level: fetching an agent
+                     card is a description of an agent, not a result it produced.
   docket_verified    docket_tested plus a registered paired-benchmark family for this
                      listing. Nothing reaches this level today: Docket's v3 families are
                      registered against Docket's own service ids, so no external listing
@@ -933,17 +935,24 @@ Two rules about how the ladder moves.
 
   docket_tested requires live, not payment_tested. Read as a strict chain, the ordering
   would mean an endpoint that answers a real request for free can never be tested, which
-  would rank a service that only quotes a price above one that did the work. A listing
-  reported at docket_tested still carries its own payment_tested: false evidence row, so
-  the level is never a claim that a payment path was exercised.
+  would put a service that only quotes a price above one that did the work. So the two
+  levels both hang off live, and the ordering above is for display only.
 
   A chain outage never costs a listing a level. ownerOf failing because every RPC
   endpoint refused is recorded as rpc_unavailable, not as not_registered, and the listing
   keeps the level it already held. The response says so in chain_read_failed.
 
-hireable is a separate boolean and it is false until docket_tested. Being in the registry,
-being claimed by its owner, and quoting a price are none of them evidence that the agent
-does anything.
+Because of the first of those, never read payment from the level. Every listing carries
+verification.payment_tested as its own boolean, beside verification.level, together with
+verification.payment_tested_evidence — the run that decided it, or null where the level
+was never attempted. A listing at docket_tested with payment_tested: false is the normal
+case and is not a contradiction: it means Docket sent a sample invocation, got a
+schema-valid result, and read no x402 challenge from that endpoint. Quote the boolean,
+never the level, when the question is about payment.
+
+hireable is a third separate boolean and it is false until docket_tested. Being in the
+registry, being claimed by its owner, and quoting a price are none of them evidence that
+the agent does anything.
 
 ### Endpoints
 

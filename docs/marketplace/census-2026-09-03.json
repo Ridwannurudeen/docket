@@ -164,6 +164,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:28:26.977790+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 200,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:28:26.977790+00:00"
       }
     },
@@ -298,6 +315,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:28:32.421439+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 200,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:28:32.421439+00:00"
       }
     },
@@ -432,6 +466,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:28:36.821919+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 200,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:28:36.821919+00:00"
       }
     },
@@ -557,6 +608,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:28:41.421714+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 200,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:28:41.421714+00:00"
       }
     },
@@ -682,6 +750,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:28:45.862872+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 200,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:28:45.862872+00:00"
       }
     },
@@ -816,6 +901,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:28:50.363735+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 401,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:28:50.363735+00:00"
       }
     },
@@ -950,6 +1052,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:28:55.022905+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 401,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:28:55.022905+00:00"
       }
     },
@@ -1084,6 +1203,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:28:59.863092+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 401,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:28:59.863092+00:00"
       }
     },
@@ -1218,6 +1354,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:29:04.935021+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 401,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:29:04.935021+00:00"
       }
     },
@@ -1343,6 +1496,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:29:09.754396+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 404,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:29:09.754396+00:00"
       }
     },
@@ -1468,6 +1638,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:29:15.003526+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 200,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:29:15.003526+00:00"
       }
     },
@@ -1593,6 +1780,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:29:19.943446+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 404,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:29:19.943446+00:00"
       }
     },
@@ -1718,6 +1922,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:29:24.543619+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 200,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:29:24.543619+00:00"
       }
     },
@@ -1843,6 +2064,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:29:29.044084+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 200,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:29:29.044084+00:00"
       }
     },
@@ -1968,6 +2206,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:29:33.411399+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 200,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:29:33.411399+00:00"
       }
     },
@@ -2093,6 +2348,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:29:38.244227+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 404,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:29:38.244227+00:00"
       }
     },
@@ -2218,6 +2490,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:29:43.065335+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 404,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:29:43.065335+00:00"
       }
     },
@@ -2343,6 +2632,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:29:47.905725+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 404,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:29:47.905725+00:00"
       }
     },
@@ -2468,6 +2774,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:29:52.815383+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 200,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:29:52.815383+00:00"
       }
     },
@@ -2593,6 +2916,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:29:57.757974+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 200,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:29:57.757974+00:00"
       }
     },
@@ -2726,6 +3066,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:30:02.595617+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 405,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:30:02.595617+00:00"
       }
     },
@@ -2851,6 +3208,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:30:07.447842+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 404,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:30:07.447842+00:00"
       }
     },
@@ -2993,6 +3367,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:30:12.125607+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 404,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:30:12.125607+00:00"
       }
     },
@@ -3136,6 +3527,23 @@
           }
         ],
         "level": "docket_tested",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:30:17.186602+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 200,
+              "sample_invocation": 201
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:30:17.186602+00:00"
       }
     },
@@ -3270,6 +3678,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:30:22.776072+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 404,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:30:22.776072+00:00"
       }
     },
@@ -3404,6 +3829,23 @@
           }
         ],
         "level": "live",
+        "payment_tested": false,
+        "payment_tested_evidence": {
+          "at": "2026-09-03T09:30:27.436973+00:00",
+          "detail": {
+            "challenge": null,
+            "check": "a 402 carrying a body that parses as an x402 challenge",
+            "message": "the endpoint answered without an x402 payment challenge",
+            "observed_on": null,
+            "paid": false,
+            "statuses": {
+              "live_probe": 404,
+              "sample_invocation": null
+            }
+          },
+          "level": "payment_tested",
+          "ok": false
+        },
         "verified_at": "2026-09-03T09:30:27.436973+00:00"
       }
     }

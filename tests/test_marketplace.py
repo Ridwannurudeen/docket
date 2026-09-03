@@ -110,13 +110,32 @@ def test_every_category_names_the_job_in_words_a_stranger_reads():
 
 
 def test_a_category_is_docket_declaring_a_label_not_measuring_one():
-    """The registry records nothing about what job an agent does. Any category on this
-    site is therefore Docket's own label for a service Docket runs, and it has to say so
-    in the same breath — otherwise it reads as a measured property of the agent."""
+    """The registry records nothing about what job an agent does. A category on a service
+    Docket runs is therefore Docket's own label, and it has to say so in the same breath —
+    otherwise it reads as a measured property of the agent."""
     declaration = CATEGORY_DECLARATION.lower()
     assert "docket" in declaration
     assert "declar" in declaration
     assert "third-party" in declaration or "registry agent" in declaration
+    assert "not measured" in declaration
+
+
+def test_the_declaration_separates_the_two_layers_that_share_the_four_names():
+    """/categories and /api/agents both use these four names and mean different things by
+    them. The declaration travels on both /categories and /services, so it is where a
+    reader is told which claim they are looking at — and it has to name how a third-party
+    category is arrived at, not merely admit that one exists."""
+    declaration = CATEGORY_DECLARATION.lower()
+    assert "/categories" in declaration and "/api/agents" in declaration
+    for source in (
+        "capability_source",
+        "provider_declared",
+        "registration_metadata",
+        "docket_classified",
+    ):
+        assert source in declaration, source
+    assert "reading of published prose" in declaration
+    assert "hireable" in declaration
 
 
 # --------------------------------------------------------------------- metrics
@@ -563,6 +582,17 @@ def test_the_empty_shelves_say_why_and_promise_nothing():
         assert promise not in lowered, promise
 
 
+def test_an_empty_shelf_points_at_the_other_layer_without_selling_it():
+    """A zero on this shelf means Docket runs no service for this job. Left there alone it
+    reads as "nobody on BSC does this", which the marketplace layer disproves — so the
+    sentence names that layer, and in the same breath refuses to present anything in it as
+    hireable on the strength of being in a registry."""
+    lowered = EMPTY_CATEGORY.lower()
+    assert "/api/agents" in lowered
+    assert "hireable on the strength of being in the registry" in lowered
+    assert "placeholder" in lowered
+
+
 def test_range_doctor_is_declared_into_rebalancing_because_that_is_its_subject():
     record = SERVICES["range-doctor"]
     assert record.category is Category.REBALANCING
@@ -579,7 +609,9 @@ def test_the_two_services_outside_the_four_are_listed_rather_than_filed_wrongly(
 
 def test_five_services_carry_identities_and_warden_scan_remains_unbound():
     bound = {
-        service_id for service_id, record in SERVICES.items() if record.agent_id is not None
+        service_id
+        for service_id, record in SERVICES.items()
+        if record.agent_id is not None
     }
     assert bound == {
         "grid-operator",

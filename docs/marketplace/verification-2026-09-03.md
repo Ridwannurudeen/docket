@@ -47,11 +47,17 @@ that parses as an x402 challenge. Docket reads such a challenge and never presen
 payment, so the level would have said "a price exists", not "paying works". No agent in this
 census answered 402 at all.
 
-**`docket_tested` requires `live`, not `payment_tested`.** Read as a strict chain the
-ordering would mean an endpoint that answers a real request for free can never be tested,
-which would rank a service that only quotes a price above one that did the work. The one
-listing that reached `docket_tested` still carries its own `payment_tested: false` evidence
-row, so the level is not a claim that a payment path was exercised.
+**`docket_tested` means one thing: a sample invocation returned a schema-valid structured
+result.** It does not imply a payment was tested, and it does not imply one was not. Read
+as a strict chain, the level ordering would mean an endpoint that answers a real request
+for free can never be tested, which would put a service that only quotes a price above one
+that did the work — so `payment_tested` and `docket_tested` both hang off `live`, and the
+ordering is for display. Every listing therefore carries `verification.payment_tested` as
+its own boolean beside `verification.level`, with `verification.payment_tested_evidence`
+holding the run that decided it. The one agent that reached `docket_tested` here is
+serialised as `payment_tested: false` with the evidence row saying "the endpoint answered
+without an x402 payment challenge". When the question is about payment, that boolean is
+the answer and the level is not.
 
 ## Numerators and denominators
 

@@ -533,21 +533,28 @@ prefix, not on the status code.
 | `endpoint_detected` | The registration names an `a2a` or `mcp` endpoint. A `web` homepage does not count |
 | `live` | That endpoint answered a guarded request at any status. A 404 counts as live; read the status code before quoting it |
 | `payment_tested` | The endpoint answered 402 with a parseable x402 challenge. Read-only: Docket never presents a payment |
-| `docket_tested` | One sample invocation returned a schema-valid structured result. Evidence carries the request, the result SHA-256, and the schema checked |
+| `docket_tested` | One sample invocation returned a schema-valid structured result — **and nothing else.** It does not mean a payment was tested. Evidence carries the request, the result SHA-256, and the schema checked |
 | `docket_verified` | `docket_tested` plus a registered paired-benchmark family. **Nothing reaches this level today** |
 
 `verification.level` is `null` until Docket has observed something — a listing Docket
 merely found in the registry index has no level at all, and being indexed is not evidence.
-`hireable` is a separate boolean and is `false` until `docket_tested`.
 
-Two things to say correctly when reporting a level:
+**Three separate facts, never inferred from one another.** Every listing carries all three:
 
-- `docket_tested` requires `live`, not `payment_tested`. The listing still carries its own
-  `payment_tested: false` evidence row, so never read the level as proof that a payment
-  path was exercised.
-- A chain outage never demotes a listing. `ownerOf` failing on every RPC is recorded as
-  `rpc_unavailable`, the listing keeps the level it held, and the response says
-  `chain_read_failed: true`.
+| Field | Says |
+| --- | --- |
+| `verification.level` | the strongest level whose evidence holds |
+| `verification.payment_tested` | whether an x402 challenge was actually read from this endpoint, with `verification.payment_tested_evidence` carrying the run that decided it (or `null` where the level was never attempted) |
+| `hireable` | `false` until `docket_tested` |
+
+`docket_tested` requires `live`, not `payment_tested`, so the display order above is not a
+chain. **A listing at `docket_tested` with `payment_tested: false` is the normal case and
+is not a contradiction** — it means a sample invocation came back schema-valid and no x402
+challenge was read. When the question is about payment, quote the boolean, never the level.
+
+A chain outage never demotes a listing. `ownerOf` failing on every RPC is recorded as
+`rpc_unavailable`, the listing keeps the level it held, and the response says
+`chain_read_failed: true`.
 
 Docket's one default sample is the MCP `tools/list` capability query, which is read-only
 and calls no listed tool. A provider who declares a `sample_input` is invoked with theirs
