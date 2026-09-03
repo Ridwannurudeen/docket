@@ -41,9 +41,15 @@ from docket.agents.pancake.keeper import (
     out_of_range_minutes,
     rebalance_calls,
     selector,
+    swap_plan,
     tick_spacing,
 )
 from docket.agents.pancake.positions import NPM
+from docket.execution.simulate import (
+    PANCAKE_V2_ROUTER,
+    SWAP_SIGNATURE,
+    swap_calldata,
+)
 from docket.jobs.executors.bounds import APPROVE_SIGNATURE
 
 # The same 2026-08-08 mainnet reading `tests/test_pancake_doctor.py` uses: token 7087132 in
@@ -144,13 +150,16 @@ def test_every_selector_is_the_keccak_of_the_signature_it_claims():
 def test_the_bytes_the_module_builds_carry_those_exact_selectors():
     calls = _calls()
     assert [call.data[:10] for call in calls] == [
-        "0x095ea7b3",
-        "0x0c49ccbe",
-        "0xfc6f7865",
-        "0x095ea7b3",
-        "0x095ea7b3",
-        "0x88316456",
+        "0x095ea7b3",  # ERC-721 approve, owner-signed
+        "0x0c49ccbe",  # decreaseLiquidity
+        "0xfc6f7865",  # collect
+        "0x095ea7b3",  # ERC-20 approve, router
+        "0x38ed1739",  # swapExactTokensForTokens
+        "0x095ea7b3",  # ERC-20 approve, NPM, token0
+        "0x095ea7b3",  # ERC-20 approve, NPM, token1
+        "0x88316456",  # mint
     ]
+    assert calls[4].data[:10] == "0x" + Web3.keccak(text=SWAP_SIGNATURE)[:4].hex()
 
 
 def test_the_erc721_and_erc20_approvals_share_one_selector_and_two_meanings():
@@ -436,8 +445,7 @@ def _calls(**overrides):
         "max_slippage_bps": 50,
         "burn0": 1_000_000,
         "burn1": 0,
-        "desired0": 500_000,
-        "desired1": 400_000,
+        "swap": {"token_in": "token0", "amount_in": 500_000, "quoted_out": 400_000},
     }
     amounts.update(overrides.pop("amounts", {}))
     fields = {
@@ -452,30 +460,127 @@ def _calls(**overrides):
     return rebalance_calls(POSITION, **fields)
 
 
-def test_the_batch_is_six_calls_in_the_order_they_have_to_land():
+# The floor the swap is held to, and therefore the amount of token1 the mint may ask for.
+MIN_OUT = 400_000 * 9_950 // 10_000
+
+
+def test_the_batch_is_eight_calls_in_the_order_they_have_to_land():
     calls = _calls()
     assert [call.purpose for call in calls] == [
         "owner_signs",
         "session_closes_position",
-        "session_collects_to_fund_mint",
+        "session_collects_to_fund_the_swap_and_the_mint",
+        "session_approves_router_exact",
+        "session_balances_the_inventory",
         "session_approves_token0_exact",
         "session_approves_token1_exact",
         "session_mints_replacement_to_owner",
     ]
-    assert all(call.chain_id == 56 and call.value_atomic == 0 for call in calls)
+    # `value_atomic` is a string on the shared record: a prepared call is stored as
+    # JSON inside an activation, and an atomic amount that round-trips as a float is a
+    # commitment that checks on one machine and not on another.
+    assert all(call.chain_id == 56 and call.value_atomic == "0" for call in calls)
+    assert all(call.deadline == 1_800_000_000 for call in calls)
+
+
+def test_the_router_leg_is_the_shared_builder_against_the_shared_router():
+    """Not a second copy of either. The bytes come from
+    `docket/execution/simulate.py::swap_calldata`, which is what the grid and the yield
+    router already send, and the target is the router constant defined beside it."""
+    approve, swap = _calls()[3], _calls()[4]
+    assert approve.to == Web3.to_checksum_address(POSITION["token0"])
+    assert int(approve.data[10:74], 16) == int(PANCAKE_V2_ROUTER, 16)
+    assert int(approve.data[74:138], 16) == 500_000
+    assert swap.to == PANCAKE_V2_ROUTER
+    assert swap.data[:10] == "0x" + Web3.keccak(text=SWAP_SIGNATURE)[:4].hex()
+    assert swap.data == "0x" + swap_calldata(
+        amount_in=500_000,
+        min_output=MIN_OUT,
+        route=(POSITION["token0"], POSITION["token1"]),
+        recipient=SESSION,
+        deadline=1_800_000_000,
+    ).hex()
+
+
+def test_the_swaps_floor_is_the_router_quote_less_the_slippage_bound():
+    """`amountOutMin` is the whole reason a swap in a batch is safe to prepare. It is the
+    caller's live quote reduced by the policy's bound, and nothing else."""
+    swap = _calls()[4]
+    assert MIN_OUT in _swap_args(swap)
+    wider = _calls(amounts={"max_slippage_bps": 500})[4]
+    assert 400_000 * 9_500 // 10_000 in _swap_args(wider)
+    assert 400_000 * 9_500 // 10_000 < MIN_OUT
+
+
+def _swap_args(call) -> list[int]:
+    body = call.data[10:]
+    return [int(body[i : i + 64], 16) for i in range(0, 128, 64)]
+
+
+def test_the_swap_proceeds_are_paid_to_the_session_that_funds_the_mint():
+    swap = _calls()[4]
+    assert SESSION.lower()[2:] in swap.data.lower()
+    assert OWNER.lower()[2:] not in swap.data.lower()
+
+
+def test_a_position_holding_only_token0_sells_token0_and_the_mint_is_sized_on_the_floor():
+    calls = _calls()
+    _, mint = npm_encoder.decode_function_input(calls[7].data)
+    params = mint["params"]
+    # 1,000,000 released, 500,000 sold, and at most MIN_OUT of token1 guaranteed back.
+    assert params["amount0Desired"] == 500_000
+    assert params["amount1Desired"] == MIN_OUT
+    assert int(calls[5].data[74:138], 16) == 500_000
+    assert int(calls[6].data[74:138], 16) == MIN_OUT
+
+
+def test_a_position_holding_only_token1_runs_the_leg_the_other_way():
+    calls = _calls(
+        amounts={
+            "burn0": 0,
+            "burn1": 1_000_000,
+            "swap": {"token_in": "token1", "amount_in": 500_000, "quoted_out": 400_000},
+        }
+    )
+    approve, swap = calls[3], calls[4]
+    assert approve.to == Web3.to_checksum_address(POSITION["token1"])
+    assert swap.data == "0x" + swap_calldata(
+        amount_in=500_000,
+        min_output=MIN_OUT,
+        route=(POSITION["token1"], POSITION["token0"]),
+        recipient=SESSION,
+        deadline=1_800_000_000,
+    ).hex()
+    _, mint = npm_encoder.decode_function_input(calls[7].data)
+    assert mint["params"]["amount0Desired"] == MIN_OUT
+    assert mint["params"]["amount1Desired"] == 500_000
+
+
+def test_an_inventory_that_needs_no_trade_is_minted_without_a_leg():
+    calls = _calls(amounts={"burn0": 400_000, "burn1": 600_000, "swap": None})
+    assert [call.purpose for call in calls] == [
+        "owner_signs",
+        "session_closes_position",
+        "session_collects_to_fund_the_swap_and_the_mint",
+        "session_approves_token0_exact",
+        "session_approves_token1_exact",
+        "session_mints_replacement_to_owner",
+    ]
+    assert not any(call.to == PANCAKE_V2_ROUTER for call in calls)
+    _, mint = npm_encoder.decode_function_input(calls[5].data)
+    assert mint["params"]["amount0Desired"] == 400_000
+    assert mint["params"]["amount1Desired"] == 600_000
 
 
 def test_the_first_call_is_the_owners_because_only_an_owner_may_approve_their_own_nft():
     approve = _calls()[0]
     assert approve.purpose == "owner_signs"
     assert approve.to == NPM
-    _, args = npm_encoder.decode_function_input(
-        _calls()[1].data
-    )  # the call the approval unlocks
+    _, args = npm_encoder.decode_function_input(_calls()[1].data)
     assert args["params"]["tokenId"] == POSITION["token_id"]
 
 
-def test_collect_pays_the_session_because_the_session_funds_the_mint():
+def test_collect_pays_the_session_because_the_session_funds_the_swap_and_the_mint():
     _, args = npm_encoder.decode_function_input(_calls()[2].data)
     params = args["params"]
     assert params["recipient"] == SESSION
@@ -485,7 +590,7 @@ def test_collect_pays_the_session_because_the_session_funds_the_mint():
 
 
 def test_the_new_position_nft_is_minted_to_the_owner_and_never_to_docket():
-    _, args = npm_encoder.decode_function_input(_calls()[5].data)
+    _, args = npm_encoder.decode_function_input(_calls()[7].data)
     params = args["params"]
     assert params["recipient"] == OWNER
     assert params["recipient"] != SESSION
@@ -500,17 +605,21 @@ def test_every_minimum_is_the_quoted_amount_less_the_slippage_bound():
     _, burn = npm_encoder.decode_function_input(calls[1].data)
     assert burn["params"]["amount0Min"] == 1_000_000 * 9_800 // 10_000
     assert burn["params"]["amount1Min"] == 0
-    _, mint = npm_encoder.decode_function_input(calls[5].data)
-    assert mint["params"]["amount0Min"] == 500_000 * 9_800 // 10_000
-    assert mint["params"]["amount1Min"] == 400_000 * 9_800 // 10_000
+    floor = 400_000 * 9_800 // 10_000
+    _, mint = npm_encoder.decode_function_input(calls[7].data)
     assert mint["params"]["amount0Desired"] == 500_000
+    assert mint["params"]["amount1Desired"] == floor
+    assert mint["params"]["amount0Min"] == 500_000 * 9_800 // 10_000
+    assert mint["params"]["amount1Min"] == floor * 9_800 // 10_000
 
 
-def test_the_token_approvals_are_exact_and_never_unlimited():
+def test_every_token_approval_is_exact_and_never_unlimited():
     calls = _calls()
     assert int(calls[3].data[74:138], 16) == 500_000
-    assert int(calls[4].data[74:138], 16) == 400_000
-    assert int(calls[3].data[74:138], 16) != 2**256 - 1
+    assert int(calls[5].data[74:138], 16) == 500_000
+    assert int(calls[6].data[74:138], 16) == MIN_OUT
+    for index in (3, 5, 6):
+        assert int(calls[index].data[74:138], 16) != 2**256 - 1
 
 
 def test_no_call_arrives_carrying_a_simulation_nobody_ran():
@@ -529,6 +638,38 @@ def test_no_call_arrives_carrying_a_simulation_nobody_ran():
     [
         ({"amounts": {"max_slippage_bps": 0}}, "outside 1..1000"),
         ({"new_tick_lower": 66_400, "new_tick_upper": 66_400}, "is empty"),
+        (
+            {
+                "amounts": {
+                    "swap": {
+                        "token_in": "token0",
+                        "amount_in": 9_000_000,
+                        "quoted_out": 1,
+                    }
+                }
+            },
+            "cannot spend what the burn does not free",
+        ),
+        (
+            {
+                "amounts": {
+                    "swap": {"token_in": "token2", "amount_in": 1, "quoted_out": 1}
+                }
+            },
+            "neither token0 nor token1",
+        ),
+        (
+            {
+                "amounts": {
+                    "swap": {
+                        "token_in": "token0",
+                        "amount_in": 500_000,
+                        "quoted_out": 0,
+                    }
+                }
+            },
+            "leaves no floor",
+        ),
     ],
 )
 def test_a_batch_that_could_not_land_is_refused_before_it_is_built(overrides, match):
@@ -545,14 +686,53 @@ def test_a_closed_position_has_nothing_to_reset():
             recipient=OWNER,
             session=SESSION,
             deadline=1_800_000_000,
-            amounts={
-                "max_slippage_bps": 50,
-                "burn0": 0,
-                "burn1": 0,
-                "desired0": 0,
-                "desired1": 0,
-            },
+            amounts={"max_slippage_bps": 50, "burn0": 0, "burn1": 0, "swap": None},
         )
+
+
+# ------------------------------------------------------------------- swap plan
+
+
+def test_a_one_sided_token0_inventory_sells_half_of_itself():
+    plan = swap_plan(1_000_000, 0, sqrt_price_x96=2**96, slippage_bps=50)
+    assert plan["needed"] is True
+    assert plan["token_in"] == "token0"
+    assert plan["amount_in"] == 500_000
+    assert "equal value" in plan["reason"]
+
+
+def test_a_one_sided_token1_inventory_sells_half_of_itself():
+    plan = swap_plan(0, 1_000_000, sqrt_price_x96=2**96, slippage_bps=50)
+    assert plan["needed"] is True
+    assert plan["token_in"] == "token1"
+    assert plan["amount_in"] == 500_000
+
+
+def test_an_inventory_already_within_the_slippage_bound_plans_no_trade():
+    """Paying a fee and a spread to move less than the bound the mint already tolerates is
+    a cost with nothing bought by it."""
+    plan = swap_plan(500_000, 500_000, sqrt_price_x96=2**96, slippage_bps=50)
+    assert plan["needed"] is False
+    assert plan["amount_in"] == 0
+    assert "inside the 50bps the policy already tolerates" in plan["reason"]
+    # Just outside it, and a leg appears.
+    assert swap_plan(510_000, 490_000, sqrt_price_x96=2**96, slippage_bps=50)["needed"]
+
+
+def test_the_split_is_taken_at_the_pools_own_price_rather_than_at_parity():
+    """sqrtP of 2**97 is a price of 4 token1 per token0, so 1,000,000 of token0 is worth
+    4,000,000 of token1 and the sale is sized against that rather than against the raw
+    token counts."""
+    plan = swap_plan(1_000_000, 0, sqrt_price_x96=2**97, slippage_bps=50)
+    assert plan["value1_of_token0"] == 4_000_000
+    assert plan["total_value1"] == 4_000_000
+    assert plan["amount_in"] == 500_000
+
+
+def test_a_position_releasing_nothing_plans_no_trade():
+    plan = swap_plan(0, 0, sqrt_price_x96=2**96, slippage_bps=50)
+    assert plan["needed"] is False
+    assert "no inventory to rebalance" in plan["reason"]
 
 
 # ------------------------------------------------------------------- structure
@@ -576,18 +756,26 @@ def test_the_keeper_holds_nothing_that_could_send_a_transaction():
         assert forbidden not in source, forbidden
 
 
-def test_the_catalogue_names_the_step_the_batch_does_not_build():
-    """The batch is six calls and a rebalance is seven steps. The trade between the collect
-    and the mint is priced into the decision and left to the owner, and a description that
-    listed only the six would read as a sequence that lands on its own."""
+def test_the_catalogue_describes_the_bundle_the_batch_actually_contains():
+    """The description is the contract. It names the swap as part of the sequence, says
+    where the swap's floor comes from, and says what happens when no swap is needed."""
     from docket.hire.catalogue import SERVICES
 
     copy = SERVICES["range-doctor"].what_you_get
-    assert "priced but not prepared" in copy
-    assert "yours to make" in copy
-    assert "half of it has to be traded" in copy
+    for phrase in (
+        "the whole reset is prepared as exact calls, in the order they have to land",
+        "rebalance the inventory through one PancakeSwap V2 swap",
+        "the router's own live quote less your slippage bound",
+        "the mint is sized against that minimum rather than the quote",
+        "minted without a swap",
+        "exact amount and never unlimited",
+    ):
+        assert phrase in copy, phrase
+    # Nothing left over from the version that left the trade to the owner.
+    for gone in ("priced but not prepared", "yours to make"):
+        assert gone not in copy, gone
     # And the module's own evidence says the same thing to a machine reader.
-    assert "not among the calls this module builds" in keeper_module.SWAP_PREREQUISITE
+    assert "The leg is part of the batch." in keeper_module.SWAP_NOTE
     decision = evaluate(
         _valued(),
         POOL_ABOVE,
@@ -598,5 +786,4 @@ def test_the_catalogue_names_the_step_the_batch_does_not_build():
         gas_price_wei=ONE_GWEI,
         bnb_usd=BNB_USD,
     )
-    assert decision.evidence["swap_prerequisite"] == keeper_module.SWAP_PREREQUISITE
     assert decision.evidence["economics"]["swap_cost_usd"] > 0

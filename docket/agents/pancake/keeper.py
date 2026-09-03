@@ -18,15 +18,19 @@ the old one, never Docket and never the session. The session is the recipient of
 — that transit is the only moment Docket's session touches the assets, and it is bounded
 by the ERC-20 approvals below and by the session's own on-chain caps.
 
-**A recentred range needs a swap, and this module does not build one.** A position that
-left its range holds one token only: below the range it is all token0, above it all
-token1. A range drawn around the current tick needs both sides, so roughly half the
-inventory has to be traded before `mint` can be funded. `evaluate` prices that trade into
-the cost it compares against the projected fee recovery — the decision is made on the
-real cost of acting — but `rebalance_calls` emits the position-manager calls only and
-takes the post-swap inventory as an input. The swap leg belongs to the execution plane
-that owns Docket's router path; naming it as a prerequisite is honest, and building a
-second copy of it here would be the copy that goes stale.
+**A recentred range needs a swap, and the batch contains it.** A position that left its
+range holds one token only: below the range it is all token0, above it all token1. A range
+drawn around the current tick needs both sides, so part of the inventory has to be traded
+between the `collect` and the `mint`. That leg is built here, through the same
+PancakeSwap V2 router and the same `swap_calldata` builder the rest of Docket's execution
+plane uses (`docket/execution/simulate.py`) rather than a second copy of either. Its
+`amountOutMin` is the caller's live router quote less the policy's slippage bound, and the
+mint is sized against that floor — so the amounts the mint asks the position manager to
+pull are amounts the swap is contractually obliged to have delivered.
+
+`swap_plan` decides whether a leg is needed at all and which way it runs. A position whose
+two sides are already within the slippage bound of equal value needs no trade, and none is
+emitted; the reason travels in the plan either way.
 
 **Ticks are integers here, always.** `tickmath` is float64 and says of itself that it
 must never be used to build a transaction. Nothing below calls it: the new bounds are
@@ -41,6 +45,7 @@ from datetime import datetime
 from web3 import Web3
 
 from ...jobs.executors.base import PreparedCall
+from ...execution.simulate import PANCAKE_V2_ROUTER, swap_calldata
 from ...jobs.executors.bounds import APPROVE_ABI, BSC_CHAIN_ID, parse_expiry
 from . import doctor
 from .positions import NPM
@@ -64,10 +69,16 @@ DECREASE_LIQUIDITY_GAS = 250_000
 COLLECT_GAS = 200_000
 MINT_GAS = 600_000
 APPROVE_GAS = 60_000
-# The three position-manager calls plus the two ERC-20 approvals a session must send. The
-# owner-signed ERC-721 approval is not counted: the owner pays for it from their own
-# wallet, and charging it to the session's cost model would double-count it.
-REBALANCE_GAS_UNITS = DECREASE_LIQUIDITY_GAS + COLLECT_GAS + MINT_GAS + 2 * APPROVE_GAS
+SWAP_GAS = 300_000
+# Everything a session sends for one reset: the three position-manager calls, the router
+# leg, and the three ERC-20 approvals in front of them. The owner-signed ERC-721 approval
+# is not counted — the owner pays for it from their own wallet, and charging it to the
+# session's cost model would double-count it.
+REBALANCE_GAS_UNITS = (
+    DECREASE_LIQUIDITY_GAS + COLLECT_GAS + MINT_GAS + SWAP_GAS + 3 * APPROVE_GAS
+)
+# A v3 pool stores sqrt(price) as Q64.96, so squaring one costs 2**192 of scale.
+Q192 = 2**192
 # How far ahead the fee recovery is projected. Thirty days is the catalogue's own default
 # decision horizon for the Range Doctor's break-even, so the two answers are commensurable.
 # It is stated in the evidence rather than left implicit: a recovery figure without its
@@ -95,12 +106,14 @@ COST_LIMITATION = (
     "from unrealised into realised, and it excludes any price impact beyond the slippage "
     "bound."
 )
-SWAP_PREREQUISITE = (
-    "A range drawn around the current tick holds both tokens, and a position that left its "
-    "range holds one. Roughly half the inventory has to be traded before mint can be "
-    "funded. That trade is priced into the cost below and is not among the calls this "
-    "module builds; the amounts handed to rebalance_calls are the inventory expected at "
-    "mint time, after it."
+SWAP_NOTE = (
+    "A range drawn around the current tick holds both tokens and a position that left its "
+    "range holds one, so the inventory is rebalanced to equal value by one PancakeSwap V2 "
+    "exact-input swap between the collect and the mint. The leg is part of the batch. Its "
+    "amountOutMin is the router's own live quote less the policy's slippage bound, and the "
+    "mint is sized against that floor rather than against the quote, so every amount the "
+    "position manager is asked to pull is one the swap is obliged to have delivered. The "
+    "trade's fee and slippage are priced into the cost this decision was made on."
 )
 
 # Minimal fragments rather than the full periphery artifact, the way `positions.py` writes
@@ -457,7 +470,7 @@ def evaluate(
             "unavailable_reason": spacing_reason
             or (None if tick is not None else "no pool tick could be read"),
         },
-        "swap_prerequisite": SWAP_PREREQUISITE,
+        "swap_note": SWAP_NOTE,
     }
 
     if status not in ("out_of_range_below", "out_of_range_above"):
@@ -643,6 +656,81 @@ def _economics(
     }
 
 
+def swap_plan(
+    burn0: int, burn1: int, *, sqrt_price_x96: int, slippage_bps: int
+) -> dict:
+    """Whether closing this position leaves an inventory a centred range can be minted
+    from, and if not, which side has to be sold and how much of it.
+
+    A range drawn around the current tick wants equal value on both sides. The value of
+    the token0 leg in token1 terms is `amount0 * sqrtP**2 / 2**192` — the pool's own
+    price, in integers, with no float anywhere in it, which is why nothing here goes
+    through `tickmath` (whose docstring bans its float path from transaction sizing).
+
+    A position already balanced to within the slippage bound needs no trade at all, and
+    none is planned: paying a fee and a spread to move an amount smaller than the bound
+    the mint already tolerates is a cost with nothing bought by it. Everything else sells
+    the heavier side down to half the total value, which reduces to selling exactly half
+    of a one-sided position — the shape a keeper actually meets, because it only fires on
+    a position that has left its range.
+    """
+    if slippage_bps <= 0:
+        raise ValueError("slippage_bps must be positive to size a swap against")
+    value1_of_token0 = burn0 * sqrt_price_x96 * sqrt_price_x96 // Q192
+    total = value1_of_token0 + burn1
+    imbalance = abs(value1_of_token0 - burn1)
+    plan = {
+        "needed": False,
+        "token_in": None,
+        "amount_in": 0,
+        "value1_of_token0": value1_of_token0,
+        "value1_of_token1": burn1,
+        "total_value1": total,
+        "imbalance_value1": imbalance,
+        "slippage_bps": slippage_bps,
+        "reason": "",
+    }
+    if total <= 0:
+        plan["reason"] = (
+            "the closed position releases nothing, so there is no inventory to rebalance"
+        )
+        return plan
+    if imbalance * 10_000 <= total * slippage_bps:
+        plan["reason"] = (
+            f"the two sides differ by {imbalance} of {total} in token1 terms, inside the "
+            f"{slippage_bps}bps the policy already tolerates, so no leg is emitted"
+        )
+        return plan
+    if value1_of_token0 > burn1:
+        amount_in = (value1_of_token0 - total // 2) * Q192 // (
+            sqrt_price_x96 * sqrt_price_x96
+        )
+        token_in = "token0"
+    else:
+        amount_in = burn1 - total // 2
+        token_in = "token1"
+    held = burn0 if token_in == "token0" else burn1
+    amount_in = min(amount_in, held)
+    if amount_in <= 0:
+        plan["reason"] = (
+            "the surplus side rounds to nothing at this price, so no leg is emitted"
+        )
+        return plan
+    plan.update(
+        {
+            "needed": True,
+            "token_in": token_in,
+            "amount_in": amount_in,
+            "reason": (
+                f"{token_in} carries {imbalance} more of the {total} total value than the "
+                f"other side, so {amount_in} atomic units of it are sold to bring the two "
+                "to equal value"
+            ),
+        }
+    )
+    return plan
+
+
 def _unsimulated() -> dict:
     """The simulation slot of a call nobody has put to the chain yet.
 
@@ -675,25 +763,44 @@ def rebalance_calls(
 ) -> list[PreparedCall]:
     """The exact calls that close one position and open its replacement. Signs nothing.
 
-    Six calls, in the order they must land.
+    Eight calls, in the order they must land — six where the inventory needs no trade.
 
     The first is the owner's. `approve(session, tokenId)` on the position manager is
-    ERC-721, and only the token's owner may make it — a session key cannot grant itself
+    ERC-721, and only the token's owner may make it: a session key cannot grant itself
     authority over an NFT it does not hold. It carries `purpose: "owner_signs"` so nothing
     downstream mistakes it for something the session can send.
 
     Then `decreaseLiquidity` and `collect`, both from the session under that approval.
     `collect`'s recipient is the session and not the owner: the tokens have to be held by
-    the address that funds the mint, and routing them to the owner first would need a
-    second owner signature to send them back. `mint`'s recipient is the owner, so the new
-    position NFT is the owner's from the block it exists in — Docket never holds it.
+    the address that funds the swap and the mint, and routing them to the owner first
+    would need a second owner signature to send them back. `mint`'s recipient is the
+    owner, so the new position NFT is the owner's from the block it exists in — Docket
+    never holds it.
 
-    `amounts` states what the caller expects to be holding, in atomic units:
-    `burn0`/`burn1` are the quoted output of `decreaseLiquidity`, `desired0`/`desired1`
-    the inventory at mint time (after the swap this module does not build), and
-    `max_slippage_bps` the bound every minimum below is derived from. The collect maxima
-    are the uint128 ceiling on purpose: `collect` sweeps whatever is owed, and a maximum
-    below that would leave fees behind in the position being closed.
+    Between them, the router leg: an exact-amount `approve(router, amountIn)` and one
+    PancakeSwap V2 `swapExactTokensForTokens` built by
+    `docket/execution/simulate.py::swap_calldata`, the same builder and the same router
+    the rest of Docket's execution plane uses. Its recipient is the session, because the
+    session is what has to hold the proceeds a moment later.
+
+    `amounts`, in atomic units:
+
+      * `burn0` / `burn1` — the quoted output of `decreaseLiquidity`.
+      * `max_slippage_bps` — the bound every minimum below is derived from, including the
+        swap's `amountOutMin`.
+      * `swap` — `None` where the inventory is already balanced, otherwise
+        `{"token_in": "token0"|"token1", "amount_in": int, "quoted_out": int}` where
+        `quoted_out` is the router's own live quote for `amount_in`.
+
+    The amounts the mint asks for are derived here rather than passed in, so the floor the
+    swap is held to and the amount the mint pulls cannot drift apart: the mint desires
+    exactly `quoted_out` less the slippage bound, which is the least the swap may deliver
+    without reverting. Fees swept by `collect` are on top of that and are simply left in
+    the session — approving less than is held is the safe direction.
+
+    The collect maxima are the uint128 ceiling on purpose: `collect` sweeps whatever is
+    owed, and a maximum below that would leave fees behind in a position about to be
+    closed for good.
     """
     slippage = int(amounts["max_slippage_bps"])
     if not 0 < slippage <= 1000:
@@ -717,14 +824,45 @@ def rebalance_calls(
     session_address = Web3.to_checksum_address(session)
     token0 = Web3.to_checksum_address(position["token0"])
     token1 = Web3.to_checksum_address(position["token1"])
-    desired0 = int(amounts["desired0"])
-    desired1 = int(amounts["desired1"])
+    burn0 = int(amounts["burn0"])
+    burn1 = int(amounts["burn1"])
 
-    return [
+    swap = amounts.get("swap")
+    if swap is None:
+        desired0, desired1 = burn0, burn1
+    else:
+        side = swap["token_in"]
+        if side not in ("token0", "token1"):
+            raise ValueError(
+                f"swap token_in {side!r} is neither token0 nor token1, so no route can be "
+                "built from it"
+            )
+        amount_in = int(swap["amount_in"])
+        quoted_out = int(swap["quoted_out"])
+        held = burn0 if side == "token0" else burn1
+        if not 0 < amount_in <= held:
+            raise ValueError(
+                f"the swap sells {amount_in} atomic units of {side} and closing this "
+                f"position releases {held}; a leg cannot spend what the burn does not free"
+            )
+        min_output = _floor(quoted_out, slippage)
+        if min_output <= 0:
+            raise ValueError(
+                f"the router quotes {quoted_out} out for {amount_in} in, which leaves no "
+                f"floor once {slippage}bps is allowed for the price moving"
+            )
+        if side == "token0":
+            desired0, desired1 = burn0 - amount_in, burn1 + min_output
+            route = (token0, token1)
+        else:
+            desired0, desired1 = burn0 + min_output, burn1 - amount_in
+            route = (token1, token0)
+
+    calls = [
         PreparedCall(
             to=NPM,
             data=_erc20_encoder.encode_abi("approve", args=[session_address, token_id]),
-            value_atomic=0,
+            value_atomic="0",
             chain_id=BSC_CHAIN_ID,
             gas_ceiling=APPROVE_GAS,
             deadline=deadline,
@@ -741,13 +879,13 @@ def rebalance_calls(
                     (
                         token_id,
                         liquidity,
-                        _floor(amounts["burn0"], slippage),
-                        _floor(amounts["burn1"], slippage),
+                        _floor(burn0, slippage),
+                        _floor(burn1, slippage),
                         deadline,
                     )
                 ],
             ),
-            value_atomic=0,
+            value_atomic="0",
             chain_id=BSC_CHAIN_ID,
             gas_ceiling=DECREASE_LIQUIDITY_GAS,
             deadline=deadline,
@@ -760,58 +898,97 @@ def rebalance_calls(
                 "collect",
                 args=[(token_id, session_address, MAX_UINT128, MAX_UINT128)],
             ),
-            value_atomic=0,
+            value_atomic="0",
             chain_id=BSC_CHAIN_ID,
             gas_ceiling=COLLECT_GAS,
             deadline=deadline,
-            purpose="session_collects_to_fund_mint",
-            simulation=_unsimulated(),
-        ),
-        PreparedCall(
-            to=token0,
-            data=_erc20_encoder.encode_abi("approve", args=[NPM, desired0]),
-            value_atomic=0,
-            chain_id=BSC_CHAIN_ID,
-            gas_ceiling=APPROVE_GAS,
-            deadline=deadline,
-            purpose="session_approves_token0_exact",
-            simulation=_unsimulated(),
-        ),
-        PreparedCall(
-            to=token1,
-            data=_erc20_encoder.encode_abi("approve", args=[NPM, desired1]),
-            value_atomic=0,
-            chain_id=BSC_CHAIN_ID,
-            gas_ceiling=APPROVE_GAS,
-            deadline=deadline,
-            purpose="session_approves_token1_exact",
-            simulation=_unsimulated(),
-        ),
-        PreparedCall(
-            to=NPM,
-            data=npm_encoder.encode_abi(
-                "mint",
-                args=[
-                    (
-                        token0,
-                        token1,
-                        int(position["fee"]),
-                        int(new_tick_lower),
-                        int(new_tick_upper),
-                        desired0,
-                        desired1,
-                        _floor(desired0, slippage),
-                        _floor(desired1, slippage),
-                        owner,
-                        deadline,
-                    )
-                ],
-            ),
-            value_atomic=0,
-            chain_id=BSC_CHAIN_ID,
-            gas_ceiling=MINT_GAS,
-            deadline=deadline,
-            purpose="session_mints_replacement_to_owner",
+            purpose="session_collects_to_fund_the_swap_and_the_mint",
             simulation=_unsimulated(),
         ),
     ]
+    if swap is not None:
+        calls.extend(
+            [
+                PreparedCall(
+                    to=route[0],
+                    data=_erc20_encoder.encode_abi(
+                        "approve", args=[PANCAKE_V2_ROUTER, amount_in]
+                    ),
+                    value_atomic="0",
+                    chain_id=BSC_CHAIN_ID,
+                    gas_ceiling=APPROVE_GAS,
+                    deadline=deadline,
+                    purpose="session_approves_router_exact",
+                    simulation=_unsimulated(),
+                ),
+                PreparedCall(
+                    to=PANCAKE_V2_ROUTER,
+                    data="0x"
+                    + swap_calldata(
+                        amount_in=amount_in,
+                        min_output=min_output,
+                        route=route,
+                        recipient=session_address,
+                        deadline=deadline,
+                    ).hex(),
+                    value_atomic="0",
+                    chain_id=BSC_CHAIN_ID,
+                    gas_ceiling=SWAP_GAS,
+                    deadline=deadline,
+                    purpose="session_balances_the_inventory",
+                    simulation=_unsimulated(),
+                ),
+            ]
+        )
+    calls.extend(
+        [
+            PreparedCall(
+                to=token0,
+                data=_erc20_encoder.encode_abi("approve", args=[NPM, desired0]),
+                value_atomic="0",
+                chain_id=BSC_CHAIN_ID,
+                gas_ceiling=APPROVE_GAS,
+                deadline=deadline,
+                purpose="session_approves_token0_exact",
+                simulation=_unsimulated(),
+            ),
+            PreparedCall(
+                to=token1,
+                data=_erc20_encoder.encode_abi("approve", args=[NPM, desired1]),
+                value_atomic="0",
+                chain_id=BSC_CHAIN_ID,
+                gas_ceiling=APPROVE_GAS,
+                deadline=deadline,
+                purpose="session_approves_token1_exact",
+                simulation=_unsimulated(),
+            ),
+            PreparedCall(
+                to=NPM,
+                data=npm_encoder.encode_abi(
+                    "mint",
+                    args=[
+                        (
+                            token0,
+                            token1,
+                            int(position["fee"]),
+                            int(new_tick_lower),
+                            int(new_tick_upper),
+                            desired0,
+                            desired1,
+                            _floor(desired0, slippage),
+                            _floor(desired1, slippage),
+                            owner,
+                            deadline,
+                        )
+                    ],
+                ),
+                value_atomic="0",
+                chain_id=BSC_CHAIN_ID,
+                gas_ceiling=MINT_GAS,
+                deadline=deadline,
+                purpose="session_mints_replacement_to_owner",
+                simulation=_unsimulated(),
+            ),
+        ]
+    )
+    return calls

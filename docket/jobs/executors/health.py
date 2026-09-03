@@ -18,6 +18,12 @@ that sentence with it.
 chain; the call that spends under it is marked `deferred` against the approval rather than
 reported as a failure, since it cannot succeed until that has landed.
 
+**What the session may spend travels in the evidence.** `SessionPolicy.allows` is handed
+`evidence["token_amounts"]` and `evidence["slippage_bps"]`, and sees zero spend without
+them. The spend is read out of the approval this batch actually makes. The slippage is
+zero, and that is a fact rather than an omission: neither `repayBorrowBehalf` nor `mint`
+takes a minimum-out argument, so there is no price in either call to slip against.
+
 **A collateral add is the owner's own transaction.** `mint(uint256)` credits its caller and
 has no on-behalf form, so a session sending it would buy vTokens for itself while the
 borrower's collateral stayed where it was. Both of its calls carry `owner_signs`, and
@@ -36,6 +42,7 @@ from .base import Decision
 from .bounds import (
     defer,
     now_utc,
+    token_spend,
     policy_field,
     simulate_call,
     with_simulation,
@@ -90,17 +97,35 @@ class HealthShieldExecutor:
     def evaluate(self, activation, *, reader=None) -> Decision:
         inputs = activation.inputs or {}
         now = self._clock()
-        reader = reader if reader is not None else VenusReader()
+        # `docket/jobs/tick.py` hands `evaluate` the loop's own `escrow.chain.Rpc` — a
+        # bare callable, not a reader — so the reader is built from it here. `VenusReader`
+        # already takes an `rpc=`, so no wrapper is needed. A reader object passed straight
+        # in is used as given, which is the seam the tests read through.
+        if reader is None:
+            reader, rpc = VenusReader(), self._rpc_handle()
+        elif hasattr(reader, "account"):
+            rpc = self._rpc_handle()
+        else:
+            rpc = self._rpc if self._rpc is not None else reader
+            reader = VenusReader(rpc=reader)
         state = reader.account(inputs["wallet"])
         policy = shield_policy(activation)
         decision = shield_evaluate(state, policy, now=now)
         evidence = dict(decision.evidence)
         try:
-            gas_price_wei = int(self._rpc_handle()(lambda w3: w3.eth.gas_price))
+            gas_price_wei = int(rpc(lambda w3: w3.eth.gas_price))
         except Exception as exc:
             gas_price_wei = 0
             evidence["gas_price_unavailable"] = f"{type(exc).__name__}: {exc}"
         evidence["gas_price_wei"] = str(gas_price_wei)
+        evidence["token_amounts"] = {}
+        # Neither Venus write takes a minimum-out argument, so there is no price in
+        # either call to slip against. Zero is the fact, not a default nobody set.
+        evidence["slippage_bps"] = 0
+        evidence["slippage_bps_means"] = (
+            "repayBorrowBehalf and mint take no minimum-out argument, so no part of "
+            "this remedy is exposed to a price moving between drafting and landing"
+        )
 
         if decision.kind != "action":
             return Decision(
@@ -141,7 +166,6 @@ class HealthShieldExecutor:
         # A collateral add credits its sender, so the only address for which sending it
         # changes anything is the borrower's own.
         sender = state.address if owner_signs_only else session
-        rpc = self._rpc_handle()
         approve, spend = calls
         record, outcome = simulate_call(approve, sender=sender, rpc=rpc)
         prepared = (
@@ -166,7 +190,10 @@ class HealthShieldExecutor:
             "block": record["block"],
             "simulated_from": sender,
         }
+        evidence["token_amounts"] = token_spend(prepared)
         if outcome != "passed":
+            # No prepared calls on an alert. A batch whose approval the chain refused is
+            # not a batch anybody may send, and `Decision` refuses to carry one.
             return Decision(
                 kind="alert",
                 summary=(
@@ -174,7 +201,7 @@ class HealthShieldExecutor:
                     + " The prepared calls were not offered: "
                     + f"{approve.purpose}: {record['revert_reason']}"
                 ),
-                prepared=prepared,
+                prepared=(),
                 evidence=evidence,
                 observed_at=now.isoformat(),
                 block=state.as_of_block,
@@ -199,7 +226,7 @@ class HealthShieldExecutor:
         )
 
 
-register(HealthShieldExecutor())
+register(CATEGORY, HealthShieldExecutor())
 
 __all__ = [
     "CATEGORY",

@@ -11,37 +11,50 @@ a batch which cannot land does not reach a signer. A call the chain refused come
 `alert` carrying the revert reason; a call that could not be put to the chain at all comes
 back as `alert` too, because an unread preflight is not a passed one.
 
-**Some calls cannot be simulated at this block, and say so.** `mint` needs the tokens the
-burn has not released yet, so it is marked `deferred` against the call it waits on rather
-than being reported as a failure. The three position-manager calls are simulated from the
-*owner*, who is authorised over the token whether or not the session approval has landed —
-that validates the calldata, the token id and the minimums against the live price, which
-is what a preflight is for. `docket/sessions/executor.py` re-simulates every call from its
-real sender at send time; nothing here is a substitute for that.
+**Every call in the batch is put to the chain, and carries its own answer.** Nothing is
+skipped and nothing is assumed: each of the eight calls gets an `eth_call` and an
+`eth_estimateGas` from the address expected to send it, and `simulation.ok` is what the
+chain said about that call rather than an inference from its neighbours. The three
+position-manager calls are asked from the *holder* of the position NFT, who is authorised
+over the token whether or not the session approval has landed, so the calldata, the token
+id and the minimums are validated against the live price. `docket/sessions/executor.py`
+re-simulates every call from its real sender at send time; nothing here is a substitute
+for that, and a batch is a sequence whose later calls depend on state its earlier ones
+create.
 
-**Observations persist through the activation's own result.** Time out of range can only be
-measured against earlier readings, and the tick loop is stateless. So each evaluation
-returns the observation list it built under `evidence["observations"]`, and expects the
-previous one at `activation.result["observations"]`. That is the contract between this
-executor and whatever persists an activation's result.
+**Observations have to persist, and today nothing persists them.** Time out of range can
+only be measured against earlier readings. Each evaluation returns the list it built under
+`evidence["observations"]` and reads the previous one from `activation.result`. As of
+`build/pivot-B` the tick loop writes neither — it returns without saving on a `noop`, and
+never assigns `activation.result` at all — so on that branch the history is always empty
+and the watch never reaches its threshold. Rather than fail silently, a position that is
+outside its range with no carried-forward observation says so in its own summary.
+
+**What the session may spend travels in the evidence.** `SessionPolicy.allows` is handed
+`evidence["token_amounts"]` and `evidence["slippage_bps"]`, and sees zero spend without
+them. Both are derived here from the calldata that is actually being offered rather than
+carried beside it.
 """
 
 from web3 import Web3
 
 from ...agents.pancake.keeper import (
+    SWAP_NOTE,
     KeeperPolicy,
     evaluate as keeper_evaluate,
     npm_encoder,
     rebalance_calls,
+    swap_plan,
 )
 from ...agents.pancake.pools import PoolClient, is_plausible
 from ...agents.pancake.positions import NPM, PositionReader
 from ...escrow.chain import Rpc
+from ...execution.simulate import BscQuoteReader
 from . import register
 from .base import Decision, PreparedCall
 from .bounds import (
-    defer,
     now_utc,
+    token_spend,
     policy_field,
     simulate_call,
     with_simulation,
@@ -66,16 +79,6 @@ DEFAULT_MIN_NET_BENEFIT_MULTIPLE = 2.0
 DEFAULT_MAX_SLIPPAGE_BPS = 50
 DEFAULT_MAX_GAS_PRICE_WEI = 5_000_000_000
 DEFAULT_MAX_NOTIONAL_USD = 1_000.0
-
-SWAP_MODEL = (
-    "A range drawn around the current tick holds both tokens and the closed position holds "
-    "one, so half of it is modelled as traded before the mint. The split is computed from "
-    "the pool's own sqrtPriceX96 in integers — no float and no price feed — and the bought "
-    "side is then reduced by the pool's fee tier and the policy's slippage bound. The trade "
-    "itself is not among the calls below; the mint's desired amounts describe the inventory "
-    "expected after it."
-)
-
 
 def keeper_policy(activation) -> KeeperPolicy:
     """The keeper's bounds, taken from the session policy where it has an opinion.
@@ -119,39 +122,6 @@ def keeper_policy(activation) -> KeeperPolicy:
     )
 
 
-def post_swap_inventory(
-    burn0: int, burn1: int, *, sqrt_price_x96: int, fee: int, slippage_bps: int
-) -> dict:
-    """What the wallet is expected to hold at mint time, in atomic units.
-
-    A v3 pool stores `sqrt(price) * 2**96`, so `amount0 * sqrtP**2 // 2**192` converts
-    token0 into token1 at the pool's own price with no float anywhere in it — which is why
-    this does not go through `tickmath`, whose docstring bans its float path from
-    transaction sizing. Half the one-sided inventory changes hands, and the bought side is
-    reduced by the pool's fee tier and the slippage bound so the mint's minimums are
-    computed against an amount the swap can actually deliver.
-    """
-    haircut = (10_000 - slippage_bps) * (1_000_000 - fee)
-    scale = 10_000 * 1_000_000
-    if burn1 == 0 and burn0 > 0:
-        sold = burn0 // 2
-        bought = sold * sqrt_price_x96 * sqrt_price_x96 // Q192 * haircut // scale
-        return {
-            "desired0": burn0 - sold,
-            "desired1": bought,
-            "swap": {"token": "token0", "sold": sold, "bought": bought},
-        }
-    if burn0 == 0 and burn1 > 0:
-        sold = burn1 // 2
-        bought = sold * Q192 // (sqrt_price_x96 * sqrt_price_x96) * haircut // scale
-        return {
-            "desired0": bought,
-            "desired1": burn1 - sold,
-            "swap": {"token": "token1", "sold": sold, "bought": bought},
-        }
-    return {"desired0": burn0, "desired1": burn1, "swap": None}
-
-
 def read_position(wallet, token_id, *, reader, pools, observation_block=None) -> dict:
     """One position, its pool and the pool's fee row, all at one block.
 
@@ -187,14 +157,33 @@ def read_position(wallet, token_id, *, reader, pools, observation_block=None) ->
     return {"read": read, "position": position, "pool": pool, "pool_stats": pool_stats}
 
 
+class _RpcPositionReader(PositionReader):
+    """A `PositionReader` whose every read runs through a supplied `Rpc`.
+
+    `VenusReader` already takes an `rpc=` and needs no wrapper; `PositionReader` has only
+    an injected-`Web3` seam, which an `Rpc` is not. Overriding the one method both of its
+    public reads funnel through is narrower than reaching into either of them, and it is
+    what lets the tick loop's own failover — rather than a second connection pool this
+    module opened for itself — carry the position read.
+    """
+
+    def __init__(self, rpc) -> None:
+        super().__init__()
+        self._through = rpc
+
+    def _call(self, do, *, observation_block=None):
+        return self._through(do)
+
+
 class RangeKeeperExecutor:
     """Watches one v3 position and prepares the reset when the policy says one is due."""
 
     category = CATEGORY
 
-    def __init__(self, *, pools=None, rpc=None, clock=now_utc) -> None:
+    def __init__(self, *, pools=None, rpc=None, quotes=None, clock=now_utc) -> None:
         self._pools = pools
         self._rpc = rpc
+        self._quotes = quotes
         self._clock = clock
 
     def _pool_client(self):
@@ -203,10 +192,35 @@ class RangeKeeperExecutor:
     def _rpc_handle(self):
         return self._rpc if self._rpc is not None else Rpc()
 
+    def _position_reader(self, reader):
+        """The position reader for this pass, and the RPC to run everything else through.
+
+        `docket/jobs/tick.py` hands `evaluate` the loop's own `escrow.chain.Rpc` — a bare
+        callable, not a reader — so the readers are built from it here. A reader object
+        passed straight in is used as given, which is the seam the tests read through.
+        """
+        if reader is None:
+            return PositionReader(), self._rpc_handle()
+        if hasattr(reader, "wallet_positions"):
+            return reader, self._rpc_handle()
+        rpc = self._rpc if self._rpc is not None else reader
+        return _RpcPositionReader(reader), rpc
+
+    def _quote_handle(self, rpc):
+        """The router quote source, the seam `agents/grid/operator.py` reads through.
+
+        `BscQuoteReader.amounts_out` is a view call that needs no balance, no approval
+        and no account, so the leg can be priced at a block where the session holds
+        nothing at all — which is every block before the burn lands.
+        """
+        if self._quotes is not None:
+            return self._quotes
+        return BscQuoteReader(rpc=rpc)
+
     def evaluate(self, activation, *, reader=None) -> Decision:
         inputs = activation.inputs or {}
         now = self._clock()
-        reader = reader if reader is not None else PositionReader()
+        reader, rpc = self._position_reader(reader)
         state = read_position(
             inputs["wallet"],
             inputs["token_id"],
@@ -237,7 +251,7 @@ class RangeKeeperExecutor:
             )
         policy = keeper_policy(activation)
         try:
-            gas_price_wei = int(self._rpc_handle()(lambda w3: w3.eth.gas_price))
+            gas_price_wei = int(rpc(lambda w3: w3.eth.gas_price))
         except Exception as exc:
             return Decision(
                 kind="alert",
@@ -275,12 +289,23 @@ class RangeKeeperExecutor:
         evidence = dict(decision.evidence)
         evidence["observations"] = observations
         evidence["gas_price_wei"] = str(gas_price_wei)
-        evidence["swap_model"] = SWAP_MODEL
+        evidence["swap_note"] = SWAP_NOTE
 
         if decision.kind != "action":
+            summary = decision.summary
+            if (
+                not decision.evidence["diagnosis"]["in_range"]
+                and decision.evidence["time_out_of_range"]["prior_observations"] == 0
+            ):
+                summary += (
+                    " No earlier observation was carried forward on this activation, so no "
+                    "elapsed time outside the range is claimed and none can accumulate "
+                    "until the tick loop persists evidence['observations'] into "
+                    "activation.result."
+                )
             return Decision(
                 kind=decision.kind,
-                summary=decision.summary,
+                summary=summary,
                 prepared=(),
                 evidence=evidence,
                 observed_at=read["observation_time"],
@@ -311,6 +336,7 @@ class RangeKeeperExecutor:
                 holder=Web3.to_checksum_address(inputs["wallet"]),
                 session=session,
                 now=now,
+                rpc=rpc,
             )
         except Exception as exc:
             # A quote that could not be taken is not a reset that was refused. Reporting it
@@ -334,7 +360,11 @@ class RangeKeeperExecutor:
                 block=read["observation_block"],
             )
         evidence["preflight"] = sim_evidence
+        evidence["token_amounts"] = token_spend(prepared)
+        evidence["slippage_bps"] = policy.max_slippage_bps
         if sim_evidence["verdict"] != "passed":
+            # No prepared calls on an alert. A batch that did not pass its preflight is
+            # not a batch anybody may send, and `Decision` refuses to carry one.
             return Decision(
                 kind="alert",
                 summary=(
@@ -342,7 +372,7 @@ class RangeKeeperExecutor:
                     + " The prepared calls were not offered: "
                     + sim_evidence["reason"]
                 ),
-                prepared=prepared,
+                prepared=(),
                 evidence=evidence,
                 observed_at=read["observation_time"],
                 block=read["observation_block"],
@@ -356,19 +386,36 @@ class RangeKeeperExecutor:
             block=read["observation_block"],
         )
 
-    def _prepare(self, *, position, pool, decision, policy, holder, session, now):
-        """Build the batch, then ask the chain about every call it can answer for."""
+    def _prepare(self, *, position, pool, decision, policy, holder, session, now, rpc):
+        """Build the whole batch, then ask the chain about every call in it."""
         deadline = int(now.timestamp()) + DEADLINE_S
         burn0, burn1 = burn_quote(
-            position, owner=holder, deadline=deadline, rpc=self._rpc_handle()
+            position, owner=holder, deadline=deadline, rpc=rpc
         )
-        inventory = post_swap_inventory(
+        plan = swap_plan(
             burn0,
             burn1,
             sqrt_price_x96=int(pool["sqrt_price_x96"]),
-            fee=int(position["fee"]),
             slippage_bps=policy.max_slippage_bps,
         )
+        token0 = Web3.to_checksum_address(position["token0"])
+        token1 = Web3.to_checksum_address(position["token1"])
+        swap = None
+        if plan["needed"]:
+            route = (
+                (token0, token1) if plan["token_in"] == "token0" else (token1, token0)
+            )
+            # The router's own live quote, taken the way `agents/grid/operator.py` takes
+            # one: a view call, so it answers at a block where the session holds nothing.
+            quoted_out = int(
+                self._quote_handle(rpc).amounts_out(plan["amount_in"], route)[-1]
+            )
+            swap = {
+                "token_in": plan["token_in"],
+                "amount_in": plan["amount_in"],
+                "quoted_out": quoted_out,
+                "route": list(route),
+            }
         calls = rebalance_calls(
             position,
             new_tick_lower=decision.new_tick_lower,
@@ -380,28 +427,18 @@ class RangeKeeperExecutor:
                 "max_slippage_bps": policy.max_slippage_bps,
                 "burn0": burn0,
                 "burn1": burn1,
-                "desired0": inventory["desired0"],
-                "desired1": inventory["desired1"],
+                "swap": swap,
             },
         )
-        rpc = self._rpc_handle()
         block = 0
         verdict = "passed"
-        reason = "every call the chain could be asked about at this block was accepted"
+        reason = "every call in the batch was accepted at this block"
         simulated: list[PreparedCall] = []
         for call in calls:
-            if call.purpose == "session_mints_replacement_to_owner":
-                record = defer(
-                    call,
-                    depends_on="session_closes_position and the swap it names",
-                    block=block,
-                )
-                simulated.append(with_simulation(call, record))
-                continue
-            # The position-manager calls are put to the chain as the owner: the owner is
-            # authorised over the token whether or not the ERC-721 approval has landed, so
-            # asking from that address answers whether the calldata, the token id and the
-            # minimums hold at this price rather than whether an approval exists yet.
+            # The position-manager calls are asked as the holder: the holder is authorised
+            # over the token whether or not the ERC-721 approval has landed, so asking from
+            # that address answers whether the calldata, the token id and the minimums hold
+            # at this price rather than whether an approval exists yet.
             sender = holder if call.to == NPM else session
             record, outcome = simulate_call(call, sender=sender, rpc=rpc)
             block = record["block"] or block
@@ -416,10 +453,19 @@ class RangeKeeperExecutor:
             "amounts": {
                 "burn0": str(burn0),
                 "burn1": str(burn1),
-                "desired0": str(inventory["desired0"]),
-                "desired1": str(inventory["desired1"]),
-                "swap": inventory["swap"],
-                "model": SWAP_MODEL,
+                "swap": swap,
+                # Atomic figures travel as strings, the way every other atomic amount in
+                # Docket does. `bool` subclasses `int`, so it is excluded explicitly —
+                # a `needed` of "True" reads as a string nobody can branch on.
+                "swap_plan": {
+                    key: (
+                        str(value)
+                        if isinstance(value, int) and not isinstance(value, bool)
+                        else value
+                    )
+                    for key, value in plan.items()
+                },
+                "note": SWAP_NOTE,
             },
         }
 
@@ -472,13 +518,12 @@ def burn_quote(position: dict, *, owner: str, deadline: int, rpc) -> tuple[int, 
     return int.from_bytes(body[:32], "big"), int.from_bytes(body[32:64], "big")
 
 
-register(RangeKeeperExecutor())
+register(CATEGORY, RangeKeeperExecutor())
 
 __all__ = [
     "CATEGORY",
     "RangeKeeperExecutor",
     "burn_quote",
     "keeper_policy",
-    "post_swap_inventory",
     "read_position",
 ]

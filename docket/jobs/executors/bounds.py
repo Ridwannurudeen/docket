@@ -21,21 +21,27 @@ allowed, and it is never the only thing standing between a bug and somebody's mo
 than in either of them, so a Venus decision does not depend on the PancakeSwap module
 importing cleanly and so the three verdicts stay one definition.
 
-`base.py` holds nothing but the three records the plan specifies, so everything Docket
-adds around them — this file's contents included — sits beside it rather than inside it.
+`token_spend` reads what a batch will actually spend out of the calldata it is about to
+send, rather than out of a number carried beside it. The tick loop hands that mapping to
+`docket/sessions/policy.py::SessionPolicy.allows`, which is the check that stands between
+a bug and the owner's money, so it must not be possible for the figure it checks and the
+bytes that spend to describe different things.
+
+`base.py` is Lane B's file, taken verbatim, and holds nothing but the records the contract
+specifies — so everything Docket adds around them, this file's contents included, sits
+beside it rather than inside it.
 """
 
 from datetime import datetime, timezone
 
 from web3 import Web3
 
-from .base import PreparedCall
+from .base import BSC_CHAIN_ID, PreparedCall  # noqa: F401  BSC_CHAIN_ID re-exported
 
 # The one call flag that means "not the session's to send". A call carrying it is the
 # account owner's own transaction, signed in their wallet, so the session's allowlists and
 # caps have no opinion about it — they bound what Docket may do, not what the owner may.
 OWNER_SIGNS = "owner_signs"
-BSC_CHAIN_ID = 56
 APPROVE_SIGNATURE = "approve(address,uint256)"
 APPROVE_SELECTOR = "0x" + Web3.keccak(text=APPROVE_SIGNATURE)[:4].hex()
 APPROVE_ABI = [
@@ -196,6 +202,26 @@ def within_session_policy(policy, prepared, *, gas_price_wei: int, now: datetime
                 f"the approval of {amount} atomic units of {call.to} is above the "
                 f"session's total cap of {cap}"
             )
+    # The per-call checks above are not enough on their own. A batch can approve the same
+    # token twice — the range keeper approves token0 for the router and again for the
+    # position manager — and `docket/sessions/policy.py` is handed the SUM of those, so a
+    # gate that only ever looked at one approval at a time could pass a batch the chain
+    # side then refuses. Docket's own checks must refuse more than the chain's, never
+    # less, so the aggregate is checked here against the same two caps.
+    for token, amount in token_spend(session_calls).items():
+        total_spend = int(amount)
+        limit = _cap(per_action, token)
+        if limit is None or total_spend > limit:
+            return False, (
+                f"the batch spends {total_spend} atomic units of {token} across its "
+                f"approvals, above the session's per-action limit of {limit}"
+            )
+        cap = _cap(total, token)
+        if cap is None or total_spend > cap:
+            return False, (
+                f"the batch spends {total_spend} atomic units of {token} across its "
+                f"approvals, above the session's total cap of {cap}"
+            )
     return True, (
         f"{len(session_calls)} session calls are inside the contract, function, token and "
         "cap bounds the owner granted"
@@ -247,7 +273,7 @@ def simulate_call(call: PreparedCall, *, sender: str, rpc) -> tuple[dict, str]:
         "from": Web3.to_checksum_address(sender),
         "to": Web3.to_checksum_address(call.to),
         "data": call.data,
-        "value": call.value_atomic,
+        "value": int(call.value_atomic),
     }
     try:
         block = rpc(lambda w3: w3.eth.block_number)
@@ -288,3 +314,25 @@ def defer(call: PreparedCall, *, depends_on: str, block: int) -> dict:
         "observed_at": now_utc().isoformat(),
         "block": block,
     }
+
+
+def token_spend(prepared) -> dict[str, str]:
+    """What this batch lets the session spend, per token, read out of the calldata.
+
+    Every atomic amount that can leave a session in these batches leaves through an
+    `approve`: the position manager pulls what the mint needs, the router pulls what the
+    swap sells, and a vToken pulls what a repay retires. So the spend is the sum of the
+    approvals the session itself makes, keyed by the token they are made on — derived from
+    the bytes rather than tracked alongside them, because a cap checked against a number
+    travelling next to the calldata is a cap on a number nobody signs.
+
+    Calls the owner signs are excluded. They spend the owner's own balance under the
+    owner's own signature, and a session cap has no opinion about those.
+    """
+    spend: dict[str, int] = {}
+    for call in prepared:
+        if call.purpose == OWNER_SIGNS or call.selector != APPROVE_SELECTOR:
+            continue
+        token = Web3.to_checksum_address(call.to)
+        spend[token] = spend.get(token, 0) + approve_amount(call.data)
+    return {token: str(amount) for token, amount in sorted(spend.items())}

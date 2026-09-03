@@ -652,7 +652,7 @@ def rescue_calls(
     approve = PreparedCall(
         to=underlying,
         data=_erc20_encoder.encode_abi("approve", args=[vtoken, amount]),
-        value_atomic=0,
+        value_atomic="0",
         chain_id=BSC_CHAIN_ID,
         gas_ceiling=APPROVE_GAS,
         deadline=0,
@@ -669,7 +669,7 @@ def rescue_calls(
                 data=_vtoken_encoder.encode_abi(
                     "repayBorrowBehalf", args=[account, amount]
                 ),
-                value_atomic=0,
+                value_atomic="0",
                 chain_id=BSC_CHAIN_ID,
                 gas_ceiling=REPAY_GAS,
                 deadline=0,
@@ -682,7 +682,7 @@ def rescue_calls(
         PreparedCall(
             to=vtoken,
             data=_vtoken_encoder.encode_abi("mint", args=[amount]),
-            value_atomic=0,
+            value_atomic="0",
             chain_id=BSC_CHAIN_ID,
             gas_ceiling=MINT_GAS,
             deadline=0,

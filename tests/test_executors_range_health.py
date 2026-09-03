@@ -34,14 +34,13 @@ from docket.jobs.executors.bounds import (
     approve_amount,
     parse_expiry,
     policy_field,
+    token_spend,
     within_session_policy,
 )
 from docket.jobs.executors.health import HealthShieldExecutor
-from docket.jobs.executors.range import (
-    RangeKeeperExecutor,
-    post_swap_inventory,
-    simulate_call,
-)
+from docket.execution.simulate import PANCAKE_V2_ROUTER, SWAP_SIGNATURE
+from docket.jobs.executors.bounds import simulate_call
+from docket.jobs.executors.range import RangeKeeperExecutor
 from tests.test_pancake_keeper import (
     OWNER,
     POOL_ABOVE,
@@ -67,12 +66,19 @@ from tests.test_venus_shield import (
 
 NOW = datetime(2026, 9, 3, 12, 0, 0, tzinfo=timezone.utc)
 DECREASE_SELECTOR = "0x0c49ccbe"
+SWAP_SELECTOR = "0x" + Web3.keccak(text=SWAP_SIGNATURE)[:4].hex()
 TOKEN0 = Web3.to_checksum_address(POSITION["token0"])
 TOKEN1 = Web3.to_checksum_address(POSITION["token1"])
 # The whole position comes back as token0: the price sits above the range, so the burn
 # releases one side only. That is the shape the keeper actually meets.
 BURN0 = 1_000_000_000_000_000_000
 BURN1 = 0
+# What the fake router answers for the half that gets sold.
+QUOTED_OUT = 321_000_000_000_000_000
+# A burn whose two sides are of equal value AT THIS POOL'S PRICE — not of equal count,
+# which at any price but 1 is a different thing. This is the inventory that needs no leg.
+BALANCED0 = BURN0 // 2
+BALANCED1 = BALANCED0 * POOL_ABOVE["sqrt_price_x96"] ** 2 // 2**192
 
 
 class _Revert(Exception):
@@ -80,17 +86,22 @@ class _Revert(Exception):
 
 
 class _Eth:
-    def __init__(self, *, gas_price, block, reverts, gas):
+    def __init__(self, *, gas_price, block, reverts, gas, balanced):
         self.gas_price = gas_price
         self.block_number = block
         self._reverts = reverts
         self._gas = gas
+        self._balanced = balanced
 
     def call(self, tx):
         for selector, reason in self._reverts.items():
             if tx["data"].startswith(selector):
                 raise _Revert(reason)
         if tx["data"].startswith(DECREASE_SELECTOR):
+            # decreaseLiquidity returns (amount0, amount1). `balanced` releases equal
+            # value on both sides, which is the inventory that needs no leg.
+            if self._balanced:
+                return BALANCED0.to_bytes(32, "big") + BALANCED1.to_bytes(32, "big")
             return BURN0.to_bytes(32, "big") + BURN1.to_bytes(32, "big")
         return b""
 
@@ -103,9 +114,23 @@ class _Rpc:
 
     # 50,000 gas is under every ceiling the two agents set, so a test that wants a
     # refusal has to ask for one rather than getting it from the fixture by accident.
-    def __init__(self, *, gas_price=10**9, block=119_700_000, reverts=None, gas=50_000):
+    def __init__(
+        self,
+        *,
+        gas_price=10**9,
+        block=119_700_000,
+        reverts=None,
+        gas=50_000,
+        balanced=False,
+    ):
         self._w3 = SimpleNamespace(
-            eth=_Eth(gas_price=gas_price, block=block, reverts=reverts or {}, gas=gas)
+            eth=_Eth(
+                gas_price=gas_price,
+                block=block,
+                reverts=reverts or {},
+                gas=gas,
+                balanced=balanced,
+            )
         )
         self.calls = 0
 
@@ -153,6 +178,22 @@ class _Pools:
 
     def token_allowlist(self):
         return {ROW["token0"]["id"], ROW["token1"]["id"]}
+
+
+class _Quotes:
+    """`BscQuoteReader`'s one method, answering from a fixture.
+
+    `amounts_out` is a view call, which is why the leg can be priced at a block where the
+    session holds nothing — every block before the burn lands.
+    """
+
+    def __init__(self, out=QUOTED_OUT):
+        self._out = out
+        self.asked = []
+
+    def amounts_out(self, amount_in, route):
+        self.asked.append((amount_in, tuple(route)))
+        return [amount_in, self._out]
 
 
 class _Venus:
@@ -213,14 +254,24 @@ def _observations(minutes: int) -> dict:
 
 def _range(**overrides):
     return RangeKeeperExecutor(
-        pools=_Pools(), rpc=overrides.pop("rpc", _Rpc()), clock=lambda: NOW, **overrides
+        pools=_Pools(),
+        rpc=overrides.pop("rpc", _Rpc()),
+        quotes=overrides.pop("quotes", _Quotes()),
+        clock=lambda: NOW,
+        **overrides,
     )
 
 
 def _session_policy(**overrides):
     fields = {
-        "contract_allowlist": [NPM, TOKEN0, TOKEN1],
-        "function_allowlist": ["0x095ea7b3", "0x0c49ccbe", "0xfc6f7865", "0x88316456"],
+        "contract_allowlist": [NPM, TOKEN0, TOKEN1, PANCAKE_V2_ROUTER],
+        "function_allowlist": [
+            "0x095ea7b3",
+            "0x0c49ccbe",
+            "0xfc6f7865",
+            "0x88316456",
+            SWAP_SELECTOR,
+        ],
         "token_allowlist": [TOKEN0, TOKEN1],
         "per_action_limit_atomic": {TOKEN0: 10**30, TOKEN1: 10**30},
         "total_cap_atomic": {TOKEN0: 10**30, TOKEN1: 10**30},
@@ -247,23 +298,24 @@ def test_a_second_executor_may_not_claim_a_category_that_is_already_served():
     class Impostor:
         category = "rebalancing"
 
-    with pytest.raises(ValueError, match="already served by"):
-        register(Impostor())
+    with pytest.raises(ValueError, match="already has a registered executor"):
+        register("rebalancing", Impostor())
     assert isinstance(EXECUTORS["rebalancing"], RangeKeeperExecutor)
 
 
-def test_the_two_records_carry_the_plans_field_names_in_the_plans_order():
-    """Lane B writes the same file in its own worktree. If the names or the order drift the
-    two copies stop being one contract, and that is a merge conflict nobody sees."""
+def test_the_two_records_carry_the_landed_field_names_in_the_landed_order():
+    """`base.py` is Lane B's file, taken verbatim from `build/pivot-B`. Pinning the shape
+    here is what catches the two branches drifting back apart: a field renamed or reordered
+    on one side is a merge that resolves silently and a policy that reads the wrong number."""
     assert [f.name for f in dataclasses.fields(PreparedCall)] == [
         "to",
         "data",
         "value_atomic",
-        "chain_id",
         "gas_ceiling",
         "deadline",
         "purpose",
         "simulation",
+        "chain_id",
     ]
     assert [f.name for f in dataclasses.fields(Decision)] == [
         "kind",
@@ -287,6 +339,8 @@ def test_a_position_inside_its_range_produces_no_prepared_call_at_all():
 
 
 def test_a_position_that_is_due_a_reset_comes_back_with_the_whole_simulated_batch():
+    """The whole ordered sequence, every call answered by the chain in its own right —
+    nothing skipped, nothing inferred from a neighbour."""
     decision = _range().evaluate(
         _activation(inputs=_range_inputs(), result=_observations(180)),
         reader=_Positions(),
@@ -295,37 +349,94 @@ def test_a_position_that_is_due_a_reset_comes_back_with_the_whole_simulated_batc
     assert [call.purpose for call in decision.prepared] == [
         "owner_signs",
         "session_closes_position",
-        "session_collects_to_fund_mint",
+        "session_collects_to_fund_the_swap_and_the_mint",
+        "session_approves_router_exact",
+        "session_balances_the_inventory",
         "session_approves_token0_exact",
         "session_approves_token1_exact",
         "session_mints_replacement_to_owner",
     ]
     assert decision.evidence["preflight"]["verdict"] == "passed"
-    # Five calls were put to the chain and answered; the mint waits on the burn.
-    assert [call.simulation["ok"] for call in decision.prepared] == [
-        True,
-        True,
-        True,
-        True,
-        True,
-        None,
-    ]
-    assert "deferred: depends on" in decision.prepared[5].simulation["revert_reason"]
+    assert [call.simulation["ok"] for call in decision.prepared] == [True] * 8
+    assert all(
+        call.simulation["revert_reason"] is None for call in decision.prepared
+    ), "nothing in the batch is deferred any more"
+    assert all(call.simulation["block"] == 119_700_000 for call in decision.prepared)
+    assert all(call.simulation["gas_estimate"] == 50_000 for call in decision.prepared)
     assert decision.block == 119_700_000
 
 
-def test_the_mint_is_funded_by_the_inventory_the_burn_quote_actually_returned():
+def test_the_router_leg_is_quoted_through_the_injected_quote_reader():
+    quotes = _Quotes()
+    decision = _range(quotes=quotes).evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(),
+    )
+    assert decision.kind == "action"
+    # Half the one-sided inventory, priced along the token0 -> token1 route.
+    assert quotes.asked == [(BURN0 // 2, (TOKEN0, TOKEN1))]
+    swap = decision.evidence["preflight"]["amounts"]["swap"]
+    assert swap["token_in"] == "token0"
+    assert swap["amount_in"] == BURN0 // 2
+    assert swap["quoted_out"] == QUOTED_OUT
+    assert swap["route"] == [TOKEN0, TOKEN1]
+    assert decision.prepared[4].to == PANCAKE_V2_ROUTER
+    assert decision.prepared[4].data[:10] == SWAP_SELECTOR
+
+
+def test_the_mint_is_funded_by_the_floor_the_swap_is_held_to():
+    """The mint asks for the swap's guaranteed minimum, not its quote. Asking for the
+    quote would mean a mint that reverts every time the price moved against the leg."""
     decision = _range().evaluate(
         _activation(inputs=_range_inputs(), result=_observations(180)),
         reader=_Positions(),
     )
     amounts = decision.evidence["preflight"]["amounts"]
     assert amounts["burn0"] == str(BURN0)
-    _, mint = npm_encoder.decode_function_input(decision.prepared[5].data)
-    assert mint["params"]["amount0Desired"] == int(amounts["desired0"])
-    assert mint["params"]["amount1Desired"] == int(amounts["desired1"])
+    floor = QUOTED_OUT * 9_950 // 10_000
+    _, mint = npm_encoder.decode_function_input(decision.prepared[7].data)
+    assert mint["params"]["amount0Desired"] == BURN0 - BURN0 // 2
+    assert mint["params"]["amount1Desired"] == floor
     assert mint["params"]["recipient"] == OWNER
-    assert amounts["swap"]["token"] == "token0"
+    assert approve_amount(decision.prepared[6].data) == floor
+    assert amounts["swap_plan"]["needed"] is True
+
+
+def test_an_inventory_that_needs_no_trade_produces_a_six_call_batch_and_says_why():
+    """Both sides already within the slippage bound. No leg, no router approval, and the
+    plan's own reason travels in the evidence."""
+    decision = _range(rpc=_Rpc(balanced=True)).evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(),
+    )
+    assert decision.kind == "action"
+    assert [call.purpose for call in decision.prepared] == [
+        "owner_signs",
+        "session_closes_position",
+        "session_collects_to_fund_the_swap_and_the_mint",
+        "session_approves_token0_exact",
+        "session_approves_token1_exact",
+        "session_mints_replacement_to_owner",
+    ]
+    assert [call.simulation["ok"] for call in decision.prepared] == [True] * 6
+    amounts = decision.evidence["preflight"]["amounts"]
+    assert amounts["swap"] is None
+    assert amounts["swap_plan"]["needed"] is False
+    assert "already tolerates" in amounts["swap_plan"]["reason"]
+
+
+def test_a_swap_the_router_will_not_quote_prepares_nothing():
+    class _Dead:
+        def amounts_out(self, amount_in, route):
+            raise RuntimeError("every endpoint failed")
+
+    decision = _range(quotes=_Dead()).evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(),
+    )
+    assert decision.kind == "alert"
+    assert decision.prepared == ()
+    assert decision.evidence["preflight"]["verdict"] == "unreadable"
 
 
 def test_a_call_the_chain_refuses_is_reported_as_an_alert_and_never_as_an_action():
@@ -390,38 +501,18 @@ def test_each_evaluation_hands_its_observation_forward_for_the_next_one():
     assert len(second.evidence["observations"]) == 2
 
 
-def test_the_post_swap_split_is_integer_arithmetic_over_the_pools_own_price():
-    inventory = post_swap_inventory(
-        1_000_000, 0, sqrt_price_x96=2**96, fee=2500, slippage_bps=50
-    )
-    assert inventory["desired0"] == 500_000
-    # sqrtP == 2**96 is a price of exactly 1, so the bought side is the sold side less the
-    # 0.25% fee tier and the 0.5% slippage bound.
-    assert inventory["desired1"] == 500_000 * 9_950 * 997_500 // (10_000 * 1_000_000)
-    assert inventory["swap"] == {
-        "token": "token0",
-        "sold": 500_000,
-        "bought": inventory["desired1"],
-    }
-    assert post_swap_inventory(
-        7, 9, sqrt_price_x96=2**96, fee=100, slippage_bps=50
-    ) == {
-        "desired0": 7,
-        "desired1": 9,
-        "swap": None,
-    }
-
-
 def test_a_simulation_records_which_question_the_chain_was_actually_asked():
     call = PreparedCall(
         to=TOKEN0,
         data="0x095ea7b3" + "00" * 64,
-        value_atomic=0,
+        value_atomic="0",
         chain_id=56,
         gas_ceiling=60_000,
         deadline=0,
         purpose="probe",
-        simulation={},
+        # `PreparedCall` refuses a simulation slot with no `ok` in it: a call nobody asked
+        # the chain about is not the same thing as one the chain agreed to.
+        simulation={"ok": None},
     )
     record, outcome = simulate_call(call, sender=OWNER, rpc=_Rpc(gas=50_000))
     assert outcome == "passed"
@@ -542,6 +633,152 @@ def test_a_collateral_add_needs_no_session_because_the_owner_signs_both_calls():
     ]
 
 
+# ------------------------------------------------- what the policy engine reads
+
+
+def test_the_batch_declares_what_it_lets_the_session_spend_per_token():
+    """`SessionPolicy.allows` is handed this mapping and sees zero spend without it. Every
+    figure in it is read back out of an approval in the batch, so the number the cap is
+    checked against and the bytes that do the spending cannot describe different things."""
+    decision = _action()
+    spend = decision.evidence["token_amounts"]
+    floor = QUOTED_OUT * 9_950 // 10_000
+    # token0 is approved twice — once to the router for the leg, once to the position
+    # manager for the mint — and the declared spend is the sum of the two.
+    assert spend == {
+        TOKEN0: str(BURN0 // 2 + (BURN0 - BURN0 // 2)),
+        TOKEN1: str(floor),
+    }
+    assert int(spend[TOKEN0]) == BURN0
+    assert decision.evidence["slippage_bps"] == 50
+    # Derived from the calldata, not carried beside it.
+    assert spend == token_spend(decision.prepared)
+
+
+def test_the_owner_signed_approval_is_not_counted_as_a_session_spend():
+    """The ERC-721 approval is the owner's own transaction over their own NFT. Folding its
+    token id into a spend mapping would charge a session cap for something no session
+    sends — and the id would be read as an amount."""
+    decision = _action()
+    assert decision.prepared[0].purpose == "owner_signs"
+    assert decision.prepared[0].to == NPM
+    assert NPM not in decision.evidence["token_amounts"]
+
+
+def test_a_repay_declares_the_one_approval_it_makes():
+    decision = _health().evaluate(
+        _activation(category="health_factor", inputs=_health_inputs()),
+        reader=_Venus(_underwater()),
+    )
+    assert decision.kind == "action"
+    amount = decision.evidence["remedy"]["amount_atomic"]
+    assert decision.evidence["token_amounts"] == {USDT: str(amount)}
+    # No minimum-out argument exists on either Venus write, so there is no price to slip
+    # against and zero is the fact rather than a default nobody set.
+    assert decision.evidence["slippage_bps"] == 0
+    assert "no minimum-out argument" in decision.evidence["slippage_bps_means"]
+
+
+def test_a_collateral_add_declares_no_session_spend_because_the_owner_signs_it():
+    decision = _health().evaluate(
+        _activation(
+            category="health_factor",
+            inputs=_health_inputs(mode="add_collateral", max_rescue_atomic={USDC: 10**30}),
+            session=None,
+        ),
+        reader=_Venus(_underwater()),
+    )
+    assert decision.kind == "action"
+    assert decision.evidence["token_amounts"] == {}
+
+
+# ------------------------------------------------------- the tick loop's reader
+
+
+class _BareRpc(_Rpc):
+    """What `docket/jobs/tick.py` actually passes: the loop's own `escrow.chain.Rpc`.
+
+    A bare callable with no reader methods on it at all, which is the whole point — an
+    executor that assumed a `PositionReader` would fail on the first real tick.
+    """
+
+    def __getattr__(self, name):
+        raise AttributeError(name)
+
+
+def test_the_range_executor_builds_its_reader_from_a_bare_rpc(monkeypatch):
+    rpc = _BareRpc()
+    assert not hasattr(rpc, "wallet_positions")
+    read = {}
+
+    def _wallet_positions(self, address, *, token_id=None, observation_block=None, **_):
+        read["through"] = self._through
+        return _Positions().wallet_positions(
+            address, token_id=token_id, observation_block=observation_block
+        )
+
+    monkeypatch.setattr(
+        "docket.jobs.executors.range._RpcPositionReader.wallet_positions",
+        _wallet_positions,
+    )
+    monkeypatch.setattr(
+        "docket.jobs.executors.range._RpcPositionReader.pool_state",
+        lambda self, *a, **k: dict(POOL_ABOVE),
+    )
+    executor = RangeKeeperExecutor(
+        pools=_Pools(), quotes=_Quotes(), clock=lambda: NOW
+    )
+    decision = executor.evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)), reader=rpc
+    )
+    assert decision.kind == "action"
+    # Every read went through the loop's own failover rather than a pool this module
+    # opened for itself.
+    assert read["through"] is rpc
+
+
+def test_the_health_executor_builds_its_reader_from_a_bare_rpc(monkeypatch):
+    rpc = _BareRpc()
+    assert not hasattr(rpc, "account")
+    built = {}
+
+    class _Reader:
+        def __init__(self, *args, **kwargs):
+            built["rpc"] = kwargs.get("rpc")
+
+        def account(self, address):
+            return _underwater()
+
+    monkeypatch.setattr("docket.jobs.executors.health.VenusReader", _Reader)
+    decision = HealthShieldExecutor(clock=lambda: NOW).evaluate(
+        _activation(category="health_factor", inputs=_health_inputs()), reader=rpc
+    )
+    assert built["rpc"] is rpc
+    assert decision.kind == "action"
+
+
+# --------------------------------------------------- the persistence dependency
+
+
+def test_a_watch_with_no_carried_observation_says_so_rather_than_reading_as_nothing_due():
+    """As of `build/pivot-B` the tick loop returns without saving on a noop and never
+    assigns `activation.result`, so the history is always empty and the threshold is never
+    reached. Silently reporting "nothing due" would hide that; the summary names it."""
+    decision = _range().evaluate(
+        _activation(inputs=_range_inputs()), reader=_Positions()
+    )
+    assert decision.kind == "noop"
+    assert decision.evidence["time_out_of_range"]["prior_observations"] == 0
+    assert "No earlier observation was carried forward" in decision.summary
+    assert "activation.result" in decision.summary
+    # And the moment one is carried forward, the sentence goes away.
+    carried = _range().evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(30)),
+        reader=_Positions(),
+    )
+    assert "No earlier observation was carried forward" not in carried.summary
+
+
 # ---------------------------------------------------------------- policy gate
 
 
@@ -589,6 +826,26 @@ def test_a_session_that_does_not_cover_a_call_refuses_the_whole_batch(
     )
     assert ok is False
     assert fragment in reason
+
+
+def test_a_token_approved_twice_is_capped_on_the_sum_and_not_on_each_half():
+    """The keeper approves token0 twice — for the router and for the position manager —
+    and `docket/sessions/policy.py` is handed the sum. A gate that only ever looked at one
+    approval at a time would pass a batch the chain side then refuses, and Docket's own
+    checks must refuse more than the chain's, never less."""
+    decision = _action()
+    half = BURN0 // 2
+    # Either half fits; the sum does not.
+    policy = _session_policy(
+        per_action_limit_atomic={TOKEN0: half + 1, TOKEN1: 10**30},
+        total_cap_atomic={TOKEN0: 10**30, TOKEN1: 10**30},
+    )
+    ok, reason = _range().within_policy(
+        _activation(inputs=_range_inputs(), policy=policy), decision
+    )
+    assert ok is False
+    assert "across its approvals" in reason
+    assert str(BURN0) in reason
 
 
 def test_a_batch_with_no_session_policy_at_all_is_refused():
@@ -663,7 +920,7 @@ def test_the_batch_is_built_for_the_wallet_that_holds_the_position():
         reader=_Positions(),
     )
     assert decision.kind == "action"
-    _, mint = npm_encoder.decode_function_input(decision.prepared[5].data)
+    _, mint = npm_encoder.decode_function_input(decision.prepared[7].data)
     assert mint["params"]["recipient"] == holder
     assert mint["params"]["recipient"] != creator
 
