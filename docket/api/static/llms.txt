@@ -817,7 +817,17 @@ Three rules govern that layer, and they are the reason it is small.
       registration says what job an agent does, so no agent in /agents has one, and
       inferring one from a name or a description would be inventing the field. If you
       are asked which registry agents do LP rebalancing, the honest answer is that
-      Docket does not know and does not guess.
+      /agents does not know and does not guess.
+
+      /api/agents is a third plane and it does answer that question, under a rule it
+      prints. A marketplace listing carries a category from one of exactly three
+      sources, named in capability_source on every listing: provider_declared (the
+      on-chain owner said so, having signed a claim), registration_metadata (the
+      registration's own agent_type or categories field said so), or docket_classified
+      (Docket's published keyword rule table read the capability text). The third is a
+      reading of somebody's published prose, labelled as a reading and carrying the
+      exact rules that matched in classification_rationale, and it never appears on
+      /agents. See "Marketplace search and providers" below.
 
   An empty category says it is empty.
       Four of the four have a service in them — rebalancing, grid_trading,
@@ -873,6 +883,144 @@ The identity cross-link has three states and says which one it is, because "no l
       index does not hold it.
       Do not report this as an unregistered service, and do not report it as one Docket
       has observations for.
+
+
+## Marketplace search and providers
+
+/agents serves the snapshot: the agents one recorded sweep captured, and nothing that
+sweep missed. /api/agents serves the marketplace: any BSC agent Docket can find, joined
+to what Docket has actually observed of it. The two are different planes and they answer
+different questions — /agents is "what did the last sweep hold", /api/agents is "who can
+do this job, and what is behind that claim".
+
+Errors on the /api/ prefix are flat: {"error_code": ..., "message": ...}. Every other
+route on this host answers {"error": {"code": ..., "message": ...}}. That divergence is
+deliberate and it is the only place it appears; branch on the prefix, not on the status.
+
+### The verification level vocabulary
+
+Six levels, weakest to strongest. Every listing carries verification.level, which is null
+until Docket has observed something, plus verification.evidence: one row per level, each
+saying whether the check passed, when, and what was read.
+
+  registered         IdentityRegistry.ownerOf answered on BSC chain 56. Evidence: the
+                     owner address, the tokenURI, and which RPC endpoint answered.
+  endpoint_detected  the registration names an a2a or mcp endpoint. A web link is a
+                     homepage and does not count: "the marketing site answered" is not
+                     "the service answered". Web endpoints are still listed, under their
+                     own kind.
+  live               that endpoint answered a guarded request at any status — a 404 still
+                     proves a host is up, which is the same vocabulary the liveness sweep
+                     uses. Read the status code in the evidence before quoting this.
+  payment_tested     the endpoint answered HTTP 402 with a body that parses as an x402
+                     challenge. READ ONLY. Docket reads the challenge and never presents a
+                     payment, so this level says a price exists and says nothing about
+                     whether paying it works.
+  docket_tested      one sample invocation came back as a schema-valid structured result.
+                     Evidence: the request sent, the SHA-256 of the result, and the schema
+                     it was checked against. Docket has exactly one default sample and it
+                     is the MCP tools/list capability query, which is read-only and calls
+                     no listed tool. A listing whose provider declares its own
+                     sample_input is invoked with that instead. An A2A endpoint with no
+                     declared sample cannot reach this level: fetching an agent card is a
+                     description of an agent, not a result it produced.
+  docket_verified    docket_tested plus a registered paired-benchmark family for this
+                     listing. Nothing reaches this level today: Docket's v3 families are
+                     registered against Docket's own service ids, so no external listing
+                     has one, and the level is recorded as unreached rather than skipped.
+
+Two rules about how the ladder moves.
+
+  docket_tested requires live, not payment_tested. Read as a strict chain, the ordering
+  would mean an endpoint that answers a real request for free can never be tested, which
+  would rank a service that only quotes a price above one that did the work. A listing
+  reported at docket_tested still carries its own payment_tested: false evidence row, so
+  the level is never a claim that a payment path was exercised.
+
+  A chain outage never costs a listing a level. ownerOf failing because every RPC
+  endpoint refused is recorded as rpc_unavailable, not as not_registered, and the listing
+  keeps the level it already held. The response says so in chain_read_failed.
+
+hireable is a separate boolean and it is false until docket_tested. Being in the registry,
+being claimed by its owner, and quoting a price are none of them evidence that the agent
+does anything.
+
+### Endpoints
+
+GET /api/agents
+    Marketplace listings. Parameters: q (free text over the listing name, the capability
+    text it was classified from, and the agent id), category (one of rebalancing,
+    grid_trading, yield_optimisation, health_factor), level (one of the six above; exact
+    match, never a range), limit (1..100, default 20) and offset. Returns items, total,
+    the filters applied, the level vocabulary, listings_by_level, and registry_lookup.
+
+    Listings Docket already holds are answered from the store. When q is given and the
+    store cannot fill the page, Docket asks the BSC registry index for ONE narrowed page
+    and caches what comes back as listings at level null — being findable in an index is
+    not an observation. registry_lookup says whether that happened, how many rows it
+    added, and why it did not when it did not. That lookup is bounded to 60 per hour per
+    peer address; the bound is a fact about this host, not about the registry.
+
+    curl -s "$DOCKET/api/agents?q=health%20factor&category=health_factor"
+
+GET /api/agents/{agent_id}
+    One listing, with the level vocabulary and the prerequisite table. agent_id is the
+    chain:registry:token form, or a bare token id. A listing Docket does not hold is
+    fetched once from the registry index and cached, spending from the same lookup bound.
+
+    curl -s "$DOCKET/api/agents/56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:43129"
+
+GET /api/agents/{agent_id}/verification
+    The listing's current verification block, its hireable flag, and the newest recorded
+    runs — every level attempt, passed or failed, with what it read. Nothing here is
+    fetched from the network.
+
+    curl -s "$DOCKET/api/agents/56:0x8004.../43129/verification"
+
+POST /api/agents/{agent_id}/verify
+    Re-run every level against this listing now and record what each one observes. Body
+    is an empty JSON object. Spends from the same per-IP free-work allowance the re-probe
+    route spends from, and answers 429 with Retry-After when it is gone. Returns the level
+    reached, the previous level, chain_read_failed, the evidence rows, and the updated
+    listing. It never pays and never sends a transaction.
+
+    curl -s -X POST -H 'content-type: application/json' -d '{}' \
+      "$DOCKET/api/agents/56:0x8004.../43129/verify"
+
+POST /api/providers/claim
+    Two shapes on one route. {"agent_id": "..."} mints a single-use nonce and returns the
+    exact message to sign: "Docket provider claim {agent_id} {nonce}". Signing it with
+    personal_sign and posting {"agent_id", "nonce", "signature"} spends the nonce: Docket
+    recovers the signer and compares it to ownerOf(agentId) on chain 56. A nonce is valid
+    for 900 seconds and can be spent here or on POST /api/providers/listings, never both.
+
+    curl -s -X POST -H 'content-type: application/json' \
+      -d '{"agent_id":"56:0x8004...:43129"}' "$DOCKET/api/providers/claim"
+
+POST /api/providers/listings
+    Spend a nonce and write the owner's own description of their agent. Body:
+    agent_id, nonce, signature, capabilities (required), and optionally category, price,
+    payment_method (x402, free or off_platform), sample_input and output_schema. The
+    listing is written at level registered with capability_source provider_declared and
+    hireable false.
+
+    Endpoints are NOT taken from this call. They come from the ERC-8004 registration
+    Docket already read, so a provider who wants a different endpoint listed changes
+    their registration, which is a public act on chain rather than a private one on
+    Docket's database.
+
+    curl -s -X POST -H 'content-type: application/json' \
+      -d '{"agent_id":"...","nonce":"...","signature":"0x...","capabilities":"..."}' \
+      "$DOCKET/api/providers/listings"
+
+Refusal codes on these routes: invalid_category, invalid_level, invalid_json,
+invalid_agent_id, invalid_claim, invalid_signature, invalid_capabilities,
+invalid_payment_method, invalid_sample_input, invalid_output_schema, listing_not_found,
+lookup_rate_limited, verify_rate_limited, registry_unavailable, stale_nonce,
+bad_signature, not_owner, not_registered, chain_unavailable.
+
+chain_unavailable is not a refusal of the claim. It means Docket could not read the chain,
+so the claim is neither accepted nor rejected; retry it.
 
 
 ## Hiring
