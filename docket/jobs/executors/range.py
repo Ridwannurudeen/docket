@@ -29,13 +29,13 @@ holder reverts. So the approval is read rather than drafted: `getApproved` and
 comes back as an `alert` carrying `evidence["needs_nft_approval"]` for the browser step
 that collects it.
 
-**Observations have to persist, and today nothing persists them.** Time out of range can
-only be measured against earlier readings. Each evaluation returns the list it built under
-`evidence["observations"]` and reads the previous one from `activation.result`. As of
-`build/pivot-B` the tick loop writes neither — it returns without saving on a `noop`, and
-never assigns `activation.result` at all — so on that branch the history is always empty
-and the watch never reaches its threshold. Rather than fail silently, a position that is
-outside its range with no carried-forward observation says so in its own summary.
+**Observations persist through the activation's own result.** Time out of range can only
+be measured against earlier readings, and a persistent executor is stateless between
+passes. So each evaluation returns the list it built under `evidence["observations"]` and
+reads the previous one back from `result.last_decision.evidence`, which
+`docket/jobs/tick.py` writes on every pass including a noop. A position outside its range
+with nothing carried forward still says so in its own summary, because the first pass of a
+new watch and a watch whose carry-over broke look identical from the outside.
 
 **What the session may spend travels in the evidence.** `SessionPolicy.allows` is handed
 `evidence["token_amounts"]` and `evidence["slippage_bps"]`, and sees zero spend without
@@ -48,7 +48,6 @@ from web3 import Web3
 from ...agents.pancake.keeper import (
     Q192,
     SWAP_NOTE,
-    V2_FEE_BPS,
     KeeperPolicy,
     evaluate as keeper_evaluate,
     npm_approval_reader,
@@ -63,9 +62,11 @@ from ...execution.simulate import BscQuoteReader
 from . import register
 from .base import Decision, PreparedCall
 from .bounds import (
+    carried_evidence,
     defer,
     now_utc,
     token_spend,
+    touched_tokens,
     policy_field,
     simulate_call,
     with_simulation,
@@ -90,7 +91,6 @@ DEADLINE_S = 600
 # How many prior observations travel forward. Enough to date a departure many ticks old
 # without letting an activation's result grow without bound.
 MAX_OBSERVATIONS = 288
-Q192 = 2**192
 
 # What a request supplies when it says nothing. Each matches the field's default in the
 # catalogue's request schema, so a caller who accepted the defaults there gets the same
@@ -255,7 +255,7 @@ class RangeKeeperExecutor:
             ),
         )
         read = state["read"]
-        observations = list((activation.result or {}).get("observations") or [])
+        observations = list(carried_evidence(activation).get("observations") or [])
         if state["position"] is None:
             return Decision(
                 kind="alert",
@@ -358,10 +358,9 @@ class RangeKeeperExecutor:
                 and timing.get("prior_observations") == 0
             ):
                 summary += (
-                    " No earlier observation was carried forward on this activation, so no "
-                    "elapsed time outside the range is claimed and none can accumulate "
-                    "until the tick loop persists evidence['observations'] into "
-                    "activation.result."
+                    " No earlier observation is carried forward on this activation yet, so "
+                    "no elapsed time outside the range is claimed — the first pass of a "
+                    "watch has nothing to measure against."
                 )
             return Decision(
                 kind=decision.kind,
@@ -389,6 +388,8 @@ class RangeKeeperExecutor:
                 block=read["observation_block"],
             )
 
+        token0 = Web3.to_checksum_address(position["token0"])
+        token1 = Web3.to_checksum_address(position["token1"])
         holder = Web3.to_checksum_address(inputs["wallet"])
         try:
             approved = session_may_move(
@@ -464,6 +465,16 @@ class RangeKeeperExecutor:
             for call in prepared
         ]
         evidence["slippage_bps"] = policy.max_slippage_bps
+        # The addresses the spend accounting cannot read out of calldata, and the tokens a
+        # revoke has to look for afterwards. Both are derived from the batch that was
+        # actually built rather than listed beside it.
+        evidence["token_hints"] = {
+            "position_tokens": {str(position["token_id"]): [token0, token1]}
+        }
+        # Both sides of the pair: the swap pays one of them in, the collect sweeps fees in
+        # both, and whatever the mint does not consume stays in the session until revoke.
+        evidence["received_tokens"] = [token0, token1]
+        evidence["touched_tokens"] = list(touched_tokens(prepared))
         if sim_evidence["verdict"] != "passed":
             # No prepared calls on an alert. A batch that did not pass its preflight is
             # not a batch anybody may send, and `Decision` refuses to carry one.

@@ -59,6 +59,7 @@ from datetime import datetime
 from web3 import Web3
 
 from ...jobs.executors.base import PreparedCall
+from ...jobs.executors.allowlists import REPAY_BORROW_BEHALF, VTOKEN_MINT
 from ...jobs.executors.bounds import APPROVE_ABI, BSC_CHAIN_ID, parse_expiry
 from .guard import E18, RATIO_METHOD, _supplied_underlying, _usd
 
@@ -153,6 +154,12 @@ _vtoken_encoder = Web3().eth.contract(abi=VTOKEN_WRITE_ABI)
 
 def selector(signature: str) -> str:
     return "0x" + Web3.keccak(text=signature)[:4].hex()
+
+
+# Derived here, published in `docket/jobs/executors/allowlists.py` as the selectors a Venus
+# session's default `function_allowlist` grants, and checked against each other at import.
+assert selector(REPAY_BEHALF_SIGNATURE) == REPAY_BORROW_BEHALF, REPAY_BEHALF_SIGNATURE
+assert selector(MINT_SIGNATURE) == VTOKEN_MINT, MINT_SIGNATURE
 
 
 def _ceil_div(numerator: int, denominator: int) -> int:

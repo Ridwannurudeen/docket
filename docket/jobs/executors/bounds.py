@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 
 from web3 import Web3
 
+from .allowlists import APPROVE
 from .base import BSC_CHAIN_ID, PreparedCall  # noqa: F401  BSC_CHAIN_ID re-exported
 
 # The one call flag that means "not the session's to send". A call carrying it is the
@@ -43,7 +44,11 @@ from .base import BSC_CHAIN_ID, PreparedCall  # noqa: F401  BSC_CHAIN_ID re-expo
 # caps have no opinion about it — they bound what Docket may do, not what the owner may.
 OWNER_SIGNS = "owner_signs"
 APPROVE_SIGNATURE = "approve(address,uint256)"
-APPROVE_SELECTOR = "0x" + Web3.keccak(text=APPROVE_SIGNATURE)[:4].hex()
+APPROVE_SELECTOR = APPROVE
+# Taken from Lane B's table rather than hashed again here, and checked against the
+# signature it claims to be — one number, two places that need it, and an assertion
+# rather than a second derivation that could drift.
+assert APPROVE_SELECTOR == "0x" + Web3.keccak(text=APPROVE_SIGNATURE)[:4].hex()
 APPROVE_ABI = [
     {
         "name": "approve",
@@ -355,3 +360,39 @@ def token_spend(prepared) -> dict[str, str]:
         token = Web3.to_checksum_address(call.to)
         spend[token] = spend.get(token, 0) + approve_amount(call.data)
     return {token: str(amount) for token, amount in sorted(spend.items())}
+
+
+def carried_evidence(activation) -> dict:
+    """The evidence the previous pass left on this activation.
+
+    `docket/jobs/tick.py` writes every decision to `result.last_decision` on EVERY pass,
+    including a noop, because a persistent executor is stateless between passes and
+    anything it measured has to live on the activation or it does not live anywhere.
+    Reading `result` directly would find a one-shot's result instead — the two share the
+    field — and would silently start every pass blind.
+    """
+    return ((activation.result or {}).get("last_decision") or {}).get("evidence") or {}
+
+
+def touched_tokens(prepared) -> tuple[str, ...]:
+    """Every token address the batch names, for the accounting that cannot read calldata.
+
+    `docket/sessions/spend.py` derives a spend per call and refuses one it cannot measure.
+    The addresses here are the ones its `token_allowlist` has to cover for that derivation
+    to succeed, collected from the calls rather than from a list kept beside them.
+    """
+    seen: list[str] = []
+    for call in prepared:
+        for address in (call.to, _approve_spender(call)):
+            if address is None:
+                continue
+            checksummed = Web3.to_checksum_address(address)
+            if checksummed not in seen:
+                seen.append(checksummed)
+    return tuple(seen)
+
+
+def _approve_spender(call) -> str | None:
+    if call.selector != APPROVE_SELECTOR or len(call.data) < 74:
+        return None
+    return "0x" + call.data[34:74]

@@ -41,10 +41,12 @@ from ...agents.venus.shield import (
 from ...escrow.chain import Rpc
 from . import register
 from .base import Decision
+from .allowlists import token_hints_for
 from .bounds import (
     defer,
     now_utc,
     token_spend,
+    touched_tokens,
     policy_field,
     simulate_call,
     with_simulation,
@@ -244,6 +246,19 @@ class HealthShieldExecutor:
         evidence["token_amounts_by_call"] = [
             {"purpose": call.purpose, "spends": token_spend([call])} for call in prepared
         ]
+        # A Venus amount is denominated in the vToken's underlying and the calldata does
+        # not say so. The mapping comes from the same table the default allowlist is built
+        # from, extended with this remedy's own market so a policy naming a market outside
+        # the defaults is still measurable.
+        hints = token_hints_for(CATEGORY)
+        underlying = dict(hints.get("underlying") or {})
+        underlying[decision.remedy["vtoken"]] = decision.remedy["underlying"]
+        evidence["token_hints"] = {"underlying": underlying}
+        # A repay hands nothing back, so the session receives nothing. Stated rather than
+        # omitted: an absent key and an empty one read the same to a sweep, and only one of
+        # them is a claim.
+        evidence["received_tokens"] = []
+        evidence["touched_tokens"] = list(touched_tokens(prepared))
         if outcome != "passed":
             # No prepared calls on an alert. A batch whose approval the chain refused is
             # not a batch anybody may send, and `Decision` refuses to carry one.

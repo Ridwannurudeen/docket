@@ -55,6 +55,11 @@ from web3 import Web3
 
 from ...jobs.executors.base import PreparedCall
 from ...execution.simulate import PANCAKE_V2_ROUTER, swap_calldata
+from ...jobs.executors.allowlists import (
+    NPM_COLLECT,
+    NPM_DECREASE_LIQUIDITY,
+    NPM_MINT,
+)
 from ...jobs.executors.bounds import APPROVE_ABI, BSC_CHAIN_ID, parse_expiry
 from . import doctor
 from .positions import NPM
@@ -210,6 +215,12 @@ SWAP_NOTE = (
 #         uint256,uint256,address,uint256))                       0x88316456
 #   approve(address,uint256)                                      0x095ea7b3
 #
+# Each of those four is also in `docket/jobs/executors/allowlists.py`, which is the table a
+# session's default `function_allowlist` is built from. `SELECTORS` below asserts the two
+# agree at import: an executor whose calldata carries a selector its own category does not
+# publish is a session that silently cannot act, and a second copy of the number would hide
+# it rather than catch it.
+#
 # The signatures are PancakeSwap v3 periphery's `INonfungiblePositionManager`, which is
 # Uniswap v3 periphery's interface unchanged in these three members.
 NPM_WRITE_ABI = [
@@ -311,6 +322,13 @@ _erc20_encoder = Web3().eth.contract(abi=APPROVE_ABI)
 def selector(signature: str) -> str:
     """The four-byte selector of a canonical signature, `0x`-prefixed."""
     return "0x" + Web3.keccak(text=signature)[:4].hex()
+
+
+# Derived here, published there, and checked against each other at import. A transposed
+# digit in either copy is a session that cannot act, and this is the line that finds it.
+assert selector(DECREASE_SIGNATURE) == NPM_DECREASE_LIQUIDITY, DECREASE_SIGNATURE
+assert selector(COLLECT_SIGNATURE) == NPM_COLLECT, COLLECT_SIGNATURE
+assert selector(MINT_SIGNATURE) == NPM_MINT, MINT_SIGNATURE
 
 
 @dataclass(frozen=True)

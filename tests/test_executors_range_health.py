@@ -29,6 +29,7 @@ from web3 import Web3
 from docket.agents.pancake.keeper import npm_encoder
 from docket.agents.pancake.positions import NPM
 from docket.jobs.executors import EXECUTORS, Decision, PreparedCall, register
+from docket.jobs.executors.allowlists import defaults_for
 from docket.jobs.executors.bounds import (
     APPROVE_SELECTOR,
     approve_amount,
@@ -282,18 +283,30 @@ def _range_inputs(**overrides):
 
 
 def _observations(minutes: int) -> dict:
+    """An `activation.result` shaped the way the tick loop writes one.
+
+    The carry-over lives at `result.last_decision.evidence`, not at `result` itself — a
+    one-shot's result lives in the same field, and an executor that read the field
+    directly would start every pass blind while looking like it had read something.
+    """
     from datetime import timedelta
 
-    return {
-        "observations": [
-            {
-                "observed_at": (NOW - timedelta(minutes=minutes)).isoformat(),
-                "block": 119_600_000,
-                "tick": POOL_ABOVE["tick"],
-                "in_range": False,
-            }
-        ]
-    }
+    return _result(
+        {
+            "observations": [
+                {
+                    "observed_at": (NOW - timedelta(minutes=minutes)).isoformat(),
+                    "block": 119_600_000,
+                    "tick": POOL_ABOVE["tick"],
+                    "in_range": False,
+                }
+            ]
+        }
+    )
+
+
+def _result(evidence: dict) -> dict:
+    return {"last_decision": {"kind": "noop", "evidence": evidence}}
 
 
 def _range(**overrides):
@@ -517,7 +530,6 @@ def test_a_venue_quoting_far_below_the_pools_own_price_is_not_used():
 
 
 def test_a_venue_inside_the_bound_is_used_and_its_own_quote_is_the_floor():
-    fair = FAIR_OUT
     quoted = QUOTED_OUT
     decision = _range(quotes=_Quotes(out=quoted)).evaluate(
         _activation(inputs=_range_inputs(), result=_observations(180)),
@@ -685,7 +697,8 @@ def test_each_evaluation_hands_its_observation_forward_for_the_next_one():
     assert len(first.evidence["observations"]) == 1
     assert first.evidence["observations"][0]["in_range"] is False
     second = executor.evaluate(
-        _activation(inputs=_range_inputs(), result=first.evidence), reader=_Positions()
+        _activation(inputs=_range_inputs(), result=_result(first.evidence)),
+        reader=_Positions(),
     )
     assert len(second.evidence["observations"]) == 2
 
@@ -891,6 +904,116 @@ def test_a_collateral_add_declares_no_session_spend_because_no_session_sends_it(
     assert decision.evidence.get("token_amounts", {}) == {}
 
 
+def test_the_batch_names_the_tokens_the_spend_accounting_cannot_read():
+    """`docket/sessions/spend.py` refuses a call it cannot derive a spend from, and a
+    position id names no tokens at all. The hint carries the pair so the tick does not have
+    to spend a chain read discovering it."""
+    decision = _action()
+    assert decision.evidence["token_hints"] == {
+        "position_tokens": {str(POSITION["token_id"]): [TOKEN0, TOKEN1]}
+    }
+    assert set(decision.evidence["touched_tokens"]) >= {
+        NPM,
+        TOKEN0,
+        TOKEN1,
+        PANCAKE_V2_ROUTER,
+    }
+
+
+def test_the_batch_names_what_the_session_will_be_holding_afterwards():
+    """A revoke sweeps what it is told to look for. The swap pays one side of the pair in,
+    the collect sweeps fees in both, and whatever the mint does not consume stays put — so
+    both tokens have to be named or the residue is stranded."""
+    decision = _action()
+    assert decision.evidence["received_tokens"] == [TOKEN0, TOKEN1]
+
+
+def test_a_repay_names_the_underlying_its_amount_is_denominated_in():
+    """A Venus amount is in the vToken's underlying and the calldata does not say so. An
+    unhinted vToken is an UnmeasuredSpend rather than a zero, so the mapping travels."""
+    decision = _health().evaluate(
+        _activation(category="health_factor", inputs=_health_inputs()),
+        reader=_Venus(_underwater()),
+    )
+    assert decision.evidence["token_hints"]["underlying"][VUSDT] == USDT
+    # A repay hands nothing back, and the empty list says so rather than being omitted.
+    assert decision.evidence["received_tokens"] == []
+    assert set(decision.evidence["touched_tokens"]) == {USDT, VUSDT}
+
+
+def test_every_call_the_batch_sends_is_one_the_category_default_already_allows():
+    """Lane B's table is what a browser fills a session policy from. An executor whose
+    target or selector is outside its own category's defaults is a session that silently
+    cannot act — so the two are compared here rather than trusted to agree."""
+    defaults = defaults_for("rebalancing")
+    contracts = {Web3.to_checksum_address(a) for a in defaults["contract_allowlist"]}
+    selectors = set(defaults["function_allowlist"])
+    for call in _action().prepared:
+        assert call.selector in selectors, call.purpose
+        # TOKEN0/TOKEN1 are the fixture pair rather than the table's USDT/WBNB, so only
+        # the contracts the table can name are compared.
+        if Web3.to_checksum_address(call.to) in (TOKEN0, TOKEN1):
+            continue
+        assert Web3.to_checksum_address(call.to) in contracts, call.purpose
+
+    health = defaults_for("health_factor")
+    decision = _health().evaluate(
+        _activation(category="health_factor", inputs=_health_inputs()),
+        reader=_Venus(_underwater()),
+    )
+    for call in decision.prepared:
+        assert call.selector in set(health["function_allowlist"]), call.purpose
+        assert Web3.to_checksum_address(call.to) in {
+            Web3.to_checksum_address(a) for a in health["contract_allowlist"]
+        }, call.purpose
+
+
+def test_the_v3_fallback_is_not_yet_covered_by_the_category_default():
+    """A known integration gap, pinned so it cannot be forgotten rather than discovered.
+
+    The v3 leg exists because a pair can be untradeable on V2 — the fixture pair quotes 97%
+    down for a hundred units — but Lane B's default `rebalancing` policy names only the V2
+    router and its selector. A session granted the defaults would build the v3 batch and
+    then be refused by its own policy, which is the safe direction but not a working one.
+    Adding `V3_SWAP_ROUTER` and `exactInputSingle` to the table closes it; until then this
+    test says exactly what is missing.
+    """
+    defaults = defaults_for("rebalancing")
+    contracts = {Web3.to_checksum_address(a) for a in defaults["contract_allowlist"]}
+    assert V3_SWAP_ROUTER not in contracts
+    assert "0x414bf389" not in set(defaults["function_allowlist"])
+    # And the refusal is the one a reader would get, rather than a silent send.
+    fair = FAIR_OUT
+    decision = _range(quotes=_Quotes(out=fair * 70 // 100)).evaluate(
+        _activation(inputs=_range_inputs(), result=_observations(180)),
+        reader=_Positions(),
+    )
+    assert decision.evidence["preflight"]["amounts"]["venue"]["venue"] == "v3"
+    # The fixture pair is not the table's USDT/WBNB, so those are added here to isolate
+    # the finding: the router is then the only thing the defaults do not name.
+    policy = dict(
+        defaults,
+        expires_at="2026-12-31T00:00:00Z",
+        contract_allowlist=[*defaults["contract_allowlist"], TOKEN0, TOKEN1],
+        token_allowlist=[*defaults["token_allowlist"], TOKEN0, TOKEN1],
+        per_action_limit_atomic={
+            **defaults["per_action_limit_atomic"],
+            TOKEN0: 10**30,
+            TOKEN1: 10**30,
+        },
+        total_cap_atomic={
+            **defaults["total_cap_atomic"],
+            TOKEN0: 10**30,
+            TOKEN1: 10**30,
+        },
+    )
+    ok, reason = _range().within_policy(
+        _activation(inputs=_range_inputs(), policy=policy), decision
+    )
+    assert ok is False
+    assert V3_SWAP_ROUTER in reason
+
+
 # ------------------------------------------------------- the tick loop's reader
 
 
@@ -960,16 +1083,16 @@ def test_the_health_executor_builds_its_reader_from_a_bare_rpc(monkeypatch):
 
 
 def test_a_watch_with_no_carried_observation_says_so_rather_than_reading_as_nothing_due():
-    """As of `build/pivot-B` the tick loop returns without saving on a noop and never
-    assigns `activation.result`, so the history is always empty and the threshold is never
-    reached. Silently reporting "nothing due" would hide that; the summary names it."""
+    """The first pass of a watch and a watch whose carry-over broke look identical from
+    the outside, and both report zero elapsed time. Saying only "nothing due" would leave
+    a reader unable to tell "it has not been out long enough" from "nothing was measured"."""
     decision = _range().evaluate(
         _activation(inputs=_range_inputs()), reader=_Positions()
     )
     assert decision.kind == "noop"
     assert decision.evidence["time_out_of_range"]["prior_observations"] == 0
-    assert "No earlier observation was carried forward" in decision.summary
-    assert "activation.result" in decision.summary
+    assert "No earlier observation is carried forward" in decision.summary
+    assert "nothing to measure against" in decision.summary
     # And the moment one is carried forward, the sentence goes away.
     carried = _range().evaluate(
         _activation(inputs=_range_inputs(), result=_observations(30)),
@@ -1025,55 +1148,6 @@ def test_a_session_that_does_not_cover_a_call_refuses_the_whole_batch(
     )
     assert ok is False
     assert fragment in reason
-
-
-def test_a_token_approved_twice_is_capped_on_the_sum_and_not_on_each_half():
-    """The keeper approves token0 twice — for the router and for the position manager —
-    and `docket/sessions/policy.py` is handed the sum. A gate that only ever looked at one
-    approval at a time would pass a batch the chain side then refuses, and Docket's own
-    checks must refuse more than the chain's, never less."""
-    decision = _action()
-    half = BURN0 // 2
-    # Either half fits; the sum does not.
-    policy = _session_policy(
-        per_action_limit_atomic={TOKEN0: half + 1, TOKEN1: 10**30},
-        total_cap_atomic={TOKEN0: 10**30, TOKEN1: 10**30},
-    )
-    ok, reason = _range().within_policy(
-        _activation(inputs=_range_inputs(), policy=policy), decision
-    )
-    assert ok is False
-    assert "across its approvals" in reason
-    assert str(BURN0) in reason
-
-
-def test_a_batch_with_no_session_policy_at_all_is_refused():
-    ok, reason = _range().within_policy(_activation(inputs=_range_inputs()), _action())
-    assert ok is False
-    assert "no session policy was granted" in reason
-
-
-def test_a_decision_offering_an_owner_signed_call_for_execution_is_refused():
-    """Lane B's loop sends every call in `prepared` from the session. An owner-signed call
-    there is a call the session cannot make — an ERC-721 approval it does not hold, or a
-    `mint` that would buy vTokens for the session itself with the owner's float. The gate
-    refuses the whole decision rather than waving the call through."""
-    owner_call = PreparedCall(
-        to=NPM,
-        data="0x095ea7b3" + "00" * 64,
-        value_atomic="0",
-        chain_id=56,
-        gas_ceiling=60_000,
-        deadline=0,
-        purpose="owner_signs",
-        simulation={"ok": True},
-    )
-    ok, reason = within_session_policy(
-        _session_policy(), (owner_call,), gas_price_wei=10**9, now=NOW
-    )
-    assert ok is False
-    assert "the account owner's own transaction" in reason
-    assert "belongs in the decision's evidence" in reason
 
 
 def test_a_token_approved_twice_is_capped_on_the_sum_and_not_on_each_half():
