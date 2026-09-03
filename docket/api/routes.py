@@ -54,7 +54,12 @@ from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
 from ..escrow import constants as escrow_constants
 from ..escrow.chain import JobNotFound, JobReader
 from ..escrow.flow import hire_calls
-from ..hire.admission import CANARY_MAX_AGE_SECONDS, resolve_admission
+from ..hire.admission import (
+    CANARY_MAX_AGE_SECONDS,
+    PAIRED_EVIDENCE_WINDOW_DAYS,
+    AdmissionResolution,
+    resolve_admission,
+)
 from ..hire.catalogue import SERVICES, PaidStockAdmission, get_service
 from ..hire.comparison import compare as compare_services_table
 from ..hire.receipts import (
@@ -262,7 +267,13 @@ def _category_job(category: Category | None) -> str | None:
     return next(entry.job for entry in CATEGORIES if entry.category is category)
 
 
-def _card(record: ServiceRecord, admission: PaidStockAdmission) -> ServiceCard:
+def _card(record: ServiceRecord, resolution: AdmissionResolution) -> ServiceCard:
+    """One marketplace listing, with the four admission facts and their evidence.
+
+    `admission` stays exactly the four booleans the release smoke and every existing
+    reader pin; `admission_evidence` sits beside it and names the artifact behind each,
+    so a limb that is false says what would open it rather than only that it is closed.
+    """
     return ServiceCard(
         service_id=record.service_id,
         name=record.name,
@@ -272,9 +283,10 @@ def _card(record: ServiceRecord, admission: PaidStockAdmission) -> ServiceCard:
         price_display=record.price_display,
         price_atomic=record.price_atomic,
         asset=record.asset,
-        paid_stock=admission.passes,
+        paid_stock=resolution.passes,
         stock_status=record.stock_status,
-        admission=asdict(admission),
+        admission=asdict(resolution.admission),
+        admission_evidence=resolution.evidence,
         typical_seconds=record.typical_seconds,
         activation=record.activation,
         activation_means=record.activation_means,
@@ -878,11 +890,28 @@ def create_app(
         started, used = hires[client_ip]
         hires[client_ip] = (started, max(used - 1, 0))
 
-    def _effective_admission(service_id: str) -> PaidStockAdmission:
+    def _resolve_admission(service_id: str) -> AdmissionResolution:
+        """All four admission facts and the artifact behind each, from durable state.
+
+        The v3 report is the process-pinned one and the experiments are the same objects
+        `/advantage` serves, so an admission decision and the evidence pages a reader
+        checks it against cannot be two different reconstructions. A process that could
+        not rebuild the v3 report passes `None`, which closes the paired limb with the
+        reason rather than failing the request.
+        """
         service = get_service(service_id)
         if service is None:
             raise KeyError(service_id)
-        return resolve_admission(service, store.latest_canary_run(service_id))
+        return resolve_admission(
+            service,
+            store.latest_canary_run(service_id),
+            store=store,
+            v3_report=advantage_v3 if advantage_v3_status == 200 else None,
+            v1_experiments=experiments,
+        )
+
+    def _effective_admission(service_id: str) -> PaidStockAdmission:
+        return _resolve_admission(service_id).admission
 
     def _canary_authorized(request: Request, service_id: str) -> tuple[bool, bool]:
         supplied = request.headers.get("x-docket-canary")
@@ -1086,14 +1115,24 @@ def create_app(
                 422,
                 detail={"code": "invalid_query_parameter", "message": str(exc)},
             ) from exc
-        admission = resolve_admission(service, history[0] if history else {})
+        # The same resolution `/services` and `/hire` read, so the canary page and the
+        # catalogue cannot disagree about which services are actually for sale.
+        resolution = resolve_admission(
+            service,
+            history[0] if history else {},
+            store=store,
+            v3_report=advantage_v3 if advantage_v3_status == 200 else None,
+            v1_experiments=experiments,
+        )
         return {
             "service_id": service_id,
             "admission_max_age_seconds": CANARY_MAX_AGE_SECONDS,
+            "paired_evidence_window_days": PAIRED_EVIDENCE_WINDOW_DAYS,
             "latest": history[0] if history else None,
             "history": history,
-            "admission": asdict(admission),
-            "paid_stock": admission.passes,
+            "admission": asdict(resolution.admission),
+            "admission_evidence": resolution.evidence,
+            "paid_stock": resolution.passes,
         }
 
     @app.get("/llms.txt", response_class=PlainTextResponse)
@@ -1354,7 +1393,7 @@ def create_app(
             ),
             coverage=_coverage(coverage_report(store, sid)),
             associated_services=[
-                _card(record, _effective_admission(record.service_id))
+                _card(record, _resolve_admission(record.service_id))
                 for record in all_records()
                 if record.agent_id is not None
                 and record.agent_id.lower() == agent["agent_id"].lower()
@@ -1523,7 +1562,7 @@ def create_app(
         records = all_records() if category is None else records_in(category)
         return ServicesResponse(
             services=[
-                _card(record, _effective_admission(record.service_id))
+                _card(record, _resolve_admission(record.service_id))
                 for record in records
             ],
             total=len(records),
@@ -1559,7 +1598,7 @@ def create_app(
             )
         agent_path, identity_note = _identity_link(record)
         return ServiceDetail(
-            **_card(record, _effective_admission(record.service_id)).model_dump(),
+            **_card(record, _resolve_admission(record.service_id)).model_dump(),
             registration_uri=record.registration_uri,
             input_schema=record.input_schema,
             limitations=record.limitations,
@@ -1586,9 +1625,9 @@ def create_app(
                     price_display=svc.price_display,
                     price_atomic=svc.price_atomic,
                     asset=svc.asset,
-                    paid_stock=(admission := _effective_admission(svc.id)).passes,
+                    paid_stock=(resolution := _resolve_admission(svc.id)).passes,
                     stock_status=svc.stock_status,
-                    admission=asdict(admission),
+                    admission=asdict(resolution.admission),
                 )
                 for svc in SERVICES.values()
             ]

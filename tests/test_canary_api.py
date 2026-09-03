@@ -1,14 +1,18 @@
-from dataclasses import replace
-
 from fastapi.testclient import TestClient
 
 from docket.agents.pancake import doctor
 from docket.api import create_app
-from docket.hire.catalogue import SERVICES, USDT_TOKEN, PaidStockAdmission, get_service
-from docket.hire.x402 import B402_RELAYER, EIP712_DOMAINS
+from docket.hire import admission as admission_module
+from docket.hire import catalogue
+from docket.hire.catalogue import SERVICES, USDT_TOKEN, get_service
+from docket.hire.x402 import B402_NETWORK, B402_RELAYER, EIP712_DOMAINS
 from docket.store import Store
 
 WALLET = "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"
+PAY_TO = "0x" + "11" * 20
+# Wide enough that the committed v1 experiment stays inside it however long after 2026 a
+# test runs, and still a real date the expiry instant can be printed from.
+A_CENTURY_S = 100 * 365 * 24 * 60 * 60
 PASSING_CHECK = {
     "leg": "complete_human_result",
     "checked": "the complete paid hire chain",
@@ -18,14 +22,33 @@ PASSING_CHECK = {
 }
 
 
-def _admit_every_static_fact(monkeypatch):
-    monkeypatch.setitem(
-        SERVICES,
-        "range-doctor",
-        replace(
-            get_service("range-doctor"),
-            admission=PaidStockAdmission(True, False, True, True),
-        ),
+def _admit_every_fact_but_the_canary(monkeypatch, store):
+    """Open the three limbs this test is not about, from the state each one reads.
+
+    The paired limb is opened by widening the disclosed freshness window rather than by
+    inventing an artifact: `01-liquidity` is a real committed paired benchmark naming
+    range-doctor, and widening the window keeps the fixture from depending on how far
+    today is from the day it ran. `cold_canary` is left closed — it is the subject.
+    """
+    monkeypatch.setattr(admission_module, "PAIRED_EVIDENCE_WINDOW_SECONDS", A_CENTURY_S)
+    store.reserve_payment(
+        nonce="0x" + "5e" * 32,
+        payment_id="0xseed",
+        service_id="range-doctor",
+        payer=catalogue.CONTROLLED_EXAMPLE_WALLET,
+        recipient=PAY_TO,
+        asset=USDT_TOKEN,
+        amount=str(5 * 10**17),
+        resource="http://testserver/hire/range-doctor",
+        input_hash="0x" + "aa" * 32,
+    )
+    store.record_payment_output("0xseed", output_hash="0x" + "bb" * 32, result={})
+    assert store.begin_payment_settlement("0xseed")
+    store.finish_payment(
+        "0xseed",
+        transaction_id="0x" + "cc" * 32,
+        network=B402_NETWORK,
+        receipt={"settled": True},
     )
 
 
@@ -44,7 +67,6 @@ def test_canary_history_starts_empty_and_cannot_admit_paid_work(tmp_path):
 def test_one_durable_verdict_controls_every_public_admission_surface_without_restart(
     tmp_path, monkeypatch
 ):
-    _admit_every_static_fact(monkeypatch)
     monkeypatch.setattr(
         doctor,
         "report",
@@ -56,6 +78,7 @@ def test_one_durable_verdict_controls_every_public_admission_surface_without_res
     )
     db = tmp_path / "dynamic.sqlite3"
     store = Store(db)
+    _admit_every_fact_but_the_canary(monkeypatch, store)
     client = TestClient(create_app(db))
 
     def public_paid_stock():

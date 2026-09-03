@@ -120,6 +120,8 @@ docket.escrow
 docket.execution
 docket.hire
 docket.identity
+docket.jobs
+docket.jobs.executors
 docket.marketplace
 experiments
 ```

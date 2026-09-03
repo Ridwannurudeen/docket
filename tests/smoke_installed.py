@@ -8,10 +8,13 @@ from importlib.metadata import version
 from pathlib import Path
 
 import docket
+import docket.agents.grid.lifecycle
 import docket.agents.grid.operator
 import docket.agents.pancake.doctor
 import docket.agents.venus.guard
+import docket.agents.yield_router.migration
 import docket.agents.yield_router.router
+import docket.jobs.executors
 from fastapi.testclient import TestClient
 
 from docket.api import create_app
@@ -22,6 +25,14 @@ WORKSPACE = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
 INSTALLED_PACKAGE = Path(docket.__file__).resolve()
 assert not INSTALLED_PACKAGE.is_relative_to(WORKSPACE), (
     f"smoke imported the checkout at {INSTALLED_PACKAGE}, not the installed wheel"
+)
+
+# The category executors are looked up by category, so a wheel that shipped the package
+# without them would answer every activation with a KeyError at run time rather than at
+# import time. Asserted here because that is the exact shape of the defect this file
+# exists to catch: every source-tree test passes while the installed package is short.
+assert {"grid_trading", "yield_optimisation"} <= set(docket.jobs.executors.EXECUTORS), (
+    sorted(docket.jobs.executors.EXECUTORS)
 )
 
 registration = register.build_registration_json(

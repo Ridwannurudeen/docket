@@ -66,6 +66,12 @@ GRID_BAND_PCT = 10
 GRID_LEVELS = 6
 # 25 USDT a level. Small enough to be a demonstration rather than a position.
 GRID_SIZE_PER_LEVEL = 25 * 10**18
+# 0.5%, the same figure `agents/grid/lifecycle.py` runs under. A grid trading through more
+# than half a percent of slippage is a grid whose levels are too big for the pool.
+GRID_SLIPPAGE_BPS = 50
+# The half-width of the band a yield migration mints into, in ticks either side of the
+# destination pool's current tick before it is aligned outward to that pool's own spacing.
+YIELD_BAND_WIDTH_TICKS = 1_000
 # The two Venus markets the health guard is allowed to draft actions in, with their
 # underlyings named beside them. Both pairs were read from BSC mainnet on 2026-08-10 and
 # the preview re-reads each vToken's own underlying() and refuses where the two disagree —
@@ -885,25 +891,45 @@ SERVICES: dict[str, Service] = {
     ),
     "grid-operator": Service(
         id="grid-operator",
-        name="Grid Operator Preview",
-        job_summary="Builds a read-only PancakeSwap V2 grid preview for one wallet.",
+        name="Grid Operator",
+        job_summary=(
+            "Places and manages automated grid levels on PancakeSwap V2 for one wallet."
+        ),
         what_you_get=(
             "A deterministic PancakeSwap V2 grid, built from a band you give it — or drawn "
-            "around the pair's current price if you give it none — and previewed against BSC "
-            "mainnet as it stands right now. You get the exact price levels and their "
+            "around the pair's current price if you give it none — and quoted against BSC "
+            "mainnet as it stands right now. No order rests on chain: V2 is an automated "
+            "market maker and holds no order book, so a level here is a price Docket "
+            "watches. The first observation that crosses it fires one bounded swap at "
+            "whatever the pool quotes at that moment, and cancelling costs no gas because "
+            "nothing was ever placed anywhere. Between two observations a level can be "
+            "crossed and uncrossed without firing, which an order book would have filled. "
+            "That is the honest cost of running a grid on an AMM and it is stated on every "
+            "record this returns. "
+            "A hire returns the read-only preview: the exact price levels and their "
             "spacing, which token each level spends and how much of it, the condition each "
             "level fires on, and for every level the full action record that acting would "
-            "commit to: the router's own live quote for that trade, the minimum output the "
-            "action would insist on, a hash of the exact calldata that binds it, a deadline, "
-            "a gas ceiling and a slippage bound. Nothing is signed, approved, submitted or "
-            "held. This is a preview and structurally only a preview: the object that runs "
-            "it holds no session key, no signer and no submitter, and has no method that "
-            "sends a transaction, so it cannot move anything. Acting on a level needs a "
-            "session the wallet's owner grants on chain, with a spend cap, a call allowlist "
-            "and an expiry that the session validator enforces at validation time — Docket "
-            "never holds the owner key and cannot grant or revoke on their behalf. Every "
-            "figure comes back with the block it was read at, so you can check any of it "
-            "against the chain yourself."
+            "commit to — the router's own live quote for that trade, the minimum output "
+            "the action insists on, a hash of the exact calldata that binds it, a "
+            "deadline, a gas ceiling and a slippage bound. Nothing is signed, approved, "
+            "submitted or held, and the object that produces it holds no session key, no "
+            "signer and no submitter. "
+            "Running the same grid is an activation with five operations over its life. "
+            "Create fixes the band, the level count, the amount per level, the total cap, "
+            "the expiry, the slippage bound and an optional shutdown threshold. Status "
+            "returns the levels still open, every fill read back off the chain's own "
+            "ERC-20 Transfer logs rather than assumed, and the amount committed against "
+            "the cap. Pause stops firing and keeps every level. Cancel retires every "
+            "remaining level and leaves the funds where they are, because retiring a "
+            "strategy is not a decision about the money. Revoke sweeps the session back "
+            "to the owner and ends it, and passing the expiry reaches that same path on "
+            "its own. The shutdown threshold is Docket's own observation and not a stop "
+            "order held by a venue: it retires the remaining levels and sells nothing. "
+            "Acting at all needs a session the wallet's owner grants on chain, with a "
+            "spend cap, a call allowlist and an expiry the session validator enforces at "
+            "validation time — Docket never holds the owner key and cannot grant or "
+            "revoke on their behalf. Every figure comes back with the block it was read "
+            "at, so you can check any of it against the chain yourself."
         ),
         input_schema={
             "wallet": {
@@ -981,6 +1007,82 @@ SERVICES: dict[str, Service] = {
                 "required": False,
                 "description": "level indexes already filled, which are not drafted again",
             },
+            "price_lower": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "activation only: bottom of the band a running grid is fixed to, in "
+                    "atomic units of the quote token per one whole base token. The "
+                    "one-shot preview above takes the same figure as lower"
+                ),
+            },
+            "price_upper": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "activation only: top of the band, same units; upper in the one-shot "
+                    "preview"
+                ),
+            },
+            "amount_per_level_atomic": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "activation only: what each level commits, in atomic units of the "
+                    "quote token. A sell level commits what that is worth in the base "
+                    "token at its own price, so every level puts the same value to work "
+                    "rather than the same quantity; size_per_level in the preview"
+                ),
+            },
+            "total_cap_atomic": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "activation only: the most this grid may commit over its whole life, "
+                    "in the same quote-token units. It moves when a level fires rather "
+                    "than when it fills, and a level that would pass it is refused rather "
+                    "than trimmed to what is left"
+                ),
+            },
+            "expires_at": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "activation only: the unix second the grid stops. Passing it sweeps "
+                    "the session back to the owner rather than merely halting, because a "
+                    "session outliving the spec that justified it is what an expiry is for"
+                ),
+            },
+            "max_slippage_bps": {
+                "type": "integer",
+                "required": False,
+                "default": GRID_SLIPPAGE_BPS,
+                "description": (
+                    "activation only: how far below the router's live quote a fill may "
+                    "land, in basis points, 1 to 500. It is written into the swap as "
+                    "amountOutMin, so no level is ever sent with a floor of zero"
+                ),
+            },
+            "stop_price": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "activation only: a shutdown threshold outside the band. An "
+                    "observation reaching it retires every remaining level and sends "
+                    "nothing — it is Docket's own observation, not a stop order held by "
+                    "a venue, and it is only as fast as the next observation"
+                ),
+            },
+            "direction_rule": {
+                "type": "string",
+                "required": False,
+                "default": "buy_below_sell_above",
+                "description": (
+                    "activation only: how levels are sided against the price observed "
+                    "when the grid started. The set is closed and holds one entry, so a "
+                    "second rule has to be added deliberately"
+                ),
+            },
         },
         typical_seconds=25,
         price_display=HIRE_PRICE_DISPLAY,
@@ -1050,9 +1152,9 @@ SERVICES: dict[str, Service] = {
     ),
     "yield-router": Service(
         id="yield-router",
-        name="Yield Router Preview",
+        name="Yield Router",
         job_summary=(
-            "Compares an eligible PancakeSwap v3 pool set and states switching break-even."
+            "Routes one PancakeSwap v3 position to the highest rate in a stated pool set."
         ),
         what_you_get=(
             "A comparison of PancakeSwap v3 pools on BSC at the rates they were observed at, "
@@ -1071,7 +1173,29 @@ SERVICES: dict[str, Service] = {
             "rather than dropped. Ordering is by one named observed metric and the payload "
             "says which, so no order here is an opinion Docket formed. The comparison needs "
             "no wallet; drafting a swap leg requires the wallet, token pair, amount and cap "
-            "declared together. Nothing is signed, approved, submitted or moved."
+            "declared together. Nothing is signed, approved, submitted or moved. "
+            "Acting on the comparison is an activation, and it builds the complete route "
+            "rather than one leg: the owner's own approval of the position NFT to the "
+            "session, scoped to that one token id; a decreaseLiquidity that burns the "
+            "position with non-zero minimums taken from the pool's live price rather than "
+            "left at zero; a collect of the tokens and whatever fees had accrued into the "
+            "session; up to three bounded swap legs, each quoted live and floored, to "
+            "reach the split the destination band needs at its current tick; an exact "
+            "allowance to the position manager for each destination token, never an "
+            "unlimited one; and a mint over a band of a stated number of ticks either "
+            "side of that tick, aligned outward to the pool's own spacing, with the new "
+            "position going to the owner rather than to the session. A read spec comes "
+            "back with it: which log carries the new token id and the exact "
+            "positions(tokenId) call that reads the result back, so the outcome can be "
+            "checked without asking Docket. The route carries its own disclosure — both "
+            "rates and when they were observed, the destination's liquidity and this "
+            "position's share of it, the protocol risk, the gas that could be estimated "
+            "and the calls that could not be, the slippage every step insists on, the "
+            "payback period and the minimum holding period it implies, the whole "
+            "transaction sequence in order, and the assumptions that would undo the case "
+            "for moving if they do not hold. A position held by the farm is "
+            "refused rather than planned around, because the owner cannot approve an NFT "
+            "MasterChefV3 holds."
         ),
         input_schema={
             "pool": {
@@ -1162,6 +1286,55 @@ SERVICES: dict[str, Service] = {
                 "description": (
                     "exact token-list HTTP response bytes as base64 with URL, observation "
                     "time and bare SHA-256; supplied together with pool_snapshot"
+                ),
+            },
+            "owner": {
+                "type": "string",
+                "required": False,
+                "description": (
+                    "activation only: the address holding the v3 position NFT. It signs "
+                    "the one approval the session is not allowed to make, and it is the "
+                    "recipient the new position is minted to — never the session, whose "
+                    "revocation could otherwise strand it"
+                ),
+            },
+            "session": {
+                "type": "string",
+                "required": False,
+                "description": (
+                    "activation only: the bounded session address the tokens transit "
+                    "between the collect and the mint. Revoking it sweeps whatever is "
+                    "left, including the dust the conservative mint amounts leave behind"
+                ),
+            },
+            "position_token_id": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "activation only: which PancakeSwap v3 position NFT to move. A "
+                    "position staked in MasterChefV3 is refused, because the farm owns "
+                    "the NFT and the owner cannot approve what they do not hold"
+                ),
+            },
+            "band_width_ticks": {
+                "type": "integer",
+                "required": False,
+                "default": YIELD_BAND_WIDTH_TICKS,
+                "description": (
+                    "activation only: the half-width of the destination band, in ticks "
+                    "either side of that pool's current tick. It is aligned outward to "
+                    "the pool's own spacing, so the band is never narrower than the one "
+                    "asked for"
+                ),
+            },
+            "max_slippage_bps": {
+                "type": "integer",
+                "required": False,
+                "default": GRID_SLIPPAGE_BPS,
+                "description": (
+                    "activation only: the bound applied to the withdrawal minimums, every "
+                    "swap leg's floor and the mint's own minimums, in basis points, 1 to "
+                    "500. No step in the route carries a minimum of zero"
                 ),
             },
         },
