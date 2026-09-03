@@ -124,12 +124,15 @@ def render_markdown(report: dict) -> str:
         f"Population swept: **{report['population'] or 'unspecified'}**. Both figures above "
         f"are totals for that query, not for the registry — the largest chain-wide total any "
         f"sweep here has recorded is "
-        f"**{format(report['registry_total'], ',') if report['registry_total'] else 'unmeasured'}**.",
+        f"**{format(report['registry_total'], ',') if report['registry_total'] else 'unmeasured'}"
+        "**.",
         "",
         "| Signal | Agents | Share |",
         "| --- | ---: | ---: |",
-        f"| Has at least one feedback record | {report['with_feedback']:,} | {report['with_feedback_pct']}% |",
-        f"| Declares a callable endpoint (A2A or MCP) | {report['callable']:,} | {report['callable_pct']}% |",
+        f"| Has at least one feedback record | {report['with_feedback']:,} | "
+        f"{report['with_feedback_pct']}% |",
+        f"| Declares a callable endpoint (A2A or MCP) | {report['callable']:,} | "
+        f"{report['callable_pct']}% |",
         f"| Supports x402 | {report['x402']:,} | |",
         f"| Auto-generated placeholder name | {report['placeholder_name']:,} | |",
         f"| Distinct name families | {report['distinct_name_families']:,} | |",

@@ -102,7 +102,8 @@ def test_malformed_url_is_blocked_not_raised():
 
 
 def test_shared_address_space_is_blocked():
-    """RFC 6598 CGNAT: `ipaddress` calls it neither private nor global, so it needs its own check."""
+    """RFC 6598 CGNAT: `ipaddress` calls it neither private nor global, so it needs
+    its own check."""
     ok, reason = check_url("http://100.64.0.1/x", resolver=_echo)
     assert ok is False and "shared address space" in reason
 

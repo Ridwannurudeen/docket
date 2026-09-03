@@ -34,7 +34,11 @@ from typing import Literal
 from ..hire.catalogue import SERVICES as HIRE_SERVICES
 
 
-class Category(str, Enum):
+# Not `enum.StrEnum`: that changes what `str(member)` and f-string interpolation
+# produce, from the qualified `Category.MEMBER` a log line or an error message shows to
+# the bare value. The value already crosses JSON through `.value`, so the substitution
+# would trade a diagnostic for nothing.
+class Category(str, Enum):  # noqa: UP042
     """BNB's four job categories, and exactly those four.
 
     A str enum so a query parameter typed as this rejects anything else at the door

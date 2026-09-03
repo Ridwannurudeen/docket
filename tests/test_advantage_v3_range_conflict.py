@@ -24,6 +24,7 @@ from base64 import b64encode
 from pathlib import Path
 
 import pytest
+from test_advantage_v3_spec import SPECS_DIR, _input_record, _source_ref
 
 from docket.advantage.v3.spec import (
     RANGE_MASTER_CHEF,
@@ -34,8 +35,6 @@ from docket.advantage.v3.spec import (
     lock_inputs,
     save,
 )
-
-from test_advantage_v3_spec import SPECS_DIR, _input_record, _source_ref
 
 RANGE_MANAGER = "0x46A15B0b27311cedF172AB29E4f4766fbE7F4364"
 CONTROLLED_WALLET = "0xe55816904796341bf8535e25f6c8b647927fc946"

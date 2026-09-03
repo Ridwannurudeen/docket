@@ -8,8 +8,8 @@ second attempt planted directly on disk, bypassing the write gate, exactly as an
 could.
 """
 
-import json
 import hashlib
+import json
 from base64 import b64encode
 from pathlib import Path
 

@@ -319,13 +319,15 @@ const record = {
 
 const runButton = { matches: () => false };
 const edited = encodeJSON(submissionBody(record, form, runButton));
-if (edited !== '{"wallet":"edited-wallet","declared_position_value_usd":999.99,"observation_block":117443373,"decision_horizon_days":365,"filled":[7,8]}') {
+if (edited !== '{"wallet":"edited-wallet","declared_position_value_usd":999.99,'
+    + '"observation_block":117443373,"decision_horizon_days":365,"filled":[7,8]}') {
   throw new Error(`ordinary submission stopped reading the form: ${edited}`);
 }
 
 const exampleButton = { matches: (selector) => selector === "[data-example]" };
 const example = encodeJSON(submissionBody(record, form, exampleButton));
-if (example !== '{"wallet":"controlled-wallet","declared_position_value_usd":50.55,"decision_horizon_days":30,"filled":[2,9007199254740993]}') {
+if (example !== '{"wallet":"controlled-wallet","declared_position_value_usd":50.55,'
+    + '"decision_horizon_days":30,"filled":[2,9007199254740993]}') {
   throw new Error(`worked example used edited fields: ${example}`);
 }
 if (controls.wallet.value !== "controlled-wallet" ||
@@ -531,7 +533,8 @@ def test_each_report_body_links_the_other_two_and_keeps_all_three_additive(clien
     roles = (
         "original paired eligibility artifact at n=1",
         "agent-versus-computed-null armour with no manual arm",
-        "pre-registered paired evaluation scored by two prompt-blinded model seats run by one operator",
+        "pre-registered paired evaluation scored by two prompt-blinded model seats "
+        "run by one operator",
     )
     pages = {
         "/advantage": _read("advantage.html"),

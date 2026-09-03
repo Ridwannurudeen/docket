@@ -3,17 +3,17 @@
 import os
 import tempfile
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
+
+from fastapi.testclient import TestClient
 
 import docket
 import docket.agents.grid.operator
 import docket.agents.pancake.doctor
 import docket.agents.venus.guard
 import docket.agents.yield_router.router
-from fastapi.testclient import TestClient
-
 from docket.api import create_app
 from docket.hire import catalogue
 from docket.identity import register
@@ -26,7 +26,7 @@ assert not INSTALLED_PACKAGE.is_relative_to(WORKSPACE), (
 
 registration = register.build_registration_json(
     catalogue.SERVICES["range-doctor"],
-    clock=lambda: datetime(2026, 8, 30, tzinfo=timezone.utc),
+    clock=lambda: datetime(2026, 8, 30, tzinfo=UTC),
 )
 assert registration["version"] == version("docket")
 

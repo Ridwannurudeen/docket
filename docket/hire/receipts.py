@@ -8,7 +8,7 @@ v2 settlement and transaction id; it is not Docket's own chain-finality proof.
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def canonical_hash(obj) -> str:
@@ -48,6 +48,6 @@ def build_receipt(service_id: str, request_payload, result, *, payment: dict) ->
         "service": service_id,
         "input_hash": canonical_hash(request_payload),
         "output_hash": canonical_hash(result),
-        "delivered_at": datetime.now(timezone.utc).isoformat(),
+        "delivered_at": datetime.now(UTC).isoformat(),
         "payment": payment,
     }

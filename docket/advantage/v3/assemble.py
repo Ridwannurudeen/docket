@@ -25,8 +25,8 @@ from pathlib import Path
 from .calibration import assemble_evaluator_calibration, verify_calibration_capture
 from .spec import (
     REPO_ROOT,
-    PairedSpec,
     YIELD_SOURCE_URLS,
+    PairedSpec,
     _range_successor_public_position,
     _range_successor_source_frame,
     _range_successor_stratum,

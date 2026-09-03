@@ -42,7 +42,7 @@ import json
 import random
 import statistics
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -540,13 +540,13 @@ if __name__ == "__main__":
     # committed series and get the same figures.
     root = Path(__file__).resolve().parents[3]
     registration = load(root / "docket/advantage/v2/specs/04-grid-replay.json")
-    started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    started = datetime.now(UTC).isoformat(timespec="seconds")
     checked = recheck_dataset(root / registration.dataset_ref)
     record = build_run_record(
         registration,
         load_series(root / registration.dataset_ref),
         started_at=started,
-        finished_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        finished_at=datetime.now(UTC).isoformat(timespec="seconds"),
         recheck=checked,
     )
     save_run(record, root / "docket/advantage/v2/runs/04-grid-replay.json")

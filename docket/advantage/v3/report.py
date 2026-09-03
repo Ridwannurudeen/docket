@@ -7,11 +7,12 @@ Only eight states exist, and the two terminal claim states are ``refuted`` and
 """
 
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import runner, scoring
-from .spec import REPO_ROOT, is_warden_family, is_yield_family, load as load_spec
+from .spec import REPO_ROOT, is_warden_family, is_yield_family
+from .spec import load as load_spec
 
 V3_DIR = Path(__file__).parent
 SPECS_DIR = V3_DIR / "specs"
@@ -149,7 +150,7 @@ def _progress(attempts: dict) -> dict:
         for attempt in attempts.values()
         if attempt["terminal"] is not None
     )
-    observed_at = datetime.now(timezone.utc)
+    observed_at = datetime.now(UTC)
     stale = [
         {
             "case_id": case_id,

@@ -1,0 +1,48 @@
+[Unit]
+Description=Exercise the running Docket from this host and record what it served
+# The probe measures the application, so it wants the application up; it does not require it.
+# A run that finds nothing listening is the observation this unit exists to make, and coupling
+# it with Requires= would suppress exactly the report an operator needs.
+Wants=network-online.target
+After=network-online.target docket.service
+
+[Service]
+Type=oneshot
+User=docket
+Group=docket
+WorkingDirectory=/var/lib/docket
+Environment=DOCKET_DB=/var/lib/docket/data/agents.sqlite3
+ExecStart=/opt/docket/.venv/bin/python -P -m docket.probe
+
+# Five steps at 90s each plus the write, with headroom. Deliberately not Nice= or
+# IOSchedulingClass=idle like the refresh unit: this run records its own latencies, and
+# deprioritising it would publish the scheduler's delay as the application's.
+TimeoutStartSec=10min
+Restart=no
+UMask=0027
+CapabilityBoundingSet=
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ReadWritePaths=/var/lib/docket
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

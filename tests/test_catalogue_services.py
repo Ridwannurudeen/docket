@@ -106,7 +106,8 @@ def test_the_controlled_examples_are_prefilled_without_weakening_required_inputs
     )
     assert (
         get_service("health-guard").input_schema["wallet"]["example_note"]
-        == "Docket's controlled wallet has no Venus position, so the honest result is no position — replace with your address"
+        == "Docket's controlled wallet has no Venus position, so the honest result "
+        "is no position — replace with your address"
     )
 
 

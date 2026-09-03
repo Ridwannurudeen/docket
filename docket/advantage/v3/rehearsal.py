@@ -20,6 +20,8 @@ from . import (
     report,
     runner,
     scoring,
+)
+from . import (
     spec as spec_module,
 )
 from .spec import PairedSpec, load, lock_inputs, save
@@ -719,7 +721,10 @@ def _range_expected_output(case: dict, root: Path) -> dict:
             "frame_unique_indices": 1024,
             "frame_complete": True,
             "conflicts_removed_before_outcomes": True,
-            "population_scope": "enumerable-index sample, not every historical holder, wallet or LP arrangement",
+            "population_scope": (
+                "enumerable-index sample, not every historical holder, wallet or LP "
+                "arrangement"
+            ),
         },
         "limitations": ["Synthetic rehearsal evidence only."],
         "sources": scoring._range_source_summaries(case, root),

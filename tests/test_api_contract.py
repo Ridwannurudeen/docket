@@ -4,8 +4,7 @@ from pathlib import Path
 import pydantic
 from fastapi.testclient import TestClient
 
-from docket.api import create_app
-from docket.api import routes
+from docket.api import create_app, routes
 from docket.api.models import (
     BANNED_FIELD_NAMES,
     AgentDetail,

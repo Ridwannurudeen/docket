@@ -163,7 +163,8 @@ def test_the_price_is_what_one_whole_base_token_fetches_from_the_router():
 
 
 def test_the_observation_says_it_is_an_execution_price_rather_than_a_mid():
-    note = observe_price(FakePool(), base=WBNB, quote=USDT, base_decimals=18).as_record()["note"].lower()
+    observation = observe_price(FakePool(), base=WBNB, quote=USDT, base_decimals=18)
+    note = observation.as_record()["note"].lower()
     assert "fee" in note and "not a mid price" in note
 
 
@@ -420,7 +421,8 @@ def test_the_hire_runs_the_preview_and_has_no_way_to_run_the_armed_operator(monk
     most needs to be incapable rather than merely configured. It builds a `GridPreview`,
     and the armed class is not reachable from this function at all."""
     import docket.execution.simulate as simulate_module
-    from docket.hire.catalogue import SERVICES as HIRE, _run_grid_operator
+    from docket.hire.catalogue import SERVICES as HIRE
+    from docket.hire.catalogue import _run_grid_operator
 
     monkeypatch.setattr(simulate_module, "BscQuoteReader", lambda *a, **k: FakePool())
     assert HIRE["grid-operator"].run is _run_grid_operator
@@ -444,7 +446,6 @@ def test_the_hire_runs_the_preview_and_has_no_way_to_run_the_armed_operator(monk
 def test_the_hire_draws_its_own_band_around_the_price_when_it_is_given_none(monkeypatch):
     """A judge holding nothing but an address gets the whole mechanism from one call."""
     import docket.execution.simulate as simulate_module
-
     from docket.hire.catalogue import _run_grid_operator
 
     monkeypatch.setattr(simulate_module, "BscQuoteReader", lambda *a, **k: FakePool(600 * E18))
@@ -456,7 +457,6 @@ def test_the_hire_draws_its_own_band_around_the_price_when_it_is_given_none(monk
 
 def test_the_hire_uses_the_band_it_is_given_and_infers_nothing(monkeypatch):
     import docket.execution.simulate as simulate_module
-
     from docket.hire.catalogue import _run_grid_operator
 
     monkeypatch.setattr(simulate_module, "BscQuoteReader", lambda *a, **k: FakePool(600 * E18))

@@ -29,7 +29,7 @@ is the validator's question, asked in one place.
 import hashlib
 import json
 from base64 import b64decode, b64encode
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ...hire.receipts import canonical_hash
@@ -77,7 +77,7 @@ RESPONSE_FIELDS = frozenset(
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def seat_dir(spec: PairedSpec, calibration_dir, evaluator_id: str) -> Path:

@@ -87,7 +87,7 @@ def test_the_minimal_pair_differs_only_by_the_newline():
     newline = PAYLOADS["minimal-pair-newline-joined"]["text"]
 
     assert len(space) == len(newline)
-    differing = [index for index, (a, b) in enumerate(zip(space, newline)) if a != b]
+    differing = [index for index, (a, b) in enumerate(zip(space, newline, strict=True)) if a != b]
     assert len(differing) == 1
     index = differing[0]
     assert space[index] == " "
@@ -98,7 +98,11 @@ def test_the_minimal_pair_differs_only_by_the_newline():
     # join would make one differing character into several differing bytes.
     assert len(space.encode("utf-8")) == len(newline.encode("utf-8"))
     assert (
-        sum(1 for a, b in zip(space.encode("utf-8"), newline.encode("utf-8")) if a != b)
+        sum(
+            1
+            for a, b in zip(space.encode("utf-8"), newline.encode("utf-8"), strict=True)
+            if a != b
+        )
         == 1
     )
     # Same intent, so the same label: the pair is only evidence if it is not two questions.

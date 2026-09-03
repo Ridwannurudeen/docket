@@ -327,7 +327,10 @@ def test_registry_text_is_wrapped_rather_than_left_to_break_the_layout():
 def test_case_file_wraps_receipt_digests_before_external_css_loads():
     index = (WEB_DIR / "index.html").read_text(encoding="utf-8")
     head = index.split("</head>", 1)[0]
-    critical_wrap = ".receipt-digest,\n      .receipt-ledger dd {\n        overflow-wrap: anywhere;\n      }"
+    critical_wrap = (
+        ".receipt-digest,\n      .receipt-ledger dd {\n"
+        "        overflow-wrap: anywhere;\n      }"
+    )
 
     assert critical_wrap in head
     assert head.index(critical_wrap) < head.index('rel="stylesheet"')

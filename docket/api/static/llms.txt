@@ -55,6 +55,24 @@ GET /health
 
     curl -s "$DOCKET/health"
 
+GET /api/status
+    Whether this deployment is serving, and the readings behind that word. Returns
+    `status` ("ok", "degraded" or "down"), `deployed_commit` (the commit the running
+    environment records for itself, else this checkout's HEAD, else "source"), and five
+    readings: `db` (reachable, SQLite journal mode, and the database file with its
+    directory), `latest_refresh` (the newest snapshot's observation time, its age in whole
+    seconds, and whether the sweep reached the end of its population), `latest_canary`
+    (newest recorded verdict, when it finished, its age), `rpc` (one eth_blockNumber with a
+    5s per-request timeout over the failover list: the endpoint host that answered, ok,
+    block_number, latency_ms), and `probes` (passed and failed synthetic probe runs in the
+    last 24 hours, and when the newest started). Nothing is cached: each request takes its
+    own readings, so a BSC outage makes this route slow rather than wrong. "down" means only
+    that the store could not be read; every other reading comes out of it, so treat them as
+    absent rather than zero. No parameters. The same document is rendered as a page at
+    /status, with each reading's tolerance beside it.
+
+    curl -s "$DOCKET/api/status"
+
 GET /pancake
     With Accept: text/html, the PancakeSwap evidence dashboard. JSON/default callers get
     the same-origin source paths for its live Range Doctor hire, fixed-window LP record,

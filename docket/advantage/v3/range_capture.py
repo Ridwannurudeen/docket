@@ -11,11 +11,11 @@ import os
 import re
 import sys
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
-from typing import Mapping
 
 import httpx
 from eth_abi import decode as abi_decode
@@ -236,7 +236,7 @@ def _header(
     block_hash = block.get("hash")
     try:
         observed_time = (
-            datetime.fromtimestamp(timestamp, timezone.utc)
+            datetime.fromtimestamp(timestamp, UTC)
             .isoformat()
             .replace("+00:00", "Z")
         )

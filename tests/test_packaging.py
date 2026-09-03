@@ -226,12 +226,14 @@ def test_secure_bundle_verification_refuses_untrusted_write_permissions(
 def test_ci_builds_and_smokes_the_real_provenance_bundle():
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 
+    # Once per job: test, lint, audit, package. Every one of them installs its tooling
+    # from the same hashed builder list rather than resolving it live.
     assert (
         workflow.count(
             "python -m pip install --require-hashes --only-binary=:all: "
             "-r deploy/build-requirements.txt"
         )
-        == 2
+        == 4
     )
     assert "python -m pip install uv==" not in workflow
     assert "python -m pip install build==" not in workflow
@@ -240,7 +242,8 @@ def test_ci_builds_and_smokes_the_real_provenance_bundle():
     assert "python deploy/release_bundle.py build" in workflow
     assert "release-bundle/deploy/runtime-requirements.txt" in workflow
     assert "pip install --require-hashes" in workflow
-    assert workflow.count("--only-binary=:all:") == 3
+    # The four builder installs, plus the package job's hashed wheel-runtime install.
+    assert workflow.count("--only-binary=:all:") == 5
     assert "pip install --no-deps" in workflow
     assert 'docket-venv/bin/python" -m pip check' in workflow
     assert 'python-version: ["3.11", "3.12"]' in workflow
@@ -267,7 +270,7 @@ def test_runbook_uses_the_integrity_bound_release_commands():
         "temporary builder virtual environment",
         "whole-process lock",
         "/run/docket/release.lock",
-        "all six timers",
+        "every tracked timer",
         "directory fsync",
         "two-directory rename",
         "power loss",

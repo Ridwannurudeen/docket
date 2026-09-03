@@ -14,9 +14,9 @@ is not a long command. It is a quoted scalar followed by text the parser cannot 
 looks exactly like a shell line that would work.
 """
 
+import re
 from fnmatch import fnmatch
 from pathlib import Path
-import re
 
 import pytest
 

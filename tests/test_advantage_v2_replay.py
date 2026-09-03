@@ -26,7 +26,6 @@ import hashlib
 import json
 from pathlib import Path
 
-
 from docket.advantage.v2 import replay
 from docket.advantage.v2.spec import load
 from docket.agents.grid.plan import next_action

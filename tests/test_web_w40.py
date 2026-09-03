@@ -1,5 +1,5 @@
-from pathlib import Path
 import re
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -7,7 +7,6 @@ from docket.advantage.v2 import page as v2_page
 from docket.advantage.v2 import report as v2_report
 from docket.api import create_app
 from docket.store import Store
-
 
 WEB = Path(__file__).resolve().parents[1] / "docket" / "api" / "web"
 PAGES = tuple(sorted(WEB.glob("*.html")))
@@ -19,9 +18,15 @@ def test_every_surface_uses_the_restrained_light_stylesheet():
     assert "color-scheme: light" in css
     assert "color-scheme: dark" not in css
     assert 'content: "LP"' not in css
-    assert len(PAGES) == 9
+    assert len(PAGES) == 10
     for page in PAGES:
-        assert 'href="/static/style.css?v=12"' in page.read_text(encoding="utf-8")
+        # The pivot moves the whole site to ?v=13 with the rest of the chrome. The status
+        # page is built to that contract already, so the two versions coexist until the
+        # chrome pass lands and this exception goes away with it.
+        version = "?v=13" if page.name == "status.html" else "?v=12"
+        assert (
+            f'href="/static/style.css{version}"' in page.read_text(encoding="utf-8")
+        ), page.name
 
 
 def test_evidence_landings_link_to_depth_instead_of_collapsing_it():
@@ -70,22 +75,32 @@ def test_navigation_and_generated_evidence_use_one_presentation_vocabulary():
         ("/advantage", "Advantage report"),
         ("/llms.txt", "API"),
     )
+    # Two pages do not carry the working-page navigation: the home page has always led with
+    # its own in-page anchors, and the status page is the first built to the pivot's primary
+    # navigation. Both are named here rather than skipped, so neither can drift unwatched.
+    page_specific = {
+        "index.html": (
+            ("#evidence", "Case file"),
+            ("#services", "Services"),
+            ("#experiments", "Experiments"),
+            ("/advantage/v3.json", "Raw data"),
+        ),
+        "status.html": (
+            ("/", "Explore"),
+            ("/search", "Find agents"),
+            ("/my-agents", "My agents"),
+            ("/providers", "Providers"),
+            ("/advantage", "Evidence"),
+            ("/llms.txt", "API"),
+        ),
+    }
     for page in PAGES:
         document = page.read_text(encoding="utf-8")
         nav = re.search(r'<nav class="site-nav".*?</nav>', document, re.S).group(0)
         links = tuple(
             re.findall(r'<a href="([^"]+)"(?: aria-current="page")?>([^<]+)</a>', nav)
         )
-        expected = (
-            (
-                ("#evidence", "Case file"),
-                ("#services", "Services"),
-                ("#experiments", "Experiments"),
-                ("/advantage/v3.json", "Raw data"),
-            )
-            if page.name == "index.html"
-            else working_page_expected
-        )
+        expected = page_specific.get(page.name, working_page_expected)
         assert links == expected, page.name
 
     index = (WEB / "index.html").read_text(encoding="utf-8")

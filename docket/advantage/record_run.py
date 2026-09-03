@@ -3,12 +3,11 @@
 import argparse
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ..hire.catalogue import get_service
 from ..hire.receipts import canonical_hash, is_human_readable_result
-
 
 SINGLE_READ = "single recorded read; no paired run against a person"
 RUN_FILES = {
@@ -221,7 +220,7 @@ def record(service_id: str, payload: dict, *, out_path, clock) -> dict:
     finished_at = clock()
     if not isinstance(finished_at, datetime) or finished_at.tzinfo is None:
         raise ValueError("record refused: clock must return a timezone-aware datetime")
-    recorded_at = finished_at.astimezone(timezone.utc).isoformat()
+    recorded_at = finished_at.astimezone(UTC).isoformat()
 
     if not isinstance(result, dict) or not is_human_readable_result(result):
         raise ValueError(
@@ -309,7 +308,7 @@ def main(argv=None) -> int:
         args.service_id,
         payload,
         out_path=args.out,
-        clock=lambda: datetime.now(timezone.utc),
+        clock=lambda: datetime.now(UTC),
     )
     return 0
 

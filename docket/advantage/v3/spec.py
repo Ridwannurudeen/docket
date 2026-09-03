@@ -29,7 +29,7 @@ from base64 import b64decode
 from binascii import Error as Base64Error
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from ...hire.receipts import canonical_hash
@@ -124,13 +124,13 @@ YIELD_SOURCE_URLS = {
     "pools": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
     "token_list": "https://tokens.pancakeswap.finance/pancakeswap-extended.json",
 }
-RANGE_CAPTURE_NOT_BEFORE = datetime(2026, 8, 21, 12, tzinfo=timezone.utc)
-YIELD_CAPTURE_NOT_BEFORE = datetime(2026, 8, 26, 12, tzinfo=timezone.utc)
+RANGE_CAPTURE_NOT_BEFORE = datetime(2026, 8, 21, 12, tzinfo=UTC)
+YIELD_CAPTURE_NOT_BEFORE = datetime(2026, 8, 26, 12, tzinfo=UTC)
 YIELD_CAPTURE_ATTEMPTS = tuple(
     YIELD_CAPTURE_NOT_BEFORE + timedelta(minutes=offset) for offset in range(3)
 )
 YIELD_ASSISTED_CAPTURE_ATTEMPTS = tuple(
-    datetime(2026, 9, 3, 12, tzinfo=timezone.utc) + timedelta(minutes=offset)
+    datetime(2026, 9, 3, 12, tzinfo=UTC) + timedelta(minutes=offset)
     for offset in range(3)
 )
 YIELD_PRIOR_STAGE_ONE_PROTOCOL_HASH = (
@@ -1105,7 +1105,7 @@ def range_sample_indices(spec: PairedSpec, total_supply: int) -> list[dict]:
         preimage = (
             f"{spec.stage_one_protocol_hash}|56|{RANGE_POSITION_MANAGER}|"
             f"{frame['observation_block']}|{counter}"
-        ).encode("utf-8")
+        ).encode()
         index = int.from_bytes(hashlib.sha256(preimage).digest(), "big") % total_supply
         if index not in seen:
             rows.append(
@@ -1129,7 +1129,8 @@ def _range_source_frame(sources: list[dict], repo_root: Path, conflict: tuple):
     by_kind = {source.get("kind"): source for source in sources}
     if set(by_kind) != {"transfer_logs", "position_enumeration", "pool_truth"}:
         raise ValueError(
-            "spec: Range manifest sources must be transfer_logs, position_enumeration and pool_truth"
+            "spec: Range manifest sources must be transfer_logs, position_enumeration "
+            "and pool_truth"
         )
 
     transfer = _locked_json(
@@ -2384,7 +2385,7 @@ def range_selected_positions(spec: PairedSpec, positions: list[dict]) -> list[di
                     (
                         f"{spec.stage_one_protocol_hash}|56|{RANGE_POSITION_MANAGER}|"
                         f"{row['token_id']}|{stratum}"
-                    ).encode("utf-8")
+                    ).encode()
                 ).hexdigest(),
             )
         )
@@ -3107,7 +3108,7 @@ def _utc_timestamp(value: str, context: str) -> datetime:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
         raise ValueError(f"spec: {context} is not an ISO timestamp") from exc
-    if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
+    if parsed.tzinfo is None or parsed.utcoffset() != UTC.utcoffset(parsed):
         raise ValueError(f"spec: {context} must be UTC")
     return parsed
 

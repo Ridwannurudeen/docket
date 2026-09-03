@@ -6,7 +6,6 @@ import pytest
 
 from deploy import sqlite_backup
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 

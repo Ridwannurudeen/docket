@@ -4,9 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from docket.advantage.v3 import rehearsal, report, runner, scoring
 import docket.advantage.v3.spec as spec_module
-
+from docket.advantage.v3 import rehearsal, report, runner, scoring
 
 REGISTERED_SPEC = (
     Path(__file__).resolve().parents[1]

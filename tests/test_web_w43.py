@@ -5,7 +5,6 @@ from pathlib import Path
 from docket.advantage.v2 import report as v2_report
 from docket.advantage.v3 import report as v3_report
 
-
 WEB = Path(__file__).resolve().parents[1] / "docket" / "api" / "web"
 
 
