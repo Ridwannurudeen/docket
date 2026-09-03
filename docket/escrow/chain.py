@@ -99,7 +99,16 @@ POLICY_ABI = [
 
 
 def _default_session(url: str) -> Web3:
-    w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": RPC_TIMEOUT_S}))
+    # web3 7 retries every allowlisted read five times per call by default, which turned
+    # "four endpoints, two attempts each" into up to forty requests and a dark chain into a
+    # thirteen-minute wait. The failover loop below is the only retry policy this module has.
+    w3 = Web3(
+        Web3.HTTPProvider(
+            url,
+            request_kwargs={"timeout": RPC_TIMEOUT_S},
+            exception_retry_configuration=None,
+        )
+    )
     # BSC is PoA: 280-byte extraData, which get_block rejects without this.
     w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
     return w3

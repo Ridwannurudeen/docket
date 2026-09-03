@@ -509,7 +509,10 @@ def test_a_verified_listing_becomes_hireable_only_at_docket_tested():
     live = apply_result(
         _listing(endpoints=A2A),
         verify_listing(
-            _listing(endpoints=A2A), rpc=_owned, pace=_no_pace, http=_responder(status=200, body="{}")
+            _listing(endpoints=A2A),
+            rpc=_owned,
+            pace=_no_pace,
+            http=_responder(status=200, body="{}"),
         ),
     )
 

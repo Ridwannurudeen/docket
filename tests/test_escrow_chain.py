@@ -13,7 +13,7 @@ import pytest
 from web3.exceptions import ContractLogicError
 
 from docket.escrow import constants as c
-from docket.escrow.chain import JobNotFound, JobReader, Rpc
+from docket.escrow.chain import JobNotFound, JobReader, Rpc, _default_session
 
 NOW = 1786400000
 SUBMITTED_AT = NOW - c.DISPUTE_WINDOW_S - 60  # ripe: submitted just over a window ago
@@ -241,3 +241,11 @@ def test_the_default_session_can_read_a_bsc_header():
 
     assert block["number"] == 116128181
     assert "proofOfAuthorityData" in block
+
+
+def test_the_provider_carries_no_hidden_retry_policy():
+    """`Rpc` documents four endpoints and two attempts each. web3's provider defaults to
+    five silent retries per call on top of that, so the documented bound was false by a
+    factor of five; the session must be built with that policy switched off."""
+    session = _default_session("http://127.0.0.1:9")
+    assert session.provider.exception_retry_configuration is None
