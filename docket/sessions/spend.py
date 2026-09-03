@@ -433,29 +433,36 @@ def batch_spend(
     """The whole batch's spend, so the total can be put to the cap once before any of it
     is sent. A batch refused halfway leaves a position half-rebalanced.
 
-    An `approve` is counted here and NOT charged when the call is sent. An approval is an
-    authorisation, not a payment: charging the approval and then the transfer that uses it
-    would bill the same money twice and halve every cap. Counting it in the total is still
-    right — an approval the session cannot cover is a batch that cannot complete — so it
-    is folded in as a maximum rather than added.
+    An `approve` is an authorisation, not a payment, and the two are accumulated
+    separately: spends are summed, approvals are taken at their maximum, and each token's
+    total is the larger of the two. A migration route approves exactly what its mint will
+    pull, so adding the approval to the mint would bill one movement twice and halve the
+    cap; ignoring it would let a batch approve more than the session could ever cover.
+    The exposure is whichever is bigger, and that is what the cap has to hold.
     """
-    total: dict[str, int] = {}
+    spends: dict[str, int] = {}
+    approvals: dict[str, int] = {}
     for call in calls:
-        for token, amount in call_spend(
+        derived = call_spend(
             call,
             token_allowlist=token_allowlist,
             token_hints=token_hints,
             owner=owner,
             session=session,
-        ).items():
+        )
+        target = approvals if call.selector == APPROVE else spends
+        for token, amount in derived.items():
             if call.selector == APPROVE:
-                total[token] = max(total.get(token, 0), amount)
+                target[token] = max(target.get(token, 0), amount)
             else:
-                total[token] = total.get(token, 0) + amount
+                target[token] = target.get(token, 0) + amount
         value = int(call.value_atomic)
         if value:
-            total[NATIVE_TOKEN] = total.get(NATIVE_TOKEN, 0) + value
-    return total
+            spends[NATIVE_TOKEN] = spends.get(NATIVE_TOKEN, 0) + value
+    return {
+        token: max(spends.get(token, 0), approvals.get(token, 0))
+        for token in set(spends) | set(approvals)
+    }
 
 
 def is_authorisation_only(call) -> bool:

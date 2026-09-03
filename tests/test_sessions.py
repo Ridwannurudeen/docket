@@ -63,7 +63,7 @@ def _policy(**overrides) -> SessionPolicy:
     return SessionPolicy(**fields)
 
 
-def _swap_data(amount_in: int, route=(USDT, WBNB)) -> str:
+def _swap_data(amount_in: int, route=(USDT, WBNB), recipient=OWNER) -> str:
     """Real router calldata, built by the shipped builder.
 
     The spend a session is charged is now read out of these bytes, so a fixture carrying
@@ -73,7 +73,7 @@ def _swap_data(amount_in: int, route=(USDT, WBNB)) -> str:
         amount_in=amount_in,
         min_output=1,
         route=route,
-        recipient=OWNER,
+        recipient=recipient,
         deadline=4_102_444_800,
     ).hex()
 
@@ -739,6 +739,24 @@ _npm = Web3().eth.contract(
             "outputs": [],
         },
         {
+            "name": "decreaseLiquidity",
+            "type": "function",
+            "inputs": [
+                {
+                    "name": "params",
+                    "type": "tuple",
+                    "components": [
+                        {"name": "tokenId", "type": "uint256"},
+                        {"name": "liquidity", "type": "uint128"},
+                        {"name": "amount0Min", "type": "uint256"},
+                        {"name": "amount1Min", "type": "uint256"},
+                        {"name": "deadline", "type": "uint256"},
+                    ],
+                }
+            ],
+            "outputs": [],
+        },
+        {
             "name": "collect",
             "type": "function",
             "inputs": [
@@ -1168,3 +1186,149 @@ def test_a_minted_position_must_go_to_the_owner_and_not_the_session():
 
     with pytest.raises(UnmeasuredSpend, match="must go to the owner"):
         call_spend(call, owner=OWNER, session=session_address)
+
+
+# -- the migration route, replayed against the published defaults ---------------
+
+USDC = Web3.to_checksum_address("0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d")
+SESSION = Web3.to_checksum_address("0x" + "5e" * 20)
+
+
+def _migration_route():
+    """The seven calls a yield migration emits, in the order it emits them.
+
+    Shaped from the route's own documentation rather than imported, because the executor
+    that builds it lives on another branch: decrease, collect to the SESSION (it is the
+    account that swaps and mints next), the swap legs, one exact-amount approval per
+    destination token, and a mint to the OWNER so revoking the session cannot strand the
+    position. If that order or those recipients change, this test is where the defaults
+    and the route stop agreeing.
+    """
+    decrease = _bare(
+        NPM,
+        _npm.encode_abi(
+            "decreaseLiquidity", args=[(7141050, 10**18, 1, 1, 4_102_444_800)]
+        ),
+    )
+    collect = _bare(
+        NPM, _npm.encode_abi("collect", args=[(7141050, SESSION, 2**127, 2**127)])
+    )
+    swap_one = _bare(
+        ROUTER, _swap_data(40 * 10**18, route=(USDT, WBNB), recipient=SESSION)
+    )
+    swap_two = _bare(
+        ROUTER, _swap_data(30 * 10**18, route=(USDT, USDC), recipient=SESSION)
+    )
+    approve_wbnb = _bare(WBNB, _erc20.encode_abi("approve", args=[NPM, 10**18]))
+    approve_usdc = _bare(USDC, _erc20.encode_abi("approve", args=[NPM, 20 * 10**18]))
+    mint = _bare(
+        NPM,
+        _npm.encode_abi(
+            "mint",
+            args=[
+                (
+                    WBNB,
+                    USDC,
+                    500,
+                    -1_000,
+                    1_000,
+                    10**18,
+                    20 * 10**18,
+                    1,
+                    1,
+                    OWNER,
+                    4_102_444_800,
+                )
+            ],
+        ),
+    )
+    return [
+        decrease,
+        collect,
+        swap_one,
+        swap_two,
+        approve_wbnb,
+        approve_usdc,
+        mint,
+    ]
+
+
+def _yield_policy():
+    from docket.jobs.executors.allowlists import defaults_for
+
+    policy = SessionPolicy.from_dict(
+        {**defaults_for("yield_optimisation"), "expires_at": FAR_FUTURE}
+    )
+    policy.validate()
+    return policy
+
+
+def test_every_call_of_the_migration_route_is_inside_the_published_defaults():
+    """The failure this closes: the defaults named only the v2 router and two tokens, so
+    an activation created from them refused every call the route drafts."""
+    policy = _yield_policy()
+
+    for call in _migration_route():
+        spend = call_spend(
+            call,
+            token_allowlist=policy.token_allowlist,
+            token_hints={"position_tokens": {"7141050": [WBNB, USDC]}},
+            owner=OWNER,
+            session=SESSION,
+        )
+        permitted, reason = policy.allows(
+            call, spent={}, token_amounts=spend, gas_price_wei=10**9
+        )
+
+        assert permitted, f"{call.selector} at {call.to}: {reason}"
+
+
+def test_the_whole_migration_route_fits_inside_the_session_cap_once():
+    """Asked once, as a total, the way the tick asks it before sending any of it."""
+    policy = _yield_policy()
+    route = _migration_route()
+
+    total = batch_spend(
+        route,
+        token_allowlist=policy.token_allowlist,
+        token_hints={"position_tokens": {"7141050": [WBNB, USDC]}},
+        owner=OWNER,
+        session=SESSION,
+    )
+    permitted, reason = policy.allows_total(spent={}, token_amounts=total)
+
+    assert permitted, reason
+    # The two swaps spend USDT; the approvals authorise and are folded in as maxima, not
+    # added to the mint they authorise.
+    assert total[USDT] == 70 * 10**18
+    assert total[WBNB] == 10**18
+    assert total[USDC] == 20 * 10**18
+
+
+def test_the_route_names_tokens_the_defaults_would_otherwise_never_sweep():
+    """A migration ends holding whatever the destination pool did not take. Both sides of
+    the closed position and both destination tokens have to be sweepable."""
+    from docket.jobs.executors.allowlists import defaults_for
+    from docket.sessions.spend import received_tokens
+
+    sweepable = set(defaults_for("yield_optimisation")["token_allowlist"])
+    named = set()
+    for call in _migration_route():
+        named.update(
+            received_tokens(
+                call, token_hints={"position_tokens": {"7141050": [WBNB, USDC]}}
+            )
+        )
+
+    assert {WBNB, USDC} <= named
+    assert named <= sweepable
+
+
+def test_a_collect_paying_the_owner_directly_is_also_allowed():
+    """The route pays the session because it swaps next. A route that paid the owner
+    instead is not a policy violation — only a stranger is."""
+    to_owner = _bare(
+        NPM, _npm.encode_abi("collect", args=[(7141050, OWNER, 2**127, 2**127)])
+    )
+
+    assert call_spend(to_owner, owner=OWNER, session=SESSION) == {}
