@@ -60,10 +60,27 @@ hash that is already committed. Collecting the frame therefore buys no foreknowl
 accounts it names and what status each one has are unknown until it runs.
 
 **One family per day.** Do not run v3-07's, v3-08's or v3-09's arms or evaluator seats on the
-same day. The Claude seat adapter is what left v3-04 permanently `complete_unscored`, and one
-family per day is the rule that came out of it. v3-07 runs Sep 6 and v3-08 runs its seats
-and lock on Sep 7 and its primaries on Sep 8, so v3-09's seats and primaries wait for
-Sep 9.
+same day. **Calibration seats are seats.** The rule is about the adapters, not about which stage
+happens to be running: a calibration seat and a scoring seat go through the same
+`docket.advantage.v3.seats.*` adapter, and the Claude one is what returned no first response
+and left v3-04 permanently `complete_unscored`. Two families' seats on one day is the
+condition that produced that outcome, whichever stage each family is at. A capture is neither
+an arm nor a seat and does not compete for anything, so a timer may fire on a day another
+family owns.
+
+v3-07 takes Sep 6 for its primaries and its scoring seats,
+v3-08 takes Sep 7 for its calibration seats and lock and Sep 8 for its primaries and scoring
+seats, so v3-09's seats and primaries wait for Sep 9.
+
+Every family owns whole days, and both kinds of evaluator seat count:
+
+| Day (UTC) | Family that owns the adapters | What may also happen |
+|---|---|---|
+| Sep 4-5 | v3-07 frame, calibration seats, capture, lock | — |
+| Sep 6 | v3-07 primaries **and** v3-07 scoring seats | v3-08's capture: a timer, not an arm or a seat |
+| Sep 7 | v3-08 calibration seats and lock | — |
+| Sep 8 | v3-08 primaries and v3-08 scoring seats | — |
+| Sep 9 | v3-09 seats, lock and primaries, if there is room | — |
 
 **Seat-a is unavailable until Sep 7.** The Codex adapter behind `seat-a` is at its usage limit
 and cannot answer before then, and evaluator seats may be scheduled at any time after that.
@@ -72,9 +89,8 @@ seats' eight responses, stage 4 waits on stage 3. Nothing in this family is on a
 delay can spoil: unlike v3-08 there is no registered capture moment here, so stages 3 to 6 may
 move to whichever day both seats can answer.
 
-**This family is the one with room to slip, and it should be the one that slips.** v3-07 runs
-Sep 6, v3-08's seats and lock Sep 7 and its primaries Sep 8, so the first day one-family-per-day
-leaves free for v3-09 is Sep 9 — the submission day. If Sep 9 is too full, the honest outcome is
+**This family is the one with room to slip, and it should be the one that slips.** The table
+above leaves Sep 9 — the submission day — as the first free day for v3-09. If Sep 9 is too full, the honest outcome is
 to leave v3-09 `registered_waiting_for_inputs` with its frame collected and committed. That is
 a published state, not a failure: the registration, the frame and the answer key stand on their
 own, and a reader can check every one of them without a single arm having run. Do not compress
@@ -263,7 +279,7 @@ ask the same seat again.
 ```powershell
 $specPath = 'docket/advantage/v3/specs/v3-09-health-guard.json'
 $calibrationSet = 'docket/advantage/v3/sources/health-v9-calibration-set.json'
-$calibrationRoot = 'docket/advantage/v3/calibration-captures/2026-09-08-health-v9'
+$calibrationRoot = 'docket/advantage/v3/calibration-captures/2026-09-09-health-v9'
 & .\.venv\Scripts\python.exe -m docket.advantage.v3.calibration_driver $specPath $calibrationRoot --evaluator-id seat-a --session-id "health-v9-seat-a-$([guid]::NewGuid().ToString('N'))" --calibration-set $calibrationSet --seat docket.advantage.v3.seats.codex_cli:ask
 if ($LASTEXITCODE -ne 0) { throw 'seat-a calibration did not capture; preserve its attempt' }
 & .\.venv\Scripts\python.exe -m docket.advantage.v3.calibration_driver $specPath $calibrationRoot --evaluator-id seat-b --session-id "health-v9-seat-b-$([guid]::NewGuid().ToString('N'))" --calibration-set $calibrationSet --seat docket.advantage.v3.seats.claude_cli:ask
@@ -283,7 +299,7 @@ from docket.advantage.v3.spec import load
 root = Path('.').resolve()
 spec = load(root / 'docket/advantage/v3/specs/v3-09-health-guard.json', repo_root=root)
 calibration_set = (root / 'docket/advantage/v3/sources/health-v9-calibration-set.json').read_bytes()
-calibration_root = root / 'docket/advantage/v3/calibration-captures/2026-09-08-health-v9'
+calibration_root = root / 'docket/advantage/v3/calibration-captures/2026-09-09-health-v9'
 rows = assemble_evaluator_calibration(spec, calibration_root, calibration_set)
 body = {
     'calibration_set': {'body_base64': base64.b64encode(calibration_set).decode('ascii')},
@@ -310,7 +326,7 @@ not this stage, is what enforces that.
   docket/advantage/v3/sources/health-v9-enumerable-frame.json `
   docket/advantage/v3/sources/health-v9-calibration-set.json `
   docket/advantage/v3/sources/health-v9-evaluator-calibration.json `
-  docket/advantage/v3/calibration-captures/2026-09-08-health-v9
+  docket/advantage/v3/calibration-captures/2026-09-09-health-v9
 if ($LASTEXITCODE -ne 0) { throw 'v3-09 assembly/input lock refused; preserve every file' }
 ```
 

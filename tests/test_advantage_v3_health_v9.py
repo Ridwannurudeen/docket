@@ -16,7 +16,16 @@ import pytest
 from eth_abi import decode as abi_decode
 from eth_abi import encode as abi_encode
 
-from docket.advantage.v3 import assemble, calibration, scoring, venus_capture
+from docket.advantage.v3 import (
+    assemble,
+    calibration,
+    orchestrator,
+    runner,
+    scoring,
+    venus_capture,
+)
+from docket.agents.venus import guard, markets
+from docket.hire import catalogue
 from docket.advantage.v3.range_capture import RangeCaptureRefused
 from docket.advantage.v3.spec import (
     E18,
@@ -551,60 +560,72 @@ def test_the_lock_refuses_a_case_trigger_the_registration_did_not_fix(tmp_path):
         _relock(repo_root, envelope)
 
 
+class FakeVenusReader:
+    """Just enough of `VenusReader` for `HealthGuardPreview.preview` to run.
+
+    The response shape is taken from the real preview rather than typed out here: a
+    hand-written fixture that drifted from `guard.assess` would let the projection pass a
+    test while failing the deployed service.
+    """
+
+    def __init__(self, address: str, block: int) -> None:
+        self.address = address
+        self.block = block
+
+    def underlying_of(self, vtoken: str) -> str:
+        return {
+            catalogue.VENUS_VUSDT.lower(): catalogue.VENUS_USDT,
+            catalogue.VENUS_VUSDC.lower(): catalogue.VENUS_USDC,
+        }[vtoken.lower()]
+
+    def account(self, address: str) -> markets.AccountState:
+        row = markets.MarketPosition(
+            vtoken=catalogue.VENUS_VUSDC,
+            symbol="vUSDC",
+            collateral_factor_mantissa=8 * 10**17,
+            snapshot_error=0,
+            vtoken_balance=1000 * E18,
+            borrow_balance=1000 * E18,
+            exchange_rate_mantissa=E18,
+            underlying_price_mantissa=E18,
+            as_of_block=self.block,
+        )
+        return markets.AccountState(
+            address=address,
+            error_code=0,
+            liquidity_usd=0,
+            shortfall_usd=200 * E18,
+            markets_listed=52,
+            rows=(row,),
+            oracle=ORACLE_ADDRESS,
+            as_of_block=self.block,
+            reads=("comptroller.getAccountLiquidity",),
+        )
+
+
 def _preview_body(account: str, block: int) -> dict:
-    """The exact shape `HealthGuardPreview.preview` returns for one account."""
-    return {
-        "address": account,
-        "account": {
-            "address": account,
-            "as_of_block": block,
-            "complete": True,
-            "markets_listed": 52,
-            "markets_entered": 1,
-            "oracle": ORACLE_ADDRESS,
-            "rows": [
-                {
-                    "vtoken": VUSDC,
-                    "vtoken_balance": "1000",
-                    "borrow_balance": "400",
-                    "sources": {"vtoken_balance": "vToken.getAccountSnapshot"},
-                }
-            ],
-            "note": "These rows are the markets getAssetsIn reports.",
-        },
-        "assessment": {
-            "address": account,
-            "as_of_block": block,
-            "status": "shortfall",
-            "status_means": "The comptroller reports a shortfall.",
-            "status_vocabulary": sorted(HEALTH_STATUSES),
-            "venus": {
-                "liquidity_usd": "0",
-                "shortfall_usd": "200",
-                "error_code": 0,
-                "scale": "1e18 USD",
-                "source": "comptroller.getAccountLiquidity",
-                "publishes_health_factor": False,
-                "publishes_note": "Venus does not publish a health factor.",
-            },
-            "weighted_collateral_usd": "800",
-            "borrowed_usd": "1000",
-            "collateral_ratio": "800000000000000000",
-            "collateral_ratio_scale": "1e18",
-            "collateral_ratio_method": "collateral_ratio = weighted_collateral / borrowed",
-            "collateral_ratio_is_derived": True,
-            "cross_check": {
-                "derived_headroom_usd": "-200",
-                "venus_headroom_usd": "-200",
-                "difference_usd": "0",
-                "exactly_equal": True,
-                "method": "derived minus published",
-            },
-        },
-        "submitted": False,
-        "why_not_submitted": "This is a preview. It holds no session.",
-        "note": "What an action of this kind does.",
-    }
+    """Exactly what `/hire/health-guard` returns, produced by the real preview class."""
+    policy = guard.GuardPolicy(
+        markets=(
+            guard.MarketPolicy(
+                vtoken=catalogue.VENUS_VUSDT,
+                underlying=catalogue.VENUS_USDT,
+                max_repay=catalogue.GUARD_CAP,
+                max_supply=0,
+            ),
+            guard.MarketPolicy(
+                vtoken=catalogue.VENUS_VUSDC,
+                underlying=catalogue.VENUS_USDC,
+                max_repay=0,
+                max_supply=catalogue.GUARD_CAP,
+            ),
+        ),
+        trigger_shortfall_usd=catalogue.GUARD_TRIGGER_USD,
+    )
+    preview = guard.HealthGuardPreview(
+        reader=FakeVenusReader(account, block), policy=policy
+    )
+    return preview.preview(account)
 
 
 def _case(account: str, block: int) -> dict:
@@ -677,3 +698,199 @@ def test_the_calibration_prompt_names_the_health_answer_fields():
     )
     assert "Venus publishes no health factor" in prompt["instruction"]
     assert all("expected" not in case for case in prompt["cases"])
+
+
+def test_the_preview_the_endpoint_returns_projects_cleanly():
+    """The projection is exercised against the real preview object, not a fixture."""
+    block = FRAME["observation_block"]
+    body = _preview_body(SHORTFALL_ACCOUNT, block)
+
+    assert set(body) >= {"address", "account", "assessment"}
+    assert body["assessment"]["status"] == "shortfall"
+    assert body["assessment"]["venus"]["publishes_health_factor"] is False
+    assert body["submitted"] is False
+
+    projection = scoring.normalise_output(
+        SPEC, body, case=_case(SHORTFALL_ACCOUNT, block)
+    )
+
+    assert projection["derived_ratio"]["collateral_ratio"] == (
+        body["assessment"]["collateral_ratio"]
+    )
+    assert projection["cross_check"] == body["assessment"]["cross_check"]
+
+
+def _hire(response_body, payload):
+    def post(url, *, json, headers, timeout, client=None):
+        assert url == SPEC.execution_protocol["agent_endpoint"]
+        return httpx.Response(200, json=response_body)
+
+    return orchestrator.hire_agent(SPEC, payload, hire=post)
+
+
+def _receipted(result: dict, payload: dict) -> dict:
+    return {
+        "result": result,
+        "receipt": {
+            "service": "health-guard",
+            "input_hash": runner.canonical_hash(payload),
+            "output_hash": runner.canonical_hash(result),
+            "payment": {"status": "free_tier"},
+        },
+    }
+
+
+def _payload(account: str, block: int) -> dict:
+    return {
+        "wallet": account,
+        "trigger_shortfall_usd": E18,
+        "observation_block": block,
+        "source_refs": [{"kind": "venus_frame", "ref": "x", "sha256": "0" * 64}],
+    }
+
+
+def test_an_answer_at_the_registered_block_is_not_blocked():
+    block = FRAME["observation_block"]
+    payload = _payload(SHORTFALL_ACCOUNT, block)
+    result = _preview_body(SHORTFALL_ACCOUNT, block)
+
+    outcome = _hire(_receipted(result, payload), payload)
+
+    assert "failure" not in outcome
+    assert outcome["raw_output"] == result
+
+
+def test_an_answer_at_a_later_block_is_a_blocked_service_contract():
+    block = FRAME["observation_block"]
+    payload = _payload(SHORTFALL_ACCOUNT, block)
+    result = _preview_body(SHORTFALL_ACCOUNT, block + 1)
+
+    outcome = _hire(_receipted(result, payload), payload)
+
+    assert outcome["forced_outcome"] == runner.BLOCKED_CONTRACT
+    assert outcome["failure"]["kind"] == runner.BLOCKED_CONTRACT
+    assert str(block) in outcome["failure"]["message"]
+
+
+def test_an_answer_about_another_account_is_a_blocked_service_contract():
+    block = FRAME["observation_block"]
+    payload = _payload(SHORTFALL_ACCOUNT, block)
+    result = _preview_body(HEADROOM_ACCOUNT, block)
+
+    outcome = _hire(_receipted(result, payload), payload)
+
+    assert outcome["forced_outcome"] == runner.BLOCKED_CONTRACT
+    assert SHORTFALL_ACCOUNT in outcome["failure"]["message"]
+
+
+def _locked_case(tmp_path):
+    repo_root, envelope, frame = _locked_envelope(tmp_path)
+    assemble.write_envelope(SPEC, envelope, repo_root=repo_root)
+    locked = lock_inputs(SPEC, repo_root=repo_root)
+    return repo_root, locked, envelope, frame
+
+
+def test_the_agent_payload_carries_the_registered_account_block_and_source(tmp_path):
+    repo_root, locked, envelope, _frame = _locked_case(tmp_path)
+    inputs = json.loads((repo_root / locked.inputs_ref).read_text(encoding="utf-8"))
+    case = inputs["cases"][0]
+
+    payload = runner._agent_payload(locked, inputs, case, repo_root)
+
+    assert payload == {
+        "wallet": case["account"],
+        "trigger_shortfall_usd": E18,
+        "observation_block": FRAME["observation_block"],
+        "source_refs": envelope["selection_manifest"]["source_refs"],
+    }
+
+
+def test_the_manual_reveal_hands_over_the_pinned_rows_and_withholds_the_truth(tmp_path):
+    repo_root, locked, _envelope, frame = _locked_case(tmp_path)
+    inputs = json.loads((repo_root / locked.inputs_ref).read_text(encoding="utf-8"))
+    case = inputs["cases"][0]
+    row = next(
+        item for item in frame["accounts"] if item["account"] == case["account"]
+    )
+
+    revealed = runner._manual_reveal(locked, inputs, case, repo_root)
+
+    assert "truth" not in revealed
+    assert revealed["account"] == case["account"]
+    assert revealed["observation_block"] == FRAME["observation_block"]
+    assert revealed["frame_ref"].endswith(f"#accounts/{case['account']}")
+    # The raw figures are handed over; every derived field is withheld, because deriving
+    # them is the task.
+    assert revealed["account_state"]["markets"] == row["markets"]
+    assert revealed["account_state"]["liquidity_usd"] == row["liquidity_usd"]
+    for derived in ("status", "collateral_ratio", "exactly_equal", "difference_usd"):
+        assert derived not in revealed["account_state"]
+
+
+def test_a_frame_row_that_left_every_enumeration_market_still_locks(tmp_path):
+    """A borrower who repaid and called exitMarket inside the window is real history.
+
+    Venus auto-enters a market on borrow and lets an account leave once nothing is owed, so
+    `getAssetsIn` can legitimately be empty at the pinned block. The frame is first-write
+    with no registered recovery, and `case_selection.excluded` names no such condition, so
+    refusing it at lock would destroy the collection over a rule nobody registered.
+    """
+    repo_root, envelope, _frame = _locked_envelope(tmp_path)
+    frame_path = repo_root / envelope["selection_manifest"]["source_refs"][0]["ref"]
+    frame = json.loads(frame_path.read_text(encoding="utf-8"))
+    departed = {
+        "account": "0x00000000000000000000000000000000000000d4",
+        "entered_markets": [],
+        "error_code": 0,
+        "liquidity_usd": "0",
+        "shortfall_usd": "0",
+        "oracle": ORACLE_ADDRESS,
+        "complete": True,
+        "markets": [],
+    }
+    departed.update(health_account_truth(departed))
+    assert departed["status"] == "no_position"
+    frame["accounts"] = sorted(
+        frame["accounts"] + [departed], key=lambda row: row["account"]
+    )
+    frame["rpc_call_accounting"]["getAssetsIn"] += 1
+    frame["rpc_call_accounting"]["getAccountLiquidity"] += 1
+    frame["rpc_call_accounting"]["total"] += 2
+    frame_path.write_text(
+        json.dumps(frame, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    envelope["selection_manifest"]["source_refs"][0]["sha256"] = hashlib.sha256(
+        frame_path.read_bytes()
+    ).hexdigest()
+    envelope["selection_manifest"]["eligible_accounts"] = [
+        {
+            name: row[name]
+            for name in ("account", "status", "collateral_ratio", "exactly_equal")
+        }
+        for row in frame["accounts"]
+    ]
+
+    locked = _relock(repo_root, envelope)
+
+    assert locked.runnable
+    # It is published in the eligible manifest and fills no stratum on its own merits.
+    assert departed["account"] in {
+        row["account"] for row in envelope["selection_manifest"]["eligible_accounts"]
+    }
+    assert departed["account"] not in {case["account"] for case in envelope["cases"]}
+
+
+def test_the_lock_refuses_call_accounting_the_registered_method_cannot_produce(tmp_path):
+    repo_root, envelope, _frame = _locked_envelope(tmp_path)
+    frame_path = repo_root / envelope["selection_manifest"]["source_refs"][0]["ref"]
+    frame = json.loads(frame_path.read_text(encoding="utf-8"))
+    frame["rpc_call_accounting"] = dict.fromkeys(frame["rpc_call_accounting"], 0)
+    frame_path.write_text(
+        json.dumps(frame, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    envelope["selection_manifest"]["source_refs"][0]["sha256"] = hashlib.sha256(
+        frame_path.read_bytes()
+    ).hexdigest()
+
+    with pytest.raises(ValueError, match="RPC call accounting"):
+        _relock(repo_root, envelope)

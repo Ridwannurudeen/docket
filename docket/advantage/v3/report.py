@@ -41,6 +41,14 @@ V2_NO_ARM_TIMING = (
     "v2 registered dataset arms rather than a timed agent-versus-human pair, so it records "
     "no per-arm elapsed seconds, out-of-pocket cost or rubric score."
 )
+V2_NO_TERMINAL_COUNT = (
+    "v2 runs a whole dataset once rather than scheduling one primary per case, so it has no "
+    "terminal-primary count; its registered denominator is in the planned column."
+)
+V2_UNREADABLE = (
+    "the committed v2 artifacts could not be rebuilt at startup, so their rows are absent "
+    "from this table rather than guessed at"
+)
 
 REGISTERED_WAITING = "registered_waiting_for_inputs"
 SUPERSEDED_BEFORE_INPUT_LOCK = "superseded_before_input_lock"
@@ -316,7 +324,13 @@ def _v1_rows(v1_dir: Path) -> list[dict]:
     for task_id in V1_TASK_IDS:
         path = Path(v1_dir) / f"{task_id}.json"
         if not path.is_file():
-            continue
+            # Silently dropping the row would publish a table that looks complete and is
+            # short one registered task. A packaged artifact that has gone missing is a
+            # broken build, and it says so.
+            raise ValueError(
+                f"report: v1 task {task_id!r} is registered but {path} is absent; the "
+                "one-page table cannot omit a registered task"
+            )
         record = json.loads(path.read_text(encoding="utf-8"))
         arms = {"agent": record["agent_arm"], "manual": record["manual_arm"]}
         errored = [name for name, arm in arms.items() if arm.get("error") is not None]
@@ -351,10 +365,7 @@ def _v2_rows(experiments: list[dict]) -> list[dict]:
             arm_names = [run["arm_name"]]
         else:
             arm_names = []
-        scores = experiment.get("scores")
-        quality = (
-            {arm_names[0]: scores} if len(arm_names) == 1 and scores else {}
-        )
+        scored = len(arm_names) == 1 and bool(experiment.get("scores"))
         rows.append(
             {
                 "version": "v2",
@@ -362,13 +373,23 @@ def _v2_rows(experiments: list[dict]) -> list[dict]:
                 "category": experiment["spec"]["category"],
                 "arms": arm_names,
                 "n_planned": experiment["spec"]["n_planned"],
-                "n_terminal": run.get("n_planned"),
+                # v2 runs a dataset once rather than scheduling per-case primaries, so it
+                # has no terminal-primary count to report. `run["n_planned"]` is the
+                # denominator it registered, not a count of anything that terminated, and
+                # publishing it in this column would invent an equality nobody measured.
+                "n_terminal": None,
                 "median_agent_seconds": None,
                 "median_manual_seconds": None,
                 "cost_by_arm": {name: None for name in arm_names},
-                "quality_by_arm": quality or {name: None for name in arm_names},
+                # Never a nested object: this column holds one number per arm or nothing.
+                # v2's security scores are rate records, so the cell stays null and
+                # `quality_measure` points at where the real figures live.
+                "quality_by_arm": {name: None for name in arm_names},
                 "quality_measure": (
-                    "registered detector rates over the frozen corpus" if quality else None
+                    "see this experiment's own scores block; v2 publishes detector rates "
+                    "over the frozen corpus rather than a per-arm rubric total"
+                    if scored
+                    else None
                 ),
                 "state": (
                     REFUTED
@@ -376,10 +397,11 @@ def _v2_rows(experiments: list[dict]) -> list[dict]:
                     else NOT_REFUTED
                 ),
                 "unavailable": {
+                    "n_terminal": V2_NO_TERMINAL_COUNT,
                     "median_agent_seconds": V2_NO_ARM_TIMING,
                     "median_manual_seconds": V2_NO_ARM_TIMING,
                     "cost_by_arm": V2_NO_ARM_TIMING,
-                    **({} if quality else {"quality_by_arm": V2_NO_ARM_TIMING}),
+                    "quality_by_arm": V2_NO_ARM_TIMING,
                 },
             }
         )
@@ -461,13 +483,23 @@ def one_page(families: list[dict], *, v1_dir: Path = V1_DIR) -> dict:
     onto all three would put a number in a cell no artifact contains, so a missing figure is
     a null with the reason beside it.
     """
-    from ..v2 import report as v2_report
+    degraded = {}
+    try:
+        from ..v2 import report as v2_report
 
-    rows = _v1_rows(v1_dir) + _v2_rows(v2_report.experiments()) + _v3_rows(families)
+        v2_rows = _v2_rows(v2_report.experiments())
+    except Exception as exc:  # noqa: BLE001 - any v2 fault degrades one section, not the route
+        # `/advantage/v3.json` is the v3 report. A v2 artifact that will not rebuild must
+        # not take it down, and must not quietly shrink this table either: the rows are
+        # dropped and the reason is published in their place.
+        v2_rows = []
+        degraded["v2"] = f"{V2_UNREADABLE}: {type(exc).__name__}: {exc}"
+    rows = _v1_rows(v1_dir) + v2_rows + _v3_rows(families)
     return {
         "verdict": None,
         "note": NO_VERDICT,
         "n_rows": len(rows),
+        "degraded": degraded,
         "rows": rows,
     }
 

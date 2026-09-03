@@ -32,6 +32,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from ...agents.venus.guard import E18
 from ...hire.receipts import canonical_hash
 
 ARMS = ("agent", "manual")
@@ -266,6 +267,9 @@ HEALTH_STATUSES = (
     "unreadable",
 )
 HEALTH_STRATA = ("shortfall", "borrowing_with_headroom", "supplied_no_borrow")
+# `E18` is imported from `agents.venus.guard` rather than restated: it is the scale that
+# module divides in, and a health answer key that disagreed with it by one unit of 1e-18 USD
+# would be a key no seat and no service could pass.
 HEALTH_ARM_IDENTITIES = {
     "agent": {
         "arm": "agent",
@@ -285,8 +289,6 @@ HEALTH_ARM_IDENTITIES = {
         "operator": "owner",
     },
 }
-# Venus reports both figures in 1e18-scaled USD and `guard.assess` divides in that scale.
-E18 = 10**18
 WARDEN_AUTHORABLE_CLASSES = frozenset(
     {
         "DRAIN_ADDRESS",
@@ -4225,7 +4227,13 @@ def _health_frame_source(spec: PairedSpec, source_refs, repo_root: Path):
             "spec: Health conflict exclusions are not a sorted subset of the registered "
             "experiment-party wallets"
         )
-    enumeration_source = set(HEALTH_VTOKENS)
+    # The two registered vTokens bound where a borrower is *found*, not which markets the
+    # account still holds at the pinned block. Venus auto-enters a market on borrow and lets
+    # an account exit it once nothing is owed, so a row whose `getAssetsIn` names neither
+    # vToken — or names nothing at all — is a borrower who repaid and left inside the window.
+    # That is the history the enumeration rule exists to find, `case_selection.excluded` names
+    # no such condition, and the frame is first-write with no registered recovery. It carries
+    # no ratio and fills no stratum on its own merits; it is not refused.
     seen = set()
     for account in body["accounts"]:
         if not isinstance(account, dict) or set(account) != HEALTH_ACCOUNT_FIELDS:
@@ -4266,16 +4274,6 @@ def _health_frame_source(spec: PairedSpec, source_refs, repo_root: Path):
                 "spec: an experiment-party wallet reached the Health frame; conflicts are "
                 "removed before any account state is read, not scored afterwards"
             )
-        # The two registered vTokens bound where borrowers are *found*, not which markets
-        # an account may have entered. Reading only those two would derive a ratio over
-        # part of a position and cross-check it against a Venus figure computed over all of
-        # it, so every entered market is read and the enumeration source only has to be
-        # among them.
-        if not set(entered) & enumeration_source:
-            raise ValueError(
-                "spec: a Health frame row entered neither registered enumeration market, "
-                "so the Borrow logs could not have named it"
-            )
         if (
             not isinstance(account["oracle"], str)
             or ADDRESS.fullmatch(account["oracle"]) is None
@@ -4287,7 +4285,42 @@ def _health_frame_source(spec: PairedSpec, source_refs, repo_root: Path):
                 "spec: a Health frame row's derived block contradicts the guard formula "
                 "applied to the raw figures beside it"
             )
+    if body["rpc_call_accounting"] != _health_expected_accounting(
+        frame, body["accounts"]
+    ):
+        raise ValueError(
+            "spec: the Health frame's RPC call accounting is not what the registered "
+            "method implies for the rows it carries"
+        )
     return body["accounts"], exclusions, frame
+
+
+def _health_expected_accounting(frame: dict, accounts: list) -> dict:
+    """The call count the registered method implies, recomputed from the frame itself.
+
+    The Range successor lock checks its collector this way and the Health one has to as
+    well: a frame is a claim about reads that happened, and a row assembled by hand or a
+    collector that quietly took an extra look would otherwise satisfy every structural rule.
+    Conflicted wallets are removed before any balance is read, so they consume nothing here.
+    """
+    window = frame["enumeration_to_block"] - frame["enumeration_from_block"] + 1
+    entered = [account["entered_markets"] for account in accounts]
+    distinct_vtokens = {vtoken for markets in entered for vtoken in markets}
+    counts = {
+        # Three header reads outside the enumeration: the head, the pinned block and the
+        # comptroller's oracle.
+        "eth_blockNumber": 1,
+        "eth_getBlockByNumber": 1,
+        "oracle": 1,
+        "eth_getLogs": window // frame["enumeration_chunk_blocks"],
+        "getAssetsIn": len(accounts),
+        "getAccountLiquidity": len(accounts),
+        "getAccountSnapshot": sum(len(markets) for markets in entered),
+        # Cached per vToken, not per account.
+        "markets": len(distinct_vtokens),
+        "getUnderlyingPrice": len(distinct_vtokens),
+    }
+    return counts | {"total": sum(counts.values())}
 
 
 def _validate_health_inputs(

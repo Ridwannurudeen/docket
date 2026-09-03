@@ -210,7 +210,10 @@ def test_v8_runbook_names_the_registered_moment_and_the_one_family_per_day_rule(
 
     assert "2026-09-06T12:00:00Z" in runbook
     assert "docket-v3-yield-v8-capture.timer" in runbook
-    assert "one family per day is the rule that came out of it" in runbook
+    assert "One family per day." in runbook
+    # MAJOR-3: the rule is about the adapters, so a calibration seat counts too.
+    assert "Calibration seats are seats." in runbook
+    assert "A capture is neither an arm nor a seat" in runbook
     assert "Seat-a is unavailable until Sep 7" in runbook
     assert "seat-a" in runbook
     assert "| Sep 7 | Stage 3, both calibration seats | Operator |" in runbook

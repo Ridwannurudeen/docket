@@ -157,7 +157,7 @@ def _one_page_section(one_page: dict) -> str:
         "Report",
         "Category",
         "Arms",
-        "Planned / terminal",
+        "Planned cases / terminal primaries",
         "Median agent seconds",
         "Median manual seconds",
         "Out-of-pocket per arm",

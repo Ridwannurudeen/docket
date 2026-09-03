@@ -22,6 +22,7 @@ import os
 import tempfile
 from pathlib import Path
 
+from ...hire.catalogue import GUARD_TRIGGER_USD
 from .calibration import assemble_evaluator_calibration, verify_calibration_capture
 from .spec import (
     REPO_ROOT,
@@ -51,9 +52,6 @@ from .spec import (
 POSITION_VALUE_USD = 10000
 SWITCHING_COST_USD = 25
 DECISION_HORIZON_DAYS = 30
-# The shortfall Venus has to be reporting before the deployed guard drafts anything,
-# in the 1e18 USD scale it reports: `docket/hire/catalogue.py` GUARD_TRIGGER_USD.
-GUARD_TRIGGER_USD = 10**18
 
 
 class AssemblyRefused(RuntimeError):

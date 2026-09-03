@@ -106,6 +106,58 @@ def test_v1_rows_equal_their_committed_records(payload):
         assert "marking its own homework" in row["unavailable"]["quality_by_arm"]
 
 
+def test_a_missing_v1_record_is_refused_rather_than_dropped(tmp_path, payload):
+    """A short table that looks complete is worse than a loud failure."""
+    (tmp_path / "01-liquidity.json").write_text(
+        (V1_DIR / "01-liquidity.json").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="one-page table cannot omit a registered task"):
+        v3_report.one_page(payload["families"], v1_dir=tmp_path)
+
+
+def test_a_v2_read_failure_degrades_the_table_instead_of_failing_the_route(
+    monkeypatch, payload
+):
+    """`/advantage/v3.json` is the v3 report; a v2 artifact fault must not take it down."""
+    import docket.advantage.v2.report as v2_module
+
+    def explode():
+        raise RuntimeError("corpus unreadable")
+
+    monkeypatch.setattr(v2_module, "experiments", explode)
+    table = v3_report.one_page(payload["families"])
+
+    assert [row["version"] for row in table["rows"]].count("v2") == 0
+    assert "corpus unreadable" in table["degraded"]["v2"]
+    assert "could not be rebuilt" in table["degraded"]["v2"]
+    assert table["verdict"] is None
+    assert table["n_rows"] == len(table["rows"])
+    # The v1 and v3 rows still publish in full.
+    assert [row["version"] for row in table["rows"]].count("v3") == len(
+        payload["families"]
+    )
+
+
+def test_v2_quality_is_never_a_nested_object(payload):
+    for row in _rows(payload, "v2"):
+        for value in row["quality_by_arm"].values():
+            assert value is None
+        assert row["n_terminal"] is None
+        assert "terminal-primary count" in row["unavailable"]["n_terminal"]
+    scored = [row for row in _rows(payload, "v2") if row["quality_measure"]]
+    assert scored, "at least one v2 experiment publishes scores worth pointing at"
+    for row in scored:
+        assert "scores block" in row["quality_measure"]
+
+
+def test_the_rendered_column_names_both_denominators(payload):
+    rendered = v3_landing(SHELL.read_text(encoding="utf-8"), payload)
+
+    assert "Planned cases / terminal primaries" in rendered
+    assert "Planned / terminal<" not in rendered
+
+
 def test_v2_rows_equal_their_computed_experiments(payload):
     by_id = {
         experiment["experiment_id"]: experiment
