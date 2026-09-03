@@ -1893,3 +1893,236 @@ textarea {
     scroll-behavior: auto !important;
   }
 }
+
+/* ------------------------------------------------ activation surfaces (v13) */
+
+/* The state machine as a row of steps. Status is carried by weight, border and the
+   state's own spelled-out name, never by hue alone: `data-status` sets the border and
+   the text colour, and the words beside it always carry the same meaning. */
+.stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-3);
+  padding: 0;
+}
+
+.step {
+  padding: var(--s-1) var(--s-3);
+  border: var(--border-w) solid var(--border);
+  border-radius: 999px;
+  color: var(--fg-dim);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.step[data-status="done"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.step[data-status="current"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.step[data-status="failed"] {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.step-name::first-letter {
+  text-transform: uppercase;
+}
+
+/* What Docket did, in the order it did it. Numbered, because the order is the point: a
+   reader checking where a payment stopped needs to see which step was the last one. */
+.progress-log {
+  max-width: var(--measure);
+  margin: 0 0 var(--s-3);
+  padding-left: var(--s-4);
+  color: var(--fg-dim);
+  font-size: var(--fs-sm);
+}
+
+.progress-log li {
+  list-style: decimal;
+  margin-bottom: var(--s-1);
+}
+
+.progress-log:empty {
+  display: none;
+}
+
+/* ------------------------------------------------------- choices and limits */
+
+.kind-choice {
+  margin: 0 0 var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--muted);
+}
+
+.kind-choice legend {
+  padding: 0 var(--s-2);
+  color: var(--fg-dim);
+  font-size: var(--fs-sm);
+}
+
+.kind-choice label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  padding: var(--s-2) 0;
+  font-size: var(--fs-sm);
+}
+
+.limits-form,
+.search-form {
+  display: grid;
+  gap: var(--s-3);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  align-items: start;
+}
+
+.limits-form .btn-row,
+.search-form .btn-row {
+  grid-column: 1 / -1;
+}
+
+/* ----------------------------------------------------- verification levels */
+
+/* The level is a statement about Docket's own evidence rather than a rating, so the
+   badge spells the level out and the colour only repeats what the words already say. */
+.verify-badge {
+  display: inline-block;
+  padding: 1px var(--s-2);
+  border: var(--border-w) solid var(--border);
+  border-radius: 999px;
+  color: var(--fg-dim);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.verify-badge[data-level="docket_tested"],
+.verify-badge[data-level="docket_verified"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.state-pill {
+  display: inline-block;
+  padding: 1px var(--s-2);
+  border: var(--border-w) solid var(--border);
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.state-pill[data-state="completed"],
+.state-pill[data-state="active"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.state-pill[data-state="failed"],
+.state-pill[data-state="refunded"],
+.state-pill[data-state="revoked"],
+.state-pill[data-state="expired"] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* ------------------------------------------------------- results and jobs */
+
+.result-list {
+  display: grid;
+  gap: var(--s-3);
+  margin: 0;
+  padding: 0;
+}
+
+.result-row {
+  padding: var(--s-4);
+  border: var(--border-w) solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--muted);
+}
+
+.result-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-3);
+}
+
+.result-head h3 {
+  margin: 0;
+}
+
+.jobs-table .dim {
+  display: block;
+  font-size: var(--fs-xs);
+}
+
+.jobs-table td.btn-row {
+  gap: var(--s-2);
+}
+
+.detail-row td {
+  background: var(--muted);
+}
+
+/* ---------------------------------------------------------------- receipts */
+
+.receipt-block {
+  margin-top: var(--s-3);
+}
+
+.receipt-json,
+.result-json {
+  max-height: 420px;
+  overflow: auto;
+}
+
+/* At 390px the two widest surfaces are the stepper and the activation table. Both stack
+   rather than scroll: a horizontal scrollbar on the page body is the one thing a phone
+   reader cannot recover from, and `table { min-width: 720px }` would produce one. */
+@media (max-width: 720px) {
+  .stepper {
+    flex-direction: column;
+  }
+
+  .step {
+    white-space: normal;
+  }
+
+  .limits-form,
+  .search-form {
+    grid-template-columns: 1fr;
+  }
+
+  .jobs-table {
+    min-width: 0;
+  }
+
+  .jobs-table thead {
+    display: none;
+  }
+
+  .jobs-table tr,
+  .jobs-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .jobs-table .state-pill {
+    margin-bottom: var(--s-1);
+  }
+}

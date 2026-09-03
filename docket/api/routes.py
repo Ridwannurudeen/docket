@@ -1021,7 +1021,22 @@ def create_app(
                 "to read its recorded finding and run it.</p>"
             )
         )
-        return HTMLResponse(shell.replace("<!-- service-opening -->", opening))
+        # Server-rendered, so the way through to activation survives scripting being off —
+        # and absent when no service was named, because a button that activates nothing in
+        # particular is worse than no button. The id is a catalogue key rather than caller
+        # text, and `quote` with no safe set percent-encodes every byte that is significant
+        # in HTML, so the value reaches the attribute inert either way.
+        activate = (
+            '<a class="btn btn-primary" href="/activate?service='
+            f'{quote(record.service_id, safe="")}">Activate</a>'
+            if record is not None
+            else ""
+        )
+        return HTMLResponse(
+            shell.replace("<!-- service-opening -->", opening).replace(
+                "<!-- service-activate -->", activate
+            )
+        )
 
     @app.get("/advantage", include_in_schema=False)
     def advantage_page() -> HTMLResponse:
@@ -2649,6 +2664,31 @@ def create_app(
     @app.get("/favicon.ico", include_in_schema=False)
     def favicon() -> FileResponse:
         return FileResponse(WEB_DIR / "favicon.svg", media_type="image/svg+xml")
+
+    # The four activation surfaces. Kept out of the schema for the reason /research and
+    # /service are: these are pages a person reads, and the machine contract for what they
+    # do is the JSON API they call, not the shell that calls it.
+    @app.get("/activate", include_in_schema=False)
+    def activate_page() -> FileResponse:
+        """One service, priced, with its permissions and custody stated before anything is
+        signed. The step the site did not have between reading a record and buying a run."""
+        return FileResponse(WEB_DIR / "activate.html")
+
+    @app.get("/my-agents", include_in_schema=False)
+    def my_agents_page() -> FileResponse:
+        """What one wallet has activated, and the controls that stop it."""
+        return FileResponse(WEB_DIR / "my-agents.html")
+
+    @app.get("/search", include_in_schema=False)
+    def search_page() -> FileResponse:
+        """Docket's own stock and the registry it observes, in one search, each result
+        carrying the level Docket's evidence actually supports."""
+        return FileResponse(WEB_DIR / "search.html")
+
+    @app.get("/providers", include_in_schema=False)
+    def providers_page() -> FileResponse:
+        """The supply side: claim an identity you own on chain, then list it."""
+        return FileResponse(WEB_DIR / "providers.html")
 
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
     return app

@@ -226,12 +226,17 @@ def test_secure_bundle_verification_refuses_untrusted_write_permissions(
 def test_ci_builds_and_smokes_the_real_provenance_bundle():
     workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 
+    # Three jobs bootstrap pip from the hash-pinned build requirements: `test`,
+    # `package`, and the browser `e2e` job, which needs the same locked environment
+    # because its fixture starts the real uvicorn out of it. The count is here so a
+    # bootstrap that stops being hash-pinned cannot be added quietly; raise it
+    # deliberately when a job is added, never delete it.
     assert (
         workflow.count(
             "python -m pip install --require-hashes --only-binary=:all: "
             "-r deploy/build-requirements.txt"
         )
-        == 2
+        == 3
     )
     assert "python -m pip install uv==" not in workflow
     assert "python -m pip install build==" not in workflow
@@ -240,7 +245,7 @@ def test_ci_builds_and_smokes_the_real_provenance_bundle():
     assert "python deploy/release_bundle.py build" in workflow
     assert "release-bundle/deploy/runtime-requirements.txt" in workflow
     assert "pip install --require-hashes" in workflow
-    assert workflow.count("--only-binary=:all:") == 3
+    assert workflow.count("--only-binary=:all:") == 4
     assert "pip install --no-deps" in workflow
     assert 'docket-venv/bin/python" -m pip check' in workflow
     assert 'python-version: ["3.11", "3.12"]' in workflow

@@ -45,7 +45,15 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-"docket.api" = ["static/*", "static/agents/*.registration.json", "web/*"]
+"docket.api" = [
+    "static/*",
+    "static/agents/*.registration.json",
+    "web/*",
+    # `web/*` does not descend, so the browser modules need their own globs. A wheel
+    # built without them serves the activation pages with every script 404ing.
+    "web/js/*",
+    "web/js/pages/*",
+]
 # /advantage.json is served from these files, so an installed Docket must carry them.
 # The v2 files are the evidence a report cites — the labelled corpus, the pre-registration
 # that hashes it, and the run recorded against that hash — and an install that shipped the

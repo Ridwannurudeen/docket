@@ -36,6 +36,16 @@ PAGES = (
 ASSET_PAGES = (*PAGES, "stats.html")
 
 
+def _ui_files():
+    """Every file the browser is served, including the ES modules under `web/js/`.
+
+    `glob("*")` stopped at the top level, so it read a subdirectory as a file the day one
+    appeared. Walking the tree widens what these checks cover rather than narrowing it.
+    """
+    return sorted(path for path in WEB_DIR.rglob("*") if path.is_file())
+
+
+
 @pytest.fixture
 def client(tmp_path):
     db = tmp_path / "w.sqlite3"
@@ -154,7 +164,7 @@ def test_the_case_file_does_not_invent_an_empty_category_claim(client):
 
 def test_no_page_promises_stock_it_does_not_have(client):
     """ "Coming soon" over a bare shelf is the failure this stage was told to avoid."""
-    for path in WEB_DIR.glob("*"):
+    for path in _ui_files():
         text = path.read_text(encoding="utf-8").lower()
         for promise in (
             "coming soon",
@@ -413,7 +423,7 @@ def test_the_registry_browser_moved_intact(client):
 def test_nothing_inside_the_site_still_links_at_the_moved_url(client):
     """The redirect is there for links other people already hold. A link this site emits
     itself should go straight to the page rather than take a hop it controls."""
-    for path in WEB_DIR.glob("*"):
+    for path in _ui_files():
         text = path.read_text(encoding="utf-8")
         assert 'href="/browse"' not in text, f"{path.name} still links at /browse"
 

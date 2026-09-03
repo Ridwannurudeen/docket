@@ -12,6 +12,22 @@ from docket.store import Store
 WEB = Path(__file__).resolve().parents[1] / "docket" / "api" / "web"
 PAGES = tuple(sorted(WEB.glob("*.html")))
 
+# The four activation surfaces the marketplace pivot adds. They carry the pivot's own nav
+# and the ?v=13 cache-busting query; the nine pages that predate them still carry the W40
+# vocabulary and ?v=12 until the product-surface lane moves them over. Both sets are pinned
+# here, in one test, so the two changes cannot pass each other unnoticed.
+PIVOT_PAGES = frozenset(
+    {"activate.html", "my-agents.html", "search.html", "providers.html"}
+)
+PIVOT_NAV = (
+    ("/", "Explore"),
+    ("/search", "Find agents"),
+    ("/my-agents", "My agents"),
+    ("/providers", "Providers"),
+    ("/advantage", "Evidence"),
+    ("/llms.txt", "API"),
+)
+
 
 def test_every_surface_uses_the_restrained_light_stylesheet():
     css = (WEB / "style.css").read_text(encoding="utf-8")
@@ -19,9 +35,12 @@ def test_every_surface_uses_the_restrained_light_stylesheet():
     assert "color-scheme: light" in css
     assert "color-scheme: dark" not in css
     assert 'content: "LP"' not in css
-    assert len(PAGES) == 9
+    assert len(PAGES) == 13
     for page in PAGES:
-        assert 'href="/static/style.css?v=12"' in page.read_text(encoding="utf-8")
+        version = "13" if page.name in PIVOT_PAGES else "12"
+        assert f'href="/static/style.css?v={version}"' in page.read_text(
+            encoding="utf-8"
+        ), page.name
 
 
 def test_evidence_landings_link_to_depth_instead_of_collapsing_it():
@@ -77,7 +96,9 @@ def test_navigation_and_generated_evidence_use_one_presentation_vocabulary():
             re.findall(r'<a href="([^"]+)"(?: aria-current="page")?>([^<]+)</a>', nav)
         )
         expected = (
-            (
+            PIVOT_NAV
+            if page.name in PIVOT_PAGES
+            else (
                 ("#evidence", "Case file"),
                 ("#services", "Services"),
                 ("#experiments", "Experiments"),
@@ -89,7 +110,9 @@ def test_navigation_and_generated_evidence_use_one_presentation_vocabulary():
         assert links == expected, page.name
 
     index = (WEB / "index.html").read_text(encoding="utf-8")
-    footer = re.search(r'<footer class="site-footer">.*?</footer>', index, re.S).group(0)
+    footer = re.search(r'<footer class="site-footer">.*?</footer>', index, re.S).group(
+        0
+    )
     assert '<a href="/pancake">PancakeSwap</a>' in footer
     assert '<a href="/research">Browse agents</a>' in footer
 

@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Service — Docket</title>
+    <title>My agents — Docket</title>
     <meta
       name="description"
-      content="One Docket service: what arrives, what to send, what it costs, what has been observed of it, what it cannot do — and the control that runs it."
+      content="Every activation one wallet owns: state, last run, next scheduled run, what it has spent, what it is permitted to touch, and the controls that pause or revoke it."
     />
-    <link rel="stylesheet" href="/static/style.css?v=12" />
-    <script type="module" src="/static/app.js?v=12"></script>
+    <link rel="stylesheet" href="/static/style.css?v=13" />
+    <script type="module" src="/static/js/pages/my-agents.js?v=13"></script>
   </head>
-  <body data-page="service">
+  <body data-page="my-agents">
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="site-header">
@@ -35,10 +35,11 @@
           Docket <span class="brand-sub">BSC / ERC-8004</span>
         </a>
         <nav class="site-nav" aria-label="Primary">
-          <a href="/">Case file</a>
-          <a href="/pancake">PancakeSwap</a>
-          <a href="/research">Browse agents</a>
-          <a href="/advantage">Advantage report</a>
+          <a href="/">Explore</a>
+          <a href="/search">Find agents</a>
+          <a href="/my-agents" aria-current="page">My agents</a>
+          <a href="/providers">Providers</a>
+          <a href="/advantage">Evidence</a>
           <a href="/llms.txt">API</a>
         </nav>
       </div>
@@ -47,47 +48,39 @@
     <main id="main">
       <div class="wrap">
         <section class="hero">
-          <p class="section-note"><a href="/#services">Back to the services</a></p>
-          <div class="wrap-anywhere" data-region="service">
-            <!-- service-opening -->
-          </div>
-          <p class="btn-row">
-            <!-- service-activate -->
+          <h1>My agents</h1>
+          <p class="lede">
+            Every activation one wallet owns: what state it is in, what it has spent, what it is
+            permitted to touch, and the controls that stop it.
           </p>
+          <p class="status-line" data-region="account" aria-live="polite"></p>
           <noscript>
             <div class="notice notice-warn">
-              <h2>The service record remains readable</h2>
+              <h2>This page reads your wallet with JavaScript</h2>
               <p>
-                With JavaScript off, the server-rendered offer, observations, inputs, evidence, and
-                limits above remain. Only the browser form is unavailable. The work still runs
-                from a terminal with no account, key or wallet:
-              </p>
-              <pre>curl -s /services
-curl -s /services/range-doctor
-curl -s -X POST /hire/range-doctor \
-  -H 'content-type: application/json' \
-  -d '{"wallet":"0x…"}'</pre>
-              <p>
-                <a href="/llms.txt">/llms.txt</a> carries every service's input schema and the
-                whole contract for that request.
+                Docket has no accounts and holds no key, so it identifies you by an address your
+                wallet supplies. With scripting off there is no address to read and nothing to
+                look up. The same records are at
+                <span class="mono">/api/activations?owner=0x…</span>, documented in
+                <a href="/llms.txt">/llms.txt</a>.
               </p>
             </div>
           </noscript>
         </section>
 
-        <section data-region="activation-section" aria-labelledby="activate-heading">
-          <h2 id="activate-heading">Run it</h2>
-          <div class="wrap-anywhere" data-region="activate">
-            <span class="skeleton skeleton-row skeleton-wide"></span>
-          </div>
+        <section aria-labelledby="jobs-heading">
+          <h2 id="jobs-heading">Activations</h2>
           <p
             class="visually-hidden"
-            data-region="outcome-status"
+            data-region="control-status"
             role="status"
             aria-live="polite"
             aria-atomic="true"
           ></p>
-          <div class="wrap-anywhere" data-region="outcome" aria-busy="false"></div>
+          <div data-region="control-failure"></div>
+          <div class="wrap-anywhere" data-region="jobs" aria-busy="false">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
         </section>
       </div>
     </main>
@@ -95,10 +88,11 @@ curl -s -X POST /hire/range-doctor \
     <footer class="site-footer">
       <div class="wrap">
         <p class="footer-links">
+          <a href="/pancake">PancakeSwap</a>
+          <a href="/research">Browse agents</a>
+          <a href="/status">Status</a>
           <a href="/categories">/categories (JSON)</a>
           <a href="/services">/services (JSON)</a>
-          <a href="/stats">Registry coverage (snapshot required)</a>
-          <a href="/agents">/agents (JSON) · snapshot required</a>
           <a href="/llms.txt">/llms.txt</a>
           <a href="/skill.md">/skill.md</a>
           <a href="/openapi.json">/openapi.json (JSON)</a>

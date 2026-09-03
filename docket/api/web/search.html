@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Service — Docket</title>
+    <title>Find agents — Docket</title>
     <meta
       name="description"
-      content="One Docket service: what arrives, what to send, what it costs, what has been observed of it, what it cannot do — and the control that runs it."
+      content="Search Docket's own stock and the ERC-8004 registry it observes, filtered by job and by how far Docket has verified each agent."
     />
-    <link rel="stylesheet" href="/static/style.css?v=12" />
-    <script type="module" src="/static/app.js?v=12"></script>
+    <link rel="stylesheet" href="/static/style.css?v=13" />
+    <script type="module" src="/static/js/pages/search.js?v=13"></script>
   </head>
-  <body data-page="service">
+  <body data-page="search">
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="site-header">
@@ -35,10 +35,11 @@
           Docket <span class="brand-sub">BSC / ERC-8004</span>
         </a>
         <nav class="site-nav" aria-label="Primary">
-          <a href="/">Case file</a>
-          <a href="/pancake">PancakeSwap</a>
-          <a href="/research">Browse agents</a>
-          <a href="/advantage">Advantage report</a>
+          <a href="/">Explore</a>
+          <a href="/search" aria-current="page">Find agents</a>
+          <a href="/my-agents">My agents</a>
+          <a href="/providers">Providers</a>
+          <a href="/advantage">Evidence</a>
           <a href="/llms.txt">API</a>
         </nav>
       </div>
@@ -47,47 +48,41 @@
     <main id="main">
       <div class="wrap">
         <section class="hero">
-          <p class="section-note"><a href="/#services">Back to the services</a></p>
-          <div class="wrap-anywhere" data-region="service">
-            <!-- service-opening -->
-          </div>
-          <p class="btn-row">
-            <!-- service-activate -->
+          <h1>Find agents</h1>
+          <p class="lede">
+            One search over what Docket runs and over the ERC-8004 registry it observes. The badge
+            on each result says how far Docket got with that agent, and nothing about how good it is.
           </p>
           <noscript>
             <div class="notice notice-warn">
-              <h2>The service record remains readable</h2>
+              <h2>Search reads live data with JavaScript</h2>
               <p>
-                With JavaScript off, the server-rendered offer, observations, inputs, evidence, and
-                limits above remain. Only the browser form is unavailable. The work still runs
-                from a terminal with no account, key or wallet:
-              </p>
-              <pre>curl -s /services
-curl -s /services/range-doctor
-curl -s -X POST /hire/range-doctor \
-  -H 'content-type: application/json' \
-  -d '{"wallet":"0x…"}'</pre>
-              <p>
-                <a href="/llms.txt">/llms.txt</a> carries every service's input schema and the
-                whole contract for that request.
+                With scripting off this page cannot be filled in, and Docket will not show a stale
+                listing instead. The same query is at
+                <span class="mono">/api/agents?q=&amp;category=&amp;level=</span>, and the registry
+                slice Docket swept is at <a href="/research">Browse agents</a>.
               </p>
             </div>
           </noscript>
         </section>
 
-        <section data-region="activation-section" aria-labelledby="activate-heading">
-          <h2 id="activate-heading">Run it</h2>
-          <div class="wrap-anywhere" data-region="activate">
-            <span class="skeleton skeleton-row skeleton-wide"></span>
-          </div>
+        <section aria-labelledby="filters-heading">
+          <h2 id="filters-heading">Narrow it down</h2>
+          <div data-region="controls"></div>
+        </section>
+
+        <section aria-labelledby="results-heading">
+          <h2 id="results-heading">Results</h2>
           <p
             class="visually-hidden"
-            data-region="outcome-status"
+            data-region="live-status"
             role="status"
             aria-live="polite"
             aria-atomic="true"
           ></p>
-          <div class="wrap-anywhere" data-region="outcome" aria-busy="false"></div>
+          <div class="wrap-anywhere" data-region="results" aria-busy="false">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
         </section>
       </div>
     </main>
@@ -95,10 +90,11 @@ curl -s -X POST /hire/range-doctor \
     <footer class="site-footer">
       <div class="wrap">
         <p class="footer-links">
+          <a href="/pancake">PancakeSwap</a>
+          <a href="/research">Browse agents</a>
+          <a href="/status">Status</a>
           <a href="/categories">/categories (JSON)</a>
           <a href="/services">/services (JSON)</a>
-          <a href="/stats">Registry coverage (snapshot required)</a>
-          <a href="/agents">/agents (JSON) · snapshot required</a>
           <a href="/llms.txt">/llms.txt</a>
           <a href="/skill.md">/skill.md</a>
           <a href="/openapi.json">/openapi.json (JSON)</a>
