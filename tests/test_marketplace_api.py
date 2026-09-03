@@ -450,6 +450,13 @@ def test_an_outage_never_serves_a_held_level_over_evidence_that_all_failed(tmp_p
         "the outage attempt must be recorded as a run"
     )
 
+    # And the hold clears the moment the chain answers again, rather than sticking.
+    recovered = working.post(f"/api/agents/{AGENT}/verify", json={}).json()
+    assert recovered["chain_read_failed"] is False
+    assert recovered["listing"]["verification"]["held_from_outage"] is False
+    assert recovered["listing"]["verification"]["held_at"] is None
+    assert recovered["listing"]["verification"]["verified_at"] > earned_at
+
 
 def test_a_listing_found_on_a_search_page_has_its_card_read_before_it_is_verified(
     client,

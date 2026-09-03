@@ -408,6 +408,45 @@ def test_a_chain_outage_never_demotes_a_level_a_listing_already_earned():
     assert result.runs[0].detail["outcome"] == "rpc_unavailable"
 
 
+def test_apply_result_leaves_a_held_listing_exactly_as_it_stood():
+    """The blocker, at the seam where it was introduced. `verify_listing` reports the held
+    level; `apply_result` is what used to write the all-failed run on top of it."""
+    earned = apply_result(
+        _listing(endpoints=MCP),
+        verify_listing(
+            _listing(endpoints=MCP),
+            rpc=_owned,
+            http=_staged(
+                [{"status": 200, "body": "{}"}, {"status": 200, "body": TOOLS_RESULT}]
+            ),
+        ),
+    )
+    outage = verify_listing(earned, rpc=_outcome("rpc_unavailable"), http=_responder())
+    held = apply_result(earned, outage)
+
+    assert held_through_outage(outage) is True
+    assert held.verification["evidence"] == earned.verification["evidence"]
+    assert held.verification["verified_at"] == earned.verification["verified_at"]
+    assert held.updated_at == earned.updated_at
+    assert held.hireable is earned.hireable is True
+    assert held.verification["held_from_outage"] is True
+    assert held.to_json()["verification"]["held_at"] == outage.verified_at
+
+
+def test_only_the_first_few_declared_endpoints_are_ever_touched():
+    """A registration may name many. Probing all of them turns one API call into a burst
+    against somebody else's host."""
+    many = tuple(
+        {"kind": "a2a", "url": f"https://a{index}.example/card"} for index in range(6)
+    )
+    http = _responder(outcome="timeout")
+    result = verify_listing(_listing(endpoints=many), rpc=_owned, http=http)
+
+    assert len(http.sent) == MAX_ENDPOINTS_PER_RUN
+    assert result.runs[2].detail["endpoints_considered"] == MAX_ENDPOINTS_PER_RUN
+    assert result.runs[2].detail["endpoints_declared"] == len(many)
+
+
 def test_a_chain_revert_is_not_an_outage_and_does_take_the_level_away():
     listing = _listing(endpoints=MCP, level="docket_tested")
     result = verify_listing(listing, rpc=_outcome("not_registered"), http=_responder())
