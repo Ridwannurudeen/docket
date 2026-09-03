@@ -11,28 +11,31 @@ disclosure. `docket/sessions/executor.py` is the only thing that broadcasts.
 
 **The sequence, and why it is that sequence.**
 
-1. `approve(session, tokenId)` on the position manager, **signed by the owner**. The NFT
-   is theirs; a session that could move it without this would be a session that could move
-   any position they hold. It is the one call in the route the owner signs, and it is
-   scoped to one token id rather than `setApprovalForAll`.
-2. `decreaseLiquidity` — burn the position's liquidity back into the manager's own
+0. **A precondition, not a step.** `approve(session, tokenId)` on the position manager is
+   signed by the owner and is *not* in the list this returns. Every call here is broadcast
+   from the session key, and a session cannot approve itself for a token it does not own —
+   an owner-signed call sitting in the batch would be signed by the wrong account and
+   revert at what looks like the route's own first step. The approval is read before
+   anything is built (`getApproved` and `isApprovedForAll`) and a session that has not
+   been granted it gets `NftApprovalRequired`, naming exactly what the owner must sign.
+1. `decreaseLiquidity` — burn the position's liquidity back into the manager's own
    accounting, with non-zero `amount0Min`/`amount1Min` derived from the pool's live price
    rather than left at zero. A zero minimum on a withdrawal is the same defect as a zero
    `amountOutMin` on a swap: it accepts whatever a manipulated tick hands back.
-3. `collect` — move the tokens, and any fees the position had accrued, to the **session**.
+2. `collect` — move the tokens, and any fees the position had accrued, to the **session**.
    The session is the recipient because it is the account that swaps, approves and mints
    next; the funds transit it and `revoke` sweeps whatever is left back to the owner.
-4. Swap legs — at most three, all through the V2 router the rest of Docket uses, each
+3. Swap legs — at most three, all through the V2 router the rest of Docket uses, each
    quoted live and floored at `min_output`. One leg per held token that the destination
    pool does not hold, then one balancing leg to reach the ratio the destination band
    needs at its current tick.
-5. `approve(NPM, amount)` for each destination token, for **exactly** the amount the mint
+4. `approve(NPM, amount)` for each destination token, for **exactly** the amount the mint
    will pull. Never an unlimited approval, and never a rounded-up one.
-6. `mint` into the destination pool with a tick band of `band_width_ticks` either side of
+5. `mint` into the destination pool with a tick band of `band_width_ticks` either side of
    the pool's current tick, aligned outward to the pool's own spacing, and
    `recipient = owner`. The position lands in the owner's wallet, not the session's, so
    the session's revocation cannot strand it.
-7. A verification read spec: which log identifies the new token id, and the exact
+6. A verification read spec: which log identifies the new token id, and the exact
    `positions(tokenId)` call that reads it back.
 
 **What the plan is honest about.** The amounts the mint asks for are the conservative
@@ -42,6 +45,12 @@ that leaves behind is dust in the session, which `revoke` sweeps. Fee rates are 
 observation annualised, not a forecast. Impermanent loss is not modelled anywhere in the
 break-even. And the switching cost is the caller's own figure — this module reads no BNB
 price and does not invent one.
+
+**A route resumes from the chain.** The position's liquidity is read live rather than
+taken from the caller's snapshot. A run interrupted after the collect leaves the session
+holding the tokens and the position at zero liquidity, so the withdrawal steps are skipped
+and the plan continues from the session's own balances — and every leg is estimated live
+rather than deferred, because by then the session really does hold what it is spending.
 """
 
 from dataclasses import dataclass, field
@@ -103,6 +112,13 @@ ERC20_ABI = [
             {"name": "amount", "type": "uint256"},
         ],
         "outputs": [{"name": "", "type": "bool"}],
+    },
+    {
+        "name": "balanceOf",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "account", "type": "address"}],
+        "outputs": [{"name": "", "type": "uint256"}],
     },
 ]
 NPM_WRITE_ABI = [
@@ -190,6 +206,23 @@ NPM_WRITE_ABI = [
         ],
     },
     {
+        "name": "getApproved",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "tokenId", "type": "uint256"}],
+        "outputs": [{"name": "", "type": "address"}],
+    },
+    {
+        "name": "isApprovedForAll",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [
+            {"name": "owner", "type": "address"},
+            {"name": "operator", "type": "address"},
+        ],
+        "outputs": [{"name": "", "type": "bool"}],
+    },
+    {
         "name": "positions",
         "type": "function",
         "stateMutability": "view",
@@ -213,6 +246,8 @@ NPM_WRITE_ABI = [
 SELECTORS = {
     "erc20.approve": "approve(address,uint256)",
     "npm.approve": "approve(address,uint256)",
+    "npm.getApproved": "getApproved(uint256)",
+    "npm.isApprovedForAll": "isApprovedForAll(address,address)",
     "npm.decreaseLiquidity": "decreaseLiquidity((uint256,uint128,uint256,uint256,uint256))",
     "npm.collect": "collect((uint256,address,uint128,uint128))",
     "npm.mint": (
@@ -264,6 +299,19 @@ ASSUMPTIONS = (
 
 class MigrationRefused(ValueError):
     """A move that cannot be built as asked. Raised before any calldata exists."""
+
+
+class NftApprovalRequired(MigrationRefused):
+    """The one authority the session cannot grant itself, and does not yet hold.
+
+    Separate from every other refusal because the remedy is a signature from the owner
+    rather than a different request, and because the executor turns `detail` into the
+    exact thing the browser has to ask them for.
+    """
+
+    def __init__(self, message: str, *, detail: dict) -> None:
+        super().__init__(message)
+        self.detail = detail
 
 
 # ------------------------------------------------------------------ tick arithmetic
@@ -398,6 +446,10 @@ class MigrationPlan:
     # cap on, and it is computed where the calls are built rather than inferred later by
     # something that would have to decode the calldata to guess at it.
     session_spend: dict[str, str] = field(default_factory=dict)
+    # The same figures split per call and in batch order. `SessionPolicy.allows` runs once
+    # per call, so this is the shape it can actually be checked against; the batch total
+    # above stays for the disclosure, where a reader wants one number.
+    session_spend_by_call: tuple[dict, ...] = ()
     evidence: dict = field(default_factory=dict)
 
     @property
@@ -416,6 +468,7 @@ class MigrationPlan:
             "tick_upper": self.tick_upper,
             "calls": [call.to_dict() for call in self.calls],
             "session_spend": self.session_spend,
+            "session_spend_by_call": [dict(entry) for entry in self.session_spend_by_call],
             "verification": self.verification.as_record(),
             "disclosure": self.disclosure,
             "evidence": self.evidence,
@@ -499,6 +552,68 @@ def _simulation(
         "checks": checks,
         "deferred": list(deferred),
     }
+
+
+def _nft_approval(reader, *, owner: str, session: str, token_id: int) -> bool:
+    """Whether the session may already move this position NFT.
+
+    Both forms count, because both are things the owner may have signed: `getApproved`
+    for this one token id, and `isApprovedForAll` for the whole collection. A read that
+    does not answer is `False` — refusing a route because a node was quiet costs the
+    owner one signature they may not need, and assuming an approval nobody read costs
+    them a batch that reverts halfway through.
+    """
+    if not hasattr(reader, "call"):
+        return False
+    session = Web3.to_checksum_address(session)
+    for name, args in (
+        ("getApproved", [int(token_id)]),
+        ("isApprovedForAll", [Web3.to_checksum_address(owner), session]),
+    ):
+        try:
+            raw = bytes(reader.call(owner, NPM, _encode(_npm, name, args)))
+        except Exception:
+            continue
+        if not raw:
+            continue
+        if name == "getApproved":
+            if Web3.to_checksum_address("0x" + raw[-20:].hex()) == session:
+                return True
+        elif int.from_bytes(raw[-32:], "big"):
+            return True
+    return False
+
+
+def position_liquidity(reader, token_id: int, *, owner: str) -> int | None:
+    """The live liquidity of one position, or `None` when the read did not answer.
+
+    Read rather than remembered. A route that has already burned its position and been
+    interrupted before the mint has to be resumable, and the only thing that knows how
+    far it got is the chain.
+    """
+    if not hasattr(reader, "call"):
+        return None
+    try:
+        raw = bytes(
+            reader.call(owner, NPM, _encode(_npm, "positions", [int(token_id)]))
+        )
+    except Exception:
+        return None
+    if len(raw) < 12 * 32:
+        return None
+    return int.from_bytes(raw[7 * 32 : 8 * 32], "big")
+
+
+def _balance_of(reader, *, token: str, account: str) -> int | None:
+    if not hasattr(reader, "call"):
+        return None
+    try:
+        raw = bytes(
+            reader.call(account, token, _encode(_erc20, "balanceOf", [account]))
+        )
+    except Exception:
+        return None
+    return int.from_bytes(raw[-32:], "big") if raw else None
 
 
 def _pool_tokens(pool: dict) -> tuple[str, str]:
@@ -586,8 +701,13 @@ def plan_full_route(
             "that step is not built here."
         )
     token_id = int(current_position["token_id"])
-    liquidity = int(current_position["liquidity"])
-    if liquidity <= 0:
+    # Live, not remembered. A route that burned its position and was interrupted before
+    # the mint has to be resumable, and the only thing that knows how far it got is the
+    # chain: the caller's snapshot of the position is as old as whenever it was read.
+    onchain = position_liquidity(reader, token_id, owner=owner)
+    liquidity = int(current_position["liquidity"]) if onchain is None else onchain
+    resuming = liquidity <= 0
+    if resuming and onchain is None:
         raise MigrationRefused(
             f"position {token_id} holds no liquidity, so there is nothing to move"
         )
@@ -638,109 +758,139 @@ def plan_full_route(
             )
     block = int(dest_state["block_number"])
     observed_at = str(dest_state["observation_time"])
-    deadline = now + DEADLINE_S
 
-    # ---- step 1-3: out of the current position
-    sqrt_lower = sqrt_ratio_x96_at_tick(int(current_position["tick_lower"]))
-    sqrt_upper = sqrt_ratio_x96_at_tick(int(current_position["tick_upper"]))
-    removed0, removed1 = amounts_for_liquidity(
-        liquidity, int(source_state["sqrt_price_x96"]), sqrt_lower, sqrt_upper
-    )
-    floor0 = removed0 * (10_000 - max_slippage_bps) // 10_000
-    floor1 = removed1 * (10_000 - max_slippage_bps) // 10_000
-    if floor0 <= 0 and floor1 <= 0:
-        raise MigrationRefused(
-            f"position {token_id} prices to nothing on either side at the pool's current "
-            "tick once slippage is allowed, so there is no minimum this withdrawal could "
-            "insist on and it is refused rather than sent with zeros"
+    # ---- step 1-3: out of the current position, or straight past it when it is out
+    if resuming:
+        # The position is already burned. Whatever the collect paid out is sitting in the
+        # session, so the route continues from what the session actually holds rather than
+        # from what a withdrawal was going to produce. Balances, not arithmetic: after an
+        # interrupted run the two are not the same number.
+        removed0 = _balance_of(reader, token=source0, account=session) or 0
+        removed1 = _balance_of(reader, token=source1, account=session) or 0
+        floor0, floor1 = removed0, removed1
+        if floor0 <= 0 and floor1 <= 0:
+            raise MigrationRefused(
+                f"position {token_id} holds no liquidity and the session holds neither of "
+                "its tokens, so there is nothing left to move and nothing to resume from"
+            )
+    else:
+        sqrt_lower = sqrt_ratio_x96_at_tick(int(current_position["tick_lower"]))
+        sqrt_upper = sqrt_ratio_x96_at_tick(int(current_position["tick_upper"]))
+        removed0, removed1 = amounts_for_liquidity(
+            liquidity, int(source_state["sqrt_price_x96"]), sqrt_lower, sqrt_upper
+        )
+        floor0 = removed0 * (10_000 - max_slippage_bps) // 10_000
+        floor1 = removed1 * (10_000 - max_slippage_bps) // 10_000
+        if floor0 <= 0 and floor1 <= 0:
+            raise MigrationRefused(
+                f"position {token_id} prices to nothing on either side at the pool's "
+                "current tick once slippage is allowed, so there is no minimum this "
+                "withdrawal could insist on and it is refused rather than sent with zeros"
+            )
+
+    # The session's authority over the NFT is a precondition, not a step. Every call this
+    # function returns is executed from the session key, so an owner-signed approval
+    # sitting in the list would be signed by the session — which does not own the NFT, so
+    # the call reverts and the route dies at what looks like its own first step. The
+    # approval is read instead, and a session that has not been granted it is a refusal
+    # naming exactly what the owner has to sign.
+    approved = _nft_approval(reader, owner=owner, session=session, token_id=token_id)
+    if not approved:
+        raise NftApprovalRequired(
+            f"the session {session} is not approved for position NFT {token_id}. The "
+            "owner signs that approval themselves — it is the one authority the session "
+            "cannot grant itself — and nothing in this route can run until they have",
+            detail={
+                "contract": NPM,
+                "token_id": token_id,
+                "session": session,
+                "owner": owner,
+                "function": SELECTORS["npm.approve"],
+                "note": (
+                    "approve(session, tokenId) on the position manager, scoped to this "
+                    "one token id. setApprovalForAll would hand the session every "
+                    "position the owner holds and is not what this route needs"
+                ),
+            },
         )
 
     calls: list[PreparedCall] = []
-    approve_nft = _encode(_npm, "approve", [session, token_id])
-    calls.append(
-        PreparedCall(
-            to=NPM,
-            data="0x" + approve_nft.hex(),
-            value_atomic="0",
-            gas_ceiling=GAS_CEILINGS["npm.approve"],
-            deadline=deadline,
-            purpose=(
-                f"OWNER SIGNS: approve the session {session} for position NFT {token_id} "
-                "only. Not setApprovalForAll — this authority covers one token id and "
-                "ends when the position is burned"
-            ),
-            simulation=_simulation(
-                reader,
-                sender=owner,
-                target=NPM,
-                calldata=approve_nft,
-                gas_ceiling=GAS_CEILINGS["npm.approve"],
-                block=block,
-                observed_at=observed_at,
-            ),
-        )
-    )
 
-    decrease = _encode(
-        _npm, "decreaseLiquidity", [(token_id, liquidity, floor0, floor1, deadline)]
-    )
-    calls.append(
-        PreparedCall(
-            to=NPM,
-            data="0x" + decrease.hex(),
-            value_atomic="0",
-            gas_ceiling=GAS_CEILINGS["npm.decreaseLiquidity"],
-            deadline=deadline,
-            purpose=(
-                f"burn all {liquidity} liquidity of position {token_id}, insisting on at "
-                f"least {floor0} of token0 and {floor1} of token1 — the amounts the pool's "
-                f"own tick prices that liquidity at, less {max_slippage_bps}bps"
-            ),
-            simulation=_simulation(
-                reader,
-                sender=owner,
-                target=NPM,
-                calldata=decrease,
+    def slot() -> int:
+        """One deadline per call, each a window further out than the one before it.
+
+        They are mined in order, so a later call carrying the earlier one's deadline is a
+        call that expires while it is still waiting its turn — and an eight-call route
+        sharing one ten-minute window is a route whose tail cannot land.
+        """
+        return now + DEADLINE_S * (len(calls) + 1)
+
+    deadline = slot()
+    if not resuming:
+        decrease = _encode(
+            _npm, "decreaseLiquidity", [(token_id, liquidity, floor0, floor1, deadline)]
+        )
+        calls.append(
+            PreparedCall(
+                to=NPM,
+                data="0x" + decrease.hex(),
+                value_atomic="0",
                 gas_ceiling=GAS_CEILINGS["npm.decreaseLiquidity"],
-                block=block,
-                observed_at=observed_at,
-                extra_checks=(
-                    "simulated from the owner, who is authorised for this token id "
-                    "without call 1; the session gains the same authority from call 1",
+                deadline=deadline,
+                purpose=(
+                    f"burn all {liquidity} liquidity of position {token_id}, insisting on "
+                    f"at least {floor0} of token0 and {floor1} of token1 — the amounts "
+                    f"the pool's own tick prices that liquidity at, less "
+                    f"{max_slippage_bps}bps"
                 ),
-            ),
+                simulation=_simulation(
+                    reader,
+                    sender=owner,
+                    target=NPM,
+                    calldata=decrease,
+                    gas_ceiling=GAS_CEILINGS["npm.decreaseLiquidity"],
+                    block=block,
+                    observed_at=observed_at,
+                    extra_checks=(
+                        "simulated from the owner, who is authorised for this token id "
+                        "in their own right; the session holds the same authority "
+                        "through the approval this route required before building",
+                    ),
+                ),
+            )
         )
-    )
 
+    deadline = slot()
     collect = _encode(_npm, "collect", [(token_id, session, UINT128_MAX, UINT128_MAX)])
-    calls.append(
-        PreparedCall(
-            to=NPM,
-            data="0x" + collect.hex(),
-            value_atomic="0",
-            gas_ceiling=GAS_CEILINGS["npm.collect"],
-            deadline=deadline,
-            purpose=(
-                f"collect everything the position now owes — the burned liquidity and any "
-                f"fees it had accrued — to the session {session}, which is the account "
-                "that swaps, approves and mints next. Revoking the session sweeps whatever "
-                "is left of it back to the owner"
-            ),
-            simulation=_simulation(
-                reader,
-                sender=None,
-                target=NPM,
-                calldata=collect,
+    if not resuming:
+        calls.append(
+            PreparedCall(
+                to=NPM,
+                data="0x" + collect.hex(),
+                value_atomic="0",
                 gas_ceiling=GAS_CEILINGS["npm.collect"],
-                block=block,
-                observed_at=observed_at,
-                deferred=(
-                    "eth_call and eth_estimateGas: collect returns nothing until call 2 "
-                    "has burned the liquidity into the manager's accounting",
+                deadline=deadline,
+                purpose=(
+                    f"collect everything the position now owes — the burned liquidity and any "
+                    f"fees it had accrued — to the session {session}, which is the account "
+                    "that swaps, approves and mints next. Revoking the session sweeps whatever "
+                    "is left of it back to the owner"
                 ),
-            ),
+                simulation=_simulation(
+                    reader,
+                    sender=None,
+                    target=NPM,
+                    calldata=collect,
+                    gas_ceiling=GAS_CEILINGS["npm.collect"],
+                    block=block,
+                    observed_at=observed_at,
+                    deferred=(
+                        "eth_call and eth_estimateGas: collect returns nothing until call 2 "
+                        "has burned the liquidity into the manager's accounting",
+                    ),
+                ),
+            )
         )
-    )
 
     # ---- step 4: swap legs
     tick_lower, tick_upper = align_band(
@@ -751,14 +901,15 @@ def plan_full_route(
         destination=(dest0, dest1),
         reader=reader,
         recipient=session,
-        deadline=deadline,
+        deadline=slot,
         max_slippage_bps=max_slippage_bps,
         block=block,
         observed_at=observed_at,
         dest_state=dest_state,
         band=(tick_lower, tick_upper),
+        deferred=not resuming,
+        calls=calls,
     )
-    calls.extend(legs)
 
     desired0 = holdings.get(dest0, 0)
     desired1 = holdings.get(dest1, 0)
@@ -772,6 +923,7 @@ def plan_full_route(
     for token, amount in ((dest0, desired0), (dest1, desired1)):
         if amount <= 0:
             continue
+        deadline = slot()
         approve = _encode(_erc20, "approve", [NPM, amount])
         calls.append(
             PreparedCall(
@@ -801,6 +953,7 @@ def plan_full_route(
         )
 
     # ---- step 6: mint
+    deadline = slot()
     min0 = desired0 * (10_000 - max_slippage_bps) // 10_000
     min1 = desired1 * (10_000 - max_slippage_bps) // 10_000
     mint = _encode(
@@ -857,10 +1010,12 @@ def plan_full_route(
         data="0x" + _encode(_npm, "positions", [0]).hex(),
         function=SELECTORS["npm.positions"],
         identified_by=(
-            f"the new token id is the first topic of the {INCREASE_LIQUIDITY_TOPIC} "
-            "IncreaseLiquidity log emitted by the position manager in the mint's own "
-            f"receipt, and the same id appears as the third topic of the {TRANSFER_TOPIC} "
-            f"Transfer log from {ZERO_ADDRESS} to the owner"
+            f"the new token id is topics[1] of the IncreaseLiquidity log "
+            f"({INCREASE_LIQUIDITY_TOPIC} in topics[0]) emitted by the position manager "
+            "in the mint's own receipt — the event's one indexed parameter. The same id "
+            f"is topics[3] of the ERC-721 Transfer log ({TRANSFER_TOPIC} in topics[0]) "
+            f"from {ZERO_ADDRESS} to the owner, where from and to take topics[1] and "
+            "topics[2]"
         ),
         note=(
             "The calldata above carries token id 0 as a placeholder. Substitute the id "
@@ -881,6 +1036,10 @@ def plan_full_route(
         if amount > 0:
             spend[token] = spend.get(token, 0) + amount
     session_spend = {token: str(amount) for token, amount in sorted(spend.items())}
+    # One mapping per call, in batch order, because the policy engine charges per call
+    # and not per batch: handing it the batch total once and applying it to all eight
+    # calls charged eight times the real spend against the session cap.
+    by_call = _spend_by_call(calls, legs=leg_records, mint=(dest0, desired0, dest1, desired1))
 
     disclosure = _disclosure(
         current_position=current_position,
@@ -899,12 +1058,14 @@ def plan_full_route(
         desired=(desired0, desired1),
         legs=leg_records,
         session_spend=session_spend,
+        resuming=resuming,
         owner=owner,
         session=session,
     )
     return MigrationPlan(
         calls=tuple(calls),
         session_spend=session_spend,
+        session_spend_by_call=by_call,
         verification=verification,
         disclosure=disclosure,
         source_token_id=token_id,
@@ -932,12 +1093,14 @@ def _swap_legs(
     destination: tuple[str, str],
     reader,
     recipient: str,
-    deadline: int,
+    deadline,
     max_slippage_bps: int,
     block: int,
     observed_at: str,
     dest_state: dict,
     band: tuple[int, int],
+    deferred: bool,
+    calls: list,
 ) -> tuple[list[PreparedCall], dict, list[dict]]:
     """At most three legs: one per stranded token, then one to reach the band's ratio.
 
@@ -945,9 +1108,14 @@ def _swap_legs(
     floors rather than the quotes. Planning on the floor is what makes the mint below
     safe: whatever the legs actually return is at least this, so the mint asks for an
     amount the session is certainly holding.
+
+    `deadline` is the caller's slot function rather than a number, and legs are appended
+    to the caller's own list, so each one lands in the batch position it will be mined
+    in and takes the deadline that position earns. `deferred` says whether the session is
+    still waiting on a collect for the tokens these legs spend: when it is not — a
+    resumed route, where the session already holds them — the legs are estimated live.
     """
     dest0, dest1 = destination
-    calls: list[PreparedCall] = []
     records: list[dict] = []
     working = dict(holdings)
 
@@ -960,10 +1128,12 @@ def _swap_legs(
             working[token],
             reader=reader,
             recipient=recipient,
-            deadline=deadline,
+            deadline=deadline(),
             max_slippage_bps=max_slippage_bps,
             block=block,
             observed_at=observed_at,
+            deferred=deferred,
+            sender=None if deferred else recipient,
             why=(
                 f"{token} is neither side of the destination pool, so the whole holding "
                 f"is routed into {dest0} before the balance is struck"
@@ -987,10 +1157,12 @@ def _swap_legs(
             amount,
             reader=reader,
             recipient=recipient,
-            deadline=deadline,
+            deadline=deadline(),
             max_slippage_bps=max_slippage_bps,
             block=block,
             observed_at=observed_at,
+            deferred=deferred,
+            sender=None if deferred else recipient,
             why=(
                 "the destination band at its current tick needs more token1 than this "
                 "route is holding, so the surplus token0 is swapped across"
@@ -1008,10 +1180,12 @@ def _swap_legs(
             amount,
             reader=reader,
             recipient=recipient,
-            deadline=deadline,
+            deadline=deadline(),
             max_slippage_bps=max_slippage_bps,
             block=block,
             observed_at=observed_at,
+            deferred=deferred,
+            sender=None if deferred else recipient,
             why=(
                 "the destination band at its current tick needs more token0 than this "
                 "route is holding, so the surplus token1 is swapped across"
@@ -1035,6 +1209,8 @@ def _one_leg(
     max_slippage_bps: int,
     block: int,
     observed_at: str,
+    deferred: bool,
+    sender: str | None,
     why: str,
 ) -> tuple[PreparedCall, int, dict]:
     route = (token_in, token_out)
@@ -1062,15 +1238,19 @@ def _one_leg(
         purpose=f"swap {amount} of {token_in} into {token_out}: {why}",
         simulation=_simulation(
             reader,
-            sender=None,
+            sender=sender,
             target=PANCAKE_V2_ROUTER,
             calldata=calldata,
             gas_ceiling=GAS_CEILINGS["swap"],
             block=block,
             observed_at=observed_at,
             deferred=(
-                "eth_call and eth_estimateGas: the session holds this token only after "
-                "the collect above has landed",
+                (
+                    "eth_call and eth_estimateGas: the session holds this token only "
+                    "after the collect above has landed",
+                )
+                if deferred
+                else ()
             ),
             extra_checks=(
                 f"router.getAmountsOut quoted {quoted} out for {amount} in, floored at "
@@ -1120,6 +1300,35 @@ def _band_split(
     return target0, target1
 
 
+def _spend_by_call(calls, *, legs: list[dict], mint: tuple) -> tuple[dict, ...]:
+    """What each call in the batch spends out of the session, in batch order.
+
+    Derived from what this module built rather than from the calldata, because this is
+    the side that knows: a swap spends its own input, a mint pulls both desired amounts,
+    and everything else — the withdrawal, the collect, the allowances — moves nothing out.
+    An approval is authorisation and not a spend; charging one would bill the session
+    twice for the same tokens, once for permitting the mint and once for the mint.
+    """
+    dest0, desired0, dest1, desired1 = mint
+    remaining = list(legs)
+    out: list[dict] = []
+    for call in calls:
+        if call.to == PANCAKE_V2_ROUTER and remaining:
+            leg = remaining.pop(0)
+            out.append({leg["token_in"]: leg["amount_in"]})
+        elif call.selector == "0x88316456":
+            out.append(
+                {
+                    token: str(amount)
+                    for token, amount in ((dest0, desired0), (dest1, desired1))
+                    if amount > 0
+                }
+            )
+        else:
+            out.append({})
+    return tuple(out)
+
+
 def _disclosure(
     *,
     current_position: dict,
@@ -1138,6 +1347,7 @@ def _disclosure(
     desired: tuple[int, int],
     legs: list[dict],
     session_spend: dict,
+    resuming: bool,
     owner: str,
     session: str,
 ) -> dict:
@@ -1233,8 +1443,29 @@ def _disclosure(
                 "estimated before those land, and each says so on its own simulation "
                 "record; their ceilings are published beside them instead"
             ),
-            "ceilings": {call.purpose[:48]: call.gas_ceiling for call in calls},
+            # Keyed by batch position. Truncating the purpose collided the moment two
+            # calls opened with the same words — the two exact-amount approvals do — and
+            # a collision silently dropped one of them from the published ceilings.
+            "ceilings": {
+                str(index): {"to": call.to, "gas_ceiling": call.gas_ceiling}
+                for index, call in enumerate(calls)
+            },
         },
+        "nft_approval_precondition": (
+            "The session must already be approved for this position NFT before any of "
+            "this runs. That approval is the owner's own signature and is not in the "
+            "sequence below: every call here is broadcast from the session key, and a "
+            "session cannot approve itself for a token it does not own. This route reads "
+            "the approval before it builds and refuses to build without it."
+        ),
+        "resumed_from_chain": resuming,
+        "resume_note": (
+            "the position was already burned when this route was planned, so the "
+            "withdrawal steps are absent and the amounts below are the session's own "
+            "balances rather than a projection of what a withdrawal would return"
+            if resuming
+            else "the position still holds liquidity, so this route starts by withdrawing it"
+        ),
         "session_spend_atomic": dict(session_spend),
         "session_spend_note": (
             "gross atomic outflow from the session over the whole batch: every swap "
