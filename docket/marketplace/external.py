@@ -482,6 +482,13 @@ class ExternalListing:
                 "payment_tested_evidence": payment_evidence,
                 "evidence": list(self.verification.get("evidence") or []),
                 "verified_at": self.verification.get("verified_at"),
+                # Set when the last attempt could not read the chain and this block was
+                # left standing rather than overwritten with an all-failed run. Served, so
+                # a reader is never shown a level whose freshness they cannot judge: the
+                # evidence below is what earned it, `verified_at` is when, and `held_at` is
+                # the last time Docket tried and could not look.
+                "held_from_outage": bool(self.verification.get("held_from_outage")),
+                "held_at": self.verification.get("held_at"),
             },
             "hireable": self.hireable,
             "source": self.source,
@@ -498,11 +505,20 @@ class ExternalListing:
         # read off it. Carrying them back would make a stored copy a second source for a
         # fact that has exactly one, and a hand-edited or forged value would survive the
         # round trip instead of being recomputed from the evidence.
+        #
+        # The outage-hold pair is real state rather than derived, and is kept — but only
+        # when it says something. The served block always carries both, so a client never
+        # has to branch on a missing key; a listing that was never held carries neither, so
+        # it and a re-read of it are the same object.
+        stored = payload.get("verification") or unverified()
         verification = {
             key: value
-            for key, value in (payload.get("verification") or unverified()).items()
+            for key, value in stored.items()
             if key not in ("payment_tested", "payment_tested_evidence")
         }
+        if not verification.get("held_from_outage"):
+            verification.pop("held_from_outage", None)
+            verification.pop("held_at", None)
 
         return cls(
             agent_id=payload["agent_id"],

@@ -54,7 +54,7 @@ from datetime import datetime, timezone
 import httpx
 
 from ..hire.receipts import canonical_hash
-from ..liveness import request_one
+from ..liveness import _pace, request_one
 from ..scan8004 import lookup_owner_onchain
 from .external import LEVELS, LEVEL_ORDER, ExternalListing, at_least
 
@@ -75,12 +75,29 @@ LEVEL_PREREQUISITE: dict[str, str | None] = {
 MCP_TOOLS_LIST = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
 MCP_ACCEPT = "application/json, text/event-stream"
 
-SAMPLE_SOURCES = ("declared_sample", "docket_default_mcp")
+# Docket's own samples. A provider-declared sample is NOT in this list, and cannot be: a
+# sample the seller wrote, validated against a schema the seller wrote, is the seller
+# certifying themselves. It is still sent and still recorded — as PROVIDER_SAMPLE_ROW,
+# which carries no level.
+SAMPLE_SOURCES = ("docket_default_mcp",)
+# Recorded beside the levels, never as one. `_highest_reached` walks LEVELS, so a row under
+# this name cannot raise anything however it turns out.
+PROVIDER_SAMPLE_ROW = "provider_sample_ok"
+
+# The most endpoints one verification will touch. A registration may name many; probing all
+# of them turns one API call into a burst against somebody else's host, and the first three
+# invocable ones are already more than any agent in the census declared.
+MAX_ENDPOINTS_PER_RUN = 3
 
 # What a body has to carry to be an x402 challenge rather than any other 402. Matched as
 # "at least one of", because v1 and v2 name the requirements differently and a challenge
 # Docket cannot read is not evidence that a challenge was served.
-X402_MARKERS = ("x402Version", "accepts", "paymentRequirements")
+#
+# `accepts` was in this list and has been taken out. On its own it is not an x402 marker at
+# all — it is an ordinary English word that appears as a key in unrelated JSON — so a 402
+# from any paywall carrying `{"accepts": [...]}` was being published as a read x402
+# challenge. Both remaining markers are names only x402 uses.
+X402_MARKERS = ("x402Version", "paymentRequirements")
 
 
 def _now() -> str:
@@ -141,30 +158,62 @@ def _x402_challenge(observation: dict) -> dict | None:
     return payload
 
 
+def _minimal_json_check(result) -> tuple[bool, str]:
+    """The floor every result clears, schema or no schema: a non-empty JSON object.
+
+    Empty is refused on purpose. `{}` is valid JSON, it satisfies `{"type": "object"}`, and
+    it is what an endpoint returns when it has nothing to say — so accepting it would let a
+    server that does nothing pass the same check as one that works.
+    """
+    if isinstance(result, dict) and result:
+        return True, "checked a non-empty JSON object"
+    if isinstance(result, list) and result:
+        return True, "checked a non-empty JSON array"
+    return False, "the result is not a non-empty JSON object or array"
+
+
 def _matches_output_schema(result, schema: dict | None) -> tuple[bool, str]:
-    """Whether a result satisfies the listing's declared output schema.
+    """Whether a result satisfies a declared output schema, and how much was checked.
 
     Only the parts of JSON Schema a listing can be held to without a validator library:
-    the declared type, and the presence of every declared required property. A schema
-    naming anything else is not silently treated as satisfied — the check reports which
-    keys it enforced, so a reader knows exactly how much was checked.
+    the declared type, and the presence of every declared required property.
+
+    A schema that constrains NOTHING is treated as no schema at all, rather than as a
+    schema everything satisfies. `{}` used to return "declared type None satisfied" for any
+    body whatsoever, and `{"type": "object"}` used to accept `{}` — so a schema its own
+    author wrote could certify an endpoint that returned nothing. The minimal check is the
+    floor underneath every branch here, and a schema can only add to it.
     """
     if not isinstance(schema, dict):
-        if isinstance(result, dict) and result:
-            return True, "no declared output schema; checked a non-empty JSON object"
-        return False, "no declared output schema and the result is not a JSON object"
+        ok, why = _minimal_json_check(result)
+        return ok, f"no declared output schema; {why}"
     declared_type = schema.get("type")
+    required = [
+        key
+        for key in (schema.get("required") or ())
+        if isinstance(key, str) and key.strip()
+    ]
+    if declared_type not in ("object", "array") and not required:
+        ok, why = _minimal_json_check(result)
+        return ok, f"the declared output schema constrains nothing; {why}"
     if declared_type == "object" and not isinstance(result, dict):
         return False, "the declared output schema is an object and the result is not"
     if declared_type == "array" and not isinstance(result, list):
         return False, "the declared output schema is an array and the result is not"
-    required = schema.get("required")
-    if isinstance(required, (list, tuple)) and isinstance(result, dict):
+    ok, why = _minimal_json_check(result)
+    if not ok:
+        return False, why
+    if required:
+        if not isinstance(result, dict):
+            return (
+                False,
+                "the schema declares required keys and the result is not an object",
+            )
         missing = [key for key in required if key not in result]
         if missing:
             return False, f"the result is missing required keys: {', '.join(missing)}"
-        return True, f"required keys present: {', '.join(str(k) for k in required)}"
-    return True, f"declared type {declared_type!r} satisfied"
+        return True, f"{why}; required keys present: {', '.join(required)}"
+    return True, f"{why}; declared type {declared_type!r} satisfied"
 
 
 def _mcp_result(payload) -> tuple[object | None, str]:
@@ -219,28 +268,22 @@ class VerificationResult:
         }
 
 
-def _sample_request(listing: ExternalListing, endpoint: dict) -> dict | None:
-    """The one request Docket sends as a sample, or None where it will not invent one.
+def _docket_sample(endpoint: dict) -> dict | None:
+    """The request DOCKET sends as its sample, or None where it will not invent one.
 
-    A provider-submitted listing names its own `sample_input`, which is POSTed to the
-    declared endpoint. Otherwise Docket has exactly one default, and it is for MCP:
-    `tools/list`, which is the server describing itself in a structured JSON-RPC result.
+    `docket_tested` — and therefore `hireable` — can only be reached by a request Docket
+    itself defined. A seller supplying both the input and the schema it is checked against
+    is a seller certifying themselves, and a marketplace that let that raise a level would
+    be selling the seller's own word back to the buyer.
 
-    There is deliberately no default for an A2A endpoint. The only read that costs
-    nothing is fetching the agent card, and a card is a description of the agent rather
-    than a result the agent produced — handing out `docket_tested` for serving a card
-    would be exactly the inflation this ladder exists to prevent. An A2A listing reaches
-    `docket_tested` when its provider declares a sample input, and stops at `live`
-    otherwise.
+    Docket has exactly one such sample today and it is for MCP: `tools/list`, the server
+    describing itself in a structured JSON-RPC result, read-only and calling no listed
+    tool. There is deliberately no default for an A2A endpoint: the only read that costs
+    nothing is fetching the agent card, and a card describes an agent rather than being
+    something the agent produced. A per-category Docket-defined A2A request is the seam
+    that would raise these listings past `live`, and none exists yet — inventing one by
+    guessing at another operator's request shape would be a different kind of fabrication.
     """
-    if listing.sample_input is not None:
-        return {
-            "url": endpoint["url"],
-            "method": "POST",
-            "json_body": listing.sample_input,
-            "read_body": True,
-            "sample_source": "declared_sample",
-        }
     if endpoint["kind"] == "mcp":
         return {
             "url": endpoint["url"],
@@ -251,6 +294,20 @@ def _sample_request(listing: ExternalListing, endpoint: dict) -> dict | None:
             "sample_source": "docket_default_mcp",
         }
     return None
+
+
+def _provider_sample(listing: ExternalListing, endpoint: dict) -> dict | None:
+    """The request the LISTING'S OWNER declared, which is sent and recorded but grades
+    nothing. Its result lands under `PROVIDER_SAMPLE_ROW`, outside the level vocabulary."""
+    if listing.sample_input is None:
+        return None
+    return {
+        "url": endpoint["url"],
+        "method": "POST",
+        "json_body": listing.sample_input,
+        "read_body": True,
+        "sample_source": "provider_declared_sample",
+    }
 
 
 def verify_listing(
@@ -279,6 +336,10 @@ def verify_listing(
     runs: list[LevelRun] = []
     reached: dict[str, bool] = {}
     outage = False
+    # One hit per host per second, through the same helper the snapshot sweep paces with.
+    # A verification can make three requests to one host, and three at once is a burst to
+    # whoever operates it however small the number looks from here.
+    last_hit: dict[str, float] = {}
 
     def record(level: str, ok: bool, detail: dict) -> None:
         runs.append(LevelRun(level=level, ok=ok, at=at, detail=detail))
@@ -350,7 +411,9 @@ def verify_listing(
         skip("live", required)
     else:
         attempts = []
-        for candidate in listing.invocable_endpoints:
+        considered = listing.invocable_endpoints[:MAX_ENDPOINTS_PER_RUN]
+        for candidate in considered:
+            _pace(last_hit, candidate["url"])
             observation = http(
                 {
                     "snapshot_id": None,
@@ -371,6 +434,8 @@ def verify_listing(
             live_observation is not None,
             {
                 "check": "guarded GET of the declared endpoint",
+                "endpoints_considered": len(considered),
+                "endpoints_declared": len(listing.invocable_endpoints),
                 # Both lifted out of `attempts` because they are what a reader must see
                 # before quoting this level. `live` follows the sweep's vocabulary — a
                 # response at any status proves the host is up — so a 404 reaches it
@@ -385,24 +450,30 @@ def verify_listing(
             },
         )
 
-    # The sample invocation. Sent once, read by both of the levels that follow.
-    sample_observation: dict | None = None
+    # The sample invocations. Docket's own grades `docket_tested`; the provider's, if the
+    # listing declares one, is sent and recorded and grades nothing.
+    def invoke(plan: dict | None) -> dict | None:
+        if plan is None:
+            return None
+        _pace(last_hit, plan["url"])
+        return http(
+            {
+                "snapshot_id": None,
+                "agent_id": listing.agent_id,
+                **{key: value for key, value in plan.items() if key != "sample_source"},
+            },
+            now=at,
+        )
+
     sample_plan: dict | None = None
+    sample_observation: dict | None = None
+    provider_plan: dict | None = None
+    provider_observation: dict | None = None
     if endpoint is not None:
-        sample_plan = _sample_request(listing, endpoint)
-        if sample_plan is not None:
-            sample_observation = http(
-                {
-                    "snapshot_id": None,
-                    "agent_id": listing.agent_id,
-                    **{
-                        key: value
-                        for key, value in sample_plan.items()
-                        if key != "sample_source"
-                    },
-                },
-                now=at,
-            )
+        sample_plan = _docket_sample(endpoint)
+        sample_observation = invoke(sample_plan)
+        provider_plan = _provider_sample(listing, endpoint)
+        provider_observation = invoke(provider_plan)
 
     # 4. payment_tested -----------------------------------------------------------
     ok, required = prerequisite_holds("payment_tested")
@@ -413,7 +484,8 @@ def verify_listing(
         challenged_by = None
         for label, observation in (
             ("live_probe", live_observation),
-            ("sample_invocation", sample_observation),
+            ("docket_sample", sample_observation),
+            ("provider_sample", provider_observation),
         ):
             if observation is None:
                 continue
@@ -432,7 +504,8 @@ def verify_listing(
                 "challenge": challenge,
                 "statuses": {
                     "live_probe": (live_observation or {}).get("status_code"),
-                    "sample_invocation": (sample_observation or {}).get("status_code"),
+                    "docket_sample": (sample_observation or {}).get("status_code"),
+                    "provider_sample": (provider_observation or {}).get("status_code"),
                 },
                 "message": None
                 if challenge is not None
@@ -446,7 +519,10 @@ def verify_listing(
         skip("docket_tested", required)
     else:
         detail: dict = {
-            "check": "a sample invocation returning a schema-valid structured result",
+            "check": (
+                "a Docket-defined sample invocation returning a schema-valid structured "
+                "result. A provider-supplied sample never reaches this level"
+            ),
             "sample_source": (sample_plan or {}).get("sample_source"),
             "request": None
             if sample_plan is None
@@ -463,9 +539,10 @@ def verify_listing(
         passed = False
         if sample_plan is None:
             detail["message"] = (
-                "no sample is defined for this listing: Docket has one default sample "
-                "and it is MCP tools/list, and this endpoint is not MCP. An A2A listing "
-                "reaches docket_tested when its provider declares a sample input."
+                "Docket has no sample of its own for this endpoint. Its one default is "
+                "MCP tools/list and this endpoint is not MCP; a sample the listing's own "
+                "owner supplied cannot raise this level, so an A2A endpoint stops at live "
+                "until a Docket-defined request exists for its category."
             )
         elif sample_observation is None or sample_observation["outcome"] != "responded":
             detail["message"] = (
@@ -481,7 +558,7 @@ def verify_listing(
             payload = _parse_json(sample_observation)
             if payload is None:
                 detail["message"] = "the sample response body is not JSON"
-            elif detail["sample_source"] == "docket_default_mcp":
+            else:
                 result, why = _mcp_result(payload)
                 detail["schema_check"] = why
                 if result is None:
@@ -489,15 +566,62 @@ def verify_listing(
                 else:
                     passed = True
                     detail["result_hash"] = canonical_hash(result)
-            else:
-                valid, why = _matches_output_schema(payload, listing.output_schema)
-                detail["schema_check"] = why
-                if valid:
-                    passed = True
-                    detail["result_hash"] = canonical_hash(payload)
-                else:
-                    detail["message"] = why
         record("docket_tested", passed, detail)
+
+    # The provider's own sample, recorded outside the ladder. Written whenever a listing
+    # declares one and an endpoint answered, so a reader can see that the seller's own
+    # example works — and see, from the row's name, that it graded nothing.
+    if provider_plan is not None:
+        provider_detail: dict = {
+            "check": (
+                "the listing owner's declared sample against the owner's declared output "
+                "schema. Recorded, never a level: a seller supplying both the input and "
+                "the schema it is checked against is a seller certifying themselves"
+            ),
+            "raises_level": False,
+            "request": {
+                "url": provider_plan["url"],
+                "method": provider_plan["method"],
+                "body": provider_plan.get("json_body"),
+            },
+            "status_code": (provider_observation or {}).get("status_code"),
+            "result_hash": None,
+            "schema_check": None,
+            "message": None,
+        }
+        provider_ok = False
+        if (
+            provider_observation is None
+            or provider_observation["outcome"] != "responded"
+        ):
+            provider_detail["message"] = (
+                f"the provider sample did not get a response: "
+                f"{(provider_observation or {}).get('outcome')}"
+            )
+        elif not 200 <= int(provider_observation["status_code"]) < 300:
+            provider_detail["message"] = (
+                f"the provider sample answered HTTP "
+                f"{provider_observation['status_code']}, not a success"
+            )
+        else:
+            provider_payload = _parse_json(provider_observation)
+            if provider_payload is None:
+                provider_detail["message"] = "the provider sample body is not JSON"
+            else:
+                valid, why = _matches_output_schema(
+                    provider_payload, listing.output_schema
+                )
+                provider_detail["schema_check"] = why
+                if valid:
+                    provider_ok = True
+                    provider_detail["result_hash"] = canonical_hash(provider_payload)
+                else:
+                    provider_detail["message"] = why
+        runs.append(
+            LevelRun(
+                level=PROVIDER_SAMPLE_ROW, ok=provider_ok, at=at, detail=provider_detail
+            )
+        )
 
     # 6. docket_verified ----------------------------------------------------------
     ok, required = prerequisite_holds("docket_verified")
@@ -580,11 +704,41 @@ def _publishable(observation: dict) -> dict:
     return row
 
 
+def held_through_outage(result: VerificationResult) -> bool:
+    """Whether this run could not read the chain and left a held level standing."""
+    return (
+        result.outage
+        and result.previous_level is not None
+        and result.level == result.previous_level
+    )
+
+
 def apply_result(
     listing: ExternalListing, result: VerificationResult
 ) -> ExternalListing:
-    """The same listing carrying what this run observed. Never mutates the input."""
+    """The same listing carrying what this run observed. Never mutates the input.
 
+    An outage that held a level does NOT overwrite the block. `verify_listing` reports the
+    held level, but its runs are six `ok: false` rows — every level after `registered` was
+    skipped because the chain could not be read — and writing those onto the listing
+    published a `docket_tested` listing, `hireable: true`, over evidence in which nothing
+    passed, stamped with a fresh `verified_at`. That is the worst shape this lane could
+    serve: the strongest claim over the weakest evidence, dated now.
+
+    So on a held outage the listing keeps the block it earned, keeps its `updated_at`, and
+    gains two fields saying what happened. The outage runs are still written to
+    `verification_runs` by `verify_listing`, which is where a reader goes for what this
+    attempt actually observed.
+    """
+    if held_through_outage(result):
+        return replace(
+            listing,
+            verification={
+                **listing.verification,
+                "held_from_outage": True,
+                "held_at": result.verified_at,
+            },
+        )
     return replace(
         listing,
         verification=result.verification_block(),

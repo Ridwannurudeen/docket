@@ -156,6 +156,54 @@ class Scan8004Client:
         return self._get(f"/agents/{chain_id}/{token_id}", {})
 
 
+# The longest an agent id may be before it is refused unread. The canonical form is
+# 2 + 1 + 42 + 1 + <token digits>; 80 leaves room for a very large token id and refuses a
+# megabyte of text arriving in a path segment or a JSON field.
+MAX_AGENT_ID_CHARS = 80
+
+
+def canonical_agent_id(agent_id: str | int) -> str:
+    """`chain:registry:token` on the canonical BSC IdentityRegistry, or a ValueError.
+
+    One parser, used everywhere an agent id enters Docket — the API paths, the provider
+    claim flow and `lookup_owner_onchain` — so a bare token id and its full form resolve
+    to the same string and cannot become two rows for one agent. It raises rather than
+    returning None, because every caller has to refuse rather than continue, and it never
+    calls `int()` on unvalidated text: `int("abc")` used to escape as an unhandled
+    ValueError and surface as a 500.
+    """
+    from .identity.register import CHAIN_ID, IDENTITY_REGISTRY_ID
+
+    text = str(agent_id).strip()
+    if not text:
+        raise ValueError("an agent id is required")
+    if len(text) > MAX_AGENT_ID_CHARS:
+        raise ValueError(
+            f"an agent id is at most {MAX_AGENT_ID_CHARS} characters; got {len(text)}"
+        )
+    parts = text.split(":")
+    if len(parts) == 3:
+        chain_part, registry_part, token_part = parts
+        if not chain_part.isdigit() or int(chain_part) != CHAIN_ID:
+            raise ValueError(f"{text!r} is not a chain {CHAIN_ID} agent id")
+        if registry_part.lower() != IDENTITY_REGISTRY_ID:
+            raise ValueError(
+                f"{text!r} names registry {registry_part!r}, not the canonical "
+                f"IdentityRegistry {IDENTITY_REGISTRY_ID}"
+            )
+    elif len(parts) == 1:
+        token_part = text
+    else:
+        raise ValueError(
+            f"{text!r} must be a token id or chain:registry:token on chain {CHAIN_ID}"
+        )
+    # isdigit() rather than a try/except around int(): it refuses "+1", "1_0", unicode
+    # digits and whitespace in one predicate, and leaves int() with nothing to raise on.
+    if not token_part.isdigit() or not token_part.isascii():
+        raise ValueError(f"{text!r} carries {token_part!r}, which is not a token id")
+    return f"{CHAIN_ID}:{IDENTITY_REGISTRY_ID}:{int(token_part)}"
+
+
 # Ownership outcomes, closed. `rpc_unavailable` exists so an outage can never be filed as
 # `not_registered`: the first says Docket could not read the chain, the second says the
 # chain answered that nobody owns this token, and a verification level must not move on
@@ -185,28 +233,8 @@ def lookup_owner_onchain(agent_id: str | int, *, rpc=None, w3=None) -> dict:
         IDENTITY_REGISTRY_ID,
     )
 
-    text = str(agent_id).strip()
-    parts = text.split(":")
-    if len(parts) == 3:
-        chain_part, registry_part, token_part = parts
-        if int(chain_part) != CHAIN_ID:
-            raise ValueError(f"{agent_id!r} is not a chain {CHAIN_ID} agent id")
-        if registry_part.lower() != IDENTITY_REGISTRY_ID:
-            raise ValueError(
-                f"{agent_id!r} names registry {registry_part}, not the canonical "
-                f"IdentityRegistry {IDENTITY_REGISTRY_ID}"
-            )
-    elif len(parts) == 1:
-        token_part = text
-    else:
-        raise ValueError(
-            f"{agent_id!r} must be a token id or chain:registry:token on chain {CHAIN_ID}"
-        )
-    token_id = int(token_part)
-    if token_id < 0:
-        raise ValueError(f"{agent_id!r} carries a negative token id")
-
-    canonical_id = f"{CHAIN_ID}:{IDENTITY_REGISTRY_ID}:{token_id}"
+    canonical_id = canonical_agent_id(agent_id)
+    token_id = int(canonical_id.rsplit(":", 1)[1])
     record = {
         "agent_id": canonical_id,
         "chain_id": CHAIN_ID,

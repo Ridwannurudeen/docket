@@ -13,10 +13,13 @@ import pytest
 from docket.marketplace.external import LEVELS, ExternalListing, unverified
 from docket.marketplace.verification import (
     LEVEL_PREREQUISITE,
+    MAX_ENDPOINTS_PER_RUN,
     MCP_TOOLS_LIST,
+    PROVIDER_SAMPLE_ROW,
     SAMPLE_SOURCES,
     apply_result,
     benchmark_ref,
+    held_through_outage,
     verify_listing,
 )
 from docket.store import Store
@@ -267,14 +270,21 @@ def test_an_a2a_endpoint_without_a_declared_sample_stops_at_live():
 
     assert result.level == "live"
     assert _levels(result)["docket_tested"] is False
-    assert "no sample is defined" in result.runs[4].detail["message"]
+    assert "Docket has no sample of its own" in result.runs[4].detail["message"]
     assert len(http.sent) == 1, "no sample request should have been sent"
 
 
-def test_a_declared_sample_is_checked_against_the_declared_output_schema():
+def _provider_row(result):
+    return next(run for run in result.runs if run.level == PROVIDER_SAMPLE_ROW)
+
+
+def test_a_providers_own_sample_is_run_and_recorded_but_raises_no_level():
+    """The self-certification hole. A seller supplying both the input and the schema it is
+    checked against is a seller grading their own work, so the result is published under a
+    name outside the level vocabulary and the ladder never sees it."""
     http = _staged(
         [
-            {"status": 200, "body": "{}"},
+            {"status": 200, "body": '{"name": "card"}'},
             {"status": 200, "body": '{"health_factor": 1.4, "account": "0x1"}'},
         ]
     )
@@ -285,15 +295,39 @@ def test_a_declared_sample_is_checked_against_the_declared_output_schema():
     )
     result = verify_listing(listing, rpc=_owned, http=http)
 
-    assert result.level == "docket_tested"
-    assert result.runs[4].detail["sample_source"] == "declared_sample"
-    assert set(SAMPLE_SOURCES) == {"declared_sample", "docket_default_mcp"}
-    assert http.sent[1]["json_body"] == {"account": "0x1"}
+    assert result.level == "live", "a provider sample must not reach docket_tested"
+    assert _levels(result)["docket_tested"] is False
+    row = _provider_row(result)
+    assert row.ok is True
+    assert row.detail["raises_level"] is False
+    assert row.detail["request"]["body"] == {"account": "0x1"}
+    assert row.detail["result_hash"].startswith("0x")
+    assert PROVIDER_SAMPLE_ROW not in LEVELS
+    assert SAMPLE_SOURCES == ("docket_default_mcp",)
 
 
-def test_a_declared_sample_missing_a_required_key_does_not_reach_docket_tested():
+def test_an_empty_provider_schema_cannot_certify_an_endpoint_that_returns_nothing():
+    """`{}` and `{"type": "object"}` both used to accept `{}`, so a schema its own author
+    wrote could pass an endpoint that answered with nothing at all."""
+    for schema in ({}, {"type": "object"}, {"required": []}, None):
+        http = _staged(
+            [{"status": 200, "body": '{"name": "card"}'}, {"status": 200, "body": "{}"}]
+        )
+        listing = _listing(
+            endpoints=A2A, sample_input={"account": "0x1"}, output_schema=schema
+        )
+        row = _provider_row(verify_listing(listing, rpc=_owned, http=http))
+
+        assert row.ok is False, schema
+        assert "non-empty JSON object" in row.detail["schema_check"], schema
+
+
+def test_a_provider_sample_missing_a_required_key_fails_its_own_row():
     http = _staged(
-        [{"status": 200, "body": "{}"}, {"status": 200, "body": '{"account": "0x1"}'}]
+        [
+            {"status": 200, "body": '{"name": "card"}'},
+            {"status": 200, "body": '{"account": "0x1"}'},
+        ]
     )
     listing = _listing(
         endpoints=A2A,
@@ -303,7 +337,11 @@ def test_a_declared_sample_missing_a_required_key_does_not_reach_docket_tested()
     result = verify_listing(listing, rpc=_owned, http=http)
 
     assert result.level == "live"
-    assert "missing required keys: health_factor" in result.runs[4].detail["message"]
+    assert _provider_row(result).ok is False
+    assert (
+        "missing required keys: health_factor"
+        in (_provider_row(result).detail["schema_check"])
+    )
 
 
 def test_a_sample_that_answers_with_something_other_than_json_does_not_pass():
