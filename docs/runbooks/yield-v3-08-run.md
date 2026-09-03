@@ -261,6 +261,10 @@ family cannot run.
 
 ## 4. Copy, bind and lock
 
+The copy is safe to take as soon as the capture directory is complete on Sep 6; only the
+bind and lock below wait for stage 3. Nothing is lost by doing the copy early and the host
+evidence directory is never modified either way.
+
 ```powershell
 $capture = 'data/yield-v8-capture-20260906'
 if (Test-Path -LiteralPath $capture) { throw "local capture already exists: $capture" }
