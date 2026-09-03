@@ -16,6 +16,31 @@ from pathlib import Path
 # arrive unclassified and be served as if it were a clean finish. Only `exhausted` may be
 # promoted to readers; the rest describe a sweep that ended without reaching the end.
 STOP_REASONS = ("exhausted", "max_pages", "not_advancing")
+# Verification levels, weakest to strongest, for ORDER BY only. Repeated here rather than
+# imported because this module is stdlib sqlite3 over a schema and imports nothing from the
+# domain packages; `tests/test_external_listings.py` asserts it equals
+# `marketplace.external.LEVELS`, so the two cannot drift apart in silence.
+#
+# The rank is the whole point. The names do not sort into their own order — 'live' sorts
+# before 'registered' alphabetically — so ordering on the column would have put a weaker
+# listing above a stronger one. NULL, meaning nothing has been observed, sorts last: a row
+# Docket merely found in an index must never head a page above one it actually verified.
+EXTERNAL_LEVELS = (
+    "registered",
+    "endpoint_detected",
+    "live",
+    "payment_tested",
+    "docket_tested",
+    "docket_verified",
+)
+EXTERNAL_LEVEL_ORDER_SQL = (
+    "CASE level "
+    + " ".join(
+        f"WHEN '{name}' THEN {len(EXTERNAL_LEVELS) - index}"
+        for index, name in enumerate(EXTERNAL_LEVELS)
+    )
+    + " ELSE 99 END ASC"
+)
 COMPLETE_STOP_REASON = "exhausted"
 CANARY_TERMINAL_VERDICTS = ("passed", "failed", "not_yet_exercised")
 CANARY_CHECK_STATUSES = CANARY_TERMINAL_VERDICTS
@@ -1070,11 +1095,19 @@ class Store:
             args.append(level)
         if query:
             where.append(
-                "(LOWER(json_extract(listing_json, '$.name')) LIKE ? "
-                "OR LOWER(json_extract(listing_json, '$.capabilities')) LIKE ? "
-                "OR LOWER(agent_id) LIKE ?)"
+                "(LOWER(json_extract(listing_json, '$.name')) LIKE ? ESCAPE '\\' "
+                "OR LOWER(json_extract(listing_json, '$.capabilities')) LIKE ? ESCAPE '\\' "
+                "OR LOWER(agent_id) LIKE ? ESCAPE '\\')"
             )
-            pattern = f"%{query.lower()}%"
+            # `%` and `_` are LIKE wildcards, so an unescaped `%` typed into a search box
+            # matches every row and reads as a search that found everything.
+            escaped = (
+                query.lower()
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            )
+            pattern = f"%{escaped}%"
             args.extend([pattern, pattern, pattern])
         clause = (" WHERE " + " AND ".join(where)) if where else ""
         with self._conn() as conn:
@@ -1085,7 +1118,8 @@ class Store:
             )
             rows = conn.execute(
                 f"SELECT listing_json FROM external_listings{clause} "
-                "ORDER BY updated_at DESC, agent_id LIMIT ? OFFSET ?",
+                f"ORDER BY {EXTERNAL_LEVEL_ORDER_SQL}, updated_at DESC, agent_id "
+                "LIMIT ? OFFSET ?",
                 [*args, max(limit, 0), max(offset, 0)],
             ).fetchall()
         return [json.loads(row["listing_json"]) for row in rows], total

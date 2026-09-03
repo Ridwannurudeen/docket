@@ -406,7 +406,14 @@ class ExternalListing:
     classification_rationale: str = ""
     sample_input: dict | None = None
     output_schema: dict | None = None
-    source: Literal["registry_index", "provider_submitted"] = "registry_index"
+    # `registry_index_list` is a row built from a SEARCH page, which carries no endpoints
+    # at all — the index only publishes them on the per-agent card. Such a row can never
+    # pass `endpoint_detected`, so it is labelled rather than left looking like a listing
+    # that was checked and found endpointless, and the API fetches the card once before
+    # anything is verified against it.
+    source: Literal["registry_index", "registry_index_list", "provider_submitted"] = (
+        "registry_index"
+    )
     updated_at: str | None = None
 
     def __post_init__(self) -> None:

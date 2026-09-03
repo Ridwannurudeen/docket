@@ -263,7 +263,66 @@ def test_errors_on_this_prefix_are_flat_rather_than_the_nested_envelope(client):
     body = client.get("/api/agents/56:0xreg:not-a-token").json()
 
     assert set(body) == {"error_code", "message"}
-    assert body["error_code"] == "listing_not_found"
+    assert body["error_code"] == "invalid_agent_id"
+
+
+@pytest.mark.parametrize(
+    "agent_id",
+    ["abc", "56:0xreg:1", "1:" + REGISTRY + ":1", "9" * 200, "56:" + REGISTRY + ":abc"],
+)
+def test_a_malformed_agent_id_is_refused_before_anything_reads_it(client, agent_id):
+    """`int("abc")` on an unvalidated path segment escaped as an unhandled ValueError and
+    surfaced as a 500. One parser, applied on every route that takes an id."""
+    for path, method in (
+        (f"/api/agents/{agent_id}", client.get),
+        (f"/api/agents/{agent_id}/verification", client.get),
+    ):
+        response = method(path)
+        assert response.status_code == 422, path
+        assert response.json()["error_code"] == "invalid_agent_id", path
+    refused = client.post(f"/api/agents/{agent_id}/verify", json={})
+    assert refused.status_code == 422
+    assert refused.json()["error_code"] == "invalid_agent_id"
+    assert _FakeRegistry.fetched == [], "nothing should be looked up for a malformed id"
+
+
+def test_a_bare_token_id_resolves_to_the_same_listing_on_every_route(client):
+    """One agent, two spellings. A route that normalised and one that did not would make a
+    bare id a second row for the same agent."""
+    client.post(f"/api/agents/{AGENT}/verify", json={})
+
+    assert client.get("/api/agents/43129").json()["listing"]["agent_id"] == AGENT
+    assert client.get("/api/agents/43129/verification").json()["agent_id"] == AGENT
+    assert client.post("/api/agents/43129/verify", json={}).json()["agent_id"] == AGENT
+
+
+@pytest.mark.parametrize("parameter", ["limit", "offset"])
+def test_a_malformed_page_bound_is_refused_in_this_routers_own_error_shape(
+    client, parameter
+):
+    """FastAPI would coerce these and answer its own nested envelope, which is the one
+    shape a client reading `error_code` under /api/ cannot parse."""
+    refused = client.get(f"/api/agents?{parameter}=banana")
+
+    assert refused.status_code == 422
+    assert set(refused.json()) == {"error_code", "message"}
+    assert refused.json()["error_code"] == f"invalid_{parameter}"
+
+
+def test_a_query_longer_than_the_bound_is_refused_rather_than_run(client):
+    refused = client.get("/api/agents?q=" + "a" * 201)
+
+    assert refused.status_code == 422
+    assert refused.json()["error_code"] == "invalid_query"
+    assert _FakeRegistry.queries == []
+
+
+def test_a_wildcard_typed_into_the_search_box_is_not_a_wildcard(client):
+    """`%` is a LIKE wildcard. Unescaped it matches every row, and a search that found
+    everything reads as a search that found everything."""
+    body = client.get("/api/agents?q=%25&limit=100").json()
+
+    assert body["total"] == 0, "a literal percent must match nothing here"
 
 
 def test_a_listing_docket_does_not_hold_is_fetched_once_and_cached(client):
@@ -496,11 +555,13 @@ def test_a_declared_sample_from_a_provider_is_what_verification_sends(client):
     )
 
     verified = client.post(f"/api/agents/{AGENT}/verify", json={}).json()
-    tested = next(
-        row for row in verified["evidence"] if row["level"] == "docket_tested"
-    )
+    rows = {row["level"]: row for row in verified["evidence"]}
 
-    assert tested["detail"]["sample_source"] == "declared_sample"
-    assert tested["detail"]["request"]["body"] == {"account": "0x1"}
+    # The provider's sample ran and is published, under a name outside the ladder.
+    provider = rows["provider_sample_ok"]
+    assert provider["detail"]["raises_level"] is False
+    assert provider["detail"]["request"]["body"] == {"account": "0x1"}
+    # The level came from Docket's own sample, not theirs.
+    assert rows["docket_tested"]["detail"]["sample_source"] == "docket_default_mcp"
     assert verified["level"] == "docket_tested"
     assert verified["listing"]["hireable"] is True

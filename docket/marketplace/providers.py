@@ -8,9 +8,16 @@ an email, not a matching `owner_address` in the registry index — which on 2026
 
 Three things a claim deliberately does not do.
 
-**It does not make a listing hireable.** `submit_listing` writes the listing at level
-`registered` with `hireable=False`, and only `verification.verify_listing` reaching
-`docket_tested` flips that. A provider can describe their agent; they cannot certify it.
+**It does not make a listing hireable, and neither does anything else a provider sends.**
+`submit_listing` writes the listing at level `registered` with `hireable=False`, and only
+`verification.verify_listing` reaching `docket_tested` flips that — which only a
+Docket-defined sample can do. A provider may declare a `sample_input` and an
+`output_schema`, and Docket does send that sample and does publish the result; it lands
+under `verification.PROVIDER_SAMPLE_ROW`, which is outside the level vocabulary and cannot
+raise anything. Supplying both the input and the schema it is checked against is a seller
+grading their own work, and a marketplace that let that reach `hireable` would be selling
+the seller's word back to the buyer. A provider can describe their agent and demonstrate
+it; they cannot certify it.
 
 **It does not let a provider name their own endpoint.** Endpoints come from the ERC-8004
 registration Docket already read, never from the submission form. A provider who wants a
@@ -29,6 +36,7 @@ from datetime import datetime, timedelta, timezone
 from eth_account import Account
 from eth_account.messages import encode_defunct
 
+from ..scan8004 import canonical_agent_id
 from .external import ExternalListing, endpoints_from_metadata
 from .models import Category
 
@@ -40,6 +48,11 @@ NONCE_BYTES = 12
 CLAIM_TTL_SECONDS = 900
 
 PAYMENT_METHODS = ("x402", "free", "off_platform")
+# A price is free text because Docket does not read one off chain and will not invent a
+# denomination for somebody else's service. Free text still gets a bound: it is stored,
+# served and rendered, and an unbounded string in any of those places is a hole.
+MAX_PRICE_CHARS = 64
+MAX_CAPABILITIES_CHARS = 4_000
 
 
 class ClaimError(Exception):
@@ -60,17 +73,35 @@ def claim_message(agent_id: str, nonce: str) -> str:
     return f"Docket provider claim {agent_id} {nonce}"
 
 
+def claimable_agent_id(agent_id) -> str:
+    """The canonical form, or a `ClaimError` the API can answer with.
+
+    Every id entering the claim flow goes through here. It bounds the length and refuses
+    anything that is not a token id on the canonical registry, so a nonce is never minted
+    against text the chain read would later choke on — `int("abc")` used to escape as an
+    unhandled ValueError and surface as a 500. Canonical on both sides also means a bare
+    token id and its full form are the same claim rather than two rows for one agent.
+    """
+    try:
+        return canonical_agent_id(agent_id)
+    except (TypeError, ValueError) as exc:
+        raise ClaimError("invalid_agent_id", str(exc)) from exc
+
+
 def issue_claim_nonce(agent_id: str, *, store, now=_now) -> dict:
-    """Mint one single-use nonce for this agent id and return it with what to sign."""
-    if not agent_id or not agent_id.strip():
-        raise ClaimError("invalid_agent_id", "An agent id is required to claim.")
+    """Mint one single-use nonce for this agent id and return it with what to sign.
+
+    The canonical id is what is stored and what appears in the message, so an owner who
+    asks with a bare token id signs the same sentence as one who asks with the full form.
+    """
+    canonical = claimable_agent_id(agent_id)
     nonce = secrets.token_hex(NONCE_BYTES)
     issued_at = now()
-    store.issue_provider_claim(agent_id=agent_id, nonce=nonce, issued_at=issued_at)
+    store.issue_provider_claim(agent_id=canonical, nonce=nonce, issued_at=issued_at)
     return {
-        "agent_id": agent_id,
+        "agent_id": canonical,
         "nonce": nonce,
-        "message": claim_message(agent_id, nonce),
+        "message": claim_message(canonical, nonce),
         "issued_at": issued_at,
         "expires_in_seconds": CLAIM_TTL_SECONDS,
     }
@@ -114,8 +145,9 @@ def verify_claim(
     `not_owner`, so an outage cannot be reported to a provider as a failed claim.
     """
     at = now()
+    agent_id = claimable_agent_id(agent_id)
     record = store.provider_claim(nonce)
-    if not record or record["agent_id"] != agent_id:
+    if not record or claimable_agent_id(record["agent_id"]) != agent_id:
         raise ClaimError(
             "stale_nonce",
             "That nonce was not issued for this agent. Request a new one from "
@@ -167,12 +199,82 @@ def verify_claim(
             "stale_nonce", "That nonce has already been used. Request a new one."
         )
     return ProviderClaim(
-        agent_id=agent_id,
+        # The chain read's own id, not the caller's spelling. It is the same string
+        # `canonical_agent_id` produced above, and taking it from the ownership record
+        # keeps the listing keyed on what the registry answered about.
+        agent_id=ownership.get("agent_id") or agent_id,
         owner=owner,
         nonce=nonce,
         verified_at=at,
         token_uri=ownership.get("token_uri"),
     )
+
+
+def validate_listing_fields(
+    *,
+    capabilities,
+    category,
+    price,
+    payment_method,
+    sample_input,
+    output_schema,
+) -> dict:
+    """Check everything a submission carries, and hand it back normalised.
+
+    Separated from `submit_listing` so the API can run it BEFORE spending the nonce. A
+    submission refused for a typo used to burn the nonce on the way in, which meant the
+    owner had to go back to their wallet and sign again to fix a spelling.
+    """
+    if category is not None and not isinstance(category, Category):
+        try:
+            category = Category(str(category))
+        except ValueError as exc:
+            raise ClaimError(
+                "invalid_category",
+                f"{category!r} is not one of {[member.value for member in Category]}.",
+            ) from exc
+    if payment_method is not None and payment_method not in PAYMENT_METHODS:
+        raise ClaimError(
+            "invalid_payment_method",
+            f"{payment_method!r} is not one of {list(PAYMENT_METHODS)}.",
+        )
+    if not isinstance(capabilities, str) or not capabilities.strip():
+        raise ClaimError(
+            "invalid_capabilities",
+            "A listing must say what the agent does. Capabilities are required.",
+        )
+    if len(capabilities.strip()) > MAX_CAPABILITIES_CHARS:
+        raise ClaimError(
+            "invalid_capabilities",
+            f"Capabilities are at most {MAX_CAPABILITIES_CHARS} characters.",
+        )
+    if price is not None:
+        if not isinstance(price, str):
+            raise ClaimError(
+                "invalid_price",
+                "price must be a string, or omitted where there is none.",
+            )
+        price = price.strip() or None
+        if price is not None and len(price) > MAX_PRICE_CHARS:
+            raise ClaimError(
+                "invalid_price", f"price is at most {MAX_PRICE_CHARS} characters."
+            )
+    if sample_input is not None and not isinstance(sample_input, dict):
+        raise ClaimError(
+            "invalid_sample_input", "sample_input must be a JSON object or omitted."
+        )
+    if output_schema is not None and not isinstance(output_schema, dict):
+        raise ClaimError(
+            "invalid_output_schema", "output_schema must be a JSON object or omitted."
+        )
+    return {
+        "capabilities": capabilities.strip(),
+        "category": category,
+        "price": price,
+        "payment_method": payment_method,
+        "sample_input": sample_input,
+        "output_schema": output_schema,
+    }
 
 
 def submit_listing(
@@ -197,32 +299,17 @@ def submit_listing(
     hydrated listing, or a card passed in), never from this call. `hireable` is False and
     stays False until a verification run reaches `docket_tested`.
     """
-    if category is not None and not isinstance(category, Category):
-        try:
-            category = Category(str(category))
-        except ValueError as exc:
-            raise ClaimError(
-                "invalid_category",
-                f"{category!r} is not one of {[member.value for member in Category]}.",
-            ) from exc
-    if payment_method is not None and payment_method not in PAYMENT_METHODS:
-        raise ClaimError(
-            "invalid_payment_method",
-            f"{payment_method!r} is not one of {list(PAYMENT_METHODS)}.",
-        )
-    if not capabilities or not capabilities.strip():
-        raise ClaimError(
-            "invalid_capabilities",
-            "A listing must say what the agent does. Capabilities are required.",
-        )
-    if sample_input is not None and not isinstance(sample_input, dict):
-        raise ClaimError(
-            "invalid_sample_input", "sample_input must be a JSON object or omitted."
-        )
-    if output_schema is not None and not isinstance(output_schema, dict):
-        raise ClaimError(
-            "invalid_output_schema", "output_schema must be a JSON object or omitted."
-        )
+    fields = validate_listing_fields(
+        capabilities=capabilities,
+        category=category,
+        price=price,
+        payment_method=payment_method,
+        sample_input=sample_input,
+        output_schema=output_schema,
+    )
+    category = fields["category"]
+    capabilities = fields["capabilities"]
+    price = fields["price"]
 
     held = store.external_listing(claim.agent_id)
     endpoints: tuple[dict, ...] = ()
