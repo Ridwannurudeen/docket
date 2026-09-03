@@ -25,14 +25,45 @@ from ...agents.pancake.pools import net_fee_apr
 from ...agents.yield_router import migration as yield_migration
 from ...agents.yield_router import router as yield_router
 from ...agents.yield_router.universe import eligible_pools
+from datetime import datetime, timezone
+
 from ...execution import now as chain_now
 from . import register
+from .allowlists import (
+    APPROVE,
+    NPM,
+    NPM_COLLECT,
+    NPM_DECREASE_LIQUIDITY,
+    NPM_MINT,
+    PANCAKE_V2_ROUTER,
+    SWAP_EXACT_TOKENS_FOR_TOKENS,
+)
 from .base import Decision
 
 CATEGORY = "yield_optimisation"
 CATEGORY_VERB = "Routes liquidity to the highest available APR"
 DEFAULT_BAND_WIDTH_TICKS = 1_000
 DEFAULT_SLIPPAGE_BPS = 50
+# Taken from `allowlists.py` rather than retyped. One note for the integrator: that
+# table's `yield_optimisation` defaults name only the router and the two tokens, so a
+# session created from them unedited cannot make the four position-manager calls this
+# route needs. The route is right and the defaults are short. `within_policy` reads the
+# owner's actual grant rather than the defaults, so this bites only an activation created
+# from the table without adding the position manager to it.
+ALLOWED_SELECTORS = frozenset(
+    {
+        APPROVE,
+        SWAP_EXACT_TOKENS_FOR_TOKENS,
+        NPM_MINT,
+        NPM_DECREASE_LIQUIDITY,
+        NPM_COLLECT,
+    }
+)
+
+
+def _utc_now() -> str:
+    """The moment a decision was taken, as a UTC ISO timestamp."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _universe_from(inputs: dict):
@@ -64,11 +95,19 @@ def _universe_from(inputs: dict):
     )
 
 
-def _no_spend(slippage_bps=None) -> dict:
-    """The two keys `SessionPolicy.allows` reads, for a decision that spends nothing."""
+def _no_spend(slippage_bps=None, *, tokens=()) -> dict:
+    """The four keys the session plane reads, for a decision that spends nothing.
+
+    Written even here. An absent mapping and an empty one read alike to
+    `SessionPolicy.allows` but not to a person: one says this decision spends nothing and
+    the other says nobody wrote down what it spends.
+    """
     return {
         "category_verb": CATEGORY_VERB,
         "token_amounts": {},
+        "token_amounts_by_call": [],
+        "token_hints": {"tokens": list(tokens)},
+        "received_tokens": list(tokens),
         "slippage_bps": slippage_bps,
     }
 
@@ -123,7 +162,7 @@ class YieldRouteExecutor:
                 ),
                 prepared=(),
                 evidence=_no_spend(),
-                observed_at="",
+                observed_at=_utc_now(),
                 block=0,
             )
 
@@ -146,7 +185,7 @@ class YieldRouteExecutor:
                 ),
                 prepared=(),
                 evidence=_no_spend() | {"universe": universe.as_record()},
-                observed_at=universe.observed_at,
+                observed_at=_utc_now(),
                 block=0,
             )
 
@@ -188,7 +227,7 @@ class YieldRouteExecutor:
                 ),
                 prepared=(),
                 evidence=comparison,
-                observed_at=universe.observed_at,
+                observed_at=_utc_now(),
                 block=0,
             )
 
@@ -223,7 +262,7 @@ class YieldRouteExecutor:
                 ),
                 prepared=(),
                 evidence=comparison,
-                observed_at=universe.observed_at,
+                observed_at=_utc_now(),
                 block=0,
             )
 
@@ -232,6 +271,12 @@ class YieldRouteExecutor:
             "plan_hash": plan.plan_hash,
             "disclosure": plan.disclosure,
             "token_amounts": plan.session_spend,
+            "token_amounts_by_call": [dict(e) for e in plan.session_spend_by_call],
+            # Everything the session can be left holding: swap outputs, and whatever the
+            # mint does not take of either destination token. A sweep that did not know
+            # to look for them would leave them behind in an address nobody watches.
+            "received_tokens": sorted(set(plan.session_spend)),
+            "token_hints": {"tokens": sorted(set(plan.session_spend))},
         }
         failed = [call.purpose for call in plan.calls if not call.simulation["ok"]]
         if failed:
@@ -244,7 +289,7 @@ class YieldRouteExecutor:
                 ),
                 prepared=(),
                 evidence=evidence | {"token_amounts": {}},
-                observed_at=str(plan.evidence["observed_at"]),
+                observed_at=_utc_now(),
                 block=int(plan.evidence["block"]),
             )
         return Decision(
@@ -260,7 +305,7 @@ class YieldRouteExecutor:
             ),
             prepared=plan.calls,
             evidence=evidence,
-            observed_at=str(plan.evidence["observed_at"]),
+            observed_at=_utc_now(),
             block=int(plan.evidence["block"]),
         )
 
@@ -283,15 +328,19 @@ class YieldRouteExecutor:
             str(selector).lower() for selector in policy.get("function_allowlist") or ()
         }
         tokens = {str(token).lower() for token in policy.get("token_allowlist") or ()}
-        gas_ceiling = policy.get("max_gas_price_wei")
         for call in decision.prepared:
-            if not call.simulation["ok"]:
+            # `False` is the chain refusing. `None` is a preflight that could not run
+            # until an earlier call in this same batch lands. Only the first is a refusal.
+            if call.simulation["ok"] is False:
                 return False, (
                     "the chain disagreed with this call at simulation: "
                     f"{call.simulation['revert_reason']}"
                 )
-            if call.purpose.startswith("OWNER SIGNS:"):
-                continue
+            if call.selector not in ALLOWED_SELECTORS:
+                return False, (
+                    f"selector {call.selector} is not one this category emits "
+                    f"({sorted(ALLOWED_SELECTORS)})"
+                )
             if contracts and call.to.lower() not in contracts:
                 return False, (
                     f"{call.to} is not on the session's contract allowlist of "
@@ -303,19 +352,14 @@ class YieldRouteExecutor:
                     f"selector {selector} is not on the session's function allowlist of "
                     f"{sorted(functions)}"
                 )
-            if gas_ceiling is not None and call.gas_ceiling > int(gas_ceiling):
-                return False, (
-                    f"the call's gas ceiling {call.gas_ceiling} exceeds the policy's "
-                    f"{gas_ceiling}"
-                )
         if tokens:
             disclosure = decision.evidence.get("disclosure") or {}
             sequence = disclosure.get("transaction_sequence") or ()
             for step in sequence:
                 target = str(step.get("to") or "").lower()
                 if (
-                    target != yield_migration.NPM.lower()
-                    and target != yield_router.PANCAKE_V2_ROUTER.lower()
+                    target != NPM.lower()
+                    and target != PANCAKE_V2_ROUTER.lower()
                     and target not in tokens
                 ):
                     return False, (
@@ -323,9 +367,11 @@ class YieldRouteExecutor:
                         "router, and is not on the session's token allowlist"
                     )
         return True, (
-            "every session-signed call is to an allowlisted contract and cleared the "
-            "checks that could run at this block; the owner's own NFT approval is "
-            "outside the session's authority by design"
+            "every call is to an allowlisted contract and cleared the checks that could "
+            "run at this block. The owner's own NFT approval is not in this batch at "
+            "all — it is a precondition the route reads before it builds. The gas price "
+            "is not checked here: this gate sees gas units and the policy bounds a "
+            "price, and `docket.sessions.executor` reads the price of the moment itself"
         )
 
 

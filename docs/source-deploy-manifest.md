@@ -123,6 +123,7 @@ docket.identity
 docket.jobs
 docket.jobs.executors
 docket.marketplace
+docket.sessions
 experiments
 ```
 

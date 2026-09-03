@@ -115,6 +115,11 @@ class Reader:
         self.estimates.append((sender, target, calldata))
         if self.fail_estimate:
             raise RuntimeError("execution reverted: TRANSFER_FROM_FAILED")
+        # An approval is one storage write and a swap is not. A single flat figure would
+        # either sit above every ceiling in the batch or below every one of them, and a
+        # fixture that cannot fail a ceiling is not checking the ceilings are there.
+        if calldata[:4].hex() == "095ea7b3":
+            return 46_000
         return self.gas
 
 

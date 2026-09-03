@@ -10,14 +10,17 @@ price off the chain, asks the lifecycle what to do, and checks the answer agains
 activation's own policy before anything is handed on.
 
 `within_policy` is a second gate in front of `docket/sessions/policy.py`, never a
-replacement for it. That one reads `evidence["token_amounts"]` and `evidence["slippage_bps"]`
-to decide what this decision spends and at what tolerance, so both are written on every
-decision this module returns, including the ones that send nothing — a spend the policy
-cannot see is a spend it reads as zero.
+replacement for it. The session plane reads four keys off `Decision.evidence` and can see
+them no other way, so all four are written on every decision this module returns,
+including the ones that send nothing: `token_amounts` (the batch total),
+`token_amounts_by_call` (the same split per call, because the policy charges per call),
+`token_hints` (what no calldata carries) and `received_tokens` (what the session is left
+holding, so a revoke sweeps it). A spend the policy cannot see is a spend it reads as zero.
 
-The grid's own progress is carried the way the tick loop carries it: Lane B writes each
-decision's `evidence` into `activation.result`, so `grid_state` is read back from there
-first and from `activation.inputs` only on the first pass, when there is no prior result.
+The grid's own progress is carried the way the tick loop carries it. Each pass's evidence
+is persisted at `activation.result["last_decision"]["evidence"]`, and that is where the
+next pass reads its state from; `activation.inputs` is only ever right on the very first
+pass, and preferring it would re-fire every filled level on every tick.
 
 The module-object import of the lifecycle below is deliberate. `lifecycle` imports
 `PreparedCall` from this package, so importing its names here at module scope would close
@@ -29,18 +32,26 @@ would otherwise be evaluated while it is still half-built.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from ...agents.grid import lifecycle as grid_lifecycle
 from ...agents.grid.operator import observe_price
 from ...execution import now as chain_now
-from ...execution.simulate import PANCAKE_V2_ROUTER, BscQuoteReader
+from ...execution.simulate import BscQuoteReader
 from . import register
+from .allowlists import (
+    APPROVE,
+    SWAP_EXACT_TOKENS_FOR_TOKENS,
+)
 from .base import Decision
 
 CATEGORY = "grid_trading"
 CATEGORY_VERB = "Places and manages automated grid orders"
-# The one contract this category ever calls, and the one function on it. Anything else
-# in a decision is a bug in the lifecycle, not a policy question.
-ALLOWED_TARGETS = frozenset({PANCAKE_V2_ROUTER})
+# Taken from `allowlists.py`, the single table the activation API serves as this
+# category's policy defaults. Writing the same addresses and selectors down again here is
+# how an executor's targets and its own category's allowlist drift apart with nothing
+# saying so — and the drift stays invisible until a session refuses a call it was granted.
+ALLOWED_SELECTORS = frozenset({APPROVE, SWAP_EXACT_TOKENS_FOR_TOKENS})
 
 
 def _int(inputs: dict, name: str, *, required: bool = True, default=None):
@@ -59,7 +70,23 @@ def _int(inputs: dict, name: str, *, required: bool = True, default=None):
         ) from None
 
 
-def spec_from(inputs: dict) -> grid_lifecycle.GridSpec:
+def _expiry(activation, inputs: dict) -> int:
+    """When this grid stops, taken from the activation rather than from the body.
+
+    `activation.expires_at` is the session's own expiry and is the one the owner set; a
+    grid outliving the session that funds it is the failure the expiry exists to stop.
+    The request body's `expires_at` stands in only when the activation carries none, so a
+    spec cannot quietly outlive its session by naming a later date in its inputs.
+    """
+    stated = getattr(activation, "expires_at", None)
+    if isinstance(stated, str) and stated.strip():
+        moment = datetime.fromisoformat(stated.replace("Z", "+00:00"))
+        if moment.tzinfo is not None:
+            return int(moment.timestamp())
+    return _int(inputs, "expires_at")
+
+
+def spec_from(inputs: dict, activation=None) -> grid_lifecycle.GridSpec:
     """One request body turned into a validated spec, or a refusal naming the field.
 
     Integers arrive as strings as often as not — a wei figure exceeds what JSON's number
@@ -75,7 +102,11 @@ def spec_from(inputs: dict) -> grid_lifecycle.GridSpec:
         levels=_int(inputs, "levels"),
         amount_per_level_atomic=_int(inputs, "amount_per_level_atomic"),
         total_cap_atomic=_int(inputs, "total_cap_atomic"),
-        expires_at=_int(inputs, "expires_at"),
+        expires_at=(
+            _int(inputs, "expires_at")
+            if activation is None
+            else _expiry(activation, inputs)
+        ),
         max_slippage_bps=_int(inputs, "max_slippage_bps", required=False, default=50),
         stop_price=_int(inputs, "stop_price", required=False),
         direction_rule=inputs.get("direction_rule", "buy_below_sell_above"),
@@ -84,18 +115,27 @@ def spec_from(inputs: dict) -> grid_lifecycle.GridSpec:
     return spec.validate()
 
 
-def state_from(activation) -> grid_lifecycle.GridState:
-    """The grid's own progress, as the activation carries it between ticks.
+def carried_state(activation) -> dict:
+    """The evidence the previous pass left behind, wherever the loop wrote it.
 
-    `activation.result` first: the tick loop writes the previous decision's evidence
-    there, so that is where the state this pass has to continue from lives. `inputs` is
-    the fallback and is only ever right on the first pass — reading it in preference
-    would restart the grid from its opening state on every tick, re-firing levels that
-    have already filled and spending the cap again.
+    `activation.result["last_decision"]["evidence"]` is where the tick loop persists it.
+    `result["grid_state"]` is the shape this executor wrote before that contract settled
+    and is read for one release so a grid mid-flight when the release lands does not
+    restart from its opening state. `inputs` is last and is only ever right on the first
+    pass — preferring it would re-fire every filled level on every tick.
     """
-    raw = (activation.result or {}).get("grid_state") or (
-        activation.inputs or {}
-    ).get("grid_state") or {}
+    result = activation.result or {}
+    last = (result.get("last_decision") or {}).get("evidence") or {}
+    if last.get("grid_state"):
+        return last["grid_state"]
+    if result.get("grid_state"):
+        return result["grid_state"]
+    return (activation.inputs or {}).get("grid_state") or {}
+
+
+def state_from(activation) -> grid_lifecycle.GridState:
+    """The grid's own progress, as the activation carries it between ticks."""
+    raw = carried_state(activation)
     fills = tuple(
         grid_lifecycle.Fill(
             level=fill.get("level"),
@@ -111,12 +151,44 @@ def state_from(activation) -> grid_lifecycle.GridState:
     return grid_lifecycle.GridState(
         open_levels=tuple(int(index) for index in raw.get("open_levels") or ()),
         fills=fills,
+        fired=tuple(
+            grid_lifecycle.Fired(
+                level=int(entry["level"]),
+                intent_key=entry.get("intent_key") or "",
+                tx_hash=entry.get("tx_hash"),
+            )
+            for entry in raw.get("fired") or ()
+        ),
         spent_atomic=int(raw.get("spent_atomic") or 0),
         paused=bool(raw.get("paused")),
         cancelled=bool(raw.get("cancelled")),
         revoked=bool(raw.get("revoked")),
         reference_price=None if reference is None else int(reference),
     )
+
+
+def _utc_now() -> str:
+    """The moment this decision was taken, as a UTC ISO timestamp.
+
+    It used to carry the name of the read that produced the observation, which is a
+    useful thing to publish and not a time. That name is on the evidence under `source`
+    now, and this field is what it says it is."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _by_call(prepared, level) -> list[dict]:
+    """What each call in this batch spends, in the order they are broadcast.
+
+    The approval spends nothing — it authorises, and charging it would bill the session
+    twice for the same tokens, once for permitting the swap and once for the swap itself.
+    Only the swap moves anything out.
+    """
+    return [
+        {level.token_in: str(level.size)}
+        if call.selector == SWAP_EXACT_TOKENS_FOR_TOKENS
+        else {}
+        for call in prepared
+    ]
 
 
 def _no_spend(spec=None) -> dict:
@@ -129,6 +201,9 @@ def _no_spend(spec=None) -> dict:
     return {
         "category_verb": CATEGORY_VERB,
         "token_amounts": {},
+        "token_amounts_by_call": [],
+        "token_hints": {} if spec is None else {"tokens": [spec.base, spec.quote]},
+        "received_tokens": [] if spec is None else [spec.base, spec.quote],
         "slippage_bps": None if spec is None else spec.max_slippage_bps,
     }
 
@@ -154,10 +229,59 @@ class GridExecutor:
         answer `amounts_out`, which is the only thing this executor asks a reader for.
         """
         if reader is not None:
-            return reader if hasattr(reader, "amounts_out") else BscQuoteReader(rpc=reader)
+            return (
+                reader if hasattr(reader, "amounts_out") else BscQuoteReader(rpc=reader)
+            )
         if self._reader is None:
             self._reader = BscQuoteReader()
         return self._reader
+
+    def _reconcile(self, state, activation, spec, session, reader):
+        """Close the loop on every level this grid has already sent.
+
+        The fire branch marks a level fired the moment it drafts one, and only a receipt
+        can take it off that list. So each pass reads the receipts the session executor
+        recorded, pulls the ERC-20 Transfer logs out of the ones that succeeded, and hands
+        `record_fills` both halves: what actually traded, and which levels reverted. A
+        reverted swap traded nothing, so its level goes back to open and its notional
+        comes back off the cap — a grid that kept charging reverted transactions against
+        its cap would spend its whole allowance on transactions that never happened.
+
+        A receipt the node has not caught up with yet leaves its level fired, which is
+        the correct answer: sent, unconfirmed, and not to be drafted again.
+        """
+        if not state.fired or not hasattr(reader, "transaction_receipt"):
+            return state
+        pending = {entry.tx_hash: entry.level for entry in state.fired if entry.tx_hash}
+        seen = {
+            (receipt.execution or {}).get("tx_hash"): receipt.execution or {}
+            for receipt in getattr(activation, "receipts", ()) or ()
+            if (receipt.execution or {}).get("tx_hash")
+        }
+        landed, reverted = [], []
+        for tx_hash, level in pending.items():
+            execution = seen.get(tx_hash)
+            if execution is None:
+                continue
+            if int(execution.get("status", 1)) != 1:
+                reverted.append(level)
+                continue
+            receipt = reader.transaction_receipt(tx_hash)
+            if receipt is None:
+                continue
+            landed.extend(
+                grid_lifecycle.detect_fills(
+                    [{**dict(receipt), "level": level}], spec, recipient=session
+                )
+            )
+        if not landed and not reverted:
+            return state
+        return grid_lifecycle.record_fills(
+            state,
+            landed,
+            reverted=reverted,
+            notional_atomic=spec.amount_per_level_atomic,
+        )
 
     def evaluate(self, activation, *, reader=None) -> Decision:
         """Read the pair's live quote, and let the lifecycle decide what it means.
@@ -171,7 +295,7 @@ class GridExecutor:
         quotes = self._quotes(reader)
         moment = int(self._clock())
         try:
-            spec = spec_from(activation.inputs)
+            spec = spec_from(activation.inputs, activation)
         except (KeyError, ValueError, TypeError) as exc:
             return Decision(
                 kind="alert",
@@ -187,6 +311,8 @@ class GridExecutor:
 
         state = state_from(activation)
         session = (activation.session or {}).get("address")
+        if session:
+            state = self._reconcile(state, activation, spec, session, quotes)
         if not session:
             return Decision(
                 kind="alert",
@@ -219,21 +345,6 @@ class GridExecutor:
         # engine reads both off the evidence and can see neither any other way, so they
         # are written whatever the decision turned out to be — a decision that spends
         # nothing says so with an empty mapping rather than by leaving the key out.
-        level = decision.level
-        fires = decision.kind == "fire" and decision.prepared is not None
-        evidence = {
-            "category_verb": CATEGORY_VERB,
-            "spec": spec.as_record(),
-            "grid_state": None
-            if decision.state is None
-            else decision.state.as_record(),
-            "grid_decision": decision.kind,
-            "no_resting_orders": grid_lifecycle.NO_RESTING_ORDERS,
-            "token_amounts": (
-                {level.token_in: str(level.size)} if fires and level is not None else {}
-            ),
-            "slippage_bps": spec.max_slippage_bps,
-        } | decision.evidence
         kind = {
             "fire": "action",
             "alert": "alert",
@@ -241,15 +352,39 @@ class GridExecutor:
             "cancel": "alert",
             "revoke": "alert",
         }[decision.kind]
-        prepared = (
-            (decision.prepared,) if kind == "action" and decision.prepared else ()
-        )
+        prepared = decision.prepared if kind == "action" else ()
+        level = decision.level
+        fires = kind == "action" and level is not None
+        evidence = {
+            "category_verb": CATEGORY_VERB,
+            # Without the ladder: it is derived from four fields already in this record,
+            # and repeating up to MAX_LEVELS of it every five minutes for the life of the
+            # grid writes the same derivation into the activation row over and over.
+            "spec": spec.as_record(with_levels=False),
+            "grid_state": None
+            if decision.state is None
+            else decision.state.as_record(),
+            "grid_decision": decision.kind,
+            "no_resting_orders": grid_lifecycle.NO_RESTING_ORDERS,
+            "source": decision.observation["source"],
+            # The four keys the session plane reads and can see no other way.
+            # `token_amounts` is the batch total; `token_amounts_by_call` is the same
+            # split per call, because the policy charges per call and a batch total
+            # applied to each one charges a two-call fire twice; `token_hints` carries
+            # what no calldata does; `received_tokens` is what the session ends up
+            # holding, so a revoke sweeps it rather than leaving it behind.
+            "token_amounts": {level.token_in: str(level.size)} if fires else {},
+            "token_amounts_by_call": _by_call(prepared, level) if fires else [],
+            "token_hints": {"tokens": [spec.base, spec.quote]},
+            "received_tokens": [spec.base, spec.quote],
+            "slippage_bps": spec.max_slippage_bps,
+        } | decision.evidence
         return Decision(
             kind=kind,
             summary=decision.reason,
             prepared=prepared,
             evidence=evidence,
-            observed_at=decision.observation["source"],
+            observed_at=_utc_now(),
             block=int(observation.block_number),
         )
 
@@ -271,15 +406,15 @@ class GridExecutor:
             str(selector).lower() for selector in policy.get("function_allowlist") or ()
         }
         per_action = policy.get("per_action_limit_atomic") or {}
-        gas_ceiling = policy.get("max_gas_price_wei")
         expires_at = policy.get("expires_at")
         if policy.get("emergency_pause"):
             return False, "the session policy is under an emergency pause"
         for call in decision.prepared:
-            if call.to not in ALLOWED_TARGETS:
+            if call.selector not in ALLOWED_SELECTORS:
                 return False, (
-                    f"{call.to} is not the PancakeSwap V2 router this category calls; a "
-                    "grid that reached another contract is a bug, not a policy question"
+                    f"selector {call.selector} is not one this category emits "
+                    f"({sorted(ALLOWED_SELECTORS)}); a grid that drafted another call is "
+                    "a bug in the lifecycle, not a policy question"
                 )
             if contracts and call.to.lower() not in contracts:
                 return False, (
@@ -292,15 +427,13 @@ class GridExecutor:
                     f"selector {selector} is not on the session's function allowlist of "
                     f"{sorted(functions)}"
                 )
-            if not call.simulation["ok"]:
+            # `False` is the chain refusing. `None` is a call whose preflight could not
+            # run yet because an earlier call in this same batch creates its
+            # precondition — the allowance the swap needs. Only the first is a refusal.
+            if call.simulation["ok"] is False:
                 return False, (
                     "the chain disagreed with this call at simulation: "
                     f"{call.simulation['revert_reason']}"
-                )
-            if gas_ceiling is not None and call.gas_ceiling > int(gas_ceiling):
-                return False, (
-                    f"the call's gas ceiling {call.gas_ceiling} exceeds the policy's "
-                    f"{gas_ceiling}"
                 )
         spec_record = decision.evidence.get("spec") or {}
         token_allowlist = {

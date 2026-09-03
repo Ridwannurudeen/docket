@@ -67,6 +67,8 @@ class StubActivation:
     policy: dict | None = None
     session: dict | None = field(default=None)
     result: dict | None = None
+    receipts: tuple = ()
+    expires_at: str | None = None
 
 
 def _grid_inputs(**overrides) -> dict:
@@ -343,7 +345,6 @@ def test_a_grid_action_inside_its_session_grant_passes_the_gate():
         ({"function_allowlist": ["0xdeadbeef"]}, "function allowlist"),
         ({"token_allowlist": [STRANGER]}, "token allowlist"),
         ({"per_action_limit_atomic": {USDT: str(E18)}}, "per-action limit"),
-        ({"max_gas_price_wei": 1_000}, "gas ceiling"),
         ({"emergency_pause": True}, "emergency pause"),
     ),
 )
@@ -382,8 +383,8 @@ def test_the_yield_executor_builds_the_whole_route_when_the_move_pays_for_itself
     decision = _yield().evaluate(_yield_activation(), reader=YieldReader())
 
     assert decision.kind == "action"
-    assert len(decision.prepared) == 8
-    assert decision.prepared[0].purpose.startswith("OWNER SIGNS:")
+    assert len(decision.prepared) == 7
+    assert not [c for c in decision.prepared if c.purpose.startswith("OWNER SIGNS:")]
     assert decision.prepared[-1].to == NPM
     assert decision.evidence["category_verb"] == (
         "Routes liquidity to the highest available APR"
@@ -454,7 +455,7 @@ def test_the_yield_executor_refuses_a_route_the_chain_disagreed_with():
     )
 
     assert decision.kind == "alert"
-    assert "disagreed with 1 of its 8 calls" in decision.summary
+    assert "disagreed with 1 of its 7 calls" in decision.summary
     assert decision.prepared == ()
 
 
@@ -465,21 +466,17 @@ def _yield_action():
     return _yield().evaluate(_yield_activation(), reader=YieldReader())
 
 
-def test_the_owners_own_nft_approval_is_outside_the_sessions_grant_by_design():
-    """The session is never granted the position manager's ERC-721 approve; exempting it
-    by the purpose it declares rather than by its index means a reordered route cannot
-    slip a session call past this gate."""
+def test_the_owners_own_nft_approval_is_not_in_the_batch_at_all():
+    """It used to be exempted by name from inside the list. It is not in the list now: it
+    is a precondition the route reads before it builds, so there is nothing to exempt."""
     activation = _yield_activation(
-        policy={
-            "contract_allowlist": [NPM, PANCAKE_V2_ROUTER, USDT, WBNB],
-            "max_gas_price_wei": 1_000_000,
-        }
+        policy={"contract_allowlist": [NPM, PANCAKE_V2_ROUTER, USDT, WBNB]}
     )
 
     allowed, why = _yield().within_policy(activation, _yield_action())
 
     assert allowed is True
-    assert "outside the session's authority by design" in why
+    assert "not in this batch at all" in why
 
 
 @pytest.mark.parametrize(
@@ -487,7 +484,6 @@ def test_the_owners_own_nft_approval_is_outside_the_sessions_grant_by_design():
     (
         ({"contract_allowlist": [PANCAKE_V2_ROUTER]}, "contract allowlist"),
         ({"function_allowlist": [SWAP_SELECTOR]}, "function allowlist"),
-        ({"max_gas_price_wei": 100_000}, "gas ceiling"),
         ({"emergency_pause": True}, "emergency pause"),
     ),
 )
@@ -657,3 +653,206 @@ def test_the_yield_route_wraps_the_tick_loops_raw_rpc(monkeypatch):
 
     _yield().evaluate(_yield_activation(), reader=passthrough)
     assert built == [rpc]
+
+
+# ------------------------------------------- the four keys the session plane reads
+
+
+SESSION_KEYS = (
+    "token_amounts",
+    "token_amounts_by_call",
+    "token_hints",
+    "received_tokens",
+    "slippage_bps",
+)
+
+
+def test_every_decision_from_either_executor_carries_all_of_them():
+    """`SessionPolicy.allows`, `sessions.spend` and `sessions.sweep` read these off the
+    evidence and can see them no other way. An absent key is a spend of zero, a hint
+    nobody supplied, or a token a revoke leaves behind."""
+    decisions = [
+        _grid().evaluate(_grid_activation(), reader=GridReader(price=540 * E18)),
+        _grid().evaluate(_grid_activation(), reader=GridReader(price=610 * E18)),
+        _grid().evaluate(
+            _grid_activation(inputs={"base": STRANGER}),
+            reader=GridReader(price=540 * E18),
+        ),
+        _yield().evaluate(_yield_activation(), reader=YieldReader()),
+        _yield().evaluate(
+            _yield_activation(inputs={"switching_cost_usd": 5_000.0}),
+            reader=YieldReader(),
+        ),
+    ]
+
+    for decision in decisions:
+        assert set(SESSION_KEYS) <= set(decision.evidence), decision.summary
+        assert isinstance(decision.evidence["token_amounts"], dict)
+        assert isinstance(decision.evidence["token_amounts_by_call"], list)
+        assert isinstance(decision.evidence["token_hints"], dict)
+        assert isinstance(decision.evidence["received_tokens"], list)
+
+
+def test_the_per_call_spend_lines_up_with_the_calls_it_describes():
+    grid = _grid().evaluate(
+        _grid_activation(), reader=GridReader(price=540 * E18, allowance=0)
+    )
+    route = _yield().evaluate(_yield_activation(), reader=YieldReader())
+
+    assert len(grid.prepared) == 2
+    assert grid.evidence["token_amounts_by_call"] == [{}, {USDT: str(25 * E18)}]
+    assert len(route.evidence["token_amounts_by_call"]) == len(route.prepared)
+
+
+def test_an_approval_in_the_batch_is_charged_as_authorisation_not_as_spend():
+    """Charging it would bill the session twice for the same tokens: once for permitting
+    the swap and once for the swap."""
+    decision = _grid().evaluate(
+        _grid_activation(), reader=GridReader(price=540 * E18, allowance=0)
+    )
+    approval, swap = decision.prepared
+    by_call = decision.evidence["token_amounts_by_call"]
+
+    assert approval.selector == "0x095ea7b3"
+    assert by_call[0] == {}
+    assert by_call[1] == {USDT: str(25 * E18)}
+    assert decision.evidence["token_amounts"] == {USDT: str(25 * E18)}
+
+
+def test_received_tokens_names_everything_a_revoke_has_to_sweep():
+    grid = _grid().evaluate(_grid_activation(), reader=GridReader(price=540 * E18))
+    route = _yield().evaluate(_yield_activation(), reader=YieldReader())
+
+    assert set(grid.evidence["received_tokens"]) == {USDT, WBNB}
+    assert set(route.evidence["received_tokens"]) >= {USDT, WBNB}
+
+
+def test_observed_at_is_a_utc_timestamp_and_the_read_is_named_separately():
+    from datetime import datetime, timezone
+
+    decision = _grid().evaluate(_grid_activation(), reader=GridReader(price=540 * E18))
+
+    moment = datetime.fromisoformat(decision.observed_at)
+    assert moment.tzinfo is not None
+    assert moment.utcoffset().total_seconds() == 0
+    assert abs((datetime.now(timezone.utc) - moment).total_seconds()) < 60
+    assert decision.evidence["source"] == "router.getAmountsOut"
+
+
+def test_a_deferred_simulation_is_not_read_as_the_chain_refusing():
+    """`ok: None` means an earlier call in the same batch creates the precondition. Only
+    `ok: False` is a refusal, and treating the two alike would refuse every first fire."""
+    decision = _grid().evaluate(
+        _grid_activation(), reader=GridReader(price=540 * E18, allowance=0)
+    )
+
+    assert decision.prepared[-1].simulation["ok"] is None
+    allowed, why = _grid().within_policy(_grid_activation(), decision)
+    assert allowed is True, why
+
+
+def test_the_grid_reads_a_receipt_back_and_closes_the_level_it_belonged_to():
+    """The fire branch marks a level fired and only a receipt takes it off that list."""
+    from types import SimpleNamespace
+
+    tx = "0x" + "ab" * 32
+    pad = lambda address: "0x" + "00" * 12 + address[2:].lower()  # noqa: E731
+    transfer = Web3.keccak(text="Transfer(address,address,uint256)")
+    receipt = {
+        "logs": [
+            {
+                "address": USDT,
+                "topics": [transfer, pad(SESSION), pad(STRANGER)],
+                "data": "0x" + format(25 * E18, "064x"),
+            },
+            {
+                "address": WBNB,
+                "topics": [transfer, pad(STRANGER), pad(SESSION)],
+                "data": "0x" + format(46 * 10**15, "064x"),
+            },
+        ],
+        "transactionHash": tx,
+        "blockNumber": GRID_BLOCK,
+    }
+    activation = _grid_activation()
+    activation.result = {
+        "last_decision": {
+            "evidence": {
+                "grid_state": {
+                    "reference_price": str(620 * E18),
+                    "spent_atomic": str(25 * E18),
+                    "fired": [{"level": 2, "intent_key": "0xk", "tx_hash": tx}],
+                    "fills": [],
+                    "open_levels": [0, 1, 3, 4],
+                }
+            }
+        }
+    }
+    activation.receipts = (
+        SimpleNamespace(
+            execution={"tx_hash": tx, "status": 1, "purpose": "grid level 2"}
+        ),
+    )
+
+    decision = _grid().evaluate(
+        activation, reader=GridReader(price=540 * E18, receipts={tx: receipt})
+    )
+    state = decision.evidence["grid_state"]
+
+    assert 2 not in [entry["level"] for entry in state["fired"]]
+    assert [fill["level"] for fill in state["fills"]] == [2]
+    assert state["fills"][0]["side"] == "buy"
+    assert [entry["level"] for entry in state["fired"]] == [1]
+
+
+def test_a_reverted_receipt_puts_the_level_back_and_refunds_the_cap():
+    from types import SimpleNamespace
+
+    tx = "0x" + "cd" * 32
+    activation = _grid_activation()
+    activation.result = {
+        "last_decision": {
+            "evidence": {
+                "grid_state": {
+                    "reference_price": str(620 * E18),
+                    "spent_atomic": str(100 * E18),
+                    "fired": [{"level": 2, "intent_key": "0xk", "tx_hash": tx}],
+                    "fills": [],
+                    "open_levels": [0, 1, 3, 4],
+                }
+            }
+        }
+    }
+    activation.receipts = (
+        SimpleNamespace(
+            execution={"tx_hash": tx, "status": 0, "purpose": "grid level 2"}
+        ),
+    )
+
+    # 610 crosses nothing with the reference at 620, so the refund is the only thing that
+    # moves on this pass and it can be read on its own.
+    waiting = _grid().evaluate(activation, reader=GridReader(price=610 * E18))
+    state = waiting.evidence["grid_state"]
+
+    assert waiting.kind == "noop"
+    assert state["fired"] == []
+    assert 2 in state["open_levels"]
+    assert int(state["spent_atomic"]) == 100 * E18 - 25 * E18
+
+    # And with the cap back under its ceiling, the level is drafted again.
+    refired = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+    assert refired.kind == "action"
+    assert refired.evidence["grid_state"]["fired"][0]["level"] == 2
+
+
+def test_the_grid_takes_its_expiry_from_the_activation_not_the_request_body():
+    """A grid outliving the session that funds it is what the expiry exists to stop, so
+    a later date typed into the body cannot extend it."""
+    activation = _grid_activation(inputs={"expires_at": FROZEN_NOW + 10**7})
+    activation.expires_at = "2020-01-01T00:00:00+00:00"
+
+    decision = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+
+    assert decision.kind == "alert"
+    assert decision.evidence["grid_decision"] == "revoke"
+    assert "expired" in decision.summary
