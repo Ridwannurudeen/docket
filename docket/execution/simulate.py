@@ -33,7 +33,9 @@ from .intent import ActionIntent
 
 # PancakeSwap V2 router on BSC mainnet, 21,936 bytes of code. Exact-input token-to-token
 # swaps only: this build quotes and sends nothing else.
-PANCAKE_V2_ROUTER = Web3.to_checksum_address("0x10ED43C718714eb63d5aA57B78B54704E256024E")
+PANCAKE_V2_ROUTER = Web3.to_checksum_address(
+    "0x10ED43C718714eb63d5aA57B78B54704E256024E"
+)
 SWAP_SIGNATURE = "swapExactTokensForTokens(uint256,uint256,address[],address,uint256)"
 
 ROUTER_ABI = [
@@ -125,7 +127,9 @@ class Simulation:
         return {
             "agrees": self.agrees,
             "reason": self.reason,
-            "expected_output": None if self.expected_output is None else str(self.expected_output),
+            "expected_output": None
+            if self.expected_output is None
+            else str(self.expected_output),
             "gas": self.gas,
             "block_number": self.block_number,
             "checks": list(self.checks),
@@ -167,6 +171,40 @@ class BscQuoteReader:
                 }
             )
         )
+
+    def call(self, sender: str, target: str, calldata: bytes) -> bytes:
+        """One `eth_call` over the same failover. Reads only; nothing here signs.
+
+        The grid needs two reads that are not router quotes — the session's ERC-20
+        allowance to the router, and the receipt of a transaction it fired on an earlier
+        pass — and both are ordinary node reads. They live on this reader rather than in
+        a second one so an executor takes one object and a test replaces one object.
+        """
+        return self._rpc(
+            lambda w3: w3.eth.call(
+                {
+                    "from": Web3.to_checksum_address(sender),
+                    "to": Web3.to_checksum_address(target),
+                    "data": calldata,
+                }
+            )
+        )
+
+    def transaction_receipt(self, tx_hash: str):
+        """The receipt of one transaction, or `None` if the node has not seen it yet.
+
+        `None` rather than an exception: a transaction broadcast on the previous pass and
+        not yet mined is an ordinary state of a running grid, and raising on it would turn
+        a pending fill into a failed tick.
+        """
+
+        def read(w3):
+            try:
+                return w3.eth.get_transaction_receipt(tx_hash)
+            except Exception:
+                return None
+
+        return self._rpc(read)
 
 
 def simulate(
