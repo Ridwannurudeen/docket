@@ -21,7 +21,7 @@ import sqlite3
 import subprocess
 import sys
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -104,7 +104,7 @@ def _iso_z(moment: datetime) -> str:
     """Whole seconds, UTC. Microseconds on a counter timestamp assert a precision the
     count does not have and make two adjacent renderings look like different readings."""
     return (
-        moment.astimezone(timezone.utc)
+        moment.astimezone(UTC)
         .replace(microsecond=0)
         .isoformat()
         .replace("+00:00", "Z")
@@ -119,7 +119,7 @@ def _display_moment(value) -> str:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return NOT_MEASURED
-    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return parsed.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
 
 def _read_only(store):
@@ -249,7 +249,7 @@ def marketplace_summary(
     against the latest canary run rather than reading the static limb, so a stale canary
     closes the shelf here exactly as it does at `/services`.
     """
-    observed = now or datetime.now(timezone.utc)
+    observed = now or datetime.now(UTC)
     with _read_only(store) as connection:
         public_paid_hires, canary_settlements = _settlement_counts(connection)
         activations_by_state = {}

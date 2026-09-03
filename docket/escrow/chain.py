@@ -183,7 +183,7 @@ class JobReader:
             )
 
         raw, policy, disputed, block, now = self._call(read)
-        job = dict(zip(JOB_FIELDS, raw))
+        job = dict(zip(JOB_FIELDS, raw, strict=True))
 
         # getJob does not revert for an id nobody has created — it returns a zero-filled
         # struct, which renders as a real job that is OPEN with a zero budget and no

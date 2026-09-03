@@ -16,7 +16,7 @@ import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -31,7 +31,7 @@ SPEC_PATH = (
     / "docket/advantage/v3/specs/v3-02-yield-router.json"
 )
 SPEC = load(SPEC_PATH)
-SCHEDULED = datetime(2026, 8, 26, 12, 0, 0, tzinfo=timezone.utc)
+SCHEDULED = datetime(2026, 8, 26, 12, 0, 0, tzinfo=UTC)
 YIELD_V6_SPEC_PATH = (
     Path(__file__).resolve().parents[1]
     / "docket/advantage/v3/specs/v3-06-yield-router-assisted.json"
@@ -41,7 +41,7 @@ RANGE_SPEC_PATH = (
     Path(__file__).resolve().parents[1]
     / "docket/advantage/v3/specs/v3-05-range-doctor.json"
 )
-RANGE_SCHEDULED = datetime(2026, 8, 26, 12, 10, 0, tzinfo=timezone.utc)
+RANGE_SCHEDULED = datetime(2026, 8, 26, 12, 10, 0, tzinfo=UTC)
 
 # The exact keys spec.py demands of every capture-log entry. Restating them here is the point:
 # if either side moves, the shape test below fails instead of the Aug 26 input lock.
@@ -1154,7 +1154,7 @@ def test_packaged_cli_arms_and_waits_for_the_recommitted_moment(tmp_path):
 def test_main_arms_then_persists_raw_bytes_before_the_success_manifests(
     monkeypatch, tmp_path
 ):
-    moment = datetime(2030, 1, 2, 12, 0, tzinfo=timezone.utc)
+    moment = datetime(2030, 1, 2, 12, 0, tzinfo=UTC)
     elapsed = {"seconds": -600.0}
 
     def clock():

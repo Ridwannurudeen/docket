@@ -6,7 +6,7 @@ import sqlite3
 import threading
 import time
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -15,8 +15,7 @@ from eth_account.messages import encode_typed_data
 from fastapi.testclient import TestClient
 
 from docket.agents.pancake import doctor
-from docket.api import create_app
-from docket.api import routes
+from docket.api import create_app, routes
 from docket.api.routes import FREE_TIER_HIRES
 from docket.hire import catalogue
 from docket.hire.catalogue import SERVICES, USDT_TOKEN, PaidStockAdmission, get_service
@@ -195,7 +194,7 @@ def _seed_payment_state(db_path, *, nonce, stale, status="settling"):
     if status == "settling":
         assert store.begin_payment_settlement(payment_id) is True
     age_seconds = routes.SETTLEMENT_RECONCILE_STALE_SECONDS + (60 if stale else -60)
-    updated_at = datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
+    updated_at = datetime.now(UTC) - timedelta(seconds=age_seconds)
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             "UPDATE hire_payments SET updated_at = ? WHERE nonce = ?",

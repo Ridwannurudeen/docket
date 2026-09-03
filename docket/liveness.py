@@ -14,7 +14,7 @@ is up. None of these outcomes is a verdict about the agent behind the URL.
 import ipaddress
 import socket
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 import httpx
@@ -39,7 +39,7 @@ MIN_HOST_INTERVAL_S = 1.0
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _pace(last_hit: dict[str, float], url: str) -> None:

@@ -1,7 +1,6 @@
 import re
 from pathlib import Path
 
-
 CHECKLIST = Path(__file__).resolve().parents[1] / "docs" / "publication-checklist.md"
 ROOT = Path(__file__).resolve().parents[1]
 NAMED_WINDOWS_USER_ROOT = re.compile(

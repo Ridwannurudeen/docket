@@ -6,13 +6,13 @@ from pathlib import Path
 import pytest
 
 from docket.advantage.v3 import calibration
-from docket.hire.receipts import canonical_hash
 from docket.advantage.v3.spec import (
     _calibration_truth_matches,
     _computed_calibration_truth,
     _validate_evaluator_calibration,
     load,
 )
+from docket.hire.receipts import canonical_hash
 
 ROOT = Path(__file__).resolve().parents[1]
 SPECS_DIR = ROOT / "docket/advantage/v3/specs"

@@ -427,10 +427,12 @@ def v3_family_page(shell: str, family: dict) -> str:
         )
         progress_html = (
             '<div class="panel"><h2>Run progress</h2><dl class="deflist">'
-            f'<dt>Scheduled primaries</dt><dd class="num">{_esc(progress["scheduled_primaries"])}</dd>'
+            f"<dt>Scheduled primaries</dt>"
+            f'<dd class="num">{_esc(progress["scheduled_primaries"])}</dd>'
             f'<dt>Claimed primaries</dt><dd class="num">{_esc(progress["claimed_primaries"])}</dd>'
-            f'<dt>Terminal primaries</dt><dd class="num">{_esc(progress["terminal_primaries"])}</dd>'
-            f"<dt>Outcomes</dt><dd>{_esc(outcomes)}</dd></dl></div>"
+            f"<dt>Terminal primaries</dt>"
+            f'<dd class="num">{_esc(progress["terminal_primaries"])}</dd>'
+            f'<dt>Outcomes</dt><dd>{_esc(outcomes)}</dd></dl></div>'
         )
     links = []
     for slug, (field, label) in V3_TOPICS.items():
@@ -450,7 +452,8 @@ def v3_family_page(shell: str, family: dict) -> str:
         '<p class="status-line"><span class="status-key">State</span>'
         f'<span class="mono">{_esc(family["state"])}</span>'
         f"<span>{_esc(STATE_TEXT[family['state']])}</span></p>{unscored}</section>"
-        '<section aria-labelledby="registered-boundary"><h2 id="registered-boundary">Registered boundary</h2>'
+        '<section aria-labelledby="registered-boundary">'
+        '<h2 id="registered-boundary">Registered boundary</h2>'
         '<dl class="deflist panel">'
         f"<dt>Claim</dt><dd>{_esc(spec['claim'])}</dd>"
         f"<dt>Falsifier</dt><dd>{_esc(spec['falsifier'])}</dd>"
@@ -476,7 +479,8 @@ def v3_topic_page(shell: str, family: dict, topic: str) -> str:
     body = (
         f'<p><a href="/advantage/v3/{spec_id}">← {spec_id}</a></p>'
         f'<section class="hero"><h1>{_esc(label)}</h1><p class="lede">'
-        f'The complete <span class="mono">{_esc(field)}</span> artifact for {spec_id}.</p></section>'
+        f'The complete <span class="mono">{_esc(field)}</span> artifact for '
+        f"{spec_id}.</p></section>"
         f'<pre class="mono wrap-anywhere">{record}</pre>'
     )
     return _depth_shell(shell, f"{family['spec_id']} — {label}", body)

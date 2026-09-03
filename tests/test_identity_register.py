@@ -2,7 +2,7 @@ import ast
 import json
 import re
 import tomllib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -13,14 +13,15 @@ from web3 import Web3
 
 from docket.hire.catalogue import SERVICES
 from docket.identity import register
-from docket.marketplace.registry import SERVICES as MARKETPLACE_SERVICES, get_record
+from docket.marketplace.registry import SERVICES as MARKETPLACE_SERVICES
+from docket.marketplace.registry import get_record
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "docket" / "api" / "static" / "agents"
 IDENTITY_EVIDENCE = ROOT / "docs" / "erc8004-category-identities.json"
 SERVICE_IDS = ("range-doctor", "grid-operator", "yield-router", "health-guard")
 SENDER = "0xE4fe23FB57dbb9AC2f685ea29B6b9A1409A0d359"
-DOCUMENT_TIME = datetime(2026, 8, 28, 10, 44, 53, tzinfo=timezone.utc)
+DOCUMENT_TIME = datetime(2026, 8, 28, 10, 44, 53, tzinfo=UTC)
 IDENTITY_FACTS = {
     fact["service_id"]: fact
     for fact in json.loads(IDENTITY_EVIDENCE.read_text(encoding="utf-8"))["services"]

@@ -11,7 +11,7 @@ settled row belonging to the internal canary may never be reported as a public p
 import re
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -208,7 +208,7 @@ def test_an_absent_release_marker_falls_back_rather_than_inventing_an_identity(
 
 
 def test_the_generated_timestamp_is_the_observation_it_was_given(store):
-    observed = datetime(2026, 9, 3, 11, 50, 0, 123456, tzinfo=timezone.utc)
+    observed = datetime(2026, 9, 3, 11, 50, 0, 123456, tzinfo=UTC)
 
     assert _summary(store, now=observed)["generated_at"] == "2026-09-03T11:50:00Z"
 
@@ -291,7 +291,7 @@ def test_the_marketplace_names_the_products_and_prints_their_service_ids(store):
 
 
 def test_a_recorded_canary_fills_the_verification_fields_from_the_run(store):
-    started = datetime(2026, 8, 30, 4, 17, tzinfo=timezone.utc)
+    started = datetime(2026, 8, 30, 4, 17, tzinfo=UTC)
     finished = started + timedelta(seconds=42)
     run_id = store.begin_canary_run(
         "range-doctor", "https://docket.example/hire/range-doctor", started.isoformat()

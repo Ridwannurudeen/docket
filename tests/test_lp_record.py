@@ -9,7 +9,7 @@ history months later cannot tell those apart.
 import hashlib
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -17,7 +17,7 @@ from docket.agents.pancake import lp_record
 
 WALLET = "0xe55816904796341bf8535e25f6c8b647927fc946"
 TOKEN = 7141050
-WHEN = datetime(2026, 8, 16, 6, 0, tzinfo=timezone.utc)
+WHEN = datetime(2026, 8, 16, 6, 0, tzinfo=UTC)
 
 
 def _report(**overrides):

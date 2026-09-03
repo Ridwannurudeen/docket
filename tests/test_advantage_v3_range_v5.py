@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from docket.advantage.v3 import capture, rehearsal, runner, scoring
 import docket.advantage.v3.spec as spec_module
+from docket.advantage.v3 import capture, rehearsal, runner, scoring
 from docket.advantage.v3.spec import (
     RANGE_CONTROLLED_TOKEN_IDS,
     RANGE_CONTROLLED_WALLETS,
@@ -14,7 +14,6 @@ from docket.advantage.v3.spec import (
     range_sample_indices,
 )
 from docket.hire.receipts import canonical_hash
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SPECS = ROOT / "docket/advantage/v3/specs"

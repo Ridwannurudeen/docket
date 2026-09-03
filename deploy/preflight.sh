@@ -61,6 +61,8 @@ readonly -a UNIT_NAMES=(
     docket-canary.timer
     docket-lp-record.service
     docket-lp-record.timer
+    docket-probe.service
+    docket-probe.timer
     docket-refresh.service
     docket-refresh.timer
     docket-v3-capture.service

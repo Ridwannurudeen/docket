@@ -82,7 +82,7 @@ nondeterministic.
 The VPS release is a copied tree under `/opt/docket`, not a Git checkout. Build the release
 bundle outside the checkout, then run the following from Git Bash. The tar stream carries the
 generated manifest and wheel plus the complete `deploy/` directory, including the hashed
-runtime lock and all seventeen tracked unit files.
+runtime lock and all nineteen tracked unit files.
 
 ```bash
 bundle=$(realpath /path/outside/checkout/docket-release)
@@ -100,7 +100,7 @@ ssh <deploy-user>@<host> \
 `preflight.sh` requires `nginx -t` to exit successfully, print `test is successful`, and
 emit exactly the operator-supplied number of lines containing the fixed `[warn]` token, whether
 nginx uses timestamped error-log or `nginx: [warn]` form. It also requires at least 2 GiB free
-under `/opt`, verifies all seventeen tracked units with `systemd-analyze verify`, and prints the
+under `/opt`, verifies all nineteen tracked units with `systemd-analyze verify`, and prints the
 current journal disk use. It never edits or reloads nginx. The tracked rate-limit example is
 still an owner-reviewed, separately applied nginx change.
 
@@ -165,8 +165,8 @@ assets. It then uses the currently deployed Python and SQLite backup API to writ
 `/var/backups/docket/agents-<UTC timestamp>.sqlite3` through an exclusive temporary file.
 It requires `PRAGMA quick_check` to return exactly `ok`, atomically publishes the backup,
 and requires mode `0600` with owner `root:root` outside dry-run. Before that backup, the script
-captures the enabled and active states of all six timers, stops all six timers, and requires all
-six corresponding worker services to be inactive. It never kills an active worker: it aborts
+captures the enabled and active states of every tracked timer, stops every tracked timer, and
+requires every corresponding worker service to be inactive. It never kills an active worker: it aborts
 and restores all captured timer states instead. A failed backup likewise restores timer state
 while leaving the application service and current release tree untouched. After the verified
 backup, the script stops the application service and performs the release-tree swap. A stale
@@ -240,7 +240,7 @@ against the saved SQLite backup.
 
 The live-tree transition is a two-directory rename, not an atomic symlink exchange. A power loss
 between moving `/opt/docket` to its timestamped backup and moving the staged tree into place can
-leave `/opt/docket` absent. After reboot, keep `docket.service` and all six timers stopped; inspect
+leave `/opt/docket` absent. After reboot, keep `docket.service` and every tracked timer stopped; inspect
 the exact `/opt/docket.bak-<timestamp>` and `/opt/docket.stage-<commit12>` recorded for that
 release. If the live path is absent, restore the known prior tree with
 `mv -- /opt/docket.bak-<timestamp> /opt/docket`, verify its `.venv` target and release identity,
@@ -589,6 +589,103 @@ with one line, `DOCKET_OWNED_AGENT_IDS=` followed by the comma-separated full id
 wallet key, facilitator credential, or payment authorization. Restarting the API is not required
 after updating the allowlist; start `docket-refresh.service` once and confirm the promoted
 snapshot contains every configured id.
+
+## Status and probes
+
+Two surfaces answer "is this deployment working", and they are the same document twice.
+`GET /api/status` serves it as JSON; `GET /status` renders it as a page with every reading's
+observation time and the tolerance it is judged against beside it.
+
+Both routes are public and one of the readings is an outbound chain read, so the reading is
+bounded rather than the requests. **A reading is taken at most once every 60 seconds per
+process** and served until it expires; `generated_at` is when the figures were observed, not
+when they were asked for, so a reader can see the staleness instead of being told a held
+document is current. `/api/status` additionally carries a per-peer allowance of **60 reads per
+3600 seconds**, the same shape the free hire and on-demand probe routes use, and answers `429`
+with `{error_code: "status_rate_limited", message}` and a `Retry-After` header beyond it. The
+page is not metered: it costs a render of a reading already taken. Restarting `docket.service`
+empties both the held reading and the allowances.
+
+The document carries `status` (`ok`, `degraded` or `down`), `deployed_commit`, and five
+readings:
+
+- `db` — whether the store could be read, its SQLite journal mode, and the database file and
+  its directory. Docket requires DELETE journal mode; `wal` here means the application will
+  refuse the database on its next connection.
+- `latest_refresh` — the newest **complete** snapshot, the one actually being served: its
+  `finished_at`, its age in seconds, and `complete`. Out of tolerance when no complete sweep
+  exists or the served one is older than 43,200s, which is two `docket-refresh.timer` windows.
+  Read against the newest row rather than the newest complete one, this would sit degraded for
+  the whole of every two-hour sweep, which is how a status page teaches an operator to ignore
+  it. A sweep that finished partial is not promoted, so the previous snapshot stays in service
+  and stays correct; a run of partial sweeps surfaces here as staleness.
+- `refresh_in_progress` — `{started_at, age_seconds}` while a sweep is running, else `null`.
+  Out of tolerance only past 7,200s, the `TimeoutStartSec` systemd starts the refresh with: a
+  sweep still running past its own deadline is one systemd has killed or is about to.
+- `latest_canary` — the newest recorded verdict, when it finished, its age, and `exercised`.
+  Two things count against the deployment: a `failed` verdict, and a `running` row older than
+  480s, the canary unit's `TimeoutStartSec` — a run whose result nobody will ever receive.
+  `not_yet_exercised` does not: it is what the canary records when its paid limbs are
+  unconfigured, and the timer is deliberately disabled between exercises. `exercised` is false
+  for both of those, which is why **`ok` never means the paid path works** — the page's lede
+  says so and names when it was last exercised.
+- `rpc` — one `eth_blockNumber`, **one connection, no retry**, against the first endpoint in
+  `docket/escrow/constants.py`, capped at 5s, with `reason` naming what happened when it did
+  not answer. Two things are switched off here, not one. There is no failover:
+  `escrow/chain.py::Rpc` walks four endpoints twice each because a job that cannot read the
+  chain cannot proceed, whereas a status reading that could not read the chain has read
+  something true. And the provider's own retry is disabled with
+  `exception_retry_configuration=None`: web3 7.16.0 defaults to retrying `ConnectionError`,
+  `HTTPError` and `Timeout` five times with exponential backoff, and `eth_blockNumber` is on
+  its retry allowlist, so `request_kwargs={"timeout": 5}` bounds one connection while the
+  provider quietly makes five. Measured against a socket that accepts and never answers, the
+  default cost 5 connections and ~27s inside the lock a reading is built under. A BSC outage
+  now costs one 5s wait per 60s window.
+- `probes` — how many `docket-probe.service` runs passed and failed in the last 24 hours,
+  when the newest started, and `recent_ok` of `recent_considered`. **The verdict is the last
+  3 runs, not the window**: a transient failure is reported in the 24h counts but does not
+  hold the page red for the rest of the day, while a run of failures does.
+
+`deployed_commit` is read from `/opt/docket/.venv/RELEASE-commit.txt`, which `release.sh`
+writes at the root of the environment it publishes. `release.sh` also refuses to finish unless
+the served `/api/status` reports `ok` or `degraded` **and** names the commit the release just
+published, so a process that came up on the previous wheel rolls back instead of shipping.
+
+The tracked probe units are:
+
+- `deploy/systemd/docket-probe.service`
+- `deploy/systemd/docket-probe.timer`
+
+The timer fires on the hour and every ten minutes after it, and catches one missed activation
+after downtime. Each run makes five requests to `http://127.0.0.1:8090` — the loopback port
+the application unit listens on, so the probe measures the application rather than nginx in
+front of it — and records one row in `probe_runs` whatever any step did:
+
+1. `GET /` must serve a shell carrying a Docket title.
+2. `GET /services` must list services and agree with its own `total`.
+3. `GET /api/status` must report `ok` or `degraded`.
+4. `GET /advantage/v3.json` must agree with its own `summary.n_families`.
+5. `POST /hire/range-doctor` with the catalogue's own worked example must return a result and
+   a receipt. This is the only step that reaches BSC, and it is the request a buyer makes.
+
+Step 5 spends one free-tier hire. The allowance is 20 hires per hour per caller and the probe
+reaches the application over loopback with no forwarded-for header, so it spends the
+`127.0.0.1` bucket at six an hour and never a public caller's.
+
+**Reading a degraded state.** `degraded` names no reason on its own; the page does. Open
+`/status`, find the row whose verdict reads `out of tolerance`, and act on that row:
+
+| Row out of tolerance | What to do |
+| --- | --- |
+| Snapshot refresh | `systemctl status docket-refresh.service`, `journalctl -u docket-refresh.service`, and `/var/lib/docket/data/last-refresh.json`. A refused or failed refresh keeps the previous promoted snapshot online, so the site is serving stale but valid observations. |
+| Sweep in flight | Only ever out of tolerance past 7,200s. `systemctl status docket-refresh.service` — systemd kills the unit at that deadline, so this row going red means the sweep did not finish and no new snapshot will be promoted from it. |
+| Service canary | `journalctl -u docket-canary.service` and `GET /canary`. A `failed` verdict names the leg that failed in `checks`; a `running` row older than 480s is a run the unit's own deadline killed, and the next timer firing clears it. |
+| BSC read | Compare against another node before touching the deployment; every endpoint in the failover list refusing at once is usually the road, not this host. |
+| Synthetic probes | `journalctl -u docket-probe.service` — the readings are printed before the row is written, so a probe that could not reach its database still journalled what it found. The failing run's row in `probe_runs` names the step, its status code, its latency and what it found; step 5 failing alone is a chain or position-read fault rather than a serving fault. |
+
+`down` means only one thing: the runtime database could not be read. Every other reading is
+taken out of it, so treat the readings on a `down` page as absent rather than as zero, and go
+to Database handling below.
 
 ## Database handling
 

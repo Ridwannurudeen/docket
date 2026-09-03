@@ -28,7 +28,7 @@ phrased in a way that lets a pass read as approval, and a test enforces that by
 banning the vocabulary of endorsement outright.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .pools import PoolClient, is_plausible, net_fee_apr
 from .positions import MAX_EXAMINED, PositionReader
@@ -243,7 +243,7 @@ def diagnose(
         "actions": actions,
         "as_of_block": observation_block,
         "observed_at": observation_time,
-        "computed_at": datetime.now(timezone.utc).isoformat(),
+        "computed_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -384,7 +384,7 @@ def report(
 
     return {
         "address": address,
-        "computed_at": datetime.now(timezone.utc).isoformat(),
+        "computed_at": datetime.now(UTC).isoformat(),
         "decision": _report_decision(read, entries),
         "pancake_headline": pancake_headline(_decision_impact_section()),
         "observation": {
@@ -461,7 +461,8 @@ def _economic_consequence(
         consequence["unavailable_reason"] = (
             "the position is closed, so no live pool rate or dollar consequence is quoted"
             if status == "closed"
-            else "the current pool state could not be read, so no rate or dollar consequence is quoted"
+            else "the current pool state could not be read, so no rate or dollar "
+            "consequence is quoted"
         )
         return consequence
     if pool_stats is None:
@@ -556,7 +557,8 @@ def _conditional_actions(
         result["unavailable_reason"] = (
             "no wait-versus-recenter comparison is available for a closed position"
             if status == "closed"
-            else "no position-specific action is available because the current pool state is unknown"
+            else "no position-specific action is available because the current pool "
+            "state is unknown"
         )
         return result
 

@@ -35,7 +35,7 @@ transport error. The order below is the measured one, best first.
 
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from web3 import Web3
 from web3.exceptions import BadFunctionCallOutput, ContractLogicError
@@ -437,7 +437,7 @@ class PositionReader:
         )
         block = int(observed["number"])
         observed_at = datetime.fromtimestamp(
-            int(observed["timestamp"]), timezone.utc
+            int(observed["timestamp"]), UTC
         ).isoformat()
 
         # Both balances first: the wallet's true total is read before any bound applies, so a
@@ -622,7 +622,7 @@ class PositionReader:
         )
         block = int(observed["number"])
         observed_at = datetime.fromtimestamp(
-            int(observed["timestamp"]), timezone.utc
+            int(observed["timestamp"]), UTC
         ).isoformat()
         slot0 = self._call(
             lambda w3: (

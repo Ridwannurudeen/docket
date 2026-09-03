@@ -499,6 +499,8 @@ readonly -a UNIT_NAMES=(
     docket-canary.timer
     docket-lp-record.service
     docket-lp-record.timer
+    docket-probe.service
+    docket-probe.timer
     docket-refresh.service
     docket-refresh.timer
     docket-v3-capture.service
@@ -515,6 +517,7 @@ readonly -a UNIT_NAMES=(
 readonly -a TIMER_NAMES=(
     docket-canary.timer
     docket-lp-record.timer
+    docket-probe.timer
     docket-refresh.timer
     docket-v3-capture.timer
     docket-v3-range-capture.timer
@@ -1186,6 +1189,25 @@ trace_command "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/static/style.css
 if ! "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/static/style.css | \
     grep -Fq ':root {'; then
     fatal 'served static asset smoke failed'
+fi
+
+trace_command "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/api/status
+if ! "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/api/status | \
+    DOCKET_EXPECTED_COMMIT="${SOURCE_COMMIT}" "${JSON_PYTHON}" -c '
+import json, os, sys
+body = json.load(sys.stdin)
+raise SystemExit(
+    body.get("status") not in {"ok", "degraded"}
+    or body.get("deployed_commit") != os.environ["DOCKET_EXPECTED_COMMIT"]
+)
+'; then
+    fatal 'served /api/status does not report this release as serving'
+fi
+
+trace_command "${CURL_COMMAND}" -fsS -H 'Accept: text/html' http://127.0.0.1:8090/status
+if ! "${CURL_COMMAND}" -fsS -H 'Accept: text/html' \
+    http://127.0.0.1:8090/status | grep -Fq '<title>Docket'; then
+    fatal 'served status page smoke failed'
 fi
 
 refuse_range_capture_window

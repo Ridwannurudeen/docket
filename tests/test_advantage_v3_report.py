@@ -4,8 +4,6 @@ import json
 import os
 from pathlib import Path
 
-from docket.advantage.v3 import report, runner, scoring
-
 from test_advantage_v3_scoring import (
     _append_attempt,
     _complete_range_ledger,
@@ -13,6 +11,8 @@ from test_advantage_v3_scoring import (
     _range_output,
     _score_sheet,
 )
+
+from docket.advantage.v3 import report, runner, scoring
 
 
 def _build_report(tmp_path):

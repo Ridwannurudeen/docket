@@ -19,7 +19,8 @@ promised not to do.
 """
 
 from ..advantage.record_run import load_record
-from ..advantage.v2.report import run as v2_run, security_scores
+from ..advantage.v2.report import run as v2_run
+from ..advantage.v2.report import security_scores
 from .models import CATEGORIES, Category, EvidenceRef, Metric, ServiceRecord
 
 # The v2 security figures, scored here from the committed corpus and the committed run by the

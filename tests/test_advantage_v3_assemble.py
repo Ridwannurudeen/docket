@@ -22,7 +22,6 @@ from docket.advantage.v3 import (
     capture,
     rehearsal,
 )
-from docket.hire.receipts import canonical_hash
 from docket.advantage.v3.spec import (
     _computed_calibration_truth,
     assert_runnable,
@@ -30,6 +29,7 @@ from docket.advantage.v3.spec import (
     lock_inputs,
     save,
 )
+from docket.hire.receipts import canonical_hash
 
 SPEC_PATH = (
     Path(__file__).resolve().parents[1]

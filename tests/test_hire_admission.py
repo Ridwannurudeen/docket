@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -7,8 +7,7 @@ from docket.hire.admission import CANARY_MAX_AGE_SECONDS, resolve_admission
 from docket.hire.catalogue import PaidStockAdmission, get_service
 from docket.store import Store
 
-
-NOW = datetime(2026, 8, 15, 12, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 15, 12, tzinfo=UTC)
 ALL_OTHER_FACTS = PaidStockAdmission(
     fresh_paired_benchmark=True,
     cold_canary=False,

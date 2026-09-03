@@ -23,9 +23,9 @@ Venus's own liquidity figure is only meaningful over the same set.
 import argparse
 import os
 import sys
-from datetime import datetime, timezone
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Mapping
 
 import httpx
 from web3 import Web3
@@ -93,7 +93,7 @@ def _header(rpc: JsonRpcClient, frame: dict, accounting: dict[str, int]) -> None
     block_hash = block.get("hash")
     try:
         observed_time = (
-            datetime.fromtimestamp(timestamp, timezone.utc)
+            datetime.fromtimestamp(timestamp, UTC)
             .isoformat()
             .replace("+00:00", "Z")
         )

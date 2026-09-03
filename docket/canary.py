@@ -6,11 +6,11 @@ import json
 import math
 import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Mapping
 
 import httpx
 from eth_account import Account
@@ -32,7 +32,7 @@ from .hire.x402 import (
 )
 from .store import Store
 
-END_AT = datetime(2026, 9, 24, tzinfo=timezone.utc)
+END_AT = datetime(2026, 9, 24, tzinfo=UTC)
 LEG_NAMES = (
     "fresh_browser_surface",
     "snapshot_age_surface",
@@ -144,14 +144,14 @@ class _ScriptSources(HTMLParser):
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _parse_timestamp(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         raise ValueError("timestamp must include a UTC offset")
-    return parsed.astimezone(timezone.utc)
+    return parsed.astimezone(UTC)
 
 
 def _text(environment: Mapping[str, str], name: str) -> str | None:
@@ -279,7 +279,10 @@ def _configuration(environment: Mapping[str, str]) -> CanaryConfig:
                     or parsed_facilitator.query
                     or parsed_facilitator.fragment
                 ):
-                    paid_error = "DOCKET_FACILITATOR_URL must be an HTTPS endpoint without credentials, query, or fragment"
+                    paid_error = (
+                        "DOCKET_FACILITATOR_URL must be an HTTPS endpoint without "
+                        "credentials, query, or fragment"
+                    )
 
     return CanaryConfig(
         database=database,
@@ -1010,7 +1013,8 @@ def _settlement_check(
 ) -> tuple[dict, bool]:
     checked = [
         "the paid request returned a settled payment",
-        f"the settlement named exactly {HIRE_PRICE_ATOMIC} atomic units of USDT and the challenged recipient",
+        f"the settlement named exactly {HIRE_PRICE_ATOMIC} atomic units of USDT and "
+        "the challenged recipient",
     ]
     payment = receipt.get("payment") if isinstance(receipt, dict) else None
     valid = isinstance(payment, dict) and (
@@ -1400,7 +1404,7 @@ def run_from_environment(
     store: Store | None = None,
 ) -> CanaryOutcome:
     environment = os.environ if environment is None else environment
-    checked_at = _utc_now() if now is None else now.astimezone(timezone.utc)
+    checked_at = _utc_now() if now is None else now.astimezone(UTC)
     # The eligibility boundary is fixed, so no malformed or extended environment value
     # can make the runner touch history or the network after the judging window.
     if checked_at >= END_AT:

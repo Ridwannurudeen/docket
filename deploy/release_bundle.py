@@ -18,7 +18,6 @@ import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
-
 SCHEMA_VERSION = 1
 BUILD_LOCK_PATH = "deploy/build-requirements.txt"
 RUNTIME_LOCK_PATH = "deploy/runtime-requirements.txt"

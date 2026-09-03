@@ -55,6 +55,45 @@ GET /health
 
     curl -s "$DOCKET/health"
 
+GET /api/status
+    Whether this deployment is serving, and the readings behind that word. Returns
+    `status` ("ok", "degraded" or "down"), `deployed_commit` (the commit the running
+    environment records for itself, resolved once at process start, else this checkout's
+    HEAD, else "source"), and six readings:
+
+      db                   reachable, SQLite journal mode, and the database file with the
+                           directory holding it
+      latest_refresh       the newest COMPLETE snapshot — the one being served — with its
+                           finished_at, its age in whole seconds, and `complete`
+      refresh_in_progress  {started_at, age_seconds} while a sweep is running, else null.
+                           A sweep takes up to two hours; it is not a missing sweep, and it
+                           is judged only on outliving the unit's own 7200s deadline
+      latest_canary        verdict, `exercised` (whether the paid path was actually put
+                           through its paces: `not_yet_exercised` and `running` were not),
+                           finished_at, age_seconds
+      rpc                  one eth_blockNumber against one endpoint, one connection, no
+                           retry, 5s: endpoint_host, ok, block_number, latency_ms, and
+                           `reason` naming what happened when ok is false
+      probes               ok_count/fail_count over window_hours (24), last_run_at, plus
+                           recent_ok of recent_considered — the last 3 runs, which are what
+                           the verdict is taken from. One transient failure is reported in
+                           the window counts and does not make the deployment degraded
+
+    "down" means only that the store could not be read; every other reading comes out of it,
+    so treat them as absent rather than zero. "ok" covers serving, the refresh, the chain
+    read and the probes — it does not assert that the paid path works; `latest_canary` is
+    where that is said. No parameters.
+
+    A reading is taken at most once every 60 seconds per process and served until it
+    expires, so `generated_at` is when the figures were observed rather than when you asked
+    for them: polling faster returns the same document, byte for byte. This route also
+    carries a per-peer allowance of 60 reads per 3600 seconds and answers 429 with
+    {error_code: "status_rate_limited", message} and a Retry-After header beyond it. The
+    same document is rendered as a page at /status, with each reading's tolerance beside it;
+    that page is not metered.
+
+    curl -s "$DOCKET/api/status"
+
 GET /pancake
     With Accept: text/html, the PancakeSwap evidence dashboard. JSON/default callers get
     the same-origin source paths for its live Range Doctor hire, fixed-window LP record,
@@ -608,11 +647,20 @@ GET /openapi.json
 
 ## Errors
 
-Every error, at every status, has the same shape:
+Two shapes, and which one you get is decided by the path, not by the status.
+
+Everything outside /api/ answers with the nested shape:
 
     {"error": {"code": "agent_not_found", "message": "what to do about it"}}
 
-Branch on "code", which is stable. "message" is prose for a human and may change.
+Routes under /api/ answer with the flat shape:
+
+    {"error_code": "status_rate_limited", "message": "what to do about it"}
+
+Both carry the same two fields under different names, and both are stable to branch on.
+A client that reads `body.get("error", {}).get("code") or body.get("error_code")` handles
+either without knowing which route it called. "message" is prose for a human and may change.
+
 
       agent_not_found          404  no such agent in the served snapshot
       service_not_found        404  no such service; GET /hire lists them
@@ -630,6 +678,9 @@ Branch on "code", which is stable. "message" is prose for a human and may change
       invalid_query_parameter  422  message names the offending parameter
       hire_rate_limited        429  the free allowance is spent and no payment route exists;
                                     Retry-After says when the window resets
+      status_rate_limited      429  GET /api/status is spent for this peer; flat shape, and
+                                    Retry-After says when the window resets. One reading
+                                    stands for 60s, so polling harder returns nothing new
       free_tier_exhausted      429  the free allowance is spent; Retry-After and the x402
                                     challenge travel alongside this error so payment can
                                     be presented on the next request

@@ -29,7 +29,8 @@ setup, which is what pins the barrier to the evaluator slot.
 Run (primary, EOA evaluator -> e1b-result.json):
     python -m experiments.e1b_simulate_router_flow
 Run (control, evaluator == router -> e1b-contrast-result.json):
-    E1B_EVALUATOR=0xD7d36D66d2F1B608A0F943f722D27e3744f66F25 python -m experiments.e1b_simulate_router_flow
+    E1B_EVALUATOR=0xD7d36D66d2F1B608A0F943f722D27e3744f66F25 \
+        python -m experiments.e1b_simulate_router_flow
 """
 
 import json
@@ -43,8 +44,8 @@ from experiments.e1_instant_settlement import (
     BUDGET,
     COMMERCE,
     HOOK,
-    RPC,
     ROOT,
+    RPC,
     STATUS,
     U_FAUCET,
     U_TOKEN,
@@ -113,7 +114,7 @@ def _simulate(w3, calls, overrides, block_hex):
     if "result" not in resp:
         return [("__rpc_error__", 0, json.dumps(resp.get("error")))]
     out = []
-    for (label, *_), call in zip(calls, resp["result"][0]["calls"]):
+    for (label, *_), call in zip(calls, resp["result"][0]["calls"], strict=False):
         out.append((label, int(call["status"], 16), call.get("returnData", "0x")))
     return out
 

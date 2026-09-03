@@ -40,7 +40,7 @@ import time
 from base64 import b64decode, b64encode
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -86,7 +86,7 @@ SPEED_ELIGIBLE = (SUCCEEDED,)
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def ledger_path(spec: PairedSpec, runs_dir: Path) -> Path:
@@ -251,7 +251,7 @@ def capture_due_sources(
         raise ValueError(
             f"runner: {spec.spec_id} has no registered HTTP capture schedule"
         )
-    observed_now = now or datetime.now(timezone.utc)
+    observed_now = now or datetime.now(UTC)
     if observed_now.tzinfo is None or observed_now.utcoffset() != timedelta(0):
         raise ValueError("runner: capture time must be timezone-aware UTC")
     path = capture_ledger_path(spec, captures_dir)
@@ -468,7 +468,7 @@ def recover_interrupted(
     """
     path = ledger_path(spec, runs_dir)
     closed = []
-    detected_at = datetime.now(timezone.utc)
+    detected_at = datetime.now(UTC)
     with _ledger_lock(path):
         for slot, state in _fold_state(_read_events_unlocked(path)).items():
             if not state.is_dangling:
@@ -531,7 +531,7 @@ def claim_slot(
                 f"{state.started.get('recorded_at')}. A primary attempt is claimed once — "
                 "a second run cannot be recorded or reported."
             )
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
         return _append_event_unlocked(
             path,
             {

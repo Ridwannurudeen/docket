@@ -26,7 +26,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import asdict, replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
@@ -43,8 +43,8 @@ from fastapi.responses import (
     Response,
 )
 from fastapi.staticfiles import StaticFiles
-from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..advantage.harness import compare, load
 from ..advantage.v2.page import fill as fill_v2_page
@@ -110,6 +110,7 @@ from .models import (
     ServicesResponse,
     StatsResponse,
 )
+from .status import router as status_router
 from .summary import home_page, listing_facts, marketplace_summary, summary_router
 from .web_pages import pancake_initial, service_initial, stats_page
 
@@ -584,7 +585,7 @@ def _snapshot_age_seconds(captured_at: str | None) -> int | None:
     if captured.tzinfo is None:
         return None
     age = (
-        datetime.now(timezone.utc) - captured.astimezone(timezone.utc)
+        datetime.now(UTC) - captured.astimezone(UTC)
     ).total_seconds()
     return None if age < 0 else int(age)
 
@@ -1467,7 +1468,7 @@ def create_app(
                 observation = probe_one(
                     client,
                     target,
-                    now=datetime.now(timezone.utc).isoformat(),
+                    now=datetime.now(UTC).isoformat(),
                 )
             Store(db_path).record_on_demand_liveness(
                 observation, requested_from_ip_hash=requested_from_ip_hash
@@ -1832,9 +1833,9 @@ def create_app(
                 "payment_record_incomplete",
                 "The stored payment timestamp is incomplete and cannot be reconciled.",
             )
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stale_before = now - timedelta(seconds=SETTLEMENT_RECONCILE_STALE_SECONDS)
-        if updated_at.astimezone(timezone.utc) > stale_before:
+        if updated_at.astimezone(UTC) > stale_before:
             return _error(
                 409,
                 "settlement_still_active",
@@ -2680,5 +2681,6 @@ def create_app(
         return FileResponse(WEB_DIR / "favicon.svg", media_type="image/svg+xml")
 
     app.include_router(summary_router(store, advantage_v3, marketplace_services))
+    app.include_router(status_router(store, canary_service_id=canary_service_id))
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
     return app

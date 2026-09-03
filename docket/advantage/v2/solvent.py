@@ -31,7 +31,8 @@ Nothing here computes a return, a win rate or a drawdown, and `NO_RETURN_STATEME
 the record itself, and points at the registered experiment that computes one from evidence this
 corpus does not contain — `deposits`, which reads the wallet's own transfers on BSC and finds a
 loss. Nothing in that record refutes anything in this one or is read back into it: this claim's
-funding limb is about the fields inside this corpus, and those transfers are outside it. `equity_usd` is on every receipt and no receipt carries a funding field, so
+funding limb is about the fields inside this corpus, and those transfers are outside it.
+`equity_usd` is on every receipt and no receipt carries a funding field, so
 a deposit and a profit are the same arithmetic in that series. Three steps in this chain are
 larger than any trade it records, which establishes that the series is contaminated without
 establishing by how much — and without saying what any one of those steps was, since a failed
@@ -45,6 +46,7 @@ import hashlib
 import json
 import re
 import statistics
+from datetime import UTC
 from pathlib import Path
 
 from .scoring import rate
@@ -540,7 +542,7 @@ def measure(corpus: dict, v1_trading: dict) -> dict:
         },
         "seals": [
             _seal_row(receipt, hash_by_seq[receipt["seq"]], commitment_seq)
-            for receipt, commitment_seq in zip(seals, bound_commitment_seqs)
+            for receipt, commitment_seq in zip(seals, bound_commitment_seqs, strict=True)
         ],
     }
 
@@ -624,7 +626,8 @@ def build_run_record(
             "transaction the chain never confirms, and a pre-trade anchor appears on "
             f"{execution['seals_with_a_pre_trade_anchor']['numerator']} of "
             f"{execution['seals_with_a_pre_trade_anchor']['denominator']} seals — so this "
-            "record is not pre-committed on chain and is not described as one. Where the confirmations landed matters as much as how many there were: "
+            "record is not pre-committed on chain and is not described as one. Where the "
+            "confirmations landed matters as much as how many there were: "
             f"{sizing['kind_over_confirmed_executions'].get('qualify', 0)} of the "
             f"{sizing['kind_over_all_seals'].get('qualify', 0)} qualify seals are confirmed "
             "and they are the chain's smallest trades, while only "
@@ -651,14 +654,14 @@ if __name__ == "__main__":
     # `python -m docket.advantage.v2.solvent` is what produced the committed record. The two
     # stamps bracket arithmetic and nothing else: the corpus was fetched and frozen before the
     # registration was written, and everything between them reads that file.
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from .replay import save_run
     from .spec import load
 
     root = Path(__file__).resolve().parents[3]
     registration = load(root / "docket/advantage/v2/specs/06-solvent-record.json")
-    started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    started = datetime.now(UTC).isoformat(timespec="seconds")
     frozen = load_corpus(root / registration.dataset_ref)
     v1 = json.loads(
         (root / "docket/advantage/experiments/02-trading.json").read_text(
@@ -670,7 +673,7 @@ if __name__ == "__main__":
         frozen,
         measure(frozen, v1),
         started_at=started,
-        finished_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        finished_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
     save_run(record, root / "docket/advantage/v2/runs/06-solvent-record.json")
     print(record["finding"])

@@ -10,7 +10,6 @@ import pytest
 from eth_abi import decode as abi_decode
 from eth_abi import encode as abi_encode
 
-from docket.agents.pancake.positions import FACTORY, MASTER_CHEF_V3, NPM, ZERO_ADDRESS
 from docket.advantage.v3.range_capture import (
     GET_POOL,
     OWNER_OF,
@@ -34,6 +33,7 @@ from docket.advantage.v3.spec import (
     load,
     range_sample_indices,
 )
+from docket.agents.pancake.positions import FACTORY, MASTER_CHEF_V3, NPM, ZERO_ADDRESS
 
 ROOT = Path(__file__).parents[1]
 SPEC_PATH = ROOT / "docket" / "advantage" / "v3" / "specs" / "v3-05-range-doctor.json"

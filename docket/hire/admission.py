@@ -1,7 +1,7 @@
 """The paid-stock facts after the latest operational canary is applied."""
 
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from .catalogue import PaidStockAdmission, Service
 
@@ -23,10 +23,10 @@ def _fresh_passed_canary(latest_run: dict | None, now: datetime | None = None) -
     if finished.tzinfo is None or finished.utcoffset() != timedelta(0):
         return False
 
-    observed_now = now or datetime.now(timezone.utc)
+    observed_now = now or datetime.now(UTC)
     if observed_now.tzinfo is None:
         return False
-    age_seconds = (observed_now.astimezone(timezone.utc) - finished).total_seconds()
+    age_seconds = (observed_now.astimezone(UTC) - finished).total_seconds()
     return 0 <= age_seconds <= CANARY_MAX_AGE_SECONDS
 
 

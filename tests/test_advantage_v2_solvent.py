@@ -250,7 +250,8 @@ def test_the_verified_prefix_matches_the_anchor_value_read_on_chain_in_august():
     """The chain can be internally consistent and still be one nobody else ever saw. This is
     the one check it cannot make for itself: Docket's v1 task 02 read the anchor transaction
     on chain on 2026-08-08, 25 days before this corpus was fetched, and its metadata value is
-    the chain head at seq 381. The transaction itself was mined on 2026-06-28. That committed record and this corpus are independent, so
+    the chain head at seq 381. The transaction itself was mined on 2026-06-28. That
+    committed record and this corpus are independent, so
     the corpus cannot have been written to satisfy it."""
     manual = V1_TRADING["manual_arm"]["output"]
     cross = solvent.anchor_cross_check(ENVELOPES, V1_TRADING)
@@ -592,7 +593,8 @@ def test_the_committed_record_says_what_the_report_recomputes(experiment):
 
 
 def test_the_registration_is_served_as_self_attested_once_it_is_in_history(experiment):
-    """The specification and the completed run first entered git together at b2411b3, so this is self-attested like 01 and 03 and not git-provable: git records
+    """The specification and the completed run first entered git together at b2411b3, so
+    this is self-attested like 01 and 03 and not git-provable: git records
     that both existed at that commit, and nothing about their order. The producer is
     committed, so the run can be regenerated from the spec and the frozen corpus."""
     provenance = experiment["registration_provenance"]
@@ -605,5 +607,5 @@ def test_the_registration_is_served_as_self_attested_once_it_is_in_history(exper
         "present": True,
         "path": "docket/advantage/v2/solvent.py",
     }
-    assert f"first entered git together at b2411b3" in provenance["statement"]
+    assert "first entered git together at b2411b3" in provenance["statement"]
     assert "not on independent git history" in provenance["statement"]

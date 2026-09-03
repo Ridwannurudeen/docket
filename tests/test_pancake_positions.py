@@ -11,17 +11,16 @@ network.
 """
 
 import pytest
-
 from web3.providers.base import BaseProvider
 
 from docket.agents.pancake.positions import (
     BSC_RPCS,
-    default_session,
     MASTER_CHEF_V3,
     NPM,
     ZERO_ADDRESS,
     PositionReader,
     PrunedStateError,
+    default_session,
 )
 
 WALLET = "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"

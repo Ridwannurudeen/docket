@@ -343,7 +343,8 @@ def test_a_scored_family_without_a_finite_manual_median_is_unavailable(
         (
             "complete_unscored",
             "score_sheets_missing",
-            "The v3 paired family v3-05-range-doctor is complete but unscored: score_sheets_missing.",
+            "The v3 paired family v3-05-range-doctor is complete but unscored: "
+            "score_sheets_missing.",
         ),
     ),
 )

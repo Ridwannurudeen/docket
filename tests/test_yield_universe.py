@@ -16,7 +16,6 @@ import re
 
 import pytest
 
-from docket.api.models import BANNED_FIELD_NAMES
 from docket.agents.yield_router.universe import (
     MAX_TURNOVER,
     MIN_TVL,
@@ -24,6 +23,7 @@ from docket.agents.yield_router.universe import (
     Exclusion,
     eligible_pools,
 )
+from docket.api.models import BANNED_FIELD_NAMES
 
 USDT = "0x55d398326f99059ff775485246999027b3197955"
 USDC = "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d"

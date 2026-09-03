@@ -671,8 +671,11 @@ def render(report: dict, experiment_id: str | None = None) -> str:
                         if experiment["falsifier_result"]["refuted"]
                         else "survived",
                     ),
-                    header=f'<a id="{_esc(experiment["experiment_id"])}" href="/advantage/v2/{_esc(experiment["experiment_id"])}">'
-                    f"{_esc(experiment['experiment_id'])}</a>",
+                    header=(
+                        f'<a id="{_esc(experiment["experiment_id"])}" '
+                        f'href="/advantage/v2/{_esc(experiment["experiment_id"])}">'
+                        f"{_esc(experiment['experiment_id'])}</a>"
+                    ),
                 )
                 for experiment in report["experiments"]
             ],

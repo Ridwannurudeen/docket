@@ -1,12 +1,11 @@
 import hashlib
 import json
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from docket.advantage.v3 import spec as spec_module
-
 
 ROOT = spec_module.REPO_ROOT
 SPEC_PATH = ROOT / "docket/advantage/v3/specs/v3-06-yield-router-assisted.json"
@@ -51,9 +50,9 @@ def test_v6_capture_schedule_is_hash_bound_and_future_dated():
         "2026-09-03T12:02:00Z",
     ]
     assert spec_module.yield_capture_attempts(spec) == (
-        datetime(2026, 9, 3, 12, 0, tzinfo=timezone.utc),
-        datetime(2026, 9, 3, 12, 1, tzinfo=timezone.utc),
-        datetime(2026, 9, 3, 12, 2, tzinfo=timezone.utc),
+        datetime(2026, 9, 3, 12, 0, tzinfo=UTC),
+        datetime(2026, 9, 3, 12, 1, tzinfo=UTC),
+        datetime(2026, 9, 3, 12, 2, tzinfo=UTC),
     )
 
     changed = _constructor_record()

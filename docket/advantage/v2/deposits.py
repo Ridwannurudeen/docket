@@ -42,7 +42,7 @@ once, its digest is in the registration, and every reading below is a hex string
 archive node returned.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from web3 import Web3
@@ -809,7 +809,6 @@ if __name__ == "__main__":
     # `python -m docket.advantage.v2.deposits` is what produced the committed record. The two
     # stamps bracket arithmetic and nothing else: both corpora were frozen before the
     # registration was written, and everything between them reads those two files.
-    from datetime import timezone
     from pathlib import Path
 
     from .replay import save_run
@@ -819,7 +818,7 @@ if __name__ == "__main__":
     registration = load(
         root / "docket/advantage/v2/specs/07-solvent-deposit-adjusted.json"
     )
-    started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    started = datetime.now(UTC).isoformat(timespec="seconds")
     frozen = load_corpus(root / registration.dataset_ref)
     receipt_chain = load_corpus(
         root / "docket/advantage/v2/corpus/trading/solvent-receipts.json"
@@ -829,7 +828,7 @@ if __name__ == "__main__":
         frozen,
         measure(frozen, receipt_chain),
         started_at=started,
-        finished_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        finished_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
     save_run(record, root / "docket/advantage/v2/runs/07-solvent-deposit-adjusted.json")
     print(record["finding"])

@@ -9,7 +9,7 @@ import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Why a sweep stopped. Closed, because an open vocabulary here would let a new stop condition
@@ -20,6 +20,11 @@ COMPLETE_STOP_REASON = "exhausted"
 CANARY_TERMINAL_VERDICTS = ("passed", "failed", "not_yet_exercised")
 CANARY_CHECK_STATUSES = CANARY_TERMINAL_VERDICTS
 MAX_CANARY_HISTORY_LIMIT = 100
+# The window a status surface reads probe history over. Named here rather than at the
+# call site so the number a page publishes and the number the query used are one value.
+PROBE_WINDOW_HOURS = 24
+MAX_PROBE_WINDOW_HOURS = 24 * 30
+PROBE_STEP_FIELDS = frozenset({"name", "ok", "status_code", "latency_ms", "detail"})
 CANARY_SENSITIVE_FIELDS = frozenset(
     {
         "x-payment",
@@ -139,16 +144,31 @@ CREATE TABLE IF NOT EXISTS canary_runs (
     checks_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS canary_runs_service ON canary_runs (service_id, id DESC);
+CREATE TABLE IF NOT EXISTS probe_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    ok INTEGER NOT NULL,
+    steps_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS probe_runs_started ON probe_runs (started_at DESC);
 """
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _canary_run(row: sqlite3.Row) -> dict:
     run = dict(row)
     run["checks"] = json.loads(run.pop("checks_json"))
+    return run
+
+
+def _probe_run(row: sqlite3.Row) -> dict:
+    run = dict(row)
+    run["ok"] = bool(run["ok"])
+    run["steps"] = json.loads(run.pop("steps_json"))
     return run
 
 
@@ -596,6 +616,79 @@ class Store:
         for row in rows:
             yield _canary_run(row)
 
+    def record_probe_run(
+        self,
+        *,
+        started_at: str,
+        finished_at: str,
+        ok: bool,
+        steps: list[dict],
+    ) -> int:
+        """Persist one synthetic production probe run, whole.
+
+        Written after the run rather than around it, unlike a canary: a probe that dies
+        mid-flight leaves no row at all, and no row reads as a probe that did not report
+        rather than as one that reported success.
+        """
+        if not isinstance(ok, bool):
+            raise ValueError("probe ok must be a bool")
+        if not isinstance(steps, list) or not steps:
+            raise ValueError("a probe run requires a non-empty list of steps")
+        for step in steps:
+            if not isinstance(step, dict) or not PROBE_STEP_FIELDS <= step.keys():
+                raise ValueError(
+                    "every probe step must carry " + ", ".join(sorted(PROBE_STEP_FIELDS))
+                )
+            if not isinstance(step["ok"], bool):
+                raise ValueError("every probe step's ok must be a bool")
+        if ok != all(step["ok"] for step in steps):
+            raise ValueError("a probe run's ok must be the conjunction of its steps")
+        try:
+            encoded_steps = json.dumps(
+                steps, sort_keys=True, ensure_ascii=False, allow_nan=False
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("probe steps must be finite JSON values") from exc
+
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """INSERT INTO probe_runs (started_at, finished_at, ok, steps_json)
+                   VALUES (?, ?, ?, ?)""",
+                (started_at, finished_at, int(ok), encoded_steps),
+            )
+        return int(cursor.lastrowid)
+
+    def latest_probe_runs(
+        self, window_hours: int = PROBE_WINDOW_HOURS, *, now: datetime | None = None
+    ) -> list[dict]:
+        """Every probe run started inside the window, newest first.
+
+        Bounded by the window rather than by a row count, because the figure a status page
+        publishes is a rate over a stated period: a `LIMIT` would silently change the
+        denominator the moment the probe timer fired more often than the page assumed.
+
+        `now` is the instant the window is measured back from. A caller that has already
+        fixed the observation time for the rest of its report passes it here, so the whole
+        report is taken at one instant rather than at one instant plus this clock.
+        """
+        if (
+            not isinstance(window_hours, int)
+            or isinstance(window_hours, bool)
+            or not 1 <= window_hours <= MAX_PROBE_WINDOW_HOURS
+        ):
+            raise ValueError(
+                f"probe window must be between 1 and {MAX_PROBE_WINDOW_HOURS} hours"
+            )
+        observed_at = datetime.now(UTC) if now is None else now
+        since = (observed_at - timedelta(hours=window_hours)).isoformat()
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM probe_runs
+                   WHERE started_at >= ? ORDER BY id DESC""",
+                (since,),
+            ).fetchall()
+        return [_probe_run(row) for row in rows]
+
     def begin_snapshot(
         self, chain_id: int, expected: int | None, population: str | None = None
     ) -> int:
@@ -678,7 +771,8 @@ class Store:
                 or row["stop_reason"] not in {None, COMPLETE_STOP_REASON}
             ):
                 raise ValueError(
-                    f"snapshot {snapshot_id} cannot be promoted: it is not a complete exhausted sweep"
+                    f"snapshot {snapshot_id} cannot be promoted: it is not a complete "
+                    "exhausted sweep"
                 )
             conn.execute(
                 "UPDATE snapshots SET promoted_at = ? WHERE id = ?",

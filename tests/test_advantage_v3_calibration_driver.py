@@ -6,7 +6,6 @@ from pathlib import Path
 from docket.advantage.v3 import calibration, calibration_driver
 from docket.advantage.v3.spec import load
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = load(ROOT / "docket/advantage/v3/specs/v3-03-warden-security.json")
 CALIBRATION_SET = (

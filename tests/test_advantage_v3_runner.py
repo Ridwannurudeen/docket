@@ -10,22 +10,21 @@ import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
-import docket.advantage.v3.spec as spec_module
-from docket.advantage.v3 import runner
-from docket.advantage.v3.spec import PairedSpec, load, lock_inputs, save
-
 from test_advantage_v3_spec import (  # noqa: F401
     SPECS_DIR,
     _input_record,
     _valid,
     _write_inputs,
 )
+
+import docket.advantage.v3.spec as spec_module
+from docket.advantage.v3 import runner
+from docket.advantage.v3.spec import PairedSpec, load, lock_inputs, save
 
 
 @pytest.fixture(autouse=True)
@@ -118,9 +117,9 @@ def test_yield_successor_capture_schedule_comes_from_the_registered_spec_helper(
         execution_protocol={"agent_service_id": "yield-router"},
     )
     attempts = (
-        datetime(2026, 9, 1, 12, tzinfo=timezone.utc),
-        datetime(2026, 9, 1, 12, 1, tzinfo=timezone.utc),
-        datetime(2026, 9, 1, 12, 2, tzinfo=timezone.utc),
+        datetime(2026, 9, 1, 12, tzinfo=UTC),
+        datetime(2026, 9, 1, 12, 1, tzinfo=UTC),
+        datetime(2026, 9, 1, 12, 2, tzinfo=UTC),
     )
     seen = []
 

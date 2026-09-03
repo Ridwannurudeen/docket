@@ -24,8 +24,6 @@ from docket.advantage.v3 import (
     scoring,
     venus_capture,
 )
-from docket.agents.venus import guard, markets
-from docket.hire import catalogue
 from docket.advantage.v3.range_capture import RangeCaptureRefused
 from docket.advantage.v3.spec import (
     E18,
@@ -52,6 +50,8 @@ from docket.advantage.v3.venus_capture import (
     collect_from_environment,
     main,
 )
+from docket.agents.venus import guard, markets
+from docket.hire import catalogue
 from docket.hire.receipts import canonical_hash
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -366,7 +366,7 @@ def test_the_selection_takes_the_registered_lowest_hash_in_every_stratum():
                 (
                     f"{SPEC.stage_one_protocol_hash}|56|{FRAME['comptroller']}|"
                     f"{item['account']}|{stratum}"
-                ).encode("utf-8")
+                ).encode()
             ).hexdigest(),
         )
 

@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY = ROOT / "deploy"
 BASH = (
@@ -169,6 +168,18 @@ case "${url}" in
                 final_state=locked_not_run
             fi
             printf '{"families":[{"spec_id":"v3-01-range-doctor","state":"superseded_before_input_lock"},{"spec_id":"v3-02-yield-router","state":"abandoned_after_failed_primary"},{"spec_id":"v3-03-warden-security","state":"superseded_before_input_lock"},{"spec_id":"v3-04-warden-security","state":"complete_unscored"},{"spec_id":"v3-05-range-doctor","state":"locked_not_run"},{"spec_id":"v3-06-yield-router-assisted","state":"registered_waiting_for_inputs"},{"spec_id":"v3-07-range-doctor","state":"registered_waiting_for_inputs"},{"spec_id":"v3-08-yield-router","state":"registered_waiting_for_inputs"},{"spec_id":"v3-09-health-guard","state":"%s"}],"summary":{"n_families":9}}\n' "${final_state}"
+        fi
+        ;;
+    */api/status)
+        printf '{"status":"%s","deployed_commit":"%s"}\n' \
+            "${FAKE_STATUS_VERDICT:-ok}" \
+            "${FAKE_DEPLOYED_COMMIT:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}"
+        ;;
+    */status)
+        if [[ "${FAKE_INVALID_ENDPOINT:-}" == status-page ]]; then
+            printf '%s\n' '<!doctype html><title>Wrong site</title>'
+        else
+            printf '%s\n' '<!doctype html><title>Docket status</title>'
         fi
         ;;
     */static/style.css)
@@ -359,7 +370,9 @@ def _prepare_live_release(root: Path) -> None:
         connection.execute("INSERT INTO release_fixture VALUES ('preserved')")
 
 
-@pytest.mark.parametrize("script", ["install-canary.sh", "preflight.sh", "release.sh"])
+@pytest.mark.parametrize(
+    "script", ["install-canary.sh", "preflight.sh", "release.sh", "tag-release.sh"]
+)
 def test_every_deployment_script_has_valid_bash_syntax(script: str):
     result = subprocess.run(
         [str(BASH), "-n", str(DEPLOY / script)],
@@ -374,7 +387,7 @@ def test_every_deployment_script_has_valid_bash_syntax(script: str):
 
 def test_release_and_preflight_track_every_systemd_unit_and_document_the_count():
     expected = {path.name for path in (DEPLOY / "systemd").iterdir() if path.is_file()}
-    assert len(expected) == 17
+    assert len(expected) == 19
 
     for script_name in ("preflight.sh", "release.sh"):
         script = (DEPLOY / script_name).read_text(encoding="utf-8")
@@ -386,9 +399,10 @@ def test_release_and_preflight_track_every_systemd_unit_and_document_the_count()
         assert declared == expected
 
     runbook = (ROOT / "docs/deployment-runbook.md").read_text(encoding="utf-8")
-    assert runbook.count("all seventeen tracked unit") == 2
-    assert "all fifteen tracked unit" not in runbook
+    assert runbook.count("all nineteen tracked unit") == 2
+    assert "all seventeen tracked unit" not in runbook
     assert "all ten tracked units" not in runbook
+    assert "all fifteen tracked unit" not in runbook
     assert "all twelve unit files" not in runbook
     assert "all thirteen tracked unit" not in runbook
 
@@ -1316,6 +1330,7 @@ def test_every_tracked_python_service_uses_safe_execution_and_containment():
             "/var/lib/docket/lp-record/controlled.jsonl --declared-value-usd 50.55 "
             "--recenter-cost-usd 1.00 --horizon-days 30"
         ),
+        "docket-probe.service": ("/opt/docket/.venv/bin/python -P -m docket.probe"),
         "docket-refresh.service": ("/opt/docket/.venv/bin/python -P -m docket.refresh"),
         "docket-v3-capture.service": (
             "/opt/docket/.venv/bin/python -P -m docket.advantage.v3.capture "
@@ -1823,6 +1838,7 @@ def test_release_retires_the_aug21_timer_and_enables_every_timer(tmp_path):
     for timer in (
         "docket-canary.timer",
         "docket-lp-record.timer",
+        "docket-probe.timer",
         "docket-refresh.timer",
         "docket-v3-capture.timer",
         "docket-v3-range-capture.timer",
@@ -2072,6 +2088,7 @@ def test_release_rolls_back_when_a_served_contract_is_missing_fields(
         ("v3-states", "served /advantage/v3.json does not match the release state"),
         ("homepage", "served homepage smoke failed"),
         ("static", "served static asset smoke failed"),
+        ("status-page", "served status page smoke failed"),
     ],
 )
 def test_release_rolls_back_when_exact_inventory_or_web_smoke_differs(
@@ -2116,6 +2133,44 @@ def test_release_rolls_back_when_v3_returns_503(tmp_path):
         "served /advantage/v3.json is missing its release contract fields"
         in result.stderr
     )
+    assert "Rollback completed" in result.stderr
+    assert (root / "opt" / "docket" / "old-release.txt").is_file()
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"FAKE_STATUS_VERDICT": "down"},
+        {"FAKE_DEPLOYED_COMMIT": OLD_COMMIT},
+    ],
+)
+def test_release_rolls_back_when_the_status_document_disowns_the_release(
+    tmp_path, overrides
+):
+    """A process that came up on the previous wheel answers every other smoke identically.
+
+    The two failures here are the ones no other check can see: a deployment that reports
+    itself down, and one whose own account of which commit it is running is not the commit
+    this release published.
+    """
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        _write_release_manifest(wheel, digest).as_posix(),
+        environment=_environment(root, fake_bin, **overrides),
+    )
+
+    assert result.returncode != 0
+    assert (
+        "served /api/status does not report this release as serving" in result.stderr
+    )
+    assert "systemctl enable --now docket-canary.timer" not in result.stdout
     assert "Rollback completed" in result.stderr
     assert (root / "opt" / "docket" / "old-release.txt").is_file()
 
@@ -2185,3 +2240,174 @@ def test_preflight_refuses_every_failed_gate(tmp_path, overrides, message):
 
     assert result.returncode != 0
     assert message in result.stderr
+
+
+TAG_COMMIT = "c" * 40
+WHEEL_DIGEST = "d" * 64
+LOCK_DIGEST = "e" * 64
+GREEN_RUNS = (
+    '[{"workflowName":"ci","status":"completed","conclusion":"success","databaseId":42}]'
+)
+
+
+def _tag_bin(tmp_path: Path) -> Path:
+    """`gh`, `ssh` and `git` stand in for the three things this script asks and cannot fake:
+    what GitHub recorded, what the host is running, and what this checkout contains."""
+    fake_bin = tmp_path / "tag-bin"
+    fake_bin.mkdir()
+    _write_executable(
+        fake_bin / "gh",
+        """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == run ]]; then
+    printf '%s\n' "${FAKE_GH_RUNS}"
+    exit 0
+fi
+if [[ "${1:-}" == release && "${2:-}" == view ]]; then
+    exit "${FAKE_GH_RELEASE_EXISTS:-1}"
+fi
+exit 0
+""",
+    )
+    _write_executable(
+        fake_bin / "ssh",
+        """#!/usr/bin/env bash
+set -euo pipefail
+remote=${!#}
+case "${remote}" in
+    *RELEASE-commit.txt)
+        printf '%s\n' "${FAKE_HOST_COMMIT}"
+        ;;
+    *WHEEL-sha256.txt)
+        printf '%s  docket-0.1.0-py3-none-any.whl\n' "${FAKE_HOST_WHEEL}"
+        ;;
+    *RUNTIME-LOCK-sha256.txt)
+        printf '%s\n' "${FAKE_HOST_LOCK}"
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+""",
+    )
+    _write_executable(
+        fake_bin / "git",
+        """#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+    *"cat-file -e"*)
+        exit "${FAKE_GIT_MISSING_COMMIT:-0}"
+        ;;
+    *"ls-remote"*)
+        printf '%s' "${FAKE_GIT_REMOTE_TAG:-}"
+        ;;
+    *"tag --list"*)
+        printf '%s' "${FAKE_GIT_EXISTING_TAG:-}"
+        ;;
+esac
+exit 0
+""",
+    )
+    return fake_bin
+
+
+def _tag_environment(fake_bin: Path, **values: str) -> dict[str, str]:
+    environment = os.environ.copy()
+    environment["DOCKET_TAG_GH"] = (fake_bin / "gh").as_posix()
+    environment["DOCKET_TAG_SSH"] = (fake_bin / "ssh").as_posix()
+    environment["DOCKET_TAG_GIT"] = (fake_bin / "git").as_posix()
+    environment["FAKE_GH_RUNS"] = GREEN_RUNS
+    environment["FAKE_HOST_COMMIT"] = TAG_COMMIT
+    environment["FAKE_HOST_WHEEL"] = WHEEL_DIGEST
+    environment["FAKE_HOST_LOCK"] = LOCK_DIGEST
+    environment.update(values)
+    return environment
+
+
+def test_tag_release_verifies_ci_and_the_host_before_it_tags_anything(tmp_path):
+    fake_bin = _tag_bin(tmp_path)
+
+    result = _run(
+        "tag-release.sh",
+        "--dry-run",
+        TAG_COMMIT,
+        "docket.example",
+        environment=_tag_environment(fake_bin),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    ci = result.stdout.index("run list --commit")
+    host = result.stdout.index("RELEASE-commit.txt")
+    release = result.stdout.index("release create v1.0.0-hackathon")
+    tag = result.stdout.index("tag -a v1.0.0-hackathon")
+    # The release is created first and creates the tag on origin with it, so there is no
+    # ordering in which the tag exists and the release does not.
+    assert ci < host < release < tag
+    assert f"CI verified for {TAG_COMMIT}" in result.stdout
+    assert f"Host docket.example verified at commit {TAG_COMMIT}" in result.stdout
+    # The digests in the notes are the host's, so a tag cannot claim an environment that
+    # was only ever built here.
+    assert WHEEL_DIGEST in result.stdout
+    assert LOCK_DIGEST in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"FAKE_GH_RUNS": "[]"}, "CI is not green"),
+        (
+            {
+                "FAKE_GH_RUNS": '[{"workflowName":"ci","status":"completed","conclusion":"failure","databaseId":42}]'
+            },
+            "CI is not green",
+        ),
+        (
+            {
+                "FAKE_GH_RUNS": '[{"workflowName":"ci","status":"in_progress","conclusion":null,"databaseId":42}]'
+            },
+            "CI is not green",
+        ),
+        ({"FAKE_HOST_COMMIT": OLD_COMMIT}, "is running"),
+        ({"FAKE_HOST_WHEEL": "not-a-digest"}, "unreadable wheel digest"),
+        ({"FAKE_GIT_MISSING_COMMIT": "1"}, "has no commit"),
+        ({"FAKE_GIT_EXISTING_TAG": "v1.0.0-hackathon"}, "already exists locally"),
+        ({"FAKE_GIT_REMOTE_TAG": "abc\trefs/tags/v1.0.0-hackathon"}, "origin already carries"),
+        ({"FAKE_GH_RELEASE_EXISTS": "0"}, "release named v1.0.0-hackathon already exists"),
+    ],
+)
+def test_tag_release_refuses_every_unverified_claim(tmp_path, overrides, message):
+    fake_bin = _tag_bin(tmp_path)
+
+    result = _run(
+        "tag-release.sh",
+        "--dry-run",
+        TAG_COMMIT,
+        "docket.example",
+        environment=_tag_environment(fake_bin, **overrides),
+    )
+
+    assert result.returncode == 1
+    assert message in result.stderr
+    assert "tag -a v1.0.0-hackathon" not in result.stdout
+    assert "release create" not in result.stdout
+
+
+def test_tag_release_requires_a_full_commit_and_an_explicit_host(tmp_path):
+    fake_bin = _tag_bin(tmp_path)
+    environment = _tag_environment(fake_bin)
+
+    missing_host = _run(
+        "tag-release.sh", "--dry-run", TAG_COMMIT, environment=environment
+    )
+    short_commit = _run(
+        "tag-release.sh",
+        "--dry-run",
+        TAG_COMMIT[:12],
+        "docket.example",
+        environment=environment,
+    )
+
+    assert missing_host.returncode == 2
+    assert "Usage: tag-release.sh" in missing_host.stderr
+    assert short_commit.returncode == 1
+    assert "full 40-character lowercase sha" in short_commit.stderr

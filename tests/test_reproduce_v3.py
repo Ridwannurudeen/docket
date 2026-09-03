@@ -3,7 +3,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "reproduce-v3-04.py"
 JUDGE_GUIDE = ROOT / "docs" / "submission" / "judge-start-here.md"

@@ -7,7 +7,7 @@ calibration key is not the one a seat has already answered for v3-02 or v3-06.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -69,9 +69,9 @@ def test_v8_capture_schedule_is_hash_bound_and_later_than_its_predecessors():
         "2026-09-06T12:02:00Z",
     ]
     assert spec_module.yield_capture_attempts(SPEC) == (
-        datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc),
-        datetime(2026, 9, 6, 12, 1, tzinfo=timezone.utc),
-        datetime(2026, 9, 6, 12, 2, tzinfo=timezone.utc),
+        datetime(2026, 9, 6, 12, 0, tzinfo=UTC),
+        datetime(2026, 9, 6, 12, 1, tzinfo=UTC),
+        datetime(2026, 9, 6, 12, 2, tzinfo=UTC),
     )
     assert capture.registered_schedule(SPEC) == {
         "first_attempt_at": "2026-09-06T12:00:00Z",
@@ -139,7 +139,7 @@ def test_the_packaged_family_id_resolves_for_the_capture_unit(tmp_path, capsys):
 
     code = capture.main(
         ["v3-08-yield-router", str(tmp_path / "capture")],
-        now=datetime(2026, 9, 6, 13, 0, tzinfo=timezone.utc),
+        now=datetime(2026, 9, 6, 13, 0, tzinfo=UTC),
     )
 
     assert code == 2

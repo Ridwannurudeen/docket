@@ -3,7 +3,6 @@ import re
 import subprocess
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "docs" / "claims-to-evidence.md"
 EVIDENCE_REPRODUCTION = ROOT / "docs" / "evidence-reproduction.md"

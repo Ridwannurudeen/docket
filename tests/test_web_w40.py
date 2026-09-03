@@ -1,5 +1,5 @@
-from pathlib import Path
 import re
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -7,7 +7,6 @@ from docket.advantage.v2 import page as v2_page
 from docket.advantage.v2 import report as v2_report
 from docket.api import create_app
 from docket.store import Store
-
 
 WEB = Path(__file__).resolve().parents[1] / "docket" / "api" / "web"
 PAGES = tuple(sorted(WEB.glob("*.html")))
@@ -19,7 +18,7 @@ def test_every_surface_uses_the_restrained_light_stylesheet():
     assert "color-scheme: light" in css
     assert "color-scheme: dark" not in css
     assert 'content: "LP"' not in css
-    assert len(PAGES) == 9
+    assert len(PAGES) == 10
     for page in PAGES:
         assert 'href="/static/style.css?v=13"' in page.read_text(encoding="utf-8")
 

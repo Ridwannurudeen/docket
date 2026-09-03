@@ -33,7 +33,7 @@ import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -649,7 +649,7 @@ def _run_yield_router(payload: dict) -> dict:
         with PoolClient() as client:
             rows, pools_raw = client.top_pools_snapshot()
             allowlist, tokens_raw = client.token_allowlist_snapshot()
-        observed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        observed_at = datetime.now(UTC).isoformat(timespec="seconds")
         pools_evidence = {
             "url": (
                 "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top"

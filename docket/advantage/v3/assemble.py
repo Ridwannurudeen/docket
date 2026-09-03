@@ -26,8 +26,9 @@ from ...hire.catalogue import GUARD_TRIGGER_USD
 from .calibration import assemble_evaluator_calibration, verify_calibration_capture
 from .spec import (
     REPO_ROOT,
-    PairedSpec,
     YIELD_SOURCE_URLS,
+    PairedSpec,
+    _health_frame_source,
     _range_successor_public_position,
     _range_successor_source_frame,
     _range_successor_stratum,
@@ -36,7 +37,6 @@ from .spec import (
     _validate_inputs,
     _yield_first_failed_gate,
     _yield_number,
-    _health_frame_source,
     health_account_truth,
     health_selected_accounts,
     is_health_family,

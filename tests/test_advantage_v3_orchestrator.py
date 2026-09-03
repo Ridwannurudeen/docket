@@ -14,18 +14,17 @@ from io import StringIO
 from pathlib import Path
 
 import pytest
-
-import docket.advantage.v3.spec as spec_module
-from docket.advantage.v3 import orchestrator, runner, scoring
-from docket.advantage.v3.spec import PairedSpec, lock_inputs, save
-from docket.hire.receipts import canonical_hash
-
 from test_advantage_v3_spec import (  # noqa: F401
     SPECS_DIR,
     _input_record,
     _valid,
     _write_inputs,
 )
+
+import docket.advantage.v3.spec as spec_module
+from docket.advantage.v3 import orchestrator, runner, scoring
+from docket.advantage.v3.spec import PairedSpec, lock_inputs, save
+from docket.hire.receipts import canonical_hash
 
 
 @pytest.fixture(autouse=True)
