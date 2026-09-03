@@ -64,6 +64,15 @@ def _universe_from(inputs: dict):
     )
 
 
+def _no_spend(slippage_bps=None) -> dict:
+    """The two keys `SessionPolicy.allows` reads, for a decision that spends nothing."""
+    return {
+        "category_verb": CATEGORY_VERB,
+        "token_amounts": {},
+        "slippage_bps": slippage_bps,
+    }
+
+
 class YieldRouteExecutor:
     """Category `yield_optimisation`. Holds no key, sends nothing, and says which it is."""
 
@@ -73,7 +82,19 @@ class YieldRouteExecutor:
         self._reader = reader
         self._clock = clock if clock is not None else chain_now
 
-    def _chain(self):
+    def _chain(self, reader):
+        """The chain reader this pass uses, from whatever the caller handed over.
+
+        The tick loop passes the raw `Rpc` callable from `docket/escrow/chain.py`, which
+        is a failover wrapper and not a reader, so it is wrapped into the one this route
+        needs. A caller holding its own reader — a test, or anything with a node —
+        passes that and it is used as given. The two are told apart by `pool_state`,
+        which every reader this route accepts has and an `Rpc` does not.
+        """
+        if reader is not None:
+            if hasattr(reader, "pool_state"):
+                return reader
+            return yield_migration.BscMigrationReader(rpc=reader)
         if self._reader is None:
             self._reader = yield_migration.BscMigrationReader()
         return self._reader
@@ -85,7 +106,7 @@ class YieldRouteExecutor:
         next, so a `noop` carries the same numbers a route would have — a reader can see
         the candidate that was not taken and the break-even that ruled it out.
         """
-        chain = reader if reader is not None else self._chain()
+        chain = self._chain(reader)
         moment = int(self._clock())
         inputs = activation.inputs or {}
         try:
@@ -100,10 +121,14 @@ class YieldRouteExecutor:
                     f"this activation's inputs do not describe a comparison: "
                     f"{type(exc).__name__}: {exc}. Nothing is compared and nothing built"
                 ),
-                evidence={"category_verb": CATEGORY_VERB},
+                prepared=(),
+                evidence=_no_spend(),
+                observed_at="",
+                block=0,
             )
 
         horizon_days = int(inputs.get("horizon_days") or yield_router.HORIZON_DAYS)
+        slippage_bps = int(inputs.get("max_slippage_bps") or DEFAULT_SLIPPAGE_BPS)
         current_row = yield_migration.match_current_pool(position, universe)
         baseline = (
             net_fee_apr(current_row)
@@ -119,10 +144,10 @@ class YieldRouteExecutor:
                     "cleared the gate, so there is no highest to route to and no "
                     "comparison behind one"
                 ),
-                evidence={
-                    "category_verb": CATEGORY_VERB,
-                    "universe": universe.as_record(),
-                },
+                prepared=(),
+                evidence=_no_spend() | {"universe": universe.as_record()},
+                observed_at=universe.observed_at,
+                block=0,
             )
 
         destination = candidates[0]
@@ -138,8 +163,11 @@ class YieldRouteExecutor:
             switching_cost_usd=switching_cost_usd,
             horizon_days=horizon_days,
         )
-        comparison = {
-            "category_verb": CATEGORY_VERB,
+        # Both policy keys ride on every decision, action or not: `SessionPolicy.allows`
+        # reads spend and tolerance off the evidence and can see them no other way, so a
+        # decision that spends nothing says so with an empty mapping rather than by
+        # leaving the key out and reading as unrecorded.
+        comparison = _no_spend(slippage_bps) | {
             "ordering": yield_router.ORDERING,
             "universe": universe.as_record(),
             "candidates": [candidate.as_record() for candidate in candidates],
@@ -158,7 +186,10 @@ class YieldRouteExecutor:
                     f"days: {why}. Staying is the decision, and the arithmetic that made "
                     "it is attached"
                 ),
+                prepared=(),
                 evidence=comparison,
+                observed_at=universe.observed_at,
+                block=0,
             )
 
         destination_row = next(
@@ -177,9 +208,7 @@ class YieldRouteExecutor:
                 position_size_usd=position_size_usd,
                 switching_cost_usd=switching_cost_usd,
                 horizon_days=horizon_days,
-                max_slippage_bps=int(
-                    inputs.get("max_slippage_bps") or DEFAULT_SLIPPAGE_BPS
-                ),
+                max_slippage_bps=slippage_bps,
                 band_width_ticks=int(
                     inputs.get("band_width_ticks") or DEFAULT_BAND_WIDTH_TICKS
                 ),
@@ -192,13 +221,17 @@ class YieldRouteExecutor:
                     f"the move to {destination.pool_id} pays for itself but cannot be "
                     f"built: {type(exc).__name__}: {exc}"
                 ),
+                prepared=(),
                 evidence=comparison,
+                observed_at=universe.observed_at,
+                block=0,
             )
 
         evidence = comparison | {
             "plan": plan.as_record(),
             "plan_hash": plan.plan_hash,
             "disclosure": plan.disclosure,
+            "token_amounts": plan.session_spend,
         }
         failed = [call.purpose for call in plan.calls if not call.simulation["ok"]]
         if failed:
@@ -209,7 +242,8 @@ class YieldRouteExecutor:
                     f"disagreed with {len(failed)} of its {len(plan.calls)} calls at "
                     f"simulation, starting with: {failed[0]}. Nothing is sent"
                 ),
-                evidence=evidence,
+                prepared=(),
+                evidence=evidence | {"token_amounts": {}},
                 observed_at=str(plan.evidence["observed_at"]),
                 block=int(plan.evidence["block"]),
             )
@@ -295,4 +329,4 @@ class YieldRouteExecutor:
         )
 
 
-register(YieldRouteExecutor())
+register(CATEGORY, YieldRouteExecutor())

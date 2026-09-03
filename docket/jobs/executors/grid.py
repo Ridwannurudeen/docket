@@ -9,9 +9,15 @@ between it and the activation: it reads the spec out of `activation.inputs`, rea
 price off the chain, asks the lifecycle what to do, and checks the answer against the
 activation's own policy before anything is handed on.
 
-`within_policy` is a second gate in front of the on-chain one, never a replacement for
-it. The session's allowlists and caps are enforced where they cannot be argued with; what
-this adds is a refusal that happens before a transaction is paid for.
+`within_policy` is a second gate in front of `docket/sessions/policy.py`, never a
+replacement for it. That one reads `evidence["token_amounts"]` and `evidence["slippage_bps"]`
+to decide what this decision spends and at what tolerance, so both are written on every
+decision this module returns, including the ones that send nothing — a spend the policy
+cannot see is a spend it reads as zero.
+
+The grid's own progress is carried the way the tick loop carries it: Lane B writes each
+decision's `evidence` into `activation.result`, so `grid_state` is read back from there
+first and from `activation.inputs` only on the first pass, when there is no prior result.
 
 The module-object import of the lifecycle below is deliberate. `lifecycle` imports
 `PreparedCall` from this package, so importing its names here at module scope would close
@@ -27,8 +33,8 @@ from ...agents.grid import lifecycle as grid_lifecycle
 from ...agents.grid.operator import observe_price
 from ...execution import now as chain_now
 from ...execution.simulate import PANCAKE_V2_ROUTER, BscQuoteReader
-from .base import Decision
 from . import register
+from .base import Decision
 
 CATEGORY = "grid_trading"
 CATEGORY_VERB = "Places and manages automated grid orders"
@@ -78,9 +84,18 @@ def spec_from(inputs: dict) -> grid_lifecycle.GridSpec:
     return spec.validate()
 
 
-def state_from(inputs: dict) -> grid_lifecycle.GridState:
-    """The grid's own progress, as the activation carries it between ticks."""
-    raw = inputs.get("grid_state") or {}
+def state_from(activation) -> grid_lifecycle.GridState:
+    """The grid's own progress, as the activation carries it between ticks.
+
+    `activation.result` first: the tick loop writes the previous decision's evidence
+    there, so that is where the state this pass has to continue from lives. `inputs` is
+    the fallback and is only ever right on the first pass — reading it in preference
+    would restart the grid from its opening state on every tick, re-firing levels that
+    have already filled and spending the cap again.
+    """
+    raw = (activation.result or {}).get("grid_state") or (
+        activation.inputs or {}
+    ).get("grid_state") or {}
     fills = tuple(
         grid_lifecycle.Fill(
             level=fill.get("level"),
@@ -104,6 +119,20 @@ def state_from(inputs: dict) -> grid_lifecycle.GridState:
     )
 
 
+def _no_spend(spec=None) -> dict:
+    """Evidence for a decision that proposes nothing, with the two policy keys still on it.
+
+    An absent `token_amounts` and an empty one read alike to `SessionPolicy.allows`, but
+    they do not read alike to a person: one says this decision spends nothing and the
+    other says nobody wrote down what it spends. The first is what these are.
+    """
+    return {
+        "category_verb": CATEGORY_VERB,
+        "token_amounts": {},
+        "slippage_bps": None if spec is None else spec.max_slippage_bps,
+    }
+
+
 class GridExecutor:
     """Category `grid_trading`. Holds no key, sends nothing, and says which it is."""
 
@@ -115,7 +144,17 @@ class GridExecutor:
         self._reader = reader
         self._clock = clock if clock is not None else chain_now
 
-    def _quotes(self):
+    def _quotes(self, reader):
+        """The router reader this pass uses, from whatever the caller handed over.
+
+        The tick loop passes the raw `Rpc` callable from `docket/escrow/chain.py`, which
+        is a failover wrapper and not a quote reader, so it is wrapped here. A caller that
+        already has a reader — a test, or anything holding its own node — passes that
+        instead and it is used as given. The two are told apart by whether the object can
+        answer `amounts_out`, which is the only thing this executor asks a reader for.
+        """
+        if reader is not None:
+            return reader if hasattr(reader, "amounts_out") else BscQuoteReader(rpc=reader)
         if self._reader is None:
             self._reader = BscQuoteReader()
         return self._reader
@@ -129,7 +168,7 @@ class GridExecutor:
         been running for a week should report that its request body no longer validates,
         not crash the loop that was going to tell somebody.
         """
-        quotes = reader if reader is not None else self._quotes()
+        quotes = self._quotes(reader)
         moment = int(self._clock())
         try:
             spec = spec_from(activation.inputs)
@@ -140,12 +179,13 @@ class GridExecutor:
                     f"this grid's inputs no longer describe a runnable spec: "
                     f"{type(exc).__name__}: {exc}. Nothing is drafted"
                 ),
-                evidence={"category_verb": CATEGORY_VERB},
+                prepared=(),
+                evidence=_no_spend(),
                 observed_at="",
                 block=0,
             )
 
-        state = state_from(activation.inputs)
+        state = state_from(activation)
         session = (activation.session or {}).get("address")
         if not session:
             return Decision(
@@ -154,7 +194,8 @@ class GridExecutor:
                     "this grid has no session address, so there is no account to name as "
                     "the recipient of a swap and nothing can be drafted"
                 ),
-                evidence={"category_verb": CATEGORY_VERB},
+                prepared=(),
+                evidence=_no_spend(spec),
                 observed_at="",
                 block=0,
             )
@@ -173,6 +214,13 @@ class GridExecutor:
             session_address=session,
             now=moment,
         )
+        # `token_amounts` is what this decision spends out of the session, keyed by token
+        # address, and `slippage_bps` is the tolerance it was drafted against. The policy
+        # engine reads both off the evidence and can see neither any other way, so they
+        # are written whatever the decision turned out to be — a decision that spends
+        # nothing says so with an empty mapping rather than by leaving the key out.
+        level = decision.level
+        fires = decision.kind == "fire" and decision.prepared is not None
         evidence = {
             "category_verb": CATEGORY_VERB,
             "spec": spec.as_record(),
@@ -181,6 +229,10 @@ class GridExecutor:
             else decision.state.as_record(),
             "grid_decision": decision.kind,
             "no_resting_orders": grid_lifecycle.NO_RESTING_ORDERS,
+            "token_amounts": (
+                {level.token_in: str(level.size)} if fires and level is not None else {}
+            ),
+            "slippage_bps": spec.max_slippage_bps,
         } | decision.evidence
         kind = {
             "fire": "action",
@@ -282,4 +334,4 @@ class GridExecutor:
         )
 
 
-register(GridExecutor())
+register(CATEGORY, GridExecutor())

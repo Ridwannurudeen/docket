@@ -393,6 +393,11 @@ class MigrationPlan:
     destination_pool: str
     tick_lower: int
     tick_upper: int
+    # Gross atomic outflow from the session over the whole batch, keyed by token address:
+    # every swap leg's input plus what the mint pulls. It is what a session spend cap is a
+    # cap on, and it is computed where the calls are built rather than inferred later by
+    # something that would have to decode the calldata to guess at it.
+    session_spend: dict[str, str] = field(default_factory=dict)
     evidence: dict = field(default_factory=dict)
 
     @property
@@ -409,7 +414,8 @@ class MigrationPlan:
             "destination_pool": self.destination_pool,
             "tick_lower": self.tick_lower,
             "tick_upper": self.tick_upper,
-            "calls": [call.as_record() for call in self.calls],
+            "calls": [call.to_dict() for call in self.calls],
+            "session_spend": self.session_spend,
             "verification": self.verification.as_record(),
             "disclosure": self.disclosure,
             "evidence": self.evidence,
@@ -655,7 +661,7 @@ def plan_full_route(
         PreparedCall(
             to=NPM,
             data="0x" + approve_nft.hex(),
-            value_atomic=0,
+            value_atomic="0",
             gas_ceiling=GAS_CEILINGS["npm.approve"],
             deadline=deadline,
             purpose=(
@@ -682,7 +688,7 @@ def plan_full_route(
         PreparedCall(
             to=NPM,
             data="0x" + decrease.hex(),
-            value_atomic=0,
+            value_atomic="0",
             gas_ceiling=GAS_CEILINGS["npm.decreaseLiquidity"],
             deadline=deadline,
             purpose=(
@@ -711,7 +717,7 @@ def plan_full_route(
         PreparedCall(
             to=NPM,
             data="0x" + collect.hex(),
-            value_atomic=0,
+            value_atomic="0",
             gas_ceiling=GAS_CEILINGS["npm.collect"],
             deadline=deadline,
             purpose=(
@@ -771,7 +777,7 @@ def plan_full_route(
             PreparedCall(
                 to=token,
                 data="0x" + approve.hex(),
-                value_atomic=0,
+                value_atomic="0",
                 gas_ceiling=GAS_CEILINGS["erc20.approve"],
                 deadline=deadline,
                 purpose=(
@@ -820,7 +826,7 @@ def plan_full_route(
         PreparedCall(
             to=NPM,
             data="0x" + mint.hex(),
-            value_atomic=0,
+            value_atomic="0",
             gas_ceiling=GAS_CEILINGS["npm.mint"],
             deadline=deadline,
             purpose=(
@@ -865,6 +871,17 @@ def plan_full_route(
         ),
     )
 
+    # What actually leaves the session over the batch. A token that is both swapped out of
+    # and minted with is counted in both, because both amounts really do leave — and a
+    # spend cap is a cap on what leaves, not on the net position change.
+    spend: dict[str, int] = {}
+    for leg in leg_records:
+        spend[leg["token_in"]] = spend.get(leg["token_in"], 0) + int(leg["amount_in"])
+    for token, amount in ((dest0, desired0), (dest1, desired1)):
+        if amount > 0:
+            spend[token] = spend.get(token, 0) + amount
+    session_spend = {token: str(amount) for token, amount in sorted(spend.items())}
+
     disclosure = _disclosure(
         current_position=current_position,
         destination_pool=destination_pool,
@@ -881,11 +898,13 @@ def plan_full_route(
         floors=(floor0, floor1),
         desired=(desired0, desired1),
         legs=leg_records,
+        session_spend=session_spend,
         owner=owner,
         session=session,
     )
     return MigrationPlan(
         calls=tuple(calls),
+        session_spend=session_spend,
         verification=verification,
         disclosure=disclosure,
         source_token_id=token_id,
@@ -1037,7 +1056,7 @@ def _one_leg(
     call = PreparedCall(
         to=PANCAKE_V2_ROUTER,
         data="0x" + calldata.hex(),
-        value_atomic=0,
+        value_atomic="0",
         gas_ceiling=GAS_CEILINGS["swap"],
         deadline=deadline,
         purpose=f"swap {amount} of {token_in} into {token_out}: {why}",
@@ -1118,6 +1137,7 @@ def _disclosure(
     floors: tuple[int, int],
     desired: tuple[int, int],
     legs: list[dict],
+    session_spend: dict,
     owner: str,
     session: str,
 ) -> dict:
@@ -1215,6 +1235,13 @@ def _disclosure(
             ),
             "ceilings": {call.purpose[:48]: call.gas_ceiling for call in calls},
         },
+        "session_spend_atomic": dict(session_spend),
+        "session_spend_note": (
+            "gross atomic outflow from the session over the whole batch: every swap "
+            "leg's input plus what the mint pulls. A token that is both swapped out of "
+            "and minted with is counted twice, because both amounts really do leave the "
+            "session — and a spend cap is a cap on what leaves, not on the net change"
+        ),
         "slippage": {
             "max_slippage_bps": max_slippage_bps,
             "applied_to": (

@@ -293,7 +293,7 @@ def test_the_drafted_swap_carries_the_live_quote_less_exactly_the_stated_slippag
     assert args["deadline"] == FROZEN_NOW + DEADLINE_S
     assert decision.prepared.to == PANCAKE_V2_ROUTER
     assert decision.prepared.gas_ceiling == GAS_CEILING
-    assert decision.prepared.value_atomic == 0
+    assert decision.prepared.value_atomic == "0"
 
 
 def test_the_prepared_call_records_the_simulation_that_ran_and_its_block():

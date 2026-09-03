@@ -54,13 +54,19 @@ E18 = 10**18
 
 @dataclass
 class StubActivation:
-    """The five attributes an executor reads. Lane B's model is a superset of this."""
+    """The six attributes an executor reads. Lane B's model is a superset of this.
+
+    `result` is where the tick loop writes the previous decision's evidence, so it is
+    where a running grid's own progress comes back from. On the first pass it is empty and
+    the spec's opening state in `inputs` is what stands in.
+    """
 
     category: str
     inputs: dict
     owner: str = OWNER
     policy: dict | None = None
     session: dict | None = field(default=None)
+    result: dict | None = None
 
 
 def _grid_inputs(**overrides) -> dict:
@@ -141,15 +147,14 @@ def test_a_second_executor_cannot_quietly_take_over_a_registered_category():
         def within_policy(self, activation, decision):  # pragma: no cover
             raise AssertionError("never reached")
 
-    with pytest.raises(ValueError, match="already served by"):
-        register(Impostor())
+    with pytest.raises(ValueError, match="already has a registered executor"):
+        register("grid_trading", Impostor())
     assert isinstance(EXECUTORS["grid_trading"], GridExecutor)
 
 
-def test_re_registering_the_same_executor_class_changes_nothing():
-    register(GridExecutor())
-
-    assert isinstance(EXECUTORS["grid_trading"], GridExecutor)
+def test_a_category_the_marketplace_does_not_declare_cannot_be_registered():
+    with pytest.raises(ValueError, match="unknown category"):
+        register("day_trading", GridExecutor())
 
 
 # ------------------------------------------------------------------ decision shape
@@ -159,7 +164,7 @@ def test_a_decision_that_is_not_an_action_may_not_carry_prepared_calls():
     call = PreparedCall(
         to=PANCAKE_V2_ROUTER,
         data="0x38ed1739",
-        value_atomic=0,
+        value_atomic="0",
         gas_ceiling=300_000,
         deadline=FROZEN_NOW + 600,
         purpose="test",
@@ -172,24 +177,38 @@ def test_a_decision_that_is_not_an_action_may_not_carry_prepared_calls():
         },
     )
 
-    with pytest.raises(ValueError, match="Only an action may carry calls"):
-        Decision(kind="noop", summary="", prepared=(call,))
-    with pytest.raises(ValueError, match="wearing the wrong label"):
-        Decision(kind="action", summary="")
-    with pytest.raises(ValueError, match="not one of"):
-        Decision(kind="send", summary="")
+    def _decision(**overrides):
+        fields = {
+            "kind": "noop",
+            "summary": "nothing to do",
+            "prepared": (),
+            "evidence": {},
+            "observed_at": "",
+            "block": 0,
+        }
+        fields.update(overrides)
+        return Decision(**fields)
+
+    with pytest.raises(ValueError, match="nothing would send"):
+        _decision(prepared=(call,))
+    with pytest.raises(ValueError, match="acts on nothing"):
+        _decision(kind="action")
+    with pytest.raises(ValueError, match="unknown decision kind"):
+        _decision(kind="send")
+    with pytest.raises(ValueError, match="must say what it decided"):
+        _decision(summary="   ")
 
 
-def test_a_prepared_call_with_a_half_written_simulation_is_refused():
-    with pytest.raises(ValueError, match="simulation is missing"):
+def test_a_prepared_call_without_a_simulation_is_refused():
+    with pytest.raises(ValueError, match="must carry its simulation"):
         PreparedCall(
             to=PANCAKE_V2_ROUTER,
             data="0x38ed1739",
-            value_atomic=0,
+            value_atomic="0",
             gas_ceiling=300_000,
             deadline=1,
             purpose="test",
-            simulation={"ok": True},
+            simulation={},
         )
 
 
@@ -341,7 +360,15 @@ def test_every_way_a_grid_action_can_fall_outside_its_grant_is_refused(
 
 def test_a_decision_that_sends_nothing_passes_the_gate_trivially():
     allowed, why = _grid().within_policy(
-        _grid_activation(), Decision(kind="noop", summary="waiting")
+        _grid_activation(),
+        Decision(
+            kind="noop",
+            summary="waiting",
+            prepared=(),
+            evidence={},
+            observed_at="",
+            block=0,
+        ),
     )
 
     assert allowed is True
@@ -480,3 +507,153 @@ def test_a_token_the_session_may_not_touch_stops_the_route():
 
     assert allowed is False
     assert "token allowlist" in why
+
+
+# ------------------------------------------------- the contract the tick loop reads
+
+
+def test_every_grid_decision_carries_what_it_spends_and_at_what_tolerance():
+    """`SessionPolicy.allows` reads spend and slippage off `Decision.evidence` and can
+    see them no other way, so a decision that left either key out would be read as
+    spending nothing — which is a spend cap that never binds."""
+    fired = _grid().evaluate(_grid_activation(), reader=GridReader(price=540 * E18))
+    waiting = _grid().evaluate(_grid_activation(), reader=GridReader(price=610 * E18))
+    broken = _grid().evaluate(
+        _grid_activation(inputs={"base": STRANGER}), reader=GridReader(price=540 * E18)
+    )
+
+    assert fired.evidence["token_amounts"] == {USDT: str(25 * E18)}
+    assert fired.evidence["slippage_bps"] == 50
+    assert waiting.evidence["token_amounts"] == {}
+    assert waiting.evidence["slippage_bps"] == 50
+    assert broken.evidence["token_amounts"] == {}
+    assert broken.evidence["slippage_bps"] is None
+
+
+def test_a_grid_sell_reports_the_base_token_as_what_it_spends():
+    decision = _grid().evaluate(
+        _grid_activation(inputs={"grid_state": {"reference_price": str(520 * E18)}}),
+        reader=GridReader(price=690 * E18),
+    )
+
+    assert decision.kind == "action"
+    (token,) = decision.evidence["token_amounts"]
+    assert token == WBNB
+    assert int(decision.evidence["token_amounts"][token]) > 0
+
+
+def test_the_grid_reads_its_progress_back_from_the_previous_ticks_result():
+    """Lane B writes each decision's evidence into `activation.result`, so that is where
+    a running grid's state lives. Reading `inputs` in preference would restart the grid
+    on every tick and re-fire levels that have already filled."""
+    activation = _grid_activation()
+    first = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+    assert first.kind == "action"
+    assert first.evidence["grid_state"]["spent_atomic"] == str(25 * E18)
+
+    activation.result = {
+        "grid_state": {
+            **first.evidence["grid_state"],
+            "spent_atomic": str(100 * E18),
+        }
+    }
+    second = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+
+    assert second.kind == "noop"
+    assert "refused rather than trimmed" in second.summary
+    assert second.evidence["token_amounts"] == {}
+
+
+def test_the_grid_wraps_the_tick_loops_raw_rpc_into_a_router_reader(monkeypatch):
+    """The loop hands over `escrow.chain.Rpc`, which is a failover callable rather than
+    a reader. A caller's own reader is used as given; anything else is wrapped."""
+    built = []
+    passthrough = GridReader(price=610 * E18)
+
+    class FakeQuoteReader:
+        def __init__(self, rpc=None):
+            built.append(rpc)
+            self.block_number = passthrough.block_number
+            self.amounts_out = passthrough.amounts_out
+            self.estimate_gas = passthrough.estimate_gas
+
+    monkeypatch.setattr("docket.jobs.executors.grid.BscQuoteReader", FakeQuoteReader)
+
+    def rpc(read):  # the Rpc callable shape, with no amounts_out on it
+        raise AssertionError("the executor must not drive the Rpc itself")
+
+    wrapped = _grid().evaluate(_grid_activation(), reader=rpc)
+
+    assert built == [rpc]
+    assert wrapped.kind == "noop"
+
+    _grid().evaluate(_grid_activation(), reader=passthrough)
+    assert built == [rpc]
+
+
+def test_every_yield_decision_carries_what_it_spends_and_at_what_tolerance():
+    routed = _yield().evaluate(_yield_activation(), reader=YieldReader())
+    staying = _yield().evaluate(
+        _yield_activation(inputs={"switching_cost_usd": 5_000.0}),
+        reader=YieldReader(),
+    )
+    refused = _yield().evaluate(
+        _yield_activation(), reader=YieldReader(revert_on=("0x0c49ccbe",))
+    )
+
+    assert routed.evidence["token_amounts"]
+    assert routed.evidence["slippage_bps"] == 50
+    assert staying.evidence["token_amounts"] == {}
+    assert staying.evidence["slippage_bps"] == 50
+    assert refused.evidence["token_amounts"] == {}
+
+
+def test_the_yield_spend_is_every_leg_plus_what_the_mint_pulls():
+    decision = _yield().evaluate(_yield_activation(), reader=YieldReader())
+    disclosure = decision.evidence["disclosure"]
+
+    expected: dict[str, int] = {}
+    for leg in disclosure["slippage"]["legs"]:
+        expected[leg["token_in"]] = expected.get(leg["token_in"], 0) + int(
+            leg["amount_in"]
+        )
+    expected[USDT] = expected.get(USDT, 0) + int(
+        disclosure["position"]["mint_amount0_desired"]
+    )
+    expected[WBNB] = expected.get(WBNB, 0) + int(
+        disclosure["position"]["mint_amount1_desired"]
+    )
+
+    assert decision.evidence["token_amounts"] == {
+        token: str(amount) for token, amount in sorted(expected.items())
+    }
+    assert disclosure["session_spend_atomic"] == decision.evidence["token_amounts"]
+
+
+def test_the_yield_route_wraps_the_tick_loops_raw_rpc(monkeypatch):
+    built = []
+    passthrough = YieldReader()
+
+    class FakeMigrationReader:
+        def __init__(self, positions=None, quotes=None, rpc=None):
+            built.append(rpc)
+            self.pool_state = passthrough.pool_state
+            self.amounts_out = passthrough.amounts_out
+            self.block_number = passthrough.block_number
+            self.call = passthrough.call
+            self.estimate_gas = passthrough.estimate_gas
+
+    monkeypatch.setattr(
+        "docket.agents.yield_router.migration.BscMigrationReader", FakeMigrationReader
+    )
+
+    def rpc(read):  # no pool_state on it
+        raise AssertionError("the executor must not drive the Rpc itself")
+
+    routed = _yield().evaluate(_yield_activation(), reader=rpc)
+
+    assert built == [rpc]
+    assert routed.kind == "action"
+
+    _yield().evaluate(_yield_activation(), reader=passthrough)
+    assert built == [rpc]

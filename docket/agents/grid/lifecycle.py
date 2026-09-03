@@ -317,7 +317,7 @@ class GridDecision:
             "reason": self.reason,
             "observation": self.observation,
             "level": None if self.level is None else self.level.as_record(),
-            "prepared": None if self.prepared is None else self.prepared.as_record(),
+            "prepared": None if self.prepared is None else self.prepared.to_dict(),
             "state": None if self.state is None else self.state.as_record(),
             "evidence": self.evidence,
             "no_resting_orders": NO_RESTING_ORDERS,
@@ -528,7 +528,7 @@ def evaluate(
     prepared = PreparedCall(
         to=PANCAKE_V2_ROUTER,
         data="0x" + calldata.hex(),
-        value_atomic=0,
+        value_atomic="0",
         gas_ceiling=GAS_CEILING,
         deadline=deadline,
         purpose=(
