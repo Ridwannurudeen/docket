@@ -12,6 +12,7 @@ is up. None of these outcomes is a verdict about the agent behind the URL.
 """
 
 import ipaddress
+import json
 import socket
 import time
 from datetime import UTC, datetime
@@ -36,6 +37,10 @@ HEADERS = {
 # One hit per host per second: many agents publish under a single domain, and a sweep
 # must not look like a burst to whoever operates it.
 MIN_HOST_INTERVAL_S = 1.0
+# The most of a third-party response Docket will hold. Verification reads bodies — an x402
+# challenge, a JSON-RPC result — and a registry-supplied URL can answer with an endless
+# stream, so the read is capped rather than trusted.
+MAX_BODY_BYTES = 64 * 1024
 
 
 def _now() -> str:
@@ -77,15 +82,36 @@ def _peer_policy_reason(response: httpx.Response, approved_address: str) -> str 
     return None
 
 
-def probe_one(
+def request_one(
     client: httpx.Client, endpoint: dict, *, now: str, resolver=socket.getaddrinfo
 ) -> dict:
-    """One attempt at one endpoint. No request is ever retried — these are third-party hosts,
-    not our own. Only name resolution gets a second try, before any connection is opened."""
+    """One guarded request at one third-party URL, with the body read only when asked.
+
+    This is `probe_one` generalised, not a second copy of it: the SSRF guard, the pinned
+    address, the SNI hostname, the peer check and the refusal to follow redirects are the
+    load-bearing block, and it exists once. `probe_one` is this function with the probe's
+    fixed arguments, so the sweep's behaviour cannot drift from the marketplace's.
+
+    `endpoint` may carry, beyond `probe_one`'s `snapshot_id`/`agent_id`/`url`:
+
+      `method`      default "GET"
+      `json_body`   a JSON body to POST; sets content-type and forbids GET
+      `accept`      overrides the Accept header
+      `read_body`   read at most MAX_BODY_BYTES of the response and return it as `body`
+
+    Reading a body is opt-in because the sweep does not need one and a third-party host
+    should not be asked for bytes nobody will look at. The cap is enforced while streaming,
+    so a host that answers with an endless body costs bounded memory rather than the process.
+    """
     url = endpoint["url"]
+    method = str(endpoint.get("method") or "GET").upper()
+    json_body = endpoint.get("json_body")
+    read_body = bool(endpoint.get("read_body"))
+    if json_body is not None and method == "GET":
+        raise ValueError("a GET carries no JSON body; name the method that does")
     observation = {
-        "snapshot_id": endpoint["snapshot_id"],
-        "agent_id": endpoint["agent_id"],
+        "snapshot_id": endpoint.get("snapshot_id"),
+        "agent_id": endpoint.get("agent_id"),
         "url": url,
         "observed_at": now,
         "status_code": None,
@@ -108,12 +134,19 @@ def probe_one(
             "host": original_url.netloc.decode("ascii"),
             "connection": "close",
         }
+        if endpoint.get("accept"):
+            headers["accept"] = str(endpoint["accept"])
+        content = None
+        if json_body is not None:
+            content = json.dumps(json_body, ensure_ascii=False).encode("utf-8")
+            headers["content-type"] = "application/json"
         extensions = {"sni_hostname": original_url.raw_host.decode("ascii")}
         pinned_url = original_url.copy_with(host=approved_address)
         with client.stream(
-            "GET",
+            method,
             pinned_url,
             headers=headers,
+            content=content,
             timeout=TIMEOUT_S,
             follow_redirects=False,
             extensions=extensions,
@@ -122,6 +155,17 @@ def probe_one(
             if peer_reason:
                 return {**observation, "outcome": "blocked", "detail": peer_reason}
             observation.update(outcome="responded", status_code=resp.status_code)
+            if read_body:
+                body = bytearray()
+                for chunk in resp.iter_bytes():
+                    body.extend(chunk)
+                    if len(body) >= MAX_BODY_BYTES:
+                        break
+                observation["body"] = bytes(body[:MAX_BODY_BYTES]).decode(
+                    "utf-8", "replace"
+                )
+                observation["content_type"] = resp.headers.get("content-type")
+                observation["truncated"] = len(body) >= MAX_BODY_BYTES
     except httpx.TimeoutException as exc:
         observation.update(outcome="timeout", detail=type(exc).__name__)
     except httpx.ConnectError as exc:
@@ -132,6 +176,23 @@ def probe_one(
         observation.update(outcome="error", detail=type(exc).__name__)
     observation["elapsed_ms"] = int((time.monotonic() - started) * 1000)
     return observation
+
+
+def probe_one(
+    client: httpx.Client, endpoint: dict, *, now: str, resolver=socket.getaddrinfo
+) -> dict:
+    """One attempt at one endpoint. No request is ever retried — these are third-party hosts,
+    not our own. Only name resolution gets a second try, before any connection is opened."""
+    return request_one(
+        client,
+        {
+            "snapshot_id": endpoint["snapshot_id"],
+            "agent_id": endpoint["agent_id"],
+            "url": endpoint["url"],
+        },
+        now=now,
+        resolver=resolver,
+    )
 
 
 def probe_snapshot(

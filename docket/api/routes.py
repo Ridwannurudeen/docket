@@ -93,6 +93,7 @@ from .advantage_pages import (
     v3_landing,
     v3_topic_page,
 )
+from .marketplace_api import MarketplaceContext, marketplace_router
 from .models import (
     AgentDetail,
     AgentSummary,
@@ -1521,9 +1522,13 @@ def create_app(
     def categories() -> CategoryResponse:
         """BNB's four jobs, each with what it gets done and how many services stand in it.
 
-        A zero here is the honest answer and not a gap being papered over: Docket lists a
-        service where it runs the work and can show a recorded run behind it, and it will
-        not stock a shelf with registry agents whose job nothing on chain states.
+        A zero here is the honest answer and not a gap being papered over: this route
+        counts only services Docket runs the work for and can show a recorded run behind,
+        so a bare shelf here is a bare shelf of Docket's own stock. Third-party registry
+        agents carrying one of these four categories are a separate layer served at
+        /api/agents, with a capability_source and a verification level on every listing;
+        `EMPTY_CATEGORY` points a reader there rather than letting a zero read as "nobody
+        on BSC does this job".
         """
         listings = []
         for entry in CATEGORIES:
@@ -2682,5 +2687,20 @@ def create_app(
 
     app.include_router(summary_router(store, advantage_v3, marketplace_services))
     app.include_router(status_router(store, canary_service_id=canary_service_id))
+    app.include_router(
+        marketplace_router(
+            MarketplaceContext(
+                db_path=db_path,
+                spend_probe=lambda peer: _spend_window(
+                    hires,
+                    peer,
+                    attempts=FREE_TIER_HIRES,
+                    window_seconds=FREE_TIER_WINDOW_S,
+                ),
+                probe_attempts=FREE_TIER_HIRES,
+                probe_window_seconds=FREE_TIER_WINDOW_S,
+            )
+        )
+    )
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
     return app

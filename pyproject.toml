@@ -52,6 +52,9 @@ packages = [
 
 [tool.setuptools.package-data]
 "docket.api" = ["static/*", "static/agents/*.registration.json", "web/*"]
+# The committed marketplace census. An installed Docket that shipped the marketplace code
+# without it would start with an empty shelf and no way to refill it offline.
+"docket.marketplace" = ["seed/*.json"]
 # /advantage.json is served from these files, so an installed Docket must carry them.
 # The v2 files are the evidence a report cites — the labelled corpus, the pre-registration
 # that hashes it, and the run recorded against that hash — and an install that shipped the

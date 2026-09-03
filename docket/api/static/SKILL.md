@@ -71,6 +71,12 @@ those, Docket does not serve it - say so rather than inventing an endpoint.
 | GET | `/advantage/v3.json` | Every registered paired family and its artifact-derived execution or scoring state |
 | GET | `/advantage/v3` | The same startup-bound v3 report as a page for a human |
 | GET | `/pancake` | JSON source map by default; the live PancakeSwap evidence dashboard for HTML callers |
+| GET | `/api/agents` | Marketplace listings for any BSC agent, filterable by `q`, `category` and verification `level` |
+| GET | `/api/agents/{agent_id}` | One listing, with the level vocabulary and the prerequisite table |
+| GET | `/api/agents/{agent_id}/verification` | The listing's verification block and every recorded level attempt |
+| POST | `/api/agents/{agent_id}/verify` | Re-runs every level now and records what each one observes; never pays |
+| POST | `/api/providers/claim` | Mints a single-use claim nonce, or spends one to prove on-chain ownership |
+| POST | `/api/providers/listings` | Spends a nonce and writes the owner's own listing at level `registered` |
 | GET | `/llms.txt` | Full plain-text reference |
 | GET | `/skill.md` | This file |
 | GET | `/openapi.json` | Generated OpenAPI 3.1 schema |
@@ -519,6 +525,89 @@ Every figure under `metrics` carries `window`, `observed_at`, `method`, and its
 denominator where it has one. `display` is the figure as text with the denominator
 inside it. Quote `display`, or quote `numerator` and `denominator` together; a numerator
 alone is the same unreadable claim as a rate with no base.
+
+## Marketplace search and providers
+
+`/agents` serves one recorded sweep. `/api/agents` serves the marketplace: any BSC agent
+Docket can find, joined to what Docket has actually observed of it. Use `/api/agents`
+when the user asks who can do a job; use `/agents` when they ask what the last sweep held.
+
+Errors on the `/api/` prefix are flat `{"error_code": "...", "message": "..."}` — the one
+place on this host that is not the nested `{"error": {...}}` envelope. Branch on the path
+prefix, not on the status code.
+
+### The level vocabulary, weakest to strongest
+
+| Level | What earned it |
+| --- | --- |
+| `registered` | `ownerOf` answered on BSC chain 56. Evidence names the owner, the tokenURI and the RPC that answered |
+| `endpoint_detected` | The registration names an `a2a` or `mcp` endpoint. A `web` homepage does not count |
+| `live` | That endpoint answered a guarded request at any status. A 404 counts as live; read the status code before quoting it |
+| `payment_tested` | The endpoint answered 402 with a parseable x402 challenge. Read-only: Docket never presents a payment |
+| `docket_tested` | One **Docket-defined** sample invocation returned a schema-valid structured result — **and nothing else.** It does not mean a payment was tested. Evidence carries the request, the result SHA-256, and the schema checked |
+| `docket_verified` | `docket_tested` plus a registered paired-benchmark family. **Nothing reaches this level today** |
+
+`verification.level` is `null` until Docket has observed something — a listing Docket
+merely found in the registry index has no level at all, and being indexed is not evidence.
+
+**Three separate facts, never inferred from one another.** Every listing carries all three:
+
+| Field | Says |
+| --- | --- |
+| `verification.level` | the strongest level whose evidence holds |
+| `verification.payment_tested` | whether an x402 challenge was actually read from this endpoint, with `verification.payment_tested_evidence` carrying the run that decided it (or `null` where the level was never attempted) |
+| `hireable` | `false` until `docket_tested` |
+
+`docket_tested` requires `live`, not `payment_tested`, so the display order above is not a
+chain. **A listing at `docket_tested` with `payment_tested: false` is the normal case and
+is not a contradiction** — it means a sample invocation came back schema-valid and no x402
+challenge was read. When the question is about payment, quote the boolean, never the level.
+
+A chain outage never demotes a listing. `ownerOf` failing on every RPC is recorded as
+`rpc_unavailable`, the listing keeps the level it held, and the response says
+`chain_read_failed: true`.
+
+**Only a Docket-defined sample can reach `docket_tested`.** Docket has one today: the MCP
+`tools/list` capability query, read-only, calling no listed tool. A provider may declare a
+`sample_input` and an `output_schema`, and Docket sends that sample and publishes the
+result — as an evidence row named `provider_sample_ok`, outside the level vocabulary, with
+`raises_level: false` in its detail. A seller supplying both the input and the schema it is
+checked against is a seller certifying themselves, so it grades nothing. Report it as "the
+seller's own example worked", never as a level.
+
+An A2A endpoint therefore stops at `live` until a Docket-defined request exists for its
+category: fetching an agent card describes an agent, it is not a result the agent produced.
+
+**A chain outage is visible on the listing.** When `ownerOf` could not be read and the
+previous level was held, the served block keeps the evidence and `verified_at` that earned
+it and adds `held_from_outage: true` with `held_at`. Say that the level is held and when
+Docket last failed to look; the failed attempt is in `runs`, not in the listing.
+
+### Where a category on a marketplace listing comes from
+
+Every listing carries `capability_source`, and it is one of exactly three values:
+`provider_declared` (the on-chain owner said so, having signed a claim),
+`registration_metadata` (the registration's own `agent_type`/`categories` field), or
+`docket_classified` (Docket's published keyword rule table read the capability text).
+`classification_rationale` names every rule that matched and every category that lost.
+Never report a `docket_classified` category as something the agent declared, and never
+report any category as something Docket measured.
+
+### Workflow 8: list an agent you own
+
+1. `POST /api/providers/claim` with `{"agent_id": "56:0x8004...:43129"}`. Docket returns a
+   `nonce` and the exact `message`: `Docket provider claim {agent_id} {nonce}`.
+2. Sign that message with `personal_sign` from the address that owns the token.
+3. `POST /api/providers/listings` with `agent_id`, `nonce`, `signature`, `capabilities`,
+   and optionally `category`, `price`, `payment_method`, `sample_input`, `output_schema`.
+4. `POST /api/agents/{agent_id}/verify` to have Docket observe the endpoint.
+
+The nonce is single-use and expires in 900 seconds. Endpoints are never read from the
+submission — they come from the ERC-8004 registration, so changing the listed endpoint
+means changing the registration on chain. A declared `sample_input`/`output_schema` is run
+and published under `provider_sample_ok` and cannot make the listing hireable — only step 4
+can, and only through Docket's own sample. `chain_unavailable` is not a refusal: it means
+Docket could not read the chain and the claim is neither accepted nor rejected.
 
 ## What Docket will not give you
 

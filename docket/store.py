@@ -16,6 +16,31 @@ from pathlib import Path
 # arrive unclassified and be served as if it were a clean finish. Only `exhausted` may be
 # promoted to readers; the rest describe a sweep that ended without reaching the end.
 STOP_REASONS = ("exhausted", "max_pages", "not_advancing")
+# Verification levels, weakest to strongest, for ORDER BY only. Repeated here rather than
+# imported because this module is stdlib sqlite3 over a schema and imports nothing from the
+# domain packages; `tests/test_external_listings.py` asserts it equals
+# `marketplace.external.LEVELS`, so the two cannot drift apart in silence.
+#
+# The rank is the whole point. The names do not sort into their own order — 'live' sorts
+# before 'registered' alphabetically — so ordering on the column would have put a weaker
+# listing above a stronger one. NULL, meaning nothing has been observed, sorts last: a row
+# Docket merely found in an index must never head a page above one it actually verified.
+EXTERNAL_LEVELS = (
+    "registered",
+    "endpoint_detected",
+    "live",
+    "payment_tested",
+    "docket_tested",
+    "docket_verified",
+)
+EXTERNAL_LEVEL_ORDER_SQL = (
+    "CASE level "
+    + " ".join(
+        f"WHEN '{name}' THEN {len(EXTERNAL_LEVELS) - index}"
+        for index, name in enumerate(EXTERNAL_LEVELS)
+    )
+    + " ELSE 99 END ASC"
+)
 COMPLETE_STOP_REASON = "exhausted"
 CANARY_TERMINAL_VERDICTS = ("passed", "failed", "not_yet_exercised")
 CANARY_CHECK_STATUSES = CANARY_TERMINAL_VERDICTS
@@ -152,6 +177,48 @@ CREATE TABLE IF NOT EXISTS probe_runs (
     steps_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS probe_runs_started ON probe_runs (started_at DESC);
+-- Third-party agents Docket lists but did not build. The listing travels as one JSON
+-- document because its shape belongs to `marketplace.external`, not to this schema; the
+-- three columns beside it are the ones a marketplace query filters on, denormalised so a
+-- category or level filter is an index seek rather than a scan that parses every row.
+-- `level` is NULL for a listing that has only been seen in the registry index: being
+-- indexed is not an observation, and it must not sort above `registered`.
+CREATE TABLE IF NOT EXISTS external_listings (
+    agent_id TEXT PRIMARY KEY,
+    chain_id INTEGER NOT NULL,
+    category TEXT,
+    level TEXT,
+    hireable INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    listing_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS external_listings_category ON external_listings (category);
+CREATE INDEX IF NOT EXISTS external_listings_level ON external_listings (level);
+-- Append-only, like `liveness`. Every level attempt writes one row whether it passed or
+-- not, so a listing that dropped a level leaves the evidence of both readings behind
+-- instead of the newer one erasing the older.
+CREATE TABLE IF NOT EXISTS verification_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id TEXT NOT NULL,
+    level TEXT NOT NULL,
+    at TEXT NOT NULL,
+    ok INTEGER NOT NULL,
+    detail_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS verification_runs_listing
+    ON verification_runs (agent_id, id DESC);
+-- One row per issued claim nonce. Single use: `verified_at` is stamped by the accepted
+-- signature and a nonce carrying one is never accepted again, so a captured signature
+-- cannot be replayed into a second listing.
+CREATE TABLE IF NOT EXISTS provider_claims (
+    nonce TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    verified_at TEXT,
+    owner TEXT
+);
+CREATE INDEX IF NOT EXISTS provider_claims_agent ON provider_claims (agent_id, nonce);
 """
 
 
@@ -1046,3 +1113,176 @@ class Store:
                 (snapshot_id, agent_id),
             ).fetchone()
         return dict(row) if row else {}
+
+    def upsert_external_listing(self, listing: dict) -> None:
+        """Write one third-party listing, replacing whatever was held for that agent.
+
+        The filter columns are derived from the document rather than passed in beside it,
+        so a row cannot be indexed under a category or level its own JSON does not carry.
+        """
+        verification = listing.get("verification") or {}
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO external_listings
+                   (agent_id, chain_id, category, level, hireable, source, updated_at,
+                    listing_json)
+                   VALUES (?,?,?,?,?,?,?,?)
+                   ON CONFLICT (agent_id) DO UPDATE SET
+                     chain_id = excluded.chain_id,
+                     category = excluded.category,
+                     level = excluded.level,
+                     hireable = excluded.hireable,
+                     source = excluded.source,
+                     updated_at = excluded.updated_at,
+                     listing_json = excluded.listing_json""",
+                (
+                    listing["agent_id"],
+                    int(listing["chain_id"]),
+                    listing.get("category"),
+                    verification.get("level"),
+                    1 if listing.get("hireable") else 0,
+                    listing.get("source") or "registry_index",
+                    listing.get("updated_at") or _now(),
+                    json.dumps(listing, sort_keys=True, ensure_ascii=False),
+                ),
+            )
+
+    def external_listing(self, agent_id: str) -> dict:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT listing_json FROM external_listings WHERE agent_id = ?",
+                (agent_id,),
+            ).fetchone()
+        return json.loads(row["listing_json"]) if row else {}
+
+    def external_listing_count(self) -> int:
+        with self._conn() as conn:
+            row = conn.execute("SELECT COUNT(*) AS n FROM external_listings").fetchone()
+        return int(row["n"])
+
+    def search_external_listings(
+        self,
+        *,
+        query: str | None = None,
+        category: str | None = None,
+        level: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """Listings matching every supplied filter, newest observation first.
+
+        `query` is matched against the stored name and the capability text the listing was
+        classified from — the same text the rule table read, so a reader searching the
+        words on the card finds the card. `level` is an exact match and never a range:
+        the level names do not sort into their own order, and `'live' < 'registered'`
+        alphabetically is exactly the inversion that would publish a weaker listing as a
+        stronger one. A caller wanting a floor reads `external_listings_by_level`, where
+        the order is the one `marketplace.external.LEVELS` declares.
+        """
+        where = []
+        args: list = []
+        if category:
+            where.append("category = ?")
+            args.append(category)
+        if level:
+            where.append("level = ?")
+            args.append(level)
+        if query:
+            where.append(
+                "(LOWER(json_extract(listing_json, '$.name')) LIKE ? ESCAPE '\\' "
+                "OR LOWER(json_extract(listing_json, '$.capabilities')) LIKE ? ESCAPE '\\' "
+                "OR LOWER(agent_id) LIKE ? ESCAPE '\\')"
+            )
+            # `%` and `_` are LIKE wildcards, so an unescaped `%` typed into a search box
+            # matches every row and reads as a search that found everything.
+            escaped = (
+                query.lower()
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            )
+            pattern = f"%{escaped}%"
+            args.extend([pattern, pattern, pattern])
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        with self._conn() as conn:
+            total = int(
+                conn.execute(
+                    f"SELECT COUNT(*) AS n FROM external_listings{clause}", args
+                ).fetchone()["n"]
+            )
+            rows = conn.execute(
+                f"SELECT listing_json FROM external_listings{clause} "
+                f"ORDER BY {EXTERNAL_LEVEL_ORDER_SQL}, updated_at DESC, agent_id "
+                "LIMIT ? OFFSET ?",
+                [*args, max(limit, 0), max(offset, 0)],
+            ).fetchall()
+        return [json.loads(row["listing_json"]) for row in rows], total
+
+    def external_listings_by_level(self) -> dict[str, int]:
+        """How many listings stand at each level. `unverified` counts the NULL level."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT level, COUNT(*) AS n FROM external_listings GROUP BY level"
+            ).fetchall()
+        return {(row["level"] or "unverified"): int(row["n"]) for row in rows}
+
+    def record_verification_run(
+        self, agent_id: str, *, level: str, at: str, ok: bool, detail: dict
+    ) -> int:
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """INSERT INTO verification_runs (agent_id, level, at, ok, detail_json)
+                   VALUES (?,?,?,?,?)""",
+                (
+                    agent_id,
+                    level,
+                    at,
+                    1 if ok else 0,
+                    json.dumps(detail, sort_keys=True, ensure_ascii=False, default=str),
+                ),
+            )
+        return int(cursor.lastrowid)
+
+    def iter_verification_runs(self, agent_id: str, limit: int = 60) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM verification_runs WHERE agent_id = ?
+                   ORDER BY id DESC LIMIT ?""",
+                (agent_id, max(limit, 1)),
+            ).fetchall()
+        runs = []
+        for row in rows:
+            run = dict(row)
+            run["ok"] = bool(run["ok"])
+            run["detail"] = json.loads(run.pop("detail_json"))
+            runs.append(run)
+        return runs
+
+    def issue_provider_claim(
+        self, *, agent_id: str, nonce: str, issued_at: str
+    ) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO provider_claims (nonce, agent_id, issued_at)
+                   VALUES (?,?,?)""",
+                (nonce, agent_id, issued_at),
+            )
+
+    def provider_claim(self, nonce: str) -> dict:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM provider_claims WHERE nonce = ?", (nonce,)
+            ).fetchone()
+        return dict(row) if row else {}
+
+    def settle_provider_claim(
+        self, *, nonce: str, owner: str, verified_at: str
+    ) -> bool:
+        """Stamp a nonce as spent. False when it was already spent or never issued."""
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE provider_claims SET owner = ?, verified_at = ?
+                   WHERE nonce = ? AND verified_at IS NULL""",
+                (owner, verified_at, nonce),
+            )
+        return cursor.rowcount == 1
