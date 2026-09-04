@@ -1381,3 +1381,36 @@ def test_two_writes_inside_one_microsecond_cannot_both_win(tmp_path):
 
     kept = store.get_activation(activation.activation_id)
     assert [event.reason for event in kept.events][-1] == "first writer"
+
+
+def test_a_stamp_this_module_did_not_write_still_moves(tmp_path):
+    """Difference is what the guard needs, and an unparseable stamp still gets it.
+
+    The `at=` argument lets a caller supply its own stamp, and nothing promises that
+    string is a timestamp. Ordering cannot be defined against an arbitrary value, but the
+    compare-and-swap matches on equality, so what matters is that the row never keeps the
+    value both writers held. Without that, two writers sharing a foreign stamp were
+    indistinguishable exactly as two sharing a microsecond used to be."""
+    store = Store(tmp_path / "tick.sqlite3")
+    _, activation = _active(store, FakeRpc())
+    foreign = "the-clock-said-so"
+
+    # Put the row on a stamp this module did not write, which is what both writers hold.
+    seed = store.get_activation(activation.activation_id)
+    seed.note("a caller supplied its own stamp", actor="user", at=foreign)
+    store.save_activation(seed, expected_updated_at=activation.updated_at)
+    assert store.get_activation(activation.activation_id).updated_at == foreign
+
+    first = store.get_activation(activation.activation_id)
+    second = store.get_activation(activation.activation_id)
+    first.note("first writer", actor="docket", at=foreign)
+    second.note("second writer", actor="docket", at=foreign)
+
+    store.save_activation(first, expected_updated_at=foreign)
+    assert first.updated_at != foreign
+
+    with pytest.raises(StaleActivation):
+        store.save_activation(second, expected_updated_at=foreign)
+
+    kept = store.get_activation(activation.activation_id)
+    assert [event.reason for event in kept.events][-1] == "first writer"

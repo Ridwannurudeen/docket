@@ -228,9 +228,12 @@ def _strictly_after(written: str, held: str | None) -> str | None:
         moving_to = datetime.fromisoformat(written)
         holding = datetime.fromisoformat(held)
     except ValueError:
-        # A stamp this module did not write. The guard still compares it literally, and
-        # there is nothing sensible to advance it past, so leave it exactly as it came.
-        return None
+        # A stamp this module did not write, so there is no microsecond to advance past.
+        # Ordering cannot be promised against an arbitrary string, but the guard only
+        # needs the stored value to differ from the one the caller held: an equal stamp
+        # is what lets a second writer match the row a first writer has already changed.
+        # Anything else is left exactly as it came.
+        return _now() if written == held else None
     if moving_to > holding:
         return None
     return (holding + timedelta(microseconds=1)).isoformat()
