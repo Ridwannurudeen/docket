@@ -217,27 +217,31 @@ class StaleActivation(ValueError):
 def _strictly_after(written: str, held: str | None) -> str | None:
     """The stamp to store so this write moves the row past the value the caller held.
 
-    Returns `None` when the caller's stamp is already behind the one being written, which
-    is the ordinary case and needs no adjustment. When the two share a microsecond — or
-    when a clock has stepped backwards — the written stamp is nudged one microsecond past
-    the held one, so the row never records the same `updated_at` twice running.
+    Returns `None` when the stamp being written already sits after the held one, which is
+    the ordinary case and needs no adjustment.
+
+    Everything else is adjusted, because this column is the concurrency token rather than
+    caller data. Two stamps sharing a microsecond, a clock that stepped backwards, a stamp
+    a caller supplied through `at=` that is not a timestamp at all, one without a timezone
+    that cannot even be compared with an aware one — each would leave the row holding a
+    value a competing writer could still match. A stamp that cannot be ordered is replaced
+    outright with this module's own, so the column stays parseable and monotonic and the
+    same value can never come back around to be matched a second time.
     """
     if not held:
         return None
     try:
         moving_to = datetime.fromisoformat(written)
         holding = datetime.fromisoformat(held)
-    except ValueError:
-        # A stamp this module did not write, so there is no microsecond to advance past.
-        # Ordering cannot be promised against an arbitrary string, but the guard only
-        # needs the stored value to differ from the one the caller held: an equal stamp
-        # is what lets a second writer match the row a first writer has already changed.
-        # Anything else is left exactly as it came.
-        return _now() if written == held else None
-    if moving_to > holding:
+        already_after = moving_to > holding
+    except (ValueError, TypeError):
+        # Not two comparable instants: an unparseable stamp, or one written without a
+        # timezone beside one with it. There is no ordering to reason about, so the row
+        # takes a stamp this module made instead.
+        return _now()
+    if already_after:
         return None
     return (holding + timedelta(microseconds=1)).isoformat()
-
 
 def _activation_row(activation: Activation, *, with_nonce: bool = True) -> tuple:
     """The row, in column order. `with_nonce=False` drops `auth_nonce` for the update

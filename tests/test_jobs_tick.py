@@ -1383,34 +1383,33 @@ def test_two_writes_inside_one_microsecond_cannot_both_win(tmp_path):
     assert [event.reason for event in kept.events][-1] == "first writer"
 
 
-def test_a_stamp_this_module_did_not_write_still_moves(tmp_path):
-    """Difference is what the guard needs, and an unparseable stamp still gets it.
+def test_a_stamp_this_module_did_not_write_is_replaced_rather_than_kept(tmp_path):
+    """The concurrency token is the store's, not the caller's.
 
-    The `at=` argument lets a caller supply its own stamp, and nothing promises that
-    string is a timestamp. Ordering cannot be defined against an arbitrary value, but the
-    compare-and-swap matches on equality, so what matters is that the row never keeps the
-    value both writers held. Without that, two writers sharing a foreign stamp were
-    indistinguishable exactly as two sharing a microsecond used to be."""
+    `at=` lets a caller supply its own stamp, and nothing promises that string is a
+    timestamp — or that it carries a timezone, which is enough to make it incomparable
+    with one that does. A value that cannot be ordered cannot be reasoned about, and
+    leaving one on the row invites the shape this guard exists to stop: the same value
+    coming back around for a writer still holding it to match a second time. So the row
+    takes a stamp this module made, and stays parseable and monotonic whatever a caller
+    passes."""
     store = Store(tmp_path / "tick.sqlite3")
     _, activation = _active(store, FakeRpc())
-    foreign = "the-clock-said-so"
 
-    # Put the row on a stamp this module did not write, which is what both writers hold.
-    seed = store.get_activation(activation.activation_id)
-    seed.note("a caller supplied its own stamp", actor="user", at=foreign)
-    store.save_activation(seed, expected_updated_at=activation.updated_at)
-    assert store.get_activation(activation.activation_id).updated_at == foreign
+    for supplied in ("the-clock-said-so", "2026-01-01T00:00:00"):
+        row = store.get_activation(activation.activation_id)
+        held = row.updated_at
+        # A distinct reason each time: identical consecutive notes are dropped, and a
+        # dropped note would leave `updated_at` untouched and prove nothing.
+        row.note(f"a caller supplied {supplied}", actor="user", at=supplied)
+        store.save_activation(row, expected_updated_at=held)
 
-    first = store.get_activation(activation.activation_id)
-    second = store.get_activation(activation.activation_id)
-    first.note("first writer", actor="docket", at=foreign)
-    second.note("second writer", actor="docket", at=foreign)
+        stored = store.get_activation(activation.activation_id)
+        assert stored.updated_at != supplied
+        # Parseable, timezone-aware, and after the value it replaced.
+        assert datetime.fromisoformat(stored.updated_at) > datetime.fromisoformat(held)
 
-    store.save_activation(first, expected_updated_at=foreign)
-    assert first.updated_at != foreign
-
-    with pytest.raises(StaleActivation):
-        store.save_activation(second, expected_updated_at=foreign)
-
-    kept = store.get_activation(activation.activation_id)
-    assert [event.reason for event in kept.events][-1] == "first writer"
+        stale = store.get_activation(activation.activation_id)
+        stale.updated_at = held
+        with pytest.raises(StaleActivation):
+            store.save_activation(stale, expected_updated_at=held)
