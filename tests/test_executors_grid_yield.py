@@ -896,6 +896,36 @@ def test_a_reverted_swap_is_read_off_settled_sends_and_refunds_the_cap():
     assert refired.evidence["grid_state"]["fired"][0]["level"] == 2
 
 
+def test_a_settled_revert_wins_over_its_stale_pending_record():
+    activation = _grid_activation()
+    first = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+    swap = first.prepared[-1]
+    tx_hash = "0x" + "cd" * 32
+    pending = _pending(first)
+    pending["tx_hash"] = tx_hash
+    activation.result = {
+        "last_decision": {"evidence": first.evidence},
+        "pending_sends": {"7": pending},
+        "settled_sends": [
+            {
+                "nonce": 7,
+                "purpose": swap.purpose,
+                "tx_hash": tx_hash,
+                "status": 0,
+                "gas_atomic": "21000",
+            }
+        ],
+    }
+
+    waiting = _grid().evaluate(activation, reader=GridReader(price=610 * E18))
+    state = waiting.evidence["grid_state"]
+
+    assert waiting.kind == "noop"
+    assert state["fired"] == []
+    assert 2 in state["open_levels"]
+    assert int(state["spent_atomic"]) == 0
+
+
 def test_a_reverted_approval_is_not_mistaken_for_the_swap_reverting():
     """Both calls a level drafts open `grid level N:`, so a prefix match alone would read
     a failed approval as a failed swap — and reopen a level whose swap is still in

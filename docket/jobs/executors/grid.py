@@ -354,10 +354,10 @@ class GridExecutor:
                     )
                 )
                 continue
-            if _swap_purpose(pending, entry):
-                continue
             if _swap_purpose(reverted_purposes, entry):
                 reverted.append(entry.level)
+                continue
+            if _swap_purpose(pending, entry):
                 continue
             if _swap_purpose(sent_purposes, entry):
                 continue
