@@ -280,9 +280,14 @@ so an owner who tries repeatedly on a deployment with no key file installed will
 refused with `too_many_activations` until the file arrives or they cancel. One-shot
 activations are unaffected.
 
-`TimeoutStartSec=30min` is above the worst case a single pass can legitimately take
-(eight sends each waiting up to 90 s for a receipt, plus a 60 s sweep wait). Lowering it
-would SIGTERM a pass mid-batch.
+`TimeoutStartSec=infinity`, deliberately. One activation can legitimately hold a pass for
+about thirteen minutes (eight sends each waiting up to 90 s for a receipt, plus a 60 s
+sweep wait), so a queue of them has no wall-clock bound and any finite value would
+eventually SIGTERM a pass inside a batch rather than between two activations. The bound is
+in the code: `docket.jobs.tick.PASS_BUDGET_SECONDS` stops the pass starting new
+activations after twenty minutes and lets it finish the one in hand, and systemd will not
+start a second instance of a oneshot while one is running. A pass that is still going when
+the next timer fires is not an error; the queue it did not reach is picked up next time.
 
 ### V3 experiment-arm ledgers
 

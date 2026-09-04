@@ -37,6 +37,26 @@ ERC20_ABI = [
         "outputs": [{"name": "", "type": "uint256"}],
     },
     {
+        "name": "allowance",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [
+            {"name": "owner", "type": "address"},
+            {"name": "spender", "type": "address"},
+        ],
+        "outputs": [{"name": "", "type": "uint256"}],
+    },
+    {
+        "name": "approve",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "spender", "type": "address"},
+            {"name": "amount", "type": "uint256"},
+        ],
+        "outputs": [{"name": "", "type": "bool"}],
+    },
+    {
         "name": "transfer",
         "type": "function",
         "stateMutability": "nonpayable",
@@ -135,8 +155,93 @@ def _await_receipts(rpc, hashes, sleep) -> list[str]:
     return pending
 
 
+def outstanding_allowances(session, rpc) -> dict[str, dict[str, int]]:
+    """Every live approval this session has granted, read from the token itself.
+
+    Read rather than remembered. Our own record of what we approved is a record of what we
+    intended; the allowance on the token is what a spender can actually pull, and only one
+    of the two is a fact. It is also how an allowance consumed by a pull we never saw gets
+    dropped instead of held against the cap for ever.
+    """
+    address = Web3.to_checksum_address(session.address)
+    live: dict[str, dict[str, int]] = {}
+    for token, spenders in (session.reserved_atomic or {}).items():
+        checksummed = Web3.to_checksum_address(token)
+        for spender in spenders:
+            granted = int(
+                rpc(
+                    lambda w3, token=checksummed, spender=spender: (
+                        w3.eth.contract(address=token, abi=ERC20_ABI)
+                        .functions.allowance(address, Web3.to_checksum_address(spender))
+                        .call()
+                    )
+                )
+            )
+            if granted > 0:
+                live.setdefault(checksummed, {})[spender] = granted
+    return live
+
+
+def revoke_allowances(
+    session, rpc, *, max_gas_price_wei=None, sleep=time.sleep
+) -> list[str]:
+    """Set every outstanding allowance to zero, and wait for it to land.
+
+    Before the sweep, not after. A session whose balances read zero but whose approvals
+    stand is a session a spender can still pull from the moment the owner funds that
+    address again — and `revoked` would already have been served as the end of the story.
+    """
+    sender = Web3.to_checksum_address(session.address)
+    gas_price = _gas_price(rpc, max_gas_price_wei)
+    nonce = int(rpc(lambda w3: w3.eth.get_transaction_count(sender)))
+    sent: list[str] = []
+    failures: list[str] = []
+    for token, spenders in sorted(outstanding_allowances(session, rpc).items()):
+        for spender in sorted(spenders):
+            try:
+                data = _encoder.encode_abi(
+                    "approve", args=[Web3.to_checksum_address(spender), 0]
+                )
+                transaction = {"from": sender, "to": token, "data": data, "value": 0}
+                estimated = int(rpc(lambda w3, tx=transaction: w3.eth.estimate_gas(tx)))
+                signed = session.account.sign_transaction(
+                    {
+                        **transaction,
+                        "nonce": nonce,
+                        "gas": estimated
+                        * GAS_MARGIN_NUMERATOR
+                        // GAS_MARGIN_DENOMINATOR,
+                        "gasPrice": gas_price,
+                        "chainId": BSC_CHAIN_ID,
+                    }
+                )
+                sent.append(
+                    _hex(
+                        rpc(
+                            lambda w3, raw=signed.raw_transaction: (
+                                w3.eth.send_raw_transaction(raw)
+                            )
+                        )
+                    )
+                )
+                nonce += 1
+            except Exception as exc:
+                failures.append(f"{token}/{spender}: {type(exc).__name__}: {exc}")
+    unmined = _await_receipts(rpc, sent, sleep)
+    if unmined:
+        failures.append(f"{len(unmined)} approvals to zero had not mined")
+    if failures:
+        raise SweepFailed(
+            "the session's approvals were not fully revoked: " + "; ".join(failures),
+            sent,
+        )
+    return sent
+
+
 def residual_balances(session, rpc) -> dict[str, int]:
-    """What the session still holds, read now. Empty means the float is back.
+    """What the session still holds OR can still pay out, read now.
+
+    Empty means the float is back AND nothing can pull any more of it.
 
     BNB below the cost of one transfer counts as nothing: it cannot pay for its own
     departure, so no sweep will ever move it and holding the activation open waiting for
@@ -161,6 +266,11 @@ def residual_balances(session, rpc) -> dict[str, int]:
     gas_price = int(rpc(lambda w3: w3.eth.gas_price))
     if native > gas_price * NATIVE_TRANSFER_GAS:
         residual[NATIVE_TOKEN] = native
+    # A standing approval is not a balance, but it is a way for the money to leave, and
+    # `revoked` means neither is left.
+    for token, spenders in outstanding_allowances(session, rpc).items():
+        for spender, amount in spenders.items():
+            residual[f"allowance {token} to {spender}"] = amount
     return residual
 
 

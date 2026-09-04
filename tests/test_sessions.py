@@ -1332,3 +1332,111 @@ def test_a_collect_paying_the_owner_directly_is_also_allowed():
     )
 
     assert call_spend(to_owner, owner=OWNER, session=SESSION) == {}
+
+
+# -- approvals are exposure, not free -----------------------------------------
+
+ATTACKER = Web3.to_checksum_address("0x" + "a7" * 20)
+NPM_ADDRESS = Web3.to_checksum_address("0x46A15B0b27311cedF172AB29E4f4766fbE7F4364")
+
+
+def _approve(token, spender, amount):
+    return _bare(token, _erc20.encode_abi("approve", args=[spender, amount]))
+
+
+def test_an_approval_to_an_address_the_session_may_not_call_is_refused():
+    """The cap bypass: the pull happens later, in somebody else's transaction, where no
+    check of ours runs at all. WHO is authorised matters as much as how much."""
+    policy = _yield_policy()
+
+    with pytest.raises(UnmeasuredSpend, match="not in the policy's contract allowlist"):
+        call_spend(
+            _approve(WBNB, ATTACKER, 10**18),
+            token_allowlist=policy.token_allowlist,
+            contract_allowlist=policy.contract_allowlist,
+            owner=OWNER,
+            session=SESSION,
+        )
+
+    # The same approval to a contract the session may call is fine.
+    assert call_spend(
+        _approve(WBNB, NPM_ADDRESS, 10**18),
+        token_allowlist=policy.token_allowlist,
+        contract_allowlist=policy.contract_allowlist,
+        owner=OWNER,
+        session=SESSION,
+    ) == {WBNB: 10**18}
+
+
+def test_a_transfer_to_a_stranger_is_refused():
+    policy = _yield_policy()
+    transfer = _bare(WBNB, _erc20.encode_abi("transfer", args=[ATTACKER, 10**18]))
+
+    with pytest.raises(UnmeasuredSpend, match="neither the session nor the owner"):
+        call_spend(
+            transfer,
+            token_allowlist=policy.token_allowlist,
+            contract_allowlist=policy.contract_allowlist,
+            owner=OWNER,
+            session=SESSION,
+        )
+
+    for recipient in (OWNER, SESSION):
+        allowed = _bare(WBNB, _erc20.encode_abi("transfer", args=[recipient, 10**18]))
+        assert call_spend(
+            allowed,
+            token_allowlist=policy.token_allowlist,
+            contract_allowlist=policy.contract_allowlist,
+            owner=OWNER,
+            session=SESSION,
+        ) == {WBNB: 10**18}
+
+
+def test_a_standing_approval_is_held_against_the_lifetime_cap():
+    """A batch that approves and then stops leaves an allowance standing. Counting only
+    what has moved would let the next pass approve the same amount again, and the one
+    after that, until the aggregate on-chain allowance passed the cap."""
+    from docket.sessions.keys import Session
+
+    account = Account.create()
+    session = Session(address=account.address, account=account)
+    assert session.committed_atomic() == {}
+
+    session.reserve(WBNB, NPM_ADDRESS, 4 * 10**18)
+    assert session.committed_atomic() == {WBNB: 4 * 10**18}
+
+    policy = _yield_policy()
+    permitted, reason = policy.allows_total(
+        spent=session.committed_atomic(), token_amounts={WBNB: 2 * 10**18}
+    )
+    assert not permitted
+    assert "past the session cap" in reason
+
+    # Approving MORE to the same spender replaces the allowance; it does not add to it.
+    session.reserve(WBNB, NPM_ADDRESS, 5 * 10**18)
+    assert session.committed_atomic() == {WBNB: 5 * 10**18}
+
+
+def test_a_pull_releases_the_approval_it_consumed():
+    """Otherwise the pair is charged twice: the reservation was only ever standing in for
+    the movement, and the movement has now happened."""
+    from docket.sessions.keys import Session
+
+    account = Account.create()
+    session = Session(address=account.address, account=account)
+    session.reserve(WBNB, NPM_ADDRESS, 10**18)
+    session.spent_atomic[WBNB] = 10**18
+
+    assert session.committed_atomic() == {WBNB: 2 * 10**18}
+
+    session.release(WBNB, NPM_ADDRESS)
+
+    assert session.committed_atomic() == {WBNB: 10**18}
+    assert session.reserved_atomic == {}
+
+
+def test_the_approval_a_call_grants_is_read_out_of_its_own_bytes():
+    from docket.sessions.spend import approval_granted
+
+    assert approval_granted(_approve(WBNB, NPM_ADDRESS, 7)) == (WBNB, NPM_ADDRESS, 7)
+    assert approval_granted(_bare(ROUTER, _swap_data(1))) is None

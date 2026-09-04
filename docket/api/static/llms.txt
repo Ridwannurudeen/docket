@@ -1168,6 +1168,15 @@ The policy is required at create time and bounds the session: `contract_allowlis
 of zero is refused rather than accepted as permissive, and every capped token needs both
 a per-action limit and a total cap or one action could spend the session.
 
+An approval is bounded like a spend, and by the same cap. `approve` may only name a
+spender that is in `contract_allowlist` — an allowance granted to an address the session
+may not even call would be pulled later, in somebody else's transaction, where no bound of
+Docket's applies — and `transfer` may only pay the owner or the session. A granted
+allowance is held against the lifetime cap until the pull that consumes it lands or it is
+set to zero, so a run of passes that approve and stop cannot accumulate standing
+allowances past the cap. Closing sets every outstanding approval to zero before it sweeps,
+and `revoked` requires the allowances to read zero as well as the balances.
+
 Read the limit of what that buys you. A session key is an ordinary EOA and nothing on
 chain constrains it: the policy is a second gate in Docket's own process, and the real
 loss ceiling is the float the owner moved to the session address. That is why funding is

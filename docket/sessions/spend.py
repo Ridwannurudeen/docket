@@ -269,7 +269,13 @@ def _recipient_is_ours(recipient, owner, session) -> bool:
 
 
 def call_spend(
-    call, *, token_allowlist=(), token_hints=None, owner=None, session=None
+    call,
+    *,
+    token_allowlist=(),
+    contract_allowlist=(),
+    token_hints=None,
+    owner=None,
+    session=None,
 ) -> dict[str, int]:
     """What this one call moves out of the session, keyed by token address.
 
@@ -318,9 +324,36 @@ def call_spend(
             )
         return {}
 
-    if selector in (APPROVE, TRANSFER):
+    if selector == APPROVE:
+        # WHO is being authorised matters as much as how much. An approval is a standing
+        # licence to pull, and one granted to an address the session may not even call is
+        # a spend that leaves entirely outside every check this module makes: the pull
+        # happens later, from somebody else's transaction, and nothing here ever sees it.
+        spender = _checksum(arguments["spender"])
+        allowed = {
+            checksummed
+            for checksummed in (_checksum(item) for item in contract_allowlist)
+            if checksummed is not None
+        }
         if target is None:
             raise UnmeasuredSpend(f"{call.to!r} is not a token address")
+        if allowed and spender not in allowed:
+            raise UnmeasuredSpend(
+                f"this approval authorises {arguments['spender']} to pull "
+                f"{arguments['amount']} of {call.to}, and that address is not in the "
+                "policy's contract allowlist: the pull would happen in somebody else's "
+                "transaction, where no cap of ours applies"
+            )
+        return _nonzero({target: int(arguments["amount"])})
+
+    if selector == TRANSFER:
+        if target is None:
+            raise UnmeasuredSpend(f"{call.to!r} is not a token address")
+        if not _recipient_is_ours(arguments["to"], owner, session):
+            raise UnmeasuredSpend(
+                f"this transfer sends {arguments['amount']} of {call.to} to "
+                f"{arguments['to']}, which is neither the session nor the owner"
+            )
         return _nonzero({target: int(arguments["amount"])})
 
     if selector == SWAP_EXACT_TOKENS_FOR_TOKENS:
@@ -421,14 +454,39 @@ def received_tokens(call, *, token_hints=None) -> tuple[str, ...]:
             return ()
         return tuple(token for token in (_checksum(item) for item in pair) if token)
     if selector in VTOKEN_SELECTORS:
-        # A Venus mint pays the session in vTokens, which the underlying map does not
-        # name on this side: the vToken is the contract being called.
-        return (_checksum(call.to),) if selector == VTOKEN_MINT else ()
+        # A mint pays the session in vTokens; a repay can refund the over-payment in the
+        # underlying and leaves the vToken position itself behind. Either way the vToken
+        # is a balance the session can end up holding, and a sweep that never looked at it
+        # would leave it behind a revoked key.
+        return (_checksum(call.to),)
     return ()
 
 
+def approval_granted(call, *, token_hints=None) -> tuple[str, str, int] | None:
+    """The (token, spender, amount) an `approve` grants, or None for anything else.
+
+    An approval is not a payment and is not charged as one, but it IS an exposure: until
+    it is pulled or zeroed, that much of the token can leave without another transaction
+    of ours. It is reserved against the lifetime cap, and released when the pull lands.
+    """
+    if call.selector != APPROVE:
+        return None
+    _, arguments = _decoder.decode_function_input(call.data)
+    token = _checksum(call.to)
+    spender = _checksum(arguments["spender"])
+    if token is None or spender is None:
+        return None
+    return token, spender, int(arguments["amount"])
+
+
 def batch_spend(
-    calls, *, token_allowlist=(), token_hints=None, owner=None, session=None
+    calls,
+    *,
+    token_allowlist=(),
+    contract_allowlist=(),
+    token_hints=None,
+    owner=None,
+    session=None,
 ) -> dict[str, int]:
     """The whole batch's spend, so the total can be put to the cap once before any of it
     is sent. A batch refused halfway leaves a position half-rebalanced.
@@ -446,6 +504,7 @@ def batch_spend(
         derived = call_spend(
             call,
             token_allowlist=token_allowlist,
+            contract_allowlist=contract_allowlist,
             token_hints=token_hints,
             owner=owner,
             session=session,
@@ -463,14 +522,3 @@ def batch_spend(
         token: max(spends.get(token, 0), approvals.get(token, 0))
         for token in set(spends) | set(approvals)
     }
-
-
-def is_authorisation_only(call) -> bool:
-    """Whether this call grants a spend rather than making one.
-
-    `approve` moves nothing. It is checked against the cap in the batch total, because a
-    session that cannot cover the approval cannot complete the batch, but it is not
-    charged when it is sent — the transfer that follows it is the payment, and charging
-    both would bill one movement twice.
-    """
-    return call.selector == APPROVE

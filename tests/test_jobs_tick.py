@@ -694,7 +694,7 @@ class NodeRpc:
         return do(self.node.w3)
 
 
-def _node_active(store, node, *, bnb=10**17, usdt=500 * 10**18):
+def _node_active(store, node, *, bnb=10**17, usdt=500 * 10**18, policy=None):
     from tests.test_jobs_service import _funding_transaction
 
     service = _service(store, NodeRpc(node))
@@ -703,7 +703,7 @@ def _node_active(store, node, *, bnb=10**17, usdt=500 * 10**18):
         kind="persistent",
         owner=OWNER,
         inputs={"wallet": OWNER},
-        policy=POLICY,
+        policy=POLICY if policy is None else policy,
     )
     expected = created.updated_at
     service.mint_session(created)
@@ -894,3 +894,181 @@ def test_a_key_created_before_the_save_is_adopted_rather_than_replaced(
     assert stored.session["address"] == orphan
     assert stored.next_action.kind == "fund_session"
     assert any("adopting the session key" in e.reason for e in stored.events)
+
+
+# -- approvals across passes ----------------------------------------------------
+
+NPM_ADDRESS = Web3.to_checksum_address("0x46A15B0b27311cedF172AB29E4f4766fbE7F4364")
+ATTACKER = Web3.to_checksum_address("0x" + "a7" * 20)
+_erc20_tick = Web3().eth.contract(
+    abi=[
+        {
+            "name": "approve",
+            "type": "function",
+            "inputs": [
+                {"name": "spender", "type": "address"},
+                {"name": "amount", "type": "uint256"},
+            ],
+            "outputs": [{"name": "", "type": "bool"}],
+        }
+    ]
+)
+
+
+class ApprovingExecutor:
+    """One approval and nothing else: the batch that stops before the pull."""
+
+    category = "rebalancing"
+
+    def __init__(self, *, spender=NPM_ADDRESS, amount=200 * 10**18, spenders=None):
+        self.spender = spender
+        self.amount = amount
+        # One spender per pass, so the test can show what a SINGLE spender cannot: the
+        # aggregate of several standing allowances.
+        self.spenders = list(spenders or ())
+
+    def evaluate(self, activation, *, reader=None):
+        spender = self.spenders.pop(0) if self.spenders else self.spender
+        call = PreparedCall(
+            to=USDT,
+            data=_erc20_tick.encode_abi("approve", args=[spender, self.amount]),
+            value_atomic="0",
+            gas_ceiling=300_000,
+            deadline=4_102_444_800,
+            purpose="authorise the position manager to pull the mint amount",
+            simulation={"ok": True, "gas_estimate": 60_000, "block": 900},
+        )
+        return Decision(
+            kind="action",
+            summary="approve before the mint",
+            prepared=(call,),
+            evidence={},
+            observed_at="2026-09-04T00:00:00+00:00",
+            block=900,
+        )
+
+    def within_policy(self, activation, decision):
+        return True, "inside the policy"
+
+
+def test_standing_approvals_add_up_against_the_lifetime_cap(
+    tmp_path, sessions_key, monkeypatch
+):
+    """The blocker. Nothing MOVES when a batch approves and then stops, so durable spend
+    stayed empty and the next pass approved again — and the aggregate on-chain allowance
+    across spenders grew past the lifetime cap while every individual check passed.
+
+    Two spenders, 300 each, against a 500 cap: the first pass grants, the second is
+    refused, and nothing further is broadcast.
+    """
+    from tests.fakenode import Node
+
+    monkeypatch.setattr("docket.sessions.executor.RECEIPT_PAUSE_S", 0)
+    store = Store(tmp_path / "tick.sqlite3")
+    node = Node(estimate=60_000)
+    node.automine_on_receipt = True
+    policy = {
+        **POLICY,
+        "per_action_limit_atomic": {
+            **POLICY["per_action_limit_atomic"],
+            USDT: "300000000000000000000",
+        },
+    }
+    _, activation = _node_active(store, node, policy=policy)
+    aid = activation.activation_id
+    register(
+        "rebalancing",
+        ApprovingExecutor(
+            amount=300 * 10**18, spenders=[NPM_ADDRESS, ROUTER, ROUTER]
+        ),
+    )
+
+    assert tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key) == 0
+    first = store.get_activation(aid)
+    address = first.session["address"]
+    assert node.allowances[USDT][(address, NPM_ADDRESS)] == 300 * 10**18
+    # Nothing has moved, and the exposure is recorded anyway.
+    assert USDT not in first.session["spent_atomic"]
+    assert first.session["reserved_atomic"][USDT][NPM_ADDRESS] == str(300 * 10**18)
+
+    # A second spender would take the standing total to 600 against a cap of 500.
+    assert tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key) == 0
+    second = store.get_activation(aid)
+    assert second.state == "needs_approval"
+    assert "past the session cap" in second.events[-1].reason
+    assert (address, ROUTER) not in node.allowances.get(USDT, {})
+
+
+def test_an_approval_to_a_stranger_is_never_broadcast(
+    tmp_path, sessions_key, monkeypatch
+):
+    from tests.fakenode import Node
+
+    monkeypatch.setattr("docket.sessions.executor.RECEIPT_PAUSE_S", 0)
+    store = Store(tmp_path / "tick.sqlite3")
+    node = Node(estimate=60_000)
+    node.automine_on_receipt = True
+    _, activation = _node_active(store, node)
+    register("rebalancing", ApprovingExecutor(spender=ATTACKER, amount=10**18))
+
+    assert tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key) == 1
+
+    stored = store.get_activation(activation.activation_id)
+    assert node.mined_order == []
+    assert node.allowances == {}
+    assert any("unmeasured spend" in e.reason for e in stored.events)
+
+
+def test_closing_zeroes_the_allowance_before_it_can_be_called_revoked(
+    tmp_path, sessions_key, monkeypatch
+):
+    from tests.fakenode import Node
+
+    monkeypatch.setattr("docket.sessions.executor.RECEIPT_PAUSE_S", 0)
+    monkeypatch.setattr("docket.sessions.sweep.RECEIPT_PAUSE_S", 0)
+    store = Store(tmp_path / "tick.sqlite3")
+    node = Node(estimate=60_000)
+    node.automine_on_receipt = True
+    service, activation = _node_active(store, node, usdt=0, bnb=5 * 10**16)
+    aid = activation.activation_id
+    register("rebalancing", ApprovingExecutor(amount=100 * 10**18))
+
+    assert tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key) == 0
+    address = store.get_activation(aid).session["address"]
+    assert node.allowances[USDT][(address, NPM_ADDRESS)] == 100 * 10**18
+
+    service.revoke(aid)
+    for _ in range(4):
+        tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key)
+        node.mine()
+
+    assert node.allowances[USDT][(address, NPM_ADDRESS)] == 0
+    assert store.get_activation(aid).state == "revoked"
+
+
+def test_a_pass_stops_starting_new_activations_once_its_budget_is_gone(
+    tmp_path, sessions_key, monkeypatch
+):
+    """One activation can hold a pass for about thirteen minutes, so the queue behind it
+    has no wall-clock bound. The pass picks its own stopping point, between activations
+    rather than inside a batch."""
+    from tests.fakenode import Node
+
+    store = Store(tmp_path / "tick.sqlite3")
+    node = Node()
+    for _ in range(3):
+        _node_active(store, node)
+    register("rebalancing", NoopExecutor("rebalancing"))
+
+    clock = iter([0.0, 0.0, 10**9, 10**9])
+    monkeypatch.setattr(tick.time, "monotonic", lambda: next(clock))
+
+    assert tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key) == 0
+
+    # Only the first was started; the other two wait for the next timer.
+    evaluated = [
+        row
+        for row in store.list_activations(state="active", limit=10)
+        if (row.result or {}).get("last_decision")
+    ]
+    assert len(evaluated) == 1

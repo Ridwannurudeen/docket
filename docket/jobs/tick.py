@@ -24,6 +24,7 @@ pass where nothing needed doing.
 import argparse
 import logging
 import os
+import time
 
 from ..escrow.chain import Rpc
 from ..hire.catalogue import SERVICES
@@ -32,7 +33,13 @@ from ..sessions.keys import SessionsUnavailable
 from ..sessions.policy import SessionPolicy
 from ..sessions.policy import NATIVE_TOKEN
 from ..sessions.spend import UnmeasuredSpend, batch_spend, received_tokens
-from ..sessions.sweep import SweepFailed, residual_balances, sweep
+from ..sessions.sweep import (
+    SweepFailed,
+    outstanding_allowances,
+    residual_balances,
+    revoke_allowances,
+    sweep,
+)
 from ..store import StaleActivation, Store
 from .executors import EXECUTORS, load_executors
 from .executors.allowlists import defaults_for
@@ -46,6 +53,14 @@ logger = logging.getLogger("docket.jobs.tick")
 # statement is what a page size is for.
 TICK_PAGE = 100
 MAX_TICK_PAGES = 50
+# A pass stops STARTING activations after this long and finishes the one in hand. One
+# activation can legitimately take about thirteen minutes — eight sends each waiting up to
+# ninety seconds for a receipt, plus a sweep — so a queue of them is unbounded in wall
+# clock, and a `oneshot` unit with a finite `TimeoutStartSec` would be SIGTERMed somewhere
+# in the middle rather than between two of them. The budget is where the pass chooses its
+# own stopping point; the timer brings it back in a minute and it resumes at the front of
+# the queue it did not reach.
+PASS_BUDGET_SECONDS = 20 * 60
 # States a persistent activation can be in and still be the tick's business.
 LIVE_STATES = ("revoking", "awaiting_session", "active", "paused", "needs_approval")
 
@@ -99,6 +114,20 @@ def _record_decision(activation, decision) -> None:
         )
 
 
+def _reconcile_reservations(session, rpc) -> None:
+    """Replace the remembered approvals with what the tokens actually say.
+
+    Our record is of what we intended to grant; the allowance on the token is what can
+    actually be pulled. An allowance somebody consumed while we were not looking would
+    otherwise be held against the lifetime cap for ever, and one that failed to land would
+    be held when nothing was ever granted.
+    """
+    session.reserved_atomic = {
+        token: dict(spenders)
+        for token, spenders in outstanding_allowances(session, rpc).items()
+    }
+
+
 def _session_for(service, activation, rpc):
     """The unlocked session, with every token a sweep has to look for filled in.
 
@@ -114,6 +143,14 @@ def _session_for(service, activation, rpc):
     if session is None:
         return None
     session.received_tokens = _sweepable_tokens(activation)
+    session.reserved_atomic = {
+        token: {spender: int(amount) for spender, amount in spenders.items()}
+        for token, spenders in (
+            (activation.session or {}).get("reserved_atomic") or {}
+        ).items()
+    }
+    if session.reserved_atomic:
+        _reconcile_reservations(session, rpc)
     return session
 
 
@@ -164,6 +201,20 @@ def _close(service, activation, rpc) -> None:
         return
     policy = SessionPolicy.from_dict(activation.policy)
     try:
+        # Approvals first. A session whose balances read zero but whose allowances stand
+        # is one a spender can still pull from the moment that address is funded again,
+        # and `revoked` would already have been served as the end of the story.
+        zeroed = revoke_allowances(
+            session, rpc, max_gas_price_wei=policy.max_gas_price_wei
+        )
+        if zeroed:
+            activation.note(
+                "set every outstanding approval to zero in " + ", ".join(zeroed),
+                actor="chain",
+            )
+    except SweepFailed as exc:
+        activation.note(f"the approvals were not fully revoked: {exc}", actor="docket")
+    try:
         sent = sweep(
             session,
             activation.owner,
@@ -177,6 +228,13 @@ def _close(service, activation, rpc) -> None:
     except SweepFailed as exc:
         activation.note(f"the session was not fully swept: {exc}", actor="docket")
     residual = residual_balances(session, rpc)
+    activation.session = {
+        **(activation.session or {}),
+        "reserved_atomic": {
+            token: {spender: str(amount) for spender, amount in spenders.items()}
+            for token, spenders in session.reserved_atomic.items()
+        },
+    }
     service.finish_closing(activation, residual)
     service.store.save_activation(activation, expected_updated_at=expected)
 
@@ -251,6 +309,7 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
         total = batch_spend(
             decision.prepared,
             token_allowlist=policy.token_allowlist,
+            contract_allowlist=policy.contract_allowlist,
             token_hints=token_hints,
             owner=activation.owner,
             session=session.address,
@@ -262,7 +321,7 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
         service.store.save_activation(activation, expected_updated_at=expected)
         raise
     within_cap, cap_reason = policy.allows_total(
-        spent=session.spent_atomic, token_amounts=total
+        spent=session.committed_atomic(), token_amounts=total
     )
     if not within_cap:
         activation.transition(
@@ -298,6 +357,10 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
             "spent_atomic": {
                 token: str(amount) for token, amount in session.spent_atomic.items()
             },
+            "reserved_atomic": {
+                token: {spender: str(amount) for spender, amount in spenders.items()}
+                for token, spenders in session.reserved_atomic.items()
+            },
         }
         service.store.save_activation(
             activation, expected_updated_at=checkpoint["at"]
@@ -326,6 +389,10 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
         **(activation.session or {}),
         "spent_atomic": {
             token: str(amount) for token, amount in session.spent_atomic.items()
+        },
+        "reserved_atomic": {
+            token: {spender: str(amount) for spender, amount in spenders.items()}
+            for token, spenders in session.reserved_atomic.items()
         },
     }
     _save_sends(service.store, activation, checkpoint["at"])
@@ -413,7 +480,15 @@ def _note_failure(store, activation_id, exc) -> None:
 
 
 def run_once(store: Store, *, rpc=None, services=None, environment=None) -> int:
-    """Advance every live persistent activation. Returns how many errored."""
+    """Advance every live persistent activation. Returns how many errored.
+
+    Bounded by wall clock, not by count. One activation can legitimately hold this pass
+    for about thirteen minutes, so the queue behind it is unbounded in time; after
+    `PASS_BUDGET_SECONDS` the pass stops STARTING new ones and finishes the one in hand.
+    That is why the unit's `TimeoutStartSec` is `infinity`: a finite one would SIGTERM a
+    pass somewhere inside a batch rather than between two activations, and the timer
+    cannot start a second instance of a `oneshot` while one is running.
+    """
     load_executors()
     service = ActivationService(
         store,
@@ -422,7 +497,15 @@ def run_once(store: Store, *, rpc=None, services=None, environment=None) -> int:
         environment=environment,
     )
     errors = 0
+    started = time.monotonic()
     for activation in _live_activations(store):
+        if time.monotonic() - started > PASS_BUDGET_SECONDS:
+            logger.info(
+                "pass budget of %ds reached; the rest of the queue waits for the next "
+                "timer rather than being cut off mid-transaction",
+                PASS_BUDGET_SECONDS,
+            )
+            break
         try:
             if activation.state == "revoking":
                 _close(service, activation, rpc)

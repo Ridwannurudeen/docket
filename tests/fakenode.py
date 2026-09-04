@@ -17,6 +17,16 @@ from web3.exceptions import TransactionNotFound
 
 ERC20_ABI = [
     {
+        "name": "approve",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "spender", "type": "address"},
+            {"name": "amount", "type": "uint256"},
+        ],
+        "outputs": [{"name": "", "type": "bool"}],
+    },
+    {
         "name": "transfer",
         "type": "function",
         "stateMutability": "nonpayable",
@@ -29,6 +39,7 @@ ERC20_ABI = [
 ]
 _erc20 = Web3().eth.contract(abi=ERC20_ABI)
 TRANSFER = "0xa9059cbb"
+APPROVE = "0x095ea7b3"
 NATIVE_GAS = 21_000
 
 
@@ -53,6 +64,10 @@ class _Functions:
 
     def balanceOf(self, account):  # noqa: N802
         return _Fn(self.node.tokens.get(self.address, {}).get(cs(account), 0))
+
+    def allowance(self, owner, spender):
+        granted = self.node.allowances.get(self.address, {})
+        return _Fn(granted.get((cs(owner), cs(spender)), 0))
 
     def underlying(self):
         return _Fn(self.node.underlying.get(self.address, ValueError("no underlying")))
@@ -111,6 +126,7 @@ class Node:
         self.estimate = estimate
         self.bnb = {}
         self.tokens = {}
+        self.allowances = {}
         self.underlying = {}
         self.nonces = {}
         self.pending = []
@@ -183,6 +199,11 @@ class Node:
             if p["value"] and status == 1:
                 self.bnb[p["from"]] -= p["value"]
                 self.bnb[p["to"]] = self.bnb.get(p["to"], 0) + p["value"]
+            if p["data"].startswith(APPROVE) and status == 1:
+                _, args = _erc20.decode_function_input(p["data"])
+                self.allowances.setdefault(p["to"], {})[
+                    (p["from"], cs(args["spender"]))
+                ] = args["amount"]
             if p["data"].startswith(TRANSFER) and status == 1:
                 _, args = _erc20.decode_function_input(p["data"])
                 balances = self.tokens.setdefault(p["to"], {})

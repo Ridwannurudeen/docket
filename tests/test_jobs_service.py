@@ -41,8 +41,11 @@ PASSWORD = "a-test-master-password"
 FAR_FUTURE = "2099-01-01T00:00:00+00:00"
 
 POLICY = {
-    "contract_allowlist": [ROUTER, NFPM],
-    "function_allowlist": ["0x38ed1739"],
+    # The token contracts are in the CONTRACT allowlist as well as the token one: calling
+    # `approve` on a token is calling that token, and a policy that allowed the spend but
+    # not the call would refuse the approval every route needs first.
+    "contract_allowlist": [ROUTER, NFPM, USDT],
+    "function_allowlist": ["0x38ed1739", "0x095ea7b3"],
     "token_allowlist": [USDT, NATIVE_TOKEN],
     "per_action_limit_atomic": {
         USDT: "100000000000000000000",
@@ -344,7 +347,7 @@ def test_a_policy_the_owner_wrote_in_full_is_recorded_as_theirs(store):
     )
 
     assert activation.policy["policy_source"] == "owner"
-    assert activation.policy["contract_allowlist"] == [ROUTER, NFPM]
+    assert activation.policy["contract_allowlist"] == [ROUTER, NFPM, USDT]
 
 
 def test_every_category_publishes_defaults_that_validate():
@@ -768,7 +771,7 @@ def test_an_nft_approval_outside_the_contract_allowlist_is_refused(store):
             owner=OWNER,
             inputs={"wallet": OWNER},
             policy=POLICY,
-            nft_approvals=({"contract": USDT, "token_id": 1},),
+            nft_approvals=({"contract": STRANGER, "token_id": 1},),
         )
 
 

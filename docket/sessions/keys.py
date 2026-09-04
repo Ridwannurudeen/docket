@@ -59,6 +59,44 @@ class Session:
     # swap's output side. The allowlist bounds what may leave; this is what has to be
     # swept back, and the two are different sets.
     received_tokens: tuple[str, ...] = ()
+    # Live approvals, `{token: {spender: amount}}`. An approval that has been granted and
+    # not yet pulled is money that can still leave without another transaction of ours, so
+    # it is held against the lifetime cap exactly as spend is — and released when the pull
+    # lands, so the pair is never charged twice.
+    reserved_atomic: dict = field(default_factory=dict)
+
+    def committed_atomic(self) -> dict[str, int]:
+        """Everything this session has spent OR authorised, per token.
+
+        The figure the cap has to be read against. Spend alone understates it: a batch
+        that approves and then stops leaves an allowance standing, and a pass that counted
+        only what had moved would approve the same amount again next minute.
+        """
+        committed = {token: int(amount) for token, amount in self.spent_atomic.items()}
+        for token, spenders in self.reserved_atomic.items():
+            outstanding = sum(int(amount) for amount in spenders.values())
+            if outstanding:
+                committed[token] = committed.get(token, 0) + outstanding
+        return committed
+
+    def reserve(self, token: str, spender: str, amount: int) -> None:
+        """Record an approval that has landed. The larger of the two, never the sum:
+        approving 5 after approving 3 replaces the allowance, it does not add to it."""
+        held = dict(self.reserved_atomic.get(token) or {})
+        held[spender] = max(int(held.get(spender, 0)), int(amount))
+        self.reserved_atomic = {**self.reserved_atomic, token: held}
+
+    def release(self, token: str, spender: str) -> None:
+        """Drop the reservation a successful pull has consumed."""
+        held = dict(self.reserved_atomic.get(token) or {})
+        if held.pop(spender, None) is None:
+            return
+        reserved = {**self.reserved_atomic}
+        if held:
+            reserved[token] = held
+        else:
+            reserved.pop(token, None)
+        self.reserved_atomic = reserved
 
 
 def master_password_from_env(environment=None) -> str:

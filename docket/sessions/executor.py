@@ -29,8 +29,8 @@ from ..jobs.models import Receipt
 from .policy import NATIVE_TOKEN, token_key
 from .spend import (
     UnmeasuredSpend,
+    approval_granted,
     call_spend,
-    is_authorisation_only,
     needs_underlying,
 )
 
@@ -75,6 +75,15 @@ def _hex(value) -> str:
         return "0x" + bytes(value).hex()
     text = str(value)
     return text if text.startswith("0x") else "0x" + text
+
+
+def _hex_address(address) -> str:
+    from web3 import Web3
+
+    try:
+        return Web3.to_checksum_address(address)
+    except Exception:
+        return str(address)
 
 
 def _record_pending(activation, entry: dict) -> None:
@@ -174,6 +183,7 @@ def execute(
             for token, amount in call_spend(
                 prepared,
                 token_allowlist=policy.token_allowlist,
+                contract_allowlist=policy.contract_allowlist,
                 token_hints=hints,
                 owner=activation.owner,
                 session=session.address,
@@ -236,9 +246,12 @@ def execute(
     charged = dict(amounts)
     charged[NATIVE_TOKEN] = charged.get(NATIVE_TOKEN, 0) + gas_limit * gas_price
 
+    # Read against what the session has spent OR authorised. Spend alone would let a
+    # batch that approves and stops approve the same amount again on the next pass, and
+    # again after that, until the standing allowances added up past the lifetime cap.
     permitted, reason = policy.allows(
         prepared,
-        spent=session.spent_atomic,
+        spent=session.committed_atomic(),
         token_amounts=charged,
         gas_price_wei=gas_price,
         slippage_bps=slippage_bps,
@@ -360,10 +373,14 @@ def execute(
         )
         raise ExecutionFailed(f"{tx_hash} reverted on chain")
 
-    # An approval moves nothing. It was counted in the batch total, because a session that
-    # cannot cover it cannot complete the batch, but charging it here as well as the
-    # transfer it authorises would bill one movement twice.
-    if not is_authorisation_only(prepared):
+    # An approval moves nothing, so it is not charged as spend — but it is RESERVED. A
+    # granted allowance is money that can still leave without another transaction of ours,
+    # and it is held against the lifetime cap until the pull lands or it is zeroed.
+    granted = approval_granted(prepared)
+    if granted is not None:
+        token, spender, amount = granted
+        session.reserve(token_key(token), spender, amount)
+    else:
         for token, amount in amounts.items():
             session.spent_atomic[token] = session.spent_atomic.get(token, 0) + int(
                 amount
@@ -373,6 +390,12 @@ def execute(
             session.spent_atomic[NATIVE_TOKEN] = (
                 session.spent_atomic.get(NATIVE_TOKEN, 0) + value
             )
+        # The pull this call just made is the approval being consumed. Releasing it here
+        # is what keeps the approve-then-spend pair from being charged twice: the spend
+        # above is the real movement, and the reservation was only ever standing in for it.
+        pulled_by = _hex_address(prepared.to)
+        for token in amounts:
+            session.release(token, pulled_by)
     _settle_pending(
         activation, nonce, tx_hash=tx_hash, status=1, gas_atomic=str(spent_gas)
     )

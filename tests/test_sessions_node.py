@@ -235,3 +235,46 @@ def test_the_swap_router_selector_is_the_one_the_router_publishes():
         "uint160))"
     )
     assert EXACT_INPUT_SINGLE == "0x" + Web3.keccak(text=signature).hex()[:8]
+
+
+# -- approvals, end to end against the node ------------------------------------
+
+NPM_ADDRESS = cs("0x46A15B0b27311cedF172AB29E4f4766fbE7F4364")
+ATTACKER = cs("0x" + "a7" * 20)
+
+
+def test_closure_zeroes_every_outstanding_approval_before_it_sweeps():
+    """A session whose balances read zero but whose approvals stand is one a spender can
+    still pull from the moment that address is funded again."""
+    from docket.sessions.sweep import outstanding_allowances, revoke_allowances
+
+    node = Node(gas_price=GAS_PRICE, estimate=ESTIMATE)
+    session = _session(node, usdt=0, bnb=10**17)
+    node.allowances.setdefault(USDT, {})[(session.address, NPM_ADDRESS)] = 5 * 10**18
+    session.reserved_atomic = {USDT: {NPM_ADDRESS: 5 * 10**18}}
+
+    assert outstanding_allowances(session, node.rpc()) == {
+        USDT: {NPM_ADDRESS: 5 * 10**18}
+    }
+    # Still outstanding, so the activation may not close on this reading.
+    assert "allowance " + USDT + " to " + NPM_ADDRESS in residual_balances(
+        session, node.rpc()
+    )
+
+    sent = revoke_allowances(session, node.rpc(), sleep=lambda _: node.mine())
+
+    assert len(sent) == 1
+    assert node.allowances[USDT][(session.address, NPM_ADDRESS)] == 0
+    assert outstanding_allowances(session, node.rpc()) == {}
+
+
+def test_an_allowance_consumed_elsewhere_stops_being_held_against_the_cap():
+    """Read from the token, not remembered: our record is of what we intended to grant."""
+    from docket.sessions.sweep import outstanding_allowances
+
+    node = Node(gas_price=GAS_PRICE, estimate=ESTIMATE)
+    session = _session(node, usdt=0)
+    session.reserved_atomic = {USDT: {NPM_ADDRESS: 5 * 10**18}}
+    node.allowances.setdefault(USDT, {})[(session.address, NPM_ADDRESS)] = 0
+
+    assert outstanding_allowances(session, node.rpc()) == {}
