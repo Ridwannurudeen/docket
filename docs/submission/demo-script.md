@@ -87,7 +87,7 @@ Return to the activation flow only if the live result has arrived; do not claim 
 
 ## What must not be said
 
-- Do not describe any service as available to buy. No Docket service is paid stock, and the listings say so. One owner-approved Range Doctor canary settled 0.50 USDT on August 30 and the identical signed request was then rejected as a replay; that private bootstrap opened no public inventory, and the counter rail keeps the two apart.
+- Do not describe any service as available to buy. At the 2026-09-04 observation this script is based on, `cold_canary` is false for all six services, so all six remain `paid_stock=false` even where fresh paired evidence is true, and the listings say so. One owner-approved Range Doctor canary settled 0.50 USDT on August 30 and the identical signed request was then rejected as a replay; that private bootstrap opened no public inventory, and the counter rail keeps the two apart.
 - Do not read a registry total from memory. It is read off `/stats` at the moment it is shown, and cited as the figure `/stats` reported at the time of recording.
 - Do not call `v3-04-warden-security` a performance result. It is `complete_unscored`: all 24 primaries became terminal, 23 succeeded, manual `w4-ho-01` failed, a named scoring seat returned no first response, and the registered rule forbids a retry or a substitute.
 

@@ -314,7 +314,9 @@ than overwriting host policy.
 ## Configuration
 
 With no settlement environment variables, all current services remain free and subject to
-the 20-per-hour peer-address allowance because none is paid stock.
+the 20-per-hour peer-address allowance. At the 2026-09-04 observation, `cold_canary=false`
+for all six services, so none is paid stock; settlement configuration cannot change that
+admission fact.
 
 The API settlement path is owner-gated by:
 
@@ -415,10 +417,14 @@ Exactly one owner-approved Range Doctor canary was started. Run 18 settled
 `500000000000000000` atomic units, or 0.50 USDT, and the identical signed request was
 rejected with `409 authorization_replay`; all eight canary legs passed. The post-canary
 source records Range Doctor's `true_settlement` and `decision_grade_presenter` limbs as
-true, while `fresh_paired_benchmark=false` keeps `paid_stock=false`. That source was
-released to production on 2026-09-02 as `4a632c0`, which now reports
-`true_settlement=true`; `fresh_paired_benchmark=false` and a disabled canary timer keep
-`paid_stock=false`. `release.sh` refuses any further release between
+true. `fresh_paired_benchmark` is now derived from the newest terminal v3 family or complete
+v1 pair for the service inside a 30-day window. At 2026-09-04 12:00 UTC it is true for
+Range Doctor and SOLVENT until September 7 and for Warden until September 26, and false
+for Grid Operator, Yield Router, and Health Guard. The source released to production on
+2026-09-02 as `4a632c0` reports `true_settlement=true` for Range Doctor. The disabled
+canary timer leaves `cold_canary=false` for all six services, so all six remain
+`paid_stock=false` regardless of their paired-benchmark value. `release.sh` refuses any
+further release between
 `2026-09-03T11:49:54Z` and `2026-09-03T12:03:06Z`, the v3-06 capture activation window.
 
 The canary timer is disabled and inactive. Do not run another canary, enable the timer, or
@@ -565,8 +571,11 @@ The prepared payer, bounded approval, measured gas, and funding instruction are 
 the Configuration section. Funding and allowance alone do not set `true_settlement` and do
 not put any service into paid stock. The approved run-18 evidence established one real
 settlement, a nonempty bound result, and rejected replay, so the post-canary source records
-`true_settlement=true`. Paid stock still requires every other admission limb; Range Doctor
-remains closed because `fresh_paired_benchmark=false`, and `cold_canary` is time-bound.
+`true_settlement=true`. Paid stock still requires every other admission limb. Range Doctor's
+fresh paired v1 evidence opens its derived `fresh_paired_benchmark` limb at the 2026-09-04
+observation, but run 18 is outside the 36-hour canary window and the timer remains disabled.
+Its `cold_canary=false`, like that of the other five services, keeps all six
+`paid_stock=false`.
 
 ## Six-hour targeted registry refresh
 

@@ -981,14 +981,10 @@ def test_every_call_the_batch_sends_is_one_the_category_default_already_allows()
 
 
 def test_the_v3_fallback_needs_the_router_and_its_selector_in_the_category_default():
-    """The two entries Lane B is adding to `rebalancing`, asserted against the end state.
+    """The rebalancing defaults must cover the v3 fallback.
 
     The v3 leg exists because a pair can be untradeable on V2 — the fixture pair quotes 97%
     down for a hundred units — so a session granted the defaults must be able to send it.
-    Marked `xfail(strict=True)`: it fails today for a reason named in the marker, and it
-    turns red the moment it starts passing, which is the day the marker must come off.
-    Lane B is also adding `exactInputSingle` to `spend.py MEASURED_SELECTORS`; without that
-    the leg's spend is charged as zero, and this file cannot assert it from here.
     """
     defaults = defaults_for("rebalancing")
     contracts = {Web3.to_checksum_address(a) for a in defaults["contract_allowlist"]}
@@ -998,19 +994,6 @@ def test_the_v3_fallback_needs_the_router_and_its_selector_in_the_category_defau
     assert "0x414bf389" in set(defaults["function_allowlist"]), (
         "allowlists.py must name exactInputSingle for rebalancing"
     )
-
-
-test_the_v3_fallback_needs_the_router_and_its_selector_in_the_category_default = (
-    pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Lane B is adding V3_SWAP_ROUTER and 0x414bf389 to the rebalancing defaults "
-            "and exactInputSingle to spend.py MEASURED_SELECTORS. Until both land, a v3 "
-            "leg is built and then refused by the session's own policy, and its spend "
-            "would be charged as zero. Remove this marker when they land."
-        ),
-    )(test_the_v3_fallback_needs_the_router_and_its_selector_in_the_category_default)
-)
 
 
 def test_a_v3_routed_batch_is_refused_by_the_defaults_until_that_lands():

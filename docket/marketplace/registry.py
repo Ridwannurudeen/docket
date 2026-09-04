@@ -108,7 +108,7 @@ SERVICES: dict[str, ServiceRecord] = {
         # fabrication this inventory exists to refuse.
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311259",
         registration_uri=("https://docket.gudman.xyz/registrations/health-guard.json"),
-        activation="one_shot",
+        activation="policy_action",
         evidence_modality="live_read",
         metrics=(
             Metric(
@@ -185,7 +185,7 @@ SERVICES: dict[str, ServiceRecord] = {
         # names its source, its moment and everything it turned away.
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311257",
         registration_uri=("https://docket.gudman.xyz/registrations/yield-router.json"),
-        activation="one_shot",
+        activation="policy_action",
         evidence_modality="live_read",
         metrics=(
             Metric(
@@ -248,11 +248,9 @@ SERVICES: dict[str, ServiceRecord] = {
         # category filled with an overstatement is worse than one left honestly empty.
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311255",
         registration_uri=("https://docket.gudman.xyz/registrations/grid-operator.json"),
-        # `one_shot` and not `policy_action`, which is the tempting one. A hire runs once
-        # and hands back a preview; it does not act on chain within a policy, and saying
-        # it did would be claiming the half of this service that needs a session nobody
-        # has granted yet.
-        activation="one_shot",
+        # A hire still hands back a preview; a policy activation is the separately
+        # registered executor path that can act under an owner-granted session.
+        activation="policy_action",
         evidence_modality="live_read",
         metrics=(
             Metric(
@@ -317,7 +315,7 @@ SERVICES: dict[str, ServiceRecord] = {
         # binding below so /agents/{agent_id} can resolve it when the snapshot holds it.
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311253",
         registration_uri=("https://docket.gudman.xyz/registrations/range-doctor.json"),
-        activation="one_shot",
+        activation="policy_action",
         evidence_modality="live_read",
         metrics=(
             Metric(

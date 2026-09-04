@@ -529,7 +529,7 @@ def test_the_health_factor_card_says_venus_publishes_no_health_factor():
     # calls, and a card still calling itself structurally only a preview would be wrong.
     for gone in ("structurally only a preview", "no execution path for a venus call"):
         assert gone not in lowered, gone
-    assert record.activation == "one_shot"
+    assert record.activation == "policy_action"
     assert record.agent_id is not None
 
 
@@ -559,7 +559,7 @@ def test_the_yield_card_bounds_its_own_superlative_and_promises_no_execution():
     ):
         assert phrase in lowered, phrase
     assert "not built in this stage" not in lowered
-    assert record.activation == "one_shot"
+    assert record.activation == "policy_action"
     assert record.agent_id is not None
 
 
@@ -594,8 +594,8 @@ def test_the_grid_service_says_a_hire_previews_rather_than_trades():
         "single recorded read; no paired run against a person",
     ):
         assert phrase in lowered, phrase
-    assert record.activation == "one_shot"
-    assert "acts on chain" not in record.activation_means.lower()
+    assert record.activation == "policy_action"
+    assert "acts on chain" in record.activation_means.lower()
 
 
 def test_the_empty_shelves_say_why_and_promise_nothing():
@@ -619,7 +619,7 @@ def test_an_empty_shelf_points_at_the_other_layer_without_selling_it():
 def test_range_doctor_is_declared_into_rebalancing_because_that_is_its_subject():
     record = SERVICES["range-doctor"]
     assert record.category is Category.REBALANCING
-    assert record.activation == "one_shot"
+    assert record.activation == "policy_action"
 
 
 def test_the_two_services_outside_the_four_are_listed_rather_than_filed_wrongly():
