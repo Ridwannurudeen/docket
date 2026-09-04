@@ -1190,7 +1190,7 @@ fi
 
 trace_command "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/static/style.css
 if ! "${CURL_COMMAND}" -fsS http://127.0.0.1:8090/static/style.css | \
-    grep -Fq ':root {'; then
+    grep -F ':root {' >/dev/null; then
     fatal 'served static asset smoke failed'
 fi
 
