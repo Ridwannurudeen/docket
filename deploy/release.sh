@@ -467,6 +467,11 @@ if (( BUILDING_VENV )); then
     trace_command printf '%s\\n' "${RUNTIME_LOCK_SHA}" '>' \
         "${VENV_WORK}/RUNTIME-LOCK-sha256.txt"
     printf '%s\n' "${RUNTIME_LOCK_SHA}" >"${VENV_WORK}/RUNTIME-LOCK-sha256.txt"
+    run_fs chmod 0644 \
+        "${VENV_WORK}/RELEASE-commit.txt" \
+        "${VENV_WORK}/WHEEL-sha256.txt" \
+        "${VENV_WORK}/DOCKET-version.txt" \
+        "${VENV_WORK}/RUNTIME-LOCK-sha256.txt"
     fsync_paths file \
         "${VENV_WORK}/RELEASE-commit.txt" \
         "${VENV_WORK}/WHEEL-sha256.txt" \

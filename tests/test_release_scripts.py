@@ -725,6 +725,15 @@ def test_release_creates_and_installs_a_new_venv_under_umask_022(tmp_path):
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+    if os.name != "nt":
+        venv = root / "opt" / "docket-venvs" / COMMIT[:12]
+        for identity_file in (
+            "RELEASE-commit.txt",
+            "WHEEL-sha256.txt",
+            "DOCKET-version.txt",
+            "RUNTIME-LOCK-sha256.txt",
+        ):
+            assert (venv / identity_file).stat().st_mode & 0o777 == 0o644
     lower_umask = result.stdout.index("+ umask 022")
     create_venv = result.stdout.index("python3 -m venv")
     create_venv_line = result.stdout[
@@ -736,6 +745,7 @@ def test_release_creates_and_installs_a_new_venv_under_umask_022(tmp_path):
     install_wheel = result.stdout.index("pip install --no-deps", install_lock)
     pip_check = result.stdout.index("/bin/python -m pip check")
     write_identity = result.stdout.index("RELEASE-commit.txt", pip_check)
+    readable_identity = result.stdout.index("+ chmod 0644", write_identity)
     fsync_identity = result.stdout.index("python3 - file", write_identity)
     fsync_partial = result.stdout.index("python3 - directory", fsync_identity)
     publish_venv = result.stdout.index("mv -T --", write_identity)
@@ -763,6 +773,7 @@ def test_release_creates_and_installs_a_new_venv_under_umask_022(tmp_path):
         < install_wheel
         < pip_check
         < write_identity
+        < readable_identity
         < fsync_identity
         < fsync_partial
         < publish_venv
