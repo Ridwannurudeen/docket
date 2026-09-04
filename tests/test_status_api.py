@@ -469,12 +469,15 @@ def _routed(store: Store, tmp_path, *, probe, clock=None, ttl_s=REPORT_TTL_S) ->
     return TestClient(app)
 
 
-def test_one_reading_stands_for_the_window_and_is_retaken_after_it(tmp_path):
+def test_one_reading_stands_for_the_window_and_is_retaken_after_it(tmp_path, monkeypatch):
     """Both routes are public and one reading is an outbound chain read, so the reading is
     what is bounded rather than the requests. The document carries the instant it was taken,
     which is how a caller inside the window can tell it is being served a held reading."""
     readings = []
     clock = _Clock()
+    monkeypatch.setattr(
+        status_module, "_utc_now", lambda: NOW + timedelta(seconds=clock.now)
+    )
     client = _routed(
         _healthy_store(tmp_path),
         tmp_path,
