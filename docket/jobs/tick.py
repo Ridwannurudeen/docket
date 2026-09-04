@@ -406,6 +406,8 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
         service.store.save_activation(activation, expected_updated_at=expected)
         return
 
+    spent_baseline = dict(session.spent_atomic)
+
     # Rebound after every write, because `execute` persists before each broadcast and
     # the row's `updated_at` moves with it.
     checkpoint = {"at": expected}
@@ -454,12 +456,17 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
             for token, spenders in session.reserved_atomic.items()
         },
     }
-    _save_sends(service.store, activation, checkpoint["at"])
+    _save_sends(
+        service.store,
+        activation,
+        checkpoint["at"],
+        spent_baseline=spent_baseline,
+    )
     if failed is not None:
         raise failed
 
 
-def _save_sends(store, activation, expected) -> None:
+def _save_sends(store, activation, expected, *, spent_baseline) -> None:
     """Write back a pass that broadcast transactions, never dropping what it sent.
 
     A `StaleActivation` here is the one case where losing the write would lose money: the
@@ -483,7 +490,7 @@ def _save_sends(store, activation, expected) -> None:
     current_updated_at = current.updated_at
     merged = dict(current.result or {})
     ours = dict(activation.result or {})
-    merged["pending_sends"] = {
+    pending = {
         **(merged.get("pending_sends") or {}),
         **(ours.get("pending_sends") or {}),
     }
@@ -493,6 +500,14 @@ def _save_sends(store, activation, expected) -> None:
         if entry.get("tx_hash") not in seen:
             settled.append(entry)
     merged["settled_sends"] = settled
+    settled_hashes = {
+        entry["tx_hash"] for entry in settled if entry.get("tx_hash") is not None
+    }
+    merged["pending_sends"] = {
+        nonce: entry
+        for nonce, entry in pending.items()
+        if entry.get("tx_hash") not in settled_hashes
+    }
     if "last_decision" in ours:
         merged["last_decision"] = ours["last_decision"]
     current.result = merged
@@ -517,9 +532,18 @@ def _save_sends(store, activation, expected) -> None:
         for spender, amount in spenders.items():
             held[spender] = str(max(int(held.get(spender, 0)), int(amount)))
         reservations[token] = held
+    spend = {
+        token: str(amount)
+        for token, amount in ((current.session or {}).get("spent_atomic") or {}).items()
+    }
+    for token, amount in (
+        (activation.session or {}).get("spent_atomic") or {}
+    ).items():
+        delta = max(0, int(amount) - int(spent_baseline.get(token, 0)))
+        spend[token] = str(int(spend.get(token, 0)) + delta)
     current.session = {
         **(current.session or {}),
-        "spent_atomic": (activation.session or {}).get("spent_atomic") or {},
+        "spent_atomic": spend,
         "reserved_atomic": reservations,
         "received_tokens": received,
     }

@@ -692,11 +692,84 @@ def test_a_stale_write_conservatively_merges_allowance_reservations(tmp_path):
     current.note("concurrent reservation", actor="docket")
     store.save_activation(current, expected_updated_at=expected)
 
-    tick._save_sends(store, ours, expected)
+    tick._save_sends(store, ours, expected, spent_baseline={})
 
     assert store.get_activation(activation.activation_id).session[
         "reserved_atomic"
     ] == {USDT: {ROUTER: "300", NPM_ADDRESS: "200"}}
+
+
+def test_a_stale_settlement_supersedes_the_same_pending_transaction(tmp_path):
+    store = Store(tmp_path / "tick.sqlite3")
+    _, activation = _active(store, FakeRpc())
+    expected = activation.updated_at
+    ours = store.get_activation(activation.activation_id)
+    current = store.get_activation(activation.activation_id)
+    tx_hash = "0x" + "ab" * 32
+    current.result = {
+        **(current.result or {}),
+        "pending_sends": {"7": {"nonce": 7, "tx_hash": tx_hash}},
+    }
+    current.note(
+        "concurrent pending write",
+        actor="docket",
+        at=(datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat(),
+    )
+    store.save_activation(current, expected_updated_at=expected)
+    ours.result = {
+        **(ours.result or {}),
+        "settled_sends": [
+            {"nonce": 7, "tx_hash": tx_hash, "status": 0, "gas_atomic": "1"}
+        ],
+    }
+
+    tick._save_sends(store, ours, expected, spent_baseline={})
+
+    stored = store.get_activation(activation.activation_id)
+    assert stored.result["pending_sends"] == {}
+    assert stored.result["settled_sends"] == [
+        {"nonce": 7, "tx_hash": tx_hash, "status": 0, "gas_atomic": "1"}
+    ]
+
+
+def test_stale_independently_settled_spends_stay_cumulative(tmp_path):
+    store = Store(tmp_path / "tick.sqlite3")
+    _, activation = _active(store, FakeRpc())
+    expected = activation.updated_at
+    ours = store.get_activation(activation.activation_id)
+    current = store.get_activation(activation.activation_id)
+    current.session["spent_atomic"] = {USDT: "200"}
+    current.result = {
+        **(current.result or {}),
+        "settled_sends": [
+            {"tx_hash": "0x" + "ab" * 32, "status": 1, "gas_atomic": "1"}
+        ],
+    }
+    current.note(
+        "concurrent settled spend",
+        actor="docket",
+        at=(datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat(),
+    )
+    store.save_activation(current, expected_updated_at=expected)
+    assert store.get_activation(activation.activation_id).session["spent_atomic"] == {
+        USDT: "200"
+    }
+    ours.session["spent_atomic"] = {USDT: "300"}
+    ours.result = {
+        **(ours.result or {}),
+        "settled_sends": [
+            {"tx_hash": "0x" + "cd" * 32, "status": 1, "gas_atomic": "1"}
+        ],
+    }
+
+    tick._save_sends(store, ours, expected, spent_baseline={USDT: "0"})
+
+    stored = store.get_activation(activation.activation_id)
+    assert stored.session["spent_atomic"] == {USDT: "500"}
+    assert [entry["tx_hash"] for entry in stored.result["settled_sends"]] == [
+        "0x" + "ab" * 32,
+        "0x" + "cd" * 32,
+    ]
 
 
 # -- durability, against a node that behaves like one --------------------------
