@@ -535,19 +535,30 @@ def test_the_health_factor_card_says_venus_publishes_no_health_factor():
 
 def test_the_yield_card_bounds_its_own_superlative_and_promises_no_execution():
     """ "Highest available APR" is a claim about a population. The card names the
-    population, and says the half of a move this build does not draft."""
+    population, and says what the route still cannot do for you.
+
+    "not built in this stage" left with the swap-leg-only build: the complete move is
+    built now, so the card would have been claiming a limitation it no longer has — which
+    is the same defect as claiming a capability it does not have, in the other direction.
+    What replaces it is the set of things that are still true: the owner's own NFT
+    approval is a precondition and not a step, a staked position is refused, and
+    impermanent loss is modelled nowhere.
+    """
     record = SERVICES["yield-router"]
     lowered = record.limitations.lower()
     for phrase in (
         "bounded by the stated eligible set",
         "highest within that set at that moment",
         "supplied by the caller and is not derived",
-        "not built in this stage",
+        "a precondition the route reads before it builds",
+        "staked in masterchefv3 is refused",
+        "impermanent loss is not modelled",
         "no execution guarantee of any kind",
         "one day, not a forecast",
         "single recorded read; no paired run against a person",
     ):
         assert phrase in lowered, phrase
+    assert "not built in this stage" not in lowered
     assert record.activation == "one_shot"
     assert record.agent_id is not None
 

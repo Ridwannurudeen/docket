@@ -137,7 +137,9 @@ def test_range_reproducibility_inputs_are_marked_for_the_advanced_disclosure():
 
 def test_every_service_has_a_one_clause_job_summary():
     expected = {
-        "grid-operator": "Builds a read-only PancakeSwap V2 grid preview for one wallet.",
+        "grid-operator": (
+            "Places and manages automated grid levels on PancakeSwap V2 for one wallet."
+        ),
         "health-guard": (
             "Watches one Venus Core Pool position and prepares the least remedy that "
             "restores its ratio."
@@ -151,7 +153,7 @@ def test_every_service_has_a_one_clause_job_summary():
         ),
         "warden-scan": "Scans one untrusted payload and returns Warden's live telemetry.",
         "yield-router": (
-            "Compares an eligible PancakeSwap v3 pool set and states switching break-even."
+            "Routes one PancakeSwap v3 position to the highest rate in a stated pool set."
         ),
     }
     assert {

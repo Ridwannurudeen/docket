@@ -822,6 +822,27 @@ class Store:
             ).fetchone()
         return _canary_run(row) if row else {}
 
+    def latest_settled_payment(self, service_id: str) -> dict:
+        """The newest hire payment for one service that actually reached `settled`.
+
+        `settled` and nothing else. A row left at `settlement_unknown` is a payment whose
+        facilitator answer never came back, and reading one as a settlement would turn the
+        gap the recovery path exists to record into a fact the admission gate relies on.
+
+        The result columns are named rather than selected with `*`: the row also carries
+        the whole result and receipt bodies, and an admission decision needs none of them.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT nonce, payment_id, service_id, payer, recipient, asset, amount,
+                          transaction_id, network, created_at, updated_at
+                   FROM hire_payments
+                   WHERE service_id = ? AND status = 'settled'
+                   ORDER BY updated_at DESC, rowid DESC LIMIT 1""",
+                (service_id,),
+            ).fetchone()
+        return dict(row) if row else {}
+
     def iter_canary_runs(self, service_id: str, limit: int = 30) -> Iterator[dict]:
         if (
             not isinstance(limit, int)

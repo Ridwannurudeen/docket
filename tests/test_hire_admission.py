@@ -1,19 +1,21 @@
-from dataclasses import replace
+"""The cold-canary limb, and every shape of run that must not open it.
+
+The other three limbs moved from constants to derivations and are exercised in
+`test_admission_dynamic.py`; this file stays on the one limb it has always been about.
+Each assertion reads `.admission.cold_canary` rather than comparing the whole record, so
+a change to how another limb is derived cannot make a canary test fail for a reason that
+has nothing to do with canaries.
+"""
+
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from docket.hire.admission import CANARY_MAX_AGE_SECONDS, resolve_admission
-from docket.hire.catalogue import PaidStockAdmission, get_service
+from docket.hire.catalogue import get_service
 from docket.store import Store
 
 NOW = datetime(2026, 8, 15, 12, tzinfo=UTC)
-ALL_OTHER_FACTS = PaidStockAdmission(
-    fresh_paired_benchmark=True,
-    cold_canary=False,
-    decision_grade_presenter=True,
-    true_settlement=True,
-)
 PASSING_CHECKS = [
     {
         "leg": "complete_human_result",
@@ -26,7 +28,7 @@ PASSING_CHECKS = [
 
 
 def _service():
-    return replace(get_service("range-doctor"), admission=ALL_OTHER_FACTS)
+    return get_service("range-doctor")
 
 
 def _passed_run(finished_at: datetime) -> dict:
@@ -37,62 +39,46 @@ def _passed_run(finished_at: datetime) -> dict:
     }
 
 
-def test_empty_history_closes_only_the_cold_canary_limb():
-    admission = resolve_admission(_service(), {}, now=NOW)
+def _cold_canary(latest_run) -> bool:
+    return resolve_admission(_service(), latest_run, now=NOW).admission.cold_canary
 
-    assert admission == ALL_OTHER_FACTS
-    assert admission.cold_canary is False
+
+def test_empty_history_closes_the_cold_canary_limb():
+    resolution = resolve_admission(_service(), {}, now=NOW)
+
+    assert resolution.admission.cold_canary is False
+    assert resolution.passes is False
+    assert "no canary run has ever been recorded" in resolution.evidence["cold_canary"]
 
 
 def test_a_fresh_passed_canary_opens_the_cold_canary_limb():
-    admission = resolve_admission(
+    resolution = resolve_admission(
         _service(), _passed_run(NOW - timedelta(hours=1)), now=NOW
     )
 
-    assert admission == replace(ALL_OTHER_FACTS, cold_canary=True)
-    assert admission.passes is True
-
-
-def test_range_settlement_fact_survives_dynamic_canary_resolution():
-    service = get_service("range-doctor")
-
-    fresh = resolve_admission(service, _passed_run(NOW - timedelta(hours=1)), now=NOW)
-    stale = resolve_admission(
-        service,
-        _passed_run(NOW - timedelta(seconds=CANARY_MAX_AGE_SECONDS + 1)),
-        now=NOW,
-    )
-
-    assert service.admission.true_settlement is True
-    assert fresh == PaidStockAdmission(False, True, True, True)
-    assert stale == PaidStockAdmission(False, False, True, True)
-    assert fresh.passes is False
-    assert stale.passes is False
+    assert resolution.admission.cold_canary is True
+    assert "inside the" in resolution.evidence["cold_canary"]
 
 
 def test_the_canary_is_still_fresh_at_the_exact_expiry_boundary():
     finished_at = NOW - timedelta(seconds=CANARY_MAX_AGE_SECONDS)
 
-    assert (
-        resolve_admission(_service(), _passed_run(finished_at), now=NOW).cold_canary
-        is True
-    )
+    assert _cold_canary(_passed_run(finished_at)) is True
 
 
 def test_a_canary_one_second_past_expiry_closes_paid_admission():
     finished_at = NOW - timedelta(seconds=CANARY_MAX_AGE_SECONDS + 1)
 
-    assert (
-        resolve_admission(_service(), _passed_run(finished_at), now=NOW).cold_canary
-        is False
-    )
+    assert _cold_canary(_passed_run(finished_at)) is False
 
 
 @pytest.mark.parametrize("verdict", ("running", "failed", "not_yet_exercised"))
 def test_every_non_passing_verdict_closes_paid_admission(verdict: str):
     latest = {**_passed_run(NOW), "verdict": verdict}
 
-    assert resolve_admission(_service(), latest, now=NOW).cold_canary is False
+    resolution = resolve_admission(_service(), latest, now=NOW)
+    assert resolution.admission.cold_canary is False
+    assert verdict in resolution.evidence["cold_canary"]
 
 
 @pytest.mark.parametrize(
@@ -110,7 +96,7 @@ def test_a_missing_malformed_or_non_utc_finish_time_closes_paid_admission(
 ):
     latest = {**_passed_run(NOW), "finished_at": finished_at}
 
-    assert resolve_admission(_service(), latest, now=NOW).cold_canary is False
+    assert _cold_canary(latest) is False
 
 
 def test_an_explicitly_blank_persisted_finish_time_is_not_replaced_with_now(tmp_path):
@@ -125,13 +111,13 @@ def test_an_explicitly_blank_persisted_finish_time_is_not_replaced_with_now(tmp_
 
     latest = store.latest_canary_run("range-doctor")
     assert latest["finished_at"] == ""
-    assert resolve_admission(_service(), latest, now=NOW).cold_canary is False
+    assert _cold_canary(latest) is False
 
 
 def test_a_finish_time_in_the_future_closes_paid_admission():
     latest = _passed_run(NOW + timedelta(seconds=1))
 
-    assert resolve_admission(_service(), latest, now=NOW).cold_canary is False
+    assert _cold_canary(latest) is False
 
 
 def test_a_crashed_new_run_overrides_an_older_pass(tmp_path):
@@ -146,12 +132,7 @@ def test_a_crashed_new_run_overrides_an_older_pass(tmp_path):
     crashed = store.begin_canary_run("range-doctor", "https://docket.example")
 
     assert store.latest_canary_run("range-doctor")["id"] == crashed
-    assert (
-        resolve_admission(
-            _service(), store.latest_canary_run("range-doctor"), now=NOW
-        ).cold_canary
-        is False
-    )
+    assert _cold_canary(store.latest_canary_run("range-doctor")) is False
 
 
 def test_a_new_failure_overrides_an_older_pass(tmp_path):
@@ -172,9 +153,4 @@ def test_a_new_failure_overrides_an_older_pass(tmp_path):
     )
 
     assert store.latest_canary_run("range-doctor")["id"] == failed
-    assert (
-        resolve_admission(
-            _service(), store.latest_canary_run("range-doctor"), now=NOW
-        ).cold_canary
-        is False
-    )
+    assert _cold_canary(store.latest_canary_run("range-doctor")) is False
