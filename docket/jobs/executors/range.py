@@ -262,6 +262,25 @@ class RangeKeeperExecutor:
     def evaluate(self, activation, *, reader=None) -> Decision:
         inputs = activation.inputs or {}
         now = self._clock()
+        missing = [
+            name for name in ("wallet", "token_id") if inputs.get(name) is None
+        ]
+        if missing:
+            return Decision(
+                kind="alert",
+                summary=(
+                    "This range watch is missing required input: "
+                    + ", ".join(missing)
+                    + ". Nothing was evaluated."
+                ),
+                prepared=(),
+                evidence={
+                    "missing_inputs": missing,
+                    "read": "none: required inputs were missing",
+                },
+                observed_at=now.isoformat(),
+                block=0,
+            )
         reader, rpc = self._position_reader(reader)
         state = read_position(
             inputs["wallet"],

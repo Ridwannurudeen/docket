@@ -15,6 +15,8 @@ from docket.hire.catalogue import get_service
 from docket.jobs import tick
 from docket.jobs.executors import EXECUTORS, NoopExecutor, register
 from docket.jobs.executors.base import Decision, PreparedCall
+from docket.jobs.executors.health import HealthShieldExecutor
+from docket.jobs.executors.range import RangeKeeperExecutor
 from docket.jobs.service import ActivationService
 from docket.store import StaleActivation, Store
 from tests.test_jobs_service import (
@@ -197,11 +199,14 @@ class SendingRpc(FakeRpc):
         return tx_hash
 
 
-def test_a_category_with_no_executor_is_an_alert_rather_than_a_crash(tmp_path):
+def test_a_category_with_no_executor_is_an_alert_rather_than_a_crash(
+    tmp_path, monkeypatch
+):
     """Lane D's executors land after this loop does. A tick that died on the gap would
     take every other owner's activation down with it for the days in between."""
     store = Store(tmp_path / "tick.sqlite3")
     _, activation = _active(store, FakeRpc())
+    monkeypatch.setattr(tick, "load_executors", lambda: None)
 
     assert tick.run_once(store, rpc=FakeRpc()) == 0
 
@@ -210,6 +215,34 @@ def test_a_category_with_no_executor_is_an_alert_rather_than_a_crash(tmp_path):
     assert (
         "alert: no executor is registered for rebalancing" in stored.events[-1].reason
     )
+
+
+@pytest.mark.parametrize(
+    ("category", "inputs", "executor", "missing"),
+    [
+        ("rebalancing", {"wallet": OWNER}, RangeKeeperExecutor(), "token_id"),
+        ("health_factor", {}, HealthShieldExecutor(), "wallet"),
+    ],
+)
+def test_a_missing_executor_input_is_an_alert_not_a_tick_error(
+    tmp_path, monkeypatch, category, inputs, executor, missing
+):
+    store = Store(tmp_path / "tick.sqlite3")
+    _, activation = _active(store, FakeRpc())
+    stored = store.get_activation(activation.activation_id)
+    expected = stored.updated_at
+    stored.category = category
+    stored.inputs = inputs
+    store.save_activation(stored, expected_updated_at=expected)
+    register(category, executor)
+    monkeypatch.setattr(tick, "load_executors", lambda: None)
+
+    assert tick.run_once(store, rpc=FakeRpc()) == 0
+
+    stored = store.get_activation(activation.activation_id)
+    assert stored.state == "active"
+    assert stored.result["last_decision"]["kind"] == "alert"
+    assert missing in stored.result["last_decision"]["summary"]
 
 
 def test_a_noop_records_its_observation_without_moving_the_activation(tmp_path):

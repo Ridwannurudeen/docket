@@ -103,6 +103,21 @@ class HealthShieldExecutor:
     def evaluate(self, activation, *, reader=None) -> Decision:
         inputs = activation.inputs or {}
         now = self._clock()
+        if inputs.get("wallet") is None:
+            return Decision(
+                kind="alert",
+                summary=(
+                    "This health watch is missing required input: wallet. "
+                    "Nothing was evaluated."
+                ),
+                prepared=(),
+                evidence={
+                    "missing_inputs": ["wallet"],
+                    "read": "none: required inputs were missing",
+                },
+                observed_at=now.isoformat(),
+                block=0,
+            )
         # `docket/jobs/tick.py` hands `evaluate` the loop's own `escrow.chain.Rpc` — a
         # bare callable, not a reader — so the reader is built from it here. `VenusReader`
         # already takes an `rpc=`, so no wrapper is needed. A reader object passed straight
