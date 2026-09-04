@@ -572,13 +572,15 @@ class FakeVenusReader:
         self.address = address
         self.block = block
 
-    def underlying_of(self, vtoken: str) -> str:
+    def underlying_of(self, vtoken: str, *, observation_block: int | None = None) -> str:
         return {
             catalogue.VENUS_VUSDT.lower(): catalogue.VENUS_USDT,
             catalogue.VENUS_VUSDC.lower(): catalogue.VENUS_USDC,
         }[vtoken.lower()]
 
-    def account(self, address: str) -> markets.AccountState:
+    def account(
+        self, address: str, *, observation_block: int | None = None
+    ) -> markets.AccountState:
         row = markets.MarketPosition(
             vtoken=catalogue.VENUS_VUSDC,
             symbol="vUSDC",
