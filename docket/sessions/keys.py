@@ -80,11 +80,18 @@ class Session:
         return committed
 
     def reserve(self, token: str, spender: str, amount: int) -> None:
-        """Record an approval that has landed. The larger of the two, never the sum:
-        approving 5 after approving 3 replaces the allowance, it does not add to it."""
+        """Record the exact allowance for one token/spender pair."""
         held = dict(self.reserved_atomic.get(token) or {})
-        held[spender] = max(int(held.get(spender, 0)), int(amount))
-        self.reserved_atomic = {**self.reserved_atomic, token: held}
+        if int(amount) > 0:
+            held[spender] = int(amount)
+        else:
+            held.pop(spender, None)
+        reserved = {**self.reserved_atomic}
+        if held:
+            reserved[token] = held
+        else:
+            reserved.pop(token, None)
+        self.reserved_atomic = reserved
 
     def release(self, token: str, spender: str) -> None:
         """Drop the reservation a successful pull has consumed."""

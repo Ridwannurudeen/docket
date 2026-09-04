@@ -114,7 +114,7 @@ def _record_decision(activation, decision) -> None:
         )
 
 
-def _reconcile_reservations(session, rpc) -> None:
+def _reconcile_reservations(session, rpc, pending_sends=()) -> bool:
     """Replace the remembered approvals with what the tokens actually say.
 
     Our record is of what we intended to grant; the allowance on the token is what can
@@ -122,10 +122,44 @@ def _reconcile_reservations(session, rpc) -> None:
     otherwise be held against the lifetime cap for ever, and one that failed to land would
     be held when nothing was ever granted.
     """
-    session.reserved_atomic = {
+    before = session.reserved_atomic
+    unresolved = set()
+    failed = set()
+    for entry in pending_sends:
+        token = entry.get("approval_token")
+        spender = entry.get("approval_spender")
+        if not token or not spender:
+            continue
+        pair = (token, spender)
+        tx_hash = entry.get("tx_hash")
+        if not tx_hash:
+            unresolved.add(pair)
+            continue
+        try:
+            receipt = rpc(lambda w3, tx_hash=tx_hash: w3.eth.get_transaction_receipt(tx_hash))
+        except Exception:
+            receipt = None
+        if receipt is None:
+            unresolved.add(pair)
+        elif int(receipt["status"]) != 1:
+            failed.add(pair)
+    live = {
         token: dict(spenders)
         for token, spenders in outstanding_allowances(session, rpc).items()
     }
+    for token, spender in unresolved:
+        amount = int((before.get(token) or {}).get(spender, 0))
+        if amount:
+            live.setdefault(token, {})[spender] = amount
+    for token, spenders in before.items():
+        for spender, amount in spenders.items():
+            if (token, spender) in unresolved or (token, spender) in failed:
+                continue
+            decrease = int(amount) - int((live.get(token) or {}).get(spender, 0))
+            if decrease > 0:
+                session.spent_atomic[token] = session.spent_atomic.get(token, 0) + decrease
+    session.reserved_atomic = live
+    return before != live
 
 
 def _session_for(service, activation, rpc):
@@ -150,7 +184,11 @@ def _session_for(service, activation, rpc):
         ).items()
     }
     if session.reserved_atomic:
-        _reconcile_reservations(session, rpc)
+        _reconcile_reservations(
+            session,
+            rpc,
+            (activation.result or {}).get("pending_sends", {}).values(),
+        )
     return session
 
 
@@ -259,6 +297,25 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
         service.store.save_activation(activation, expected_updated_at=expected)
         return
 
+    session = None
+    if (activation.session or {}).get("reserved_atomic"):
+        session = _session_for(service, activation, rpc)
+    if session is not None:
+        reconciled = {
+            **(activation.session or {}),
+            "spent_atomic": {
+                token: str(amount) for token, amount in session.spent_atomic.items()
+            },
+            "reserved_atomic": {
+                token: {spender: str(amount) for spender, amount in spenders.items()}
+                for token, spenders in session.reserved_atomic.items()
+            },
+        }
+        if reconciled != activation.session:
+            activation.session = reconciled
+            service.store.save_activation(activation, expected_updated_at=expected)
+            expected = activation.updated_at
+
     decision = executor.evaluate(activation, reader=rpc)
     _record_decision(activation, decision)
     _remember_received(
@@ -273,7 +330,8 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
         return
 
     permitted, reason = executor.within_policy(activation, decision)
-    session = _session_for(service, activation, rpc) if permitted else None
+    if permitted and session is None:
+        session = _session_for(service, activation, rpc)
     if not permitted or session is None:
         activation.transition(
             "needs_approval",
@@ -313,6 +371,7 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
             token_hints=token_hints,
             owner=activation.owner,
             session=session.address,
+            reserved_atomic=session.reserved_atomic,
         )
     except UnmeasuredSpend as exc:
         activation.note(
@@ -445,9 +504,23 @@ def _save_sends(store, activation, expected) -> None:
     for token in (activation.session or {}).get("received_tokens") or ():
         if token not in received:
             received.append(token)
+    reservations = {
+        token: {spender: str(amount) for spender, amount in spenders.items()}
+        for token, spenders in (
+            (current.session or {}).get("reserved_atomic") or {}
+        ).items()
+    }
+    for token, spenders in (
+        (activation.session or {}).get("reserved_atomic") or {}
+    ).items():
+        held = dict(reservations.get(token) or {})
+        for spender, amount in spenders.items():
+            held[spender] = str(max(int(held.get(spender, 0)), int(amount)))
+        reservations[token] = held
     current.session = {
         **(current.session or {}),
         "spent_atomic": (activation.session or {}).get("spent_atomic") or {},
+        "reserved_atomic": reservations,
         "received_tokens": received,
     }
     current.note(

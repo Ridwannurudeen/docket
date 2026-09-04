@@ -681,6 +681,24 @@ def test_a_broadcast_is_written_down_before_it_is_sent(tmp_path, sessions_key):
     assert int(settled[-1]["gas_atomic"]) > 0
 
 
+def test_a_stale_write_conservatively_merges_allowance_reservations(tmp_path):
+    store = Store(tmp_path / "tick.sqlite3")
+    _, activation = _active(store, FakeRpc())
+    expected = activation.updated_at
+    ours = store.get_activation(activation.activation_id)
+    current = store.get_activation(activation.activation_id)
+    ours.session["reserved_atomic"] = {USDT: {ROUTER: "300"}}
+    current.session["reserved_atomic"] = {USDT: {NPM_ADDRESS: "200"}}
+    current.note("concurrent reservation", actor="docket")
+    store.save_activation(current, expected_updated_at=expected)
+
+    tick._save_sends(store, ours, expected)
+
+    assert store.get_activation(activation.activation_id).session[
+        "reserved_atomic"
+    ] == {USDT: {ROUTER: "300", NPM_ADDRESS: "200"}}
+
+
 # -- durability, against a node that behaves like one --------------------------
 
 
@@ -951,6 +969,32 @@ class ApprovingExecutor:
         return True, "inside the policy"
 
 
+class ApprovalBatchExecutor(ApprovingExecutor):
+    def evaluate(self, activation, *, reader=None):
+        calls = tuple(
+            PreparedCall(
+                to=USDT,
+                data=_erc20_tick.encode_abi(
+                    "approve", args=[spender, 300 * 10**18]
+                ),
+                value_atomic="0",
+                gas_ceiling=300_000,
+                deadline=4_102_444_800,
+                purpose="authorise one spender",
+                simulation={"ok": True},
+            )
+            for spender in (NPM_ADDRESS, ROUTER)
+        )
+        return Decision(
+            kind="action",
+            summary="authorise both spenders",
+            prepared=calls,
+            evidence={},
+            observed_at="2026-09-04T00:00:00+00:00",
+            block=900,
+        )
+
+
 def test_standing_approvals_add_up_against_the_lifetime_cap(
     tmp_path, sessions_key, monkeypatch
 ):
@@ -997,6 +1041,129 @@ def test_standing_approvals_add_up_against_the_lifetime_cap(
     assert second.state == "needs_approval"
     assert "past the session cap" in second.events[-1].reason
     assert (address, ROUTER) not in node.allowances.get(USDT, {})
+
+
+def test_reapproving_the_same_amount_to_the_same_spender_is_a_replacement(
+    tmp_path, sessions_key, monkeypatch
+):
+    from tests.fakenode import Node
+
+    monkeypatch.setattr("docket.sessions.executor.RECEIPT_PAUSE_S", 0)
+    store = Store(tmp_path / "tick.sqlite3")
+    node = Node(estimate=60_000)
+    node.automine_on_receipt = True
+    policy = {
+        **POLICY,
+        "per_action_limit_atomic": {
+            **POLICY["per_action_limit_atomic"],
+            USDT: str(300 * 10**18),
+        },
+    }
+    _, activation = _node_active(store, node, policy=policy)
+    register("rebalancing", ApprovingExecutor(amount=300 * 10**18))
+
+    assert tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key) == 0
+    assert tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key) == 0
+
+    stored = store.get_activation(activation.activation_id)
+    assert len(node.mined_order) == 2
+    assert stored.session["reserved_atomic"][USDT][NPM_ADDRESS] == str(300 * 10**18)
+
+
+def test_two_spender_approval_batch_is_refused_before_the_first_broadcast(
+    tmp_path, sessions_key
+):
+    from tests.fakenode import Node
+
+    store = Store(tmp_path / "tick.sqlite3")
+    node = Node(estimate=60_000)
+    policy = {
+        **POLICY,
+        "per_action_limit_atomic": {
+            **POLICY["per_action_limit_atomic"],
+            USDT: str(300 * 10**18),
+        },
+    }
+    _, activation = _node_active(store, node, policy=policy)
+    register("rebalancing", ApprovalBatchExecutor())
+
+    assert tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key) == 0
+
+    stored = store.get_activation(activation.activation_id)
+    assert stored.state == "needs_approval"
+    assert node.pending == []
+    assert node.mined_order == []
+
+
+def test_an_external_pull_is_charged_before_the_next_evaluation(
+    tmp_path, sessions_key
+):
+    from tests.fakenode import Node
+
+    store = Store(tmp_path / "tick.sqlite3")
+    node = Node(estimate=60_000)
+    policy = {
+        **POLICY,
+        "per_action_limit_atomic": {
+            **POLICY["per_action_limit_atomic"],
+            USDT: str(300 * 10**18),
+        },
+    }
+    _, activation = _node_active(store, node, policy=policy)
+    aid = activation.activation_id
+    address = activation.session["address"]
+    activation.session["reserved_atomic"] = {
+        USDT: {NPM_ADDRESS: str(300 * 10**18)}
+    }
+    store.save_activation(activation, expected_updated_at=activation.updated_at)
+    node.allowances.setdefault(USDT, {})[(address, NPM_ADDRESS)] = 0
+
+    class Interrupted(ApprovingExecutor):
+        def evaluate(self, activation, *, reader=None):
+            raise KeyboardInterrupt("stop after reconciliation")
+
+    register("rebalancing", Interrupted())
+    with pytest.raises(KeyboardInterrupt):
+        tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key)
+
+    stored = store.get_activation(aid)
+    assert stored.session["spent_atomic"][USDT] == str(300 * 10**18)
+    assert stored.session["reserved_atomic"] == {}
+
+
+def test_a_mined_approval_is_identifiable_if_the_pass_dies_before_its_receipt(
+    tmp_path, sessions_key, monkeypatch
+):
+    from tests.fakenode import Node
+
+    monkeypatch.setattr("docket.sessions.executor.RECEIPT_PAUSE_S", 0)
+    store = Store(tmp_path / "tick.sqlite3")
+    node = Node(estimate=60_000)
+    policy = {
+        **POLICY,
+        "per_action_limit_atomic": {
+            **POLICY["per_action_limit_atomic"],
+            USDT: str(300 * 10**18),
+        },
+    }
+    _, activation = _node_active(store, node, policy=policy)
+    register("rebalancing", ApprovingExecutor(amount=300 * 10**18))
+
+    def mine_then_die(current):
+        current.on_receipt = None
+        current.mine()
+        raise KeyboardInterrupt("stop after mining")
+
+    node.on_receipt = mine_then_die
+    with pytest.raises(KeyboardInterrupt):
+        tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key)
+
+    stored = store.get_activation(activation.activation_id)
+    pending = next(iter(stored.result["pending_sends"].values()))
+    assert pending["approval_token"] == USDT
+    assert pending["approval_spender"] == NPM_ADDRESS
+    assert pending["approval_amount"] == str(300 * 10**18)
+    assert stored.session["reserved_atomic"][USDT][NPM_ADDRESS] == str(300 * 10**18)
 
 
 def test_an_approval_to_a_stranger_is_never_broadcast(

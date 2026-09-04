@@ -30,9 +30,23 @@ from .policy import NATIVE_TOKEN, token_key
 from .spend import (
     UnmeasuredSpend,
     approval_granted,
+    batch_spend,
     call_spend,
     needs_underlying,
 )
+
+ALLOWANCE_ABI = [
+    {
+        "name": "allowance",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [
+            {"name": "owner", "type": "address"},
+            {"name": "spender", "type": "address"},
+        ],
+        "outputs": [{"name": "", "type": "uint256"}],
+    }
+]
 
 # Twenty attempts three seconds apart. BSC blocks land in about 0.75 s and a receipt that
 # has not appeared in a minute is not appearing on this tick; the bound exists so a tick
@@ -243,7 +257,15 @@ def execute(
     # Gas leaves the session like anything else. A cap that bounds the tokens and not the
     # fees is a cap a long enough run of expensive no-op transactions walks straight
     # through, so the fee this call can cost is charged against the native cap with it.
-    charged = dict(amounts)
+    charged = batch_spend(
+        (prepared,),
+        token_allowlist=policy.token_allowlist,
+        contract_allowlist=policy.contract_allowlist,
+        token_hints=hints,
+        owner=activation.owner,
+        session=session.address,
+        reserved_atomic=session.reserved_atomic,
+    )
     charged[NATIVE_TOKEN] = charged.get(NATIVE_TOKEN, 0) + gas_limit * gas_price
 
     # Read against what the session has spent OR authorised. Spend alone would let a
@@ -259,6 +281,8 @@ def execute(
     if not permitted:
         fail(f"{prepared.purpose}: refused by the session policy — {reason}")
 
+    granted = approval_granted(prepared)
+    previous_approval = None
     try:
         nonce = int(rpc(lambda w3: w3.eth.get_transaction_count(session.address)))
         signed = session.account.sign_transaction(
@@ -274,6 +298,13 @@ def execute(
         # never read is money that left with no record of leaving; a record that exists
         # only in memory is not a record — a SIGTERM between the send and the end of the
         # batch would take it with it, and the next pass would send the action again.
+        if granted is not None:
+            token, spender, amount = granted
+            token = token_key(token)
+            previous_approval = int(
+                (session.reserved_atomic.get(token) or {}).get(spender, 0)
+            )
+            session.reserve(token, spender, amount)
         _record_pending(
             activation,
             {
@@ -284,9 +315,20 @@ def execute(
                 "gas_limit": gas_limit,
                 "gas_price_wei": str(gas_price),
                 "broadcast_at": _now(),
+                **(
+                    {
+                        "approval_token": token,
+                        "approval_spender": spender,
+                        "approval_amount": str(amount),
+                    }
+                    if granted is not None
+                    else {}
+                ),
             },
         )
     except Exception as exc:
+        if granted is not None:
+            session.reserve(token, spender, previous_approval)
         fail(
             f"{prepared.purpose}: the transaction could not be signed "
             f"({type(exc).__name__}: {exc})"
@@ -303,6 +345,8 @@ def execute(
         )
     except Exception as exc:
         _forget_pending(activation, nonce)
+        if granted is not None:
+            session.reserve(token, spender, previous_approval)
         if persist is not None:
             try:
                 persist()
@@ -363,6 +407,8 @@ def execute(
         session.spent_atomic.get(NATIVE_TOKEN, 0) + spent_gas
     )
     if status != 1:
+        if granted is not None:
+            session.reserve(token, spender, previous_approval)
         _settle_pending(
             activation, nonce, tx_hash=tx_hash, status=0, gas_atomic=str(spent_gas)
         )
@@ -376,10 +422,15 @@ def execute(
     # An approval moves nothing, so it is not charged as spend — but it is RESERVED. A
     # granted allowance is money that can still leave without another transaction of ours,
     # and it is held against the lifetime cap until the pull lands or it is zeroed.
-    granted = approval_granted(prepared)
     if granted is not None:
-        token, spender, amount = granted
-        session.reserve(token_key(token), spender, amount)
+        live = int(
+            rpc(
+                lambda w3: w3.eth.contract(address=token, abi=ALLOWANCE_ABI)
+                .functions.allowance(session.address, spender)
+                .call()
+            )
+        )
+        session.reserve(token, spender, live)
     else:
         for token, amount in amounts.items():
             session.spent_atomic[token] = session.spent_atomic.get(token, 0) + int(
@@ -390,12 +441,20 @@ def execute(
             session.spent_atomic[NATIVE_TOKEN] = (
                 session.spent_atomic.get(NATIVE_TOKEN, 0) + value
             )
-        # The pull this call just made is the approval being consumed. Releasing it here
-        # is what keeps the approve-then-spend pair from being charged twice: the spend
-        # above is the real movement, and the reservation was only ever standing in for it.
         pulled_by = _hex_address(prepared.to)
         for token in amounts:
-            session.release(token, pulled_by)
+            if pulled_by not in (session.reserved_atomic.get(token) or {}):
+                continue
+            live = int(
+                rpc(
+                    lambda w3, token=token: w3.eth.contract(
+                        address=token, abi=ALLOWANCE_ABI
+                    )
+                    .functions.allowance(session.address, pulled_by)
+                    .call()
+                )
+            )
+            session.reserve(token, pulled_by, live)
     _settle_pending(
         activation, nonce, tx_hash=tx_hash, status=1, gas_atomic=str(spent_gas)
     )

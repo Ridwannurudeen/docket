@@ -25,6 +25,8 @@ leg, and it is the one that already existed.
 
 from web3 import Web3
 
+from .policy import token_key
+
 # Every function Docket's own builders emit, plus the two ERC-20 calls any of them needs
 # first. Written out here rather than imported from the agents, because this is the list
 # the session is allowed to spend through and it should be readable in one place.
@@ -487,6 +489,7 @@ def batch_spend(
     token_hints=None,
     owner=None,
     session=None,
+    reserved_atomic=None,
 ) -> dict[str, int]:
     """The whole batch's spend, so the total can be put to the cap once before any of it
     is sent. A batch refused halfway leaves a position half-rebalanced.
@@ -498,8 +501,14 @@ def batch_spend(
     cap; ignoring it would let a batch approve more than the session could ever cover.
     The exposure is whichever is bigger, and that is what the cap has to hold.
     """
+    initial = {
+        token_key(token): {
+            _checksum(spender): int(amount) for spender, amount in spenders.items()
+        }
+        for token, spenders in (reserved_atomic or {}).items()
+    }
+    projected = {token: dict(spenders) for token, spenders in initial.items()}
     spends: dict[str, int] = {}
-    approvals: dict[str, int] = {}
     for call in calls:
         derived = call_spend(
             call,
@@ -509,16 +518,41 @@ def batch_spend(
             owner=owner,
             session=session,
         )
-        target = approvals if call.selector == APPROVE else spends
-        for token, amount in derived.items():
-            if call.selector == APPROVE:
-                target[token] = max(target.get(token, 0), amount)
+        granted = approval_granted(call)
+        if granted is not None:
+            token, spender, amount = granted
+            token = token_key(token)
+            held = dict(projected.get(token) or {})
+            if amount:
+                held[spender] = amount
             else:
-                target[token] = target.get(token, 0) + amount
+                held.pop(spender, None)
+            projected[token] = held
+        else:
+            spender = _checksum(call.to)
+            for token, amount in derived.items():
+                token = token_key(token)
+                spends[token] = spends.get(token, 0) + amount
+                held = dict(projected.get(token) or {})
+                remainder = max(0, int(held.get(spender, 0)) - amount)
+                if remainder:
+                    held[spender] = remainder
+                else:
+                    held.pop(spender, None)
+                projected[token] = held
         value = int(call.value_atomic)
         if value:
             spends[NATIVE_TOKEN] = spends.get(NATIVE_TOKEN, 0) + value
+    tokens = set(spends) | set(initial) | set(projected)
     return {
-        token: max(spends.get(token, 0), approvals.get(token, 0))
-        for token in set(spends) | set(approvals)
+        token: amount
+        for token in tokens
+        if (
+            amount := max(
+                0,
+                spends.get(token, 0)
+                + sum(projected.get(token, {}).values())
+                - sum(initial.get(token, {}).values()),
+            )
+        )
     }

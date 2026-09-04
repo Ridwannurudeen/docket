@@ -131,6 +131,7 @@ class FakeEth:
         self.missing_receipt_for = 0
         self.balances = {}
         self.token_balances = {}
+        self.allowances = {}
         self.sent = []
         self._receipt_attempts = 0
 
@@ -177,6 +178,9 @@ class FakeContract:
 
     def balanceOf(self, account):  # noqa: N802 - the ERC-20 name
         return FakeCall(self.eth.token_balances.get(self.address, 0))
+
+    def allowance(self, owner, spender):
+        return FakeCall(self.eth.allowances.get((self.address, owner, spender), 0))
 
 
 class FakeCall:
@@ -1440,3 +1444,34 @@ def test_the_approval_a_call_grants_is_read_out_of_its_own_bytes():
 
     assert approval_granted(_approve(WBNB, NPM_ADDRESS, 7)) == (WBNB, NPM_ADDRESS, 7)
     assert approval_granted(_bare(ROUTER, _swap_data(1))) is None
+
+
+def test_batch_approval_projection_replaces_pairs_and_sums_distinct_spenders():
+    other = Web3.to_checksum_address("0x" + "b6" * 20)
+
+    assert batch_spend(
+        [_approve(WBNB, NPM_ADDRESS, 300), _approve(WBNB, other, 300)]
+    ) == {WBNB: 600}
+    assert batch_spend(
+        [_approve(WBNB, NPM_ADDRESS, 300)],
+        reserved_atomic={WBNB: {NPM_ADDRESS: 300}},
+    ) == {}
+
+
+def test_a_partial_pull_keeps_the_confirmed_allowance_discoverable():
+    w3 = FakeW3(OWNER)
+    session = _session()
+    session.reserve(USDT, ROUTER, 300 * 10**18)
+    w3.eth.allowances[(USDT, session.address, ROUTER)] = 100 * 10**18
+
+    execute(
+        _activation(),
+        _call(amount_in=200 * 10**18),
+        session=session,
+        rpc=FakeRpc(w3),
+        policy=_policy(),
+        sleep=lambda _: None,
+    )
+
+    assert session.spent_atomic[USDT] == 200 * 10**18
+    assert session.reserved_atomic == {USDT: {ROUTER: 100 * 10**18}}
