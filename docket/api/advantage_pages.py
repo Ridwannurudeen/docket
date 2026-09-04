@@ -23,6 +23,14 @@ V3_TOPICS = {
 }
 
 
+# The three answers a cell may give when it has no number, and exactly what each means.
+# A blank cell is read as a zero, and a dash is read as whichever of these the reader
+# already believed, so the page says which one it is.
+UNSCORED = "unscored"
+NOT_RUN = "not run"
+NOT_RECORDED = "not recorded"
+
+
 def _esc(value) -> str:
     return html.escape(str(value))
 
@@ -62,6 +70,200 @@ def v1_page(shell: str, task_id: str | None = None) -> str:
     return rendered
 
 
+# One mapping from a recorded unit to the name this page prints for it. `$U` is what the
+# v1 records were written under and USDT is what every other line of this page calls it;
+# two spellings of one asset are two assets as far as a reader can tell.
+UNIT_DISPLAY = {"$U": "USDT"}
+
+
+def _cost_display(cost: dict) -> str:
+    """One arm's recorded cost, through the one unit mapping.
+
+    A zero cost prints as a bare zero. Nought of one asset and nought of another are the
+    same quantity, and printing "0.01 USDT · 0 USD" in a single cell invites a comparison
+    across two assets that the records do not support.
+    """
+    amount = str(cost["amount"])
+    try:
+        if float(amount) == 0:
+            return "0"
+    except ValueError:
+        pass
+    return f"{amount} {UNIT_DISPLAY.get(cost['unit'], cost['unit'])}"
+
+
+def _one_page_table(caption: str, rows: list[tuple[str, ...]]) -> str:
+    headers = (
+        "Task or family",
+        "Arms",
+        "n",
+        "Time medians",
+        "Out-of-pocket cost",
+        "Objective quality",
+        "State",
+    )
+    head = "".join(f'<th scope="col">{_esc(header)}</th>' for header in headers)
+    body = "".join(
+        '<tr><th scope="row" class="mono">'
+        + _esc(row[0])
+        + "</th>"
+        + "".join(f"<td>{_esc(cell)}</td>" for cell in row[1:])
+        + "</tr>"
+        for row in rows
+    )
+    return (
+        f'<div class="table-wrap"><table><caption>{_esc(caption)}</caption><thead><tr>'
+        f"{head}</tr></thead><tbody>{body}</tbody></table></div>"
+    )
+
+
+def _v1_rows(experiments: list[dict]) -> list[tuple[str, ...]]:
+    rows = []
+    for experiment in experiments:
+        deltas = experiment["deltas"]
+        agent = experiment["agent_arm"]
+        manual = experiment["manual_arm"]
+        complete = agent.get("output") is not None and manual.get("output") is not None
+        rows.append(
+            (
+                experiment["task_id"],
+                "agent, manual",
+                f"{1 if complete else 0} complete pair",
+                f"agent {deltas['seconds_agent']} s · manual {deltas['seconds_manual']} s",
+                f"agent {_cost_display(deltas['cost_agent'])} · "
+                f"manual {_cost_display(deltas['cost_manual'])}",
+                # v1 grades neither arm. That is a property of the protocol, not a
+                # missing artifact, and it is the reason v2 and v3 exist.
+                UNSCORED,
+                "recorded" if complete else NOT_RUN,
+            )
+        )
+    return rows
+
+
+def _v2_figure(figure: dict | None) -> str:
+    if not isinstance(figure, dict):
+        return NOT_RECORDED
+    name = figure.get("name", "figure")
+    rate = figure.get("rate")
+    distribution = figure.get("distribution")
+    if isinstance(rate, dict):
+        return f"{name} {rate['numerator']}/{rate['denominator']} ({rate['value']:.4f})"
+    if isinstance(distribution, dict):
+        return f"{name} median {distribution['median']:.4f} (n={distribution['n']})"
+    if isinstance(figure.get("usd"), (int, float)):
+        return f"{name} {figure['usd']:.4f} USD"
+    return f"{name} {NOT_RECORDED}"
+
+
+def _v2_rows(payload: dict) -> list[tuple[str, ...]]:
+    rows = []
+    for experiment in payload["experiments"]:
+        spec = experiment["spec"]
+        nulls = spec.get("null_baselines")
+        falsifier = experiment.get("falsifier_result")
+        rows.append(
+            (
+                experiment["experiment_id"],
+                f"agent, {len(nulls) if isinstance(nulls, list) else 0} computed nulls",
+                f"{spec['n_planned']} planned",
+                # v2 registered no timing measure, so there is no median to publish.
+                NOT_RECORDED,
+                NOT_RECORDED,
+                _v2_figure((experiment.get("headline") or {}).get("figure")),
+                "refuted"
+                if isinstance(falsifier, dict) and falsifier.get("refuted")
+                else "not refuted",
+            )
+        )
+    return rows
+
+
+def _v3_rows(payload: dict) -> list[tuple[str, ...]]:
+    rows = []
+    for family in payload.get("families", []):
+        spec = family["spec"]
+        progress = family.get("run_progress")
+        # An absent measure means one of two different things, and which one it is
+        # depends on whether any primary ever became terminal. A registered family with
+        # a ledger but no terminal primary has not run, whatever the ledger's shape.
+        ran = isinstance(progress, dict) and progress["terminal_primaries"] > 0
+        absent = UNSCORED if ran else NOT_RUN
+        speed = family.get("speed")
+        quality = family.get("quality")
+        totals = (family.get("costs") or {}).get("totals") or []
+        rows.append(
+            (
+                family["spec_id"],
+                ", ".join(sorted(spec.get("arms") or {})) or NOT_RECORDED,
+                f"{progress['terminal_primaries']}/{progress['scheduled_primaries']}"
+                " primaries terminal"
+                if isinstance(progress, dict)
+                else f"0/{spec['n_planned']} planned pairs run",
+                f"{speed['median_seconds_saved']} s median saving over "
+                f"{speed['n_complete_pairs']} complete pairs"
+                if isinstance(speed, dict)
+                else absent,
+                # An empty cost ledger is a measure the report does not carry, whether or
+                # not the arms ran; it is never "unscored", which is about score sheets.
+                " · ".join(
+                    f"{total['arm']} {total['amount']} "
+                    f"{UNIT_DISPLAY.get(total['unit'], total['unit'])}"
+                    for total in totals
+                )
+                or NOT_RECORDED,
+                f"agent median {quality['arms']['agent']['median_total']} · "
+                f"manual median {quality['arms']['manual']['median_total']}"
+                if isinstance(quality, dict)
+                else absent,
+                family["state"],
+            )
+        )
+    return rows
+
+
+def advantage_one_page(
+    shell: str, *, experiments: list[dict], advantage_v2: dict, advantage_v3: dict
+) -> str:
+    """Every registered task and family on one page, derived from the three reports.
+
+    The three reports are additive and none supersedes another, so a reader who wants to
+    know what has actually been measured has had to open all three and hold them side by
+    side. This is that comparison, built from the same payloads the JSON routes return
+    rather than transcribed from them, and carrying no figure the artifacts do not.
+    """
+    marker = "<!-- advantage-one-page -->"
+    if marker not in shell:
+        raise ValueError("advantage v1: one-page summary marker is missing")
+    v3_body = (
+        _one_page_table("V3 — pre-registered paired families.", _v3_rows(advantage_v3))
+        if "error" not in advantage_v3
+        else '<div class="notice notice-warn"><p>The v3 report could not be '
+        "reconstructed at startup, so no family state is summarised here.</p></div>"
+    )
+    body = (
+        '<section class="one-page" id="one-page" aria-labelledby="one-page-title">'
+        '<h2 id="one-page-title">Agent Advantage, one page</h2>'
+        '<p class="section-note">Every registered task and family across the three '
+        "additive reports: the arms it ran, how many, the times and costs its records "
+        "carry, its objective quality measure and its state. Every value is read from "
+        'the artifacts. <span class="mono">unscored</span> means the required scoring '
+        'artifacts are absent, <span class="mono">not run</span> means no primary became '
+        'terminal, and <span class="mono">not recorded</span> means the protocol '
+        "registered no such measure. Nothing here is an average over repeats.</p>"
+        + _one_page_table(
+            "V1 — paired agent-versus-person tasks, one observation each.",
+            _v1_rows(experiments),
+        )
+        + _one_page_table(
+            "V2 — agent versus computed nulls, no manual arm.", _v2_rows(advantage_v2)
+        )
+        + v3_body
+        + "</section>"
+    )
+    return shell.replace(marker, body)
+
+
 def v3_index(payload: dict) -> str:
     cards = []
     for family in payload["families"]:
@@ -86,9 +288,97 @@ def v3_index(payload: dict) -> str:
     return (
         '<section aria-labelledby="v3-families"><h2 id="v3-families">'
         f'{len(payload["families"])} registered families</h2><p class="section-note">'
-        'Each family has its own record and links '
+        "Each family has its own record and links "
         "to the underlying artifacts; those artifacts no longer arrive in one document.</p>"
         f'<div class="cards">{"".join(cards)}</div></section>'
+    )
+
+
+def _cell(value) -> str:
+    """One table cell: a number as a number, an absent figure as an em dash."""
+    if value is None:
+        return '<span class="mono">&mdash;</span>'
+    if isinstance(value, float):
+        return f'<span class="num">{_esc(round(value, 3))}</span>'
+    if isinstance(value, int) and not isinstance(value, bool):
+        return f'<span class="num">{_esc(value)}</span>'
+    return _esc(value)
+
+
+def _cost_cell(costs: dict, arms) -> str:
+    parts = []
+    for arm in arms:
+        cost = costs.get(arm)
+        if not isinstance(cost, dict):
+            parts.append(f"{_esc(arm)}: &mdash;")
+            continue
+        amount = f'{cost.get("amount", "")} {cost.get("unit", "")}'.strip()
+        parts.append(f'{_esc(arm)}: <span class="mono">{_esc(amount)}</span>')
+    return "<br>".join(parts) if parts else '<span class="mono">&mdash;</span>'
+
+
+def _quality_cell(row: dict) -> str:
+    parts = []
+    for arm in row["arms"]:
+        value = row["quality_by_arm"].get(arm)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            parts.append(f'{_esc(arm)}: <span class="num">{_esc(round(value, 3))}</span>')
+        else:
+            parts.append(f"{_esc(arm)}: &mdash;")
+    measure = row["quality_measure"]
+    if measure:
+        parts.append(f'<span class="section-note">{_esc(measure)}</span>')
+    return "<br>".join(parts) if parts else '<span class="mono">&mdash;</span>'
+
+
+def _one_page_section(one_page: dict) -> str:
+    rows = []
+    for row in one_page["rows"]:
+        planned = _cell(row["n_planned"])
+        terminal = _cell(row["n_terminal"])
+        reasons = "".join(
+            f'<p class="section-note">{_esc(field)}: {_esc(reason)}</p>'
+            for field, reason in sorted(row["unavailable"].items())
+        )
+        rows.append(
+            "<tr>"
+            f'<th scope="row"><span class="mono">{_esc(row["task"])}</span></th>'
+            f'<td><span class="mono">{_esc(row["version"])}</span></td>'
+            f"<td>{_esc(row['category'])}</td>"
+            f"<td>{_esc(', '.join(row['arms'])) or '&mdash;'}</td>"
+            f"<td>{planned} / {terminal}</td>"
+            f"<td>{_cell(row['median_agent_seconds'])}</td>"
+            f"<td>{_cell(row['median_manual_seconds'])}</td>"
+            f"<td>{_cost_cell(row['cost_by_arm'], row['arms'])}</td>"
+            f"<td>{_quality_cell(row)}</td>"
+            f'<td><span class="mono">{_esc(row["state"])}</span>{reasons}</td>'
+            "</tr>"
+        )
+    headers = (
+        "Task",
+        "Report",
+        "Category",
+        "Arms",
+        "Planned cases / terminal primaries",
+        "Median agent seconds",
+        "Median manual seconds",
+        "Out-of-pocket per arm",
+        "Objective quality per arm",
+        "State",
+    )
+    heading = "".join(f'<th scope="col">{_esc(label)}</th>' for label in headers)
+    return (
+        '<section aria-labelledby="one-page"><h2 id="one-page">'
+        "Every registered task on one page</h2>"
+        f'<p class="lede"><span class="num">{_esc(one_page["n_rows"])}</span> rows, every '
+        "figure read out of a committed artifact at startup.</p>"
+        f'<p class="section-note">{_esc(one_page["note"])}</p>'
+        '<div class="table-wrap"><table><caption>'
+        "Registered tasks across all three reports, with the reason beside every figure an "
+        "artifact does not carry."
+        f"</caption><thead><tr>{heading}</tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table></div></section>"
     )
 
 
@@ -103,7 +393,13 @@ def v3_landing(shell: str, payload: dict) -> str:
     from ..advantage.v3.page import fill
 
     shallow = {**payload, "families": []}
-    return fill(shell.replace(marker, v3_index(payload)), shallow)
+    one_page = payload["summary"].get("one_page")
+    index = v3_index(payload)
+    if one_page is not None:
+        # First of the generated sections, above the family index and the state summary.
+        # The shell above the marker is Lane A's; nothing here edits it.
+        index = _one_page_section(one_page) + index
+    return fill(shell.replace(marker, index), shallow)
 
 
 def _depth_shell(shell: str, title: str, body: str) -> str:
@@ -131,9 +427,11 @@ def v3_family_page(shell: str, family: dict) -> str:
         )
         progress_html = (
             '<div class="panel"><h2>Run progress</h2><dl class="deflist">'
-            f'<dt>Scheduled primaries</dt><dd class="num">{_esc(progress["scheduled_primaries"])}</dd>'
+            f"<dt>Scheduled primaries</dt>"
+            f'<dd class="num">{_esc(progress["scheduled_primaries"])}</dd>'
             f'<dt>Claimed primaries</dt><dd class="num">{_esc(progress["claimed_primaries"])}</dd>'
-            f'<dt>Terminal primaries</dt><dd class="num">{_esc(progress["terminal_primaries"])}</dd>'
+            f"<dt>Terminal primaries</dt>"
+            f'<dd class="num">{_esc(progress["terminal_primaries"])}</dd>'
             f'<dt>Outcomes</dt><dd>{_esc(outcomes)}</dd></dl></div>'
         )
     links = []
@@ -154,7 +452,8 @@ def v3_family_page(shell: str, family: dict) -> str:
         '<p class="status-line"><span class="status-key">State</span>'
         f'<span class="mono">{_esc(family["state"])}</span>'
         f"<span>{_esc(STATE_TEXT[family['state']])}</span></p>{unscored}</section>"
-        '<section aria-labelledby="registered-boundary"><h2 id="registered-boundary">Registered boundary</h2>'
+        '<section aria-labelledby="registered-boundary">'
+        '<h2 id="registered-boundary">Registered boundary</h2>'
         '<dl class="deflist panel">'
         f"<dt>Claim</dt><dd>{_esc(spec['claim'])}</dd>"
         f"<dt>Falsifier</dt><dd>{_esc(spec['falsifier'])}</dd>"
@@ -180,7 +479,8 @@ def v3_topic_page(shell: str, family: dict, topic: str) -> str:
     body = (
         f'<p><a href="/advantage/v3/{spec_id}">← {spec_id}</a></p>'
         f'<section class="hero"><h1>{_esc(label)}</h1><p class="lede">'
-        f'The complete <span class="mono">{_esc(field)}</span> artifact for {spec_id}.</p></section>'
+        f'The complete <span class="mono">{_esc(field)}</span> artifact for '
+        f"{spec_id}.</p></section>"
         f'<pre class="mono wrap-anywhere">{record}</pre>'
     )
     return _depth_shell(shell, f"{family['spec_id']} — {label}", body)

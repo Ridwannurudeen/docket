@@ -581,7 +581,8 @@ def test_the_committed_record_says_what_the_report_recomputes(experiment):
 
 
 def test_the_registration_is_served_as_self_attested_once_it_is_in_history(experiment):
-    """The specification and the completed run first entered git together at b2411b3, so this is self-attested like 01 and 03 and not git-provable: git records
+    """The specification and the completed run first entered git together at b2411b3, so
+    this is self-attested like 01 and 03 and not git-provable: git records
     that both existed at that commit, and nothing about their order. The producer is
     committed, so the run can be regenerated from the spec and the frozen corpus."""
     provenance = experiment["registration_provenance"]
@@ -594,5 +595,5 @@ def test_the_registration_is_served_as_self_attested_once_it_is_in_history(exper
         "present": True,
         "path": "docket/advantage/v2/deposits.py",
     }
-    assert f"first entered git together at b2411b3" in provenance["statement"]
+    assert "first entered git together at b2411b3" in provenance["statement"]
     assert "not on independent git history" in provenance["statement"]

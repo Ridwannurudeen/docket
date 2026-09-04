@@ -3,17 +3,20 @@
 import os
 import tempfile
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 import docket
+import docket.agents.grid.lifecycle
 import docket.agents.grid.operator
 import docket.agents.pancake.doctor
 import docket.agents.venus.guard
+import docket.agents.yield_router.migration
 import docket.agents.yield_router.router
-from fastapi.testclient import TestClient
-
+import docket.jobs.executors
 from docket.api import create_app
 from docket.hire import catalogue
 from docket.identity import register
@@ -24,9 +27,21 @@ assert not INSTALLED_PACKAGE.is_relative_to(WORKSPACE), (
     f"smoke imported the checkout at {INSTALLED_PACKAGE}, not the installed wheel"
 )
 
+# The category executors are looked up by category, so a wheel that shipped the package
+# without them would answer every activation with a KeyError at run time rather than at
+# import time. Asserted here because that is the exact shape of the defect this file
+# exists to catch: every source-tree test passes while the installed package is short.
+docket.jobs.executors.load_executors()
+assert set(docket.jobs.executors.EXECUTORS) == {
+    "rebalancing",
+    "grid_trading",
+    "yield_optimisation",
+    "health_factor",
+}, sorted(docket.jobs.executors.EXECUTORS)
+
 registration = register.build_registration_json(
     catalogue.SERVICES["range-doctor"],
-    clock=lambda: datetime(2026, 8, 30, tzinfo=timezone.utc),
+    clock=lambda: datetime(2026, 8, 30, tzinfo=UTC),
 )
 assert registration["version"] == version("docket")
 
@@ -69,6 +84,8 @@ with tempfile.TemporaryDirectory(prefix="docket-installed-smoke-") as scratch:
         "v3-05-range-doctor",
         "v3-06-yield-router-assisted",
         "v3-07-range-doctor",
+        "v3-08-yield-router",
+        "v3-09-health-guard",
     ]
     assert {family["state"] for family in families} == {
         "complete_unscored",

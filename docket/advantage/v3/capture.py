@@ -38,7 +38,7 @@ import sys
 import threading
 import time
 from concurrent.futures import TimeoutError as FutureTimeoutError
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from importlib import resources
 from pathlib import Path
 
@@ -103,7 +103,7 @@ def _attempt_loop() -> asyncio.AbstractEventLoop:
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _stamp_at(moment: datetime) -> str:
@@ -251,11 +251,13 @@ def capture_attempt(urls: tuple[str, str], *, ordinal: int, scheduled_at: str) -
     )
     try:
         return future.result(timeout=max(0.0, deadline - time.monotonic()))
-    except FutureTimeoutError:
+    except FutureTimeoutError as expiry:
         if future.done():
             error = future.exception()
             if error is not None:
-                raise error
+                # The attempt failed as the deadline passed. Its own exception is the
+                # event; the expiry is only how this thread found out about it.
+                raise error from expiry
         else:
             future.cancel()
         return _attempt_record(
@@ -286,7 +288,7 @@ def run_registered_capture(
     each one becomes the attempt's full offset, because no time has passed.
     """
     schedule = registered_schedule(spec)
-    started = now or datetime.now(timezone.utc)
+    started = now or datetime.now(UTC)
     if clock is None:
         clock = (lambda: started) if now is not None else _utc_now
     scheduled = datetime.fromisoformat(
@@ -563,12 +565,12 @@ def write_armed(
                 )
                 for offset in ATTEMPT_OFFSETS_S
             ],
-            "process_started_at": _stamp_at(started.astimezone(timezone.utc)),
+            "process_started_at": _stamp_at(started.astimezone(UTC)),
             "spec_hash": spec.spec_hash,
             "host_identity": identity,
             "preflight": {
                 "clock_checked_at": _stamp_at(
-                    (checked_at or started).astimezone(timezone.utc)
+                    (checked_at or started).astimezone(UTC)
                 ),
                 "clock_timezone_aware": True,
                 "directory_writable": True,
@@ -639,7 +641,7 @@ def write_terminal(
     payload = _json_bytes(
         {
             "outcome": outcome,
-            "recorded_at": _stamp_at(recorded_at.astimezone(timezone.utc)),
+            "recorded_at": _stamp_at(recorded_at.astimezone(UTC)),
             "reason": reason,
         }
     )

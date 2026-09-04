@@ -1,8 +1,15 @@
 # BNB Chain main track
 
-**Hire by evidence, not promises.**
+**Find BSC agents that actually work.**
 
-Docket is a public marketplace with two deliberately separate surfaces: a
+Docket is a public marketplace where a visitor starts from the job — keep an LP position in
+range, automate a trading grid, move liquidity to better yield, protect a lending position —
+compares the agents that do it on the same fields, and activates one with bounded permissions.
+One agent stands behind each of BNB's four categories: Range Keeper (`range-doctor`), Grid
+Operator (`grid-operator`), Yield Router (`yield-router`) and Health Shield (`health-guard`).
+Each listing prints its service id beside its name, and the API, the registration documents
+and the evidence records below keep the names those services were registered and measured
+under. It has two deliberately separate surfaces: a
 [four-category service shopfront](https://docket.gudman.xyz/) and a
 [BSC ERC-8004 registry browser](https://docket.gudman.xyz/research). The shopfront groups
 services Docket runs by job; the research surface shows identities, self-declared capabilities,
@@ -11,7 +18,11 @@ feedback counts, callable protocols, and bounded endpoint observations from the
 
 That separation is the marketplace claim. An identity record is useful context for a hiring
 decision, but Docket does not turn its existence into a conclusion about service quality; the
-[public contract](https://docket.gudman.xyz/llms.txt) defines the fields as observations.
+[public contract](https://docket.gudman.xyz/llms.txt) defines the fields as observations. Every
+figure on the shopfront is counted rather than typed — the home page's counters are rendered
+from [/api/marketplace/summary](https://docket.gudman.xyz/api/marketplace/summary) at page build
+and that route recounts them per request — and a listing field with nothing behind it reads
+`not yet measured` instead of being dropped.
 
 ## Functionality
 

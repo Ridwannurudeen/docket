@@ -1,0 +1,29 @@
+# Settings for Docket's bounded session keys, read by docket-jobs.service. Install as
+# /etc/docket/docket-sessions.conf, mode 0640, owned root:docket. The unit references it
+# with a leading `-`, so a deployment that has not installed it starts normally and
+# refuses persistent activations.
+#
+# docket.service does NOT read this file and MUST NOT. The web process is deliberately
+# incapable of minting a session key or sweeping one, so a compromise of it cannot reach
+# anybody's float. Creating a persistent activation needs no password: it lands in
+# `awaiting_session` and docket-jobs.service mints the key on its next pass, at most a
+# minute later. Do not add this variable to the API process.
+
+# The file holding the master password that encrypts every session keystore. There is no
+# default and no fallback: while this is unset, or names a file that is missing or empty,
+# `docket.sessions.keys` raises SessionsUnavailable and the tick records the failure
+# against each waiting activation rather than opening a key. Activations are still created
+# and still readable; they simply never leave `awaiting_session`, and any that were
+# closing stay `revoking` until the file is installed.
+#
+# Create it once, on the box, and never in a tracked file:
+#
+#   umask 077
+#   head -c 48 /dev/urandom | base64 > /etc/docket/docket-sessions.key
+#   chown root:docket /etc/docket/docket-sessions.key
+#   chmod 0640 /etc/docket/docket-sessions.key
+#
+# Rotating it does not re-encrypt the keystores already stored. Every existing session
+# becomes unopenable, which means unsweepable — revoke and sweep every live persistent
+# activation BEFORE rotating, not after.
+DOCKET_SESSION_KEY_FILE=/etc/docket/docket-sessions.key

@@ -550,8 +550,13 @@ class HealthGuardPreview:
         self._reader = reader
         self._policy = policy
 
-    def preview(self, address: str) -> dict:
+    def preview(self, address: str, *, observation_block: int | None = None) -> dict:
         """Read the account, assess it, draft what the policy permits, send nothing.
+
+        `observation_block` pins every call to one block so two readers at different
+        times get the same answer. It is the difference between asking what is true
+        now and asking what was true at the moment both arms of a comparison looked,
+        and only the second is reproducible.
 
         The policy's underlyings are checked against each vToken's own `underlying()`
         before anything is drafted. `token_in` comes from the policy, so a policy naming
@@ -559,7 +564,9 @@ class HealthGuardPreview:
         asset — and that is a mistake no later bound would catch.
         """
         for market in self._policy.markets:
-            on_chain = self._reader.underlying_of(market.vtoken)
+            on_chain = self._reader.underlying_of(
+                market.vtoken, observation_block=observation_block
+            )
             if on_chain is None or Web3.to_checksum_address(on_chain) != market.underlying:
                 raise ValueError(
                     f"policy market {market.vtoken} names {market.underlying} as its "
@@ -568,7 +575,7 @@ class HealthGuardPreview:
                     "asset, so nothing is drafted."
                 )
 
-        state = self._reader.account(address)
+        state = self._reader.account(address, observation_block=observation_block)
         actions = plan_actions(state, self._policy)
         return {
             "address": state.address,

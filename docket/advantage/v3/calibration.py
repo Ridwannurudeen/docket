@@ -29,12 +29,12 @@ is the validator's question, asked in one place.
 import hashlib
 import json
 from base64 import b64decode, b64encode
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ...hire.receipts import canonical_hash
 from .scoring import _artifact_component, _write_exclusive
-from .spec import PairedSpec, is_warden_family, is_yield_family
+from .spec import PairedSpec, is_health_family, is_warden_family, is_yield_family
 
 REQUEST_VERSION = "v3.calibration-capture.request.v1"
 RESPONSE_VERSION = "v3.calibration-capture.response.v1"
@@ -77,7 +77,7 @@ RESPONSE_FIELDS = frozenset(
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def seat_dir(spec: PairedSpec, calibration_dir, evaluator_id: str) -> Path:
@@ -165,6 +165,36 @@ def derive_prompt(spec: PairedSpec, calibration_set: bytes, evaluator_id: str) -
                 "integers; use null where the formula yields no value. Do not include "
                 "prose or Markdown fences. This calibration is scored once and cannot be "
                 "reattempted."
+            )
+        elif is_health_family(spec):
+            instruction = (
+                "Answer every case below under the registered rubric. Return exactly one "
+                "JSON object with this shape: "
+                '{"evaluator_id": ..., "results": [{"case_id", "submitted"}]}. For '
+                "Health, submitted must contain exactly these fields: status, "
+                "weighted_collateral_usd, borrowed_usd, collateral_ratio, "
+                "derived_headroom_usd, venus_headroom_usd, difference_usd, "
+                "exactly_equal. Every input amount is a decimal integer string in the "
+                "1e18 scale Venus reports, and every amount you return must be a decimal "
+                "integer string in that same scale. Use exact integer arithmetic "
+                "throughout with truncating floor division, never floating point. Per "
+                "entered market: supplied = vtoken_balance * exchange_rate_mantissa // "
+                "1e18; weighted_collateral_usd += supplied * underlying_price_mantissa // "
+                "1e18 * collateral_factor_mantissa // 1e18; borrowed_usd += "
+                "borrow_balance * underlying_price_mantissa // 1e18, applying each "
+                "division in that order. status is unreadable when complete is false; "
+                "otherwise no_position when there are no markets or both totals are zero; "
+                "otherwise supplied_no_borrow when borrowed_usd is zero; otherwise "
+                "shortfall when shortfall_usd is greater than zero; otherwise "
+                "borrowing_with_headroom. collateral_ratio = weighted_collateral_usd * "
+                "1e18 // borrowed_usd for shortfall and borrowing_with_headroom, and null "
+                "for every other status, because a ratio over zero debt is not a number. "
+                "derived_headroom_usd = weighted_collateral_usd - borrowed_usd; "
+                "venus_headroom_usd = liquidity_usd - shortfall_usd; difference_usd = "
+                "the absolute value of their difference; exactly_equal is true only when "
+                "the two headroom figures are equal. Venus publishes no health factor: do "
+                "not return one. Do not include prose or Markdown fences. This "
+                "calibration is scored once and cannot be reattempted."
             )
         else:
             instruction = (
@@ -461,12 +491,12 @@ def assemble_evaluator_calibration(
                         "default"
                     )
                 result = {
-                        "case_id": case["case_id"],
-                        "input": case["input"],
-                        "expected_hostile": case["expected_hostile"],
-                        "expected_classes": case["expected_classes"],
-                        "predicted_hostile": row["predicted_hostile"],
-                        "predicted_classes": row["predicted_classes"],
+                    "case_id": case["case_id"],
+                    "input": case["input"],
+                    "expected_hostile": case["expected_hostile"],
+                    "expected_classes": case["expected_classes"],
+                    "predicted_hostile": row["predicted_hostile"],
+                    "predicted_classes": row["predicted_classes"],
                 }
                 if spec.case_selection.get("labelling_policy") is not None:
                     result.update(

@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Docket — hire by evidence, not promises</title>
+    <title>Docket — find BSC agents that actually work</title>
     <meta
       name="description"
-      content="Hire bounded BSC agent services beside the evidence, including a published loss and a $126.78 post-hoc finding at $10k notional."
+      content="Compare BSC agents on live performance, activate them with bounded permissions, and verify every result onchain — beside the evidence, including a published loss and a $126.78 post-hoc finding at $10k notional."
     />
     <link
       rel="icon"
@@ -18,7 +18,7 @@
         overflow-wrap: anywhere;
       }
     </style>
-    <link rel="stylesheet" href="/static/style.css?v=12" />
+    <link rel="stylesheet" href="/static/style.css?v=13" />
   </head>
   <body class="case-file-page" data-page="case-file">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -44,45 +44,159 @@
           Docket
         </a>
         <nav class="site-nav" aria-label="Primary">
-          <a href="#evidence">Case file</a>
-          <a href="#services">Services</a>
-          <a href="#experiments">Experiments</a>
-          <a href="/advantage/v3.json">Raw data</a>
+          <a href="/" aria-current="page">Explore</a>
+          <a href="/search">Find agents</a>
+          <a href="/my-agents">My agents</a>
+          <a href="/providers">Providers</a>
+          <a href="/advantage">Evidence</a>
+          <a href="/llms.txt">API</a>
         </nav>
-        <p class="chain-label">BSC MAINNET · 4 IDENTITIES</p>
+        <p class="chain-label">BSC MAINNET · CHAIN 56</p>
       </div>
     </header>
 
     <main id="main">
       <div class="wrap case-grid">
-        <section class="case-hero" id="evidence" aria-labelledby="case-file-title">
+        <section class="case-hero" aria-labelledby="home-title">
           <div class="hero-copy">
-            <p class="eyebrow">DOCKET / EVIDENCE-FIRST AGENT MARKETPLACE</p>
-            <h1 id="case-file-title">Hire by evidence, not promises.</h1>
+            <p class="eyebrow">DOCKET / EVIDENCE-BACKED BSC AGENT MARKETPLACE</p>
+            <h1 id="home-title">Find BSC agents that actually work.</h1>
             <p class="case-lede">
-              We measured our own security agent against a human. The human won.<br />
-              It is on the front page.
+              Compare live performance, activate agents with bounded permissions, and
+              verify every result onchain.
             </p>
             <p class="btn-row hero-actions">
-              <a class="btn btn-primary" href="/advantage/v3">Inspect the evidence</a>
-              <a class="btn" href="/service?id=range-doctor">Run Range Doctor</a>
+              <a class="btn btn-primary" href="#explore">Explore live agents</a>
+              <a class="btn" href="/activate?service=range-doctor&amp;demo=1">Run a verified demo</a>
             </p>
           </div>
 
-          <aside class="truth-rail" aria-label="Marketplace truth at publication">
-            <p><strong class="num">6</strong> services</p>
-            <p><strong class="num">0</strong> paid stock</p>
-            <p><strong class="num">0</strong> settlements ever run</p>
-            <p><strong class="num">4</strong> ERC-8004 identities for category services</p>
+          <aside class="truth-rail" aria-label="Marketplace counters">
+            <p><!-- rail-public-paid-hires --></p>
+            <p><!-- rail-canary-settlements --></p>
+            <p><!-- rail-services-paid-stock --></p>
+            <p><!-- rail-erc8004-identities --></p>
+            <p><!-- rail-v3-families --></p>
+            <p class="rail-note">
+              Counted at <span class="mono"><!-- summary-generated-at --></span> from
+              <a href="/api/marketplace/summary">/api/marketplace/summary</a>, on release
+              <span class="mono"><!-- summary-deployed-commit --></span>.
+            </p>
             <a href="#stock-note">Why nothing is for sale yet</a>
           </aside>
+        </section>
+
+        <section
+          class="case-section explore-section"
+          id="explore"
+          aria-labelledby="explore-title"
+        >
+          <div class="section-heading">
+            <p class="eyebrow">EXPLORE / START FROM THE JOB</p>
+            <h2 id="explore-title">What do you want done?</h2>
+            <p>
+              Four jobs, one shared activation path. Pick the job, and the listings below
+              answer the same questions for every agent that does it.
+            </p>
+          </div>
+
+          <div class="goal-cards">
+            <a class="goal-card" href="/activate?category=rebalancing">
+              <span class="goal-title">Keep my LP position in range</span>
+              <span class="goal-detail">
+                Reads a concentrated-liquidity position, says where the tick sits inside
+                it, and draws the wait and recenter paths with the numbers behind them.
+              </span>
+            </a>
+            <a class="goal-card" href="/activate?category=grid_trading">
+              <span class="goal-title">Automate a trading grid</span>
+              <span class="goal-detail">
+                Builds a bounded grid inside a price band, with the capital it may commit
+                fixed before it starts.
+              </span>
+            </a>
+            <a class="goal-card" href="/activate?category=yield_optimisation">
+              <span class="goal-title">Move liquidity to better yield</span>
+              <span class="goal-detail">
+                Compares a reproducible pool set on gross and protocol-adjusted rates and
+                states the payback against the switching cost you declare.
+              </span>
+            </a>
+            <a class="goal-card" href="/activate?category=health_factor">
+              <span class="goal-title">Protect my lending position</span>
+              <span class="goal-detail">
+                Reads a Venus Core Pool account, derives the collateral ratio from its
+                stated inputs, and drafts conservative repay or supply actions.
+              </span>
+            </a>
+          </div>
+
+          <div class="listing-heading">
+            <h3 id="listings-title">Every listing answers the same questions</h3>
+            <p class="section-note">
+              <!-- summary-services-total --> services,
+              <!-- summary-services-paid-stock --> open for paid hiring today. A field with
+              nothing behind it says <span class="mono">not yet measured</span> rather
+              than disappearing.
+            </p>
+          </div>
+          <div class="listing-grid" aria-labelledby="listings-title">
+            <!-- marketplace-listings -->
+          </div>
+        </section>
+
+        <section
+          class="case-section activate-section"
+          id="activate"
+          aria-labelledby="activate-title"
+        >
+          <div class="section-heading">
+            <p class="eyebrow">ACTIVATE / THREE STEPS</p>
+            <h2 id="activate-title">Choose, set limits, activate.</h2>
+          </div>
+          <ol class="activation-steps">
+            <li>
+              <strong>Choose the job.</strong> Open a listing and read what the agent
+              returns, what it cannot do, and what has been measured of it. The listing
+              names its price per completed run before you commit to anything.
+            </li>
+            <li>
+              <strong>Set the limits.</strong> You state the position, the thresholds and
+              the ceilings the agent must stay inside. Nothing is signed at this step, and
+              an authorization is written for an exact amount rather than an open approval.
+            </li>
+            <li>
+              <strong>Activate and keep control.</strong> The run returns a result and a
+              receipt binding the request and result hashes to it. Docket holds no key for
+              you, so what happens next stays with the wallet that owns the position.
+            </li>
+          </ol>
+        </section>
+
+        <section
+          class="case-section trust-proposition"
+          id="evidence"
+          aria-labelledby="evidence-title"
+        >
+          <div class="section-heading">
+            <p class="eyebrow">EVIDENCE / WHY THESE LISTINGS CAN BE CHECKED</p>
+            <h2 id="evidence-title">Hire by evidence, not promises.</h2>
+            <p>
+              We measured our own security agent against a human. The human won.<br />
+              It is published below, in full, beside the listings it reflects on.
+            </p>
+            <p class="text-links">
+              <a href="/advantage/v3">Inspect the evidence</a>
+              <a href="/service?id=range-doctor">Run Range Doctor</a>
+            </p>
+          </div>
 
           <aside class="hero-finding" aria-labelledby="finding-title">
             <p class="eyebrow">FINDING 01 / FEE ARITHMETIC</p>
-            <h2 id="finding-title">
+            <h3 id="finding-title">
               <span class="finding-number num">$126.78</span>
               <span>median annual overstatement at $10k notional</span>
-            </h2>
+            </h3>
             <p class="finding-bound mono">
               n=22 · one frozen daily snapshot · post-hoc, not realized return or forecast
             </p>
@@ -106,7 +220,9 @@
         >
           <div class="section-heading">
             <p class="eyebrow">EXPERIMENT REGISTER / OBSERVED 29 AUG 2026</p>
-            <h2 id="experiments-title">Six registered families. No scored result.</h2>
+            <h2 id="experiments-title">
+              <!-- summary-v3-families --> registered families. No scored result.
+            </h2>
             <p>
               A missing artifact stays missing. The state below is reconstructed from the
               committed records, not inferred from an empty cell.
@@ -191,6 +307,45 @@
                 <strong>Absent:</strong> future capture, locked inputs and arm outputs.
               </p>
             </article>
+
+            <article class="experiment-row">
+              <div class="experiment-id">
+                <a href="/advantage/v3/v3-07-range-doctor">v3-07</a>
+                <span>Range Doctor / archive-pinned successor</span>
+              </div>
+              <p class="experiment-state mono">registered_waiting_for_inputs</p>
+              <time datetime="2026-08-29">Observed 29 Aug 2026</time>
+              <p class="experiment-facts">
+                <strong>Exists:</strong> registered protocol over an archive-pinned enumerable frame.
+                <strong>Absent:</strong> locked inputs, calibration, ledger and arm outputs.
+              </p>
+            </article>
+
+            <article class="experiment-row">
+              <div class="experiment-id">
+                <a href="/advantage/v3/v3-08-yield-router">v3-08</a>
+                <span>Yield Router / human manual arm</span>
+              </div>
+              <p class="experiment-state mono">registered_waiting_for_inputs</p>
+              <time datetime="2026-08-29">Observed 29 Aug 2026</time>
+              <p class="experiment-facts">
+                <strong>Exists:</strong> registered protocol with a pool-truth capture fixed for 6 Sep 2026.
+                <strong>Absent:</strong> capture, calibration, locked inputs and arm outputs.
+              </p>
+            </article>
+
+            <article class="experiment-row">
+              <div class="experiment-id">
+                <a href="/advantage/v3/v3-09-health-guard">v3-09</a>
+                <span>Health Guard / human manual arm</span>
+              </div>
+              <p class="experiment-state mono">registered_waiting_for_inputs</p>
+              <time datetime="2026-08-29">Observed 29 Aug 2026</time>
+              <p class="experiment-facts">
+                <strong>Exists:</strong> registered protocol over a Venus borrower frame pinned at block 119627412.
+                <strong>Absent:</strong> collected frame, calibration, locked inputs and arm outputs.
+              </p>
+            </article>
           </div>
         </section>
 
@@ -273,7 +428,9 @@
         >
           <div class="section-heading">
             <p class="eyebrow">LIVE SERVICE REGISTER / BSC MAINNET</p>
-            <h2 id="services-title">Four runnable category services.</h2>
+            <h2 id="services-title">
+              <!-- summary-category-services --> runnable category services.
+            </h2>
             <p>
               Registration can be checked on chain. It is not endorsement, paid-stock evidence,
               or proof that a service produced a result.
@@ -362,9 +519,12 @@
           </div>
 
           <p class="stock-note" id="stock-note">
-            <strong>Why nothing is for sale yet.</strong> All six catalogue services report
-            <span class="mono">paid_stock: false</span>. No Docket settlement has occurred;
-            no settled receipt or settlement transaction exists in the repository.
+            <strong>Why nothing is for sale yet.</strong> Every catalogue service reports
+            <span class="mono">paid_stock: false</span>, because the fresh paired benchmark
+            limb is still absent. One owner-approved Range Doctor canary settled 0.50 USDT
+            on 2026-08-30 and the identical signed request was then rejected as a replay;
+            that private bootstrap proved one payment lifecycle and opened no public
+            inventory. The counters at the top of this page keep the two apart.
           </p>
         </section>
 
@@ -373,10 +533,10 @@
           id="case-close"
           aria-labelledby="close-title"
         >
-          <p class="eyebrow">DOCKET / PUBLIC CASE FILE</p>
+          <p class="eyebrow">DOCKET / EVIDENCE-BACKED BSC AGENT MARKETPLACE</p>
           <h2 id="close-title">Hire by evidence, not promises.</h2>
           <p class="text-links">
-            <a href="#services">Open the marketplace</a>
+            <a href="#explore">Open the marketplace</a>
             <a href="/advantage/v3.json">/advantage/v3.json</a>
             <a href="/llms.txt">/llms.txt</a>
           </p>
@@ -384,7 +544,7 @@
 
         <noscript>
           <p class="noscript-note">
-            This case file is complete without JavaScript. Machine-readable service stock is at
+            This page is complete without JavaScript. Machine-readable service stock is at
             <a href="/services">/services</a>; registered experiment state is at
             <a href="/advantage/v3.json">/advantage/v3.json</a>.
           </p>
@@ -397,6 +557,7 @@
         <p class="footer-links">
           <a href="/pancake">PancakeSwap</a>
           <a href="/research">Browse agents</a>
+          <a href="/status">Status</a>
           <a href="/services">/services (JSON)</a>
           <a href="/advantage">/advantage</a>
           <a href="/advantage/v3.json">/advantage/v3.json (JSON)</a>

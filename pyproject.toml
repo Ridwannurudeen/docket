@@ -17,7 +17,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["httpx2==2.12.0", "pytest==9.0.3", "pyyaml==6.0.2"]
+dev = [
+    "httpx2==2.12.0",
+    "pip-audit==2.10.1",
+    "pytest==9.0.3",
+    "pyyaml==6.0.2",
+    "ruff==0.16.5",
+]
 
 [build-system]
 requires = ["setuptools==83.0.0"]
@@ -40,12 +46,26 @@ packages = [
     "docket.execution",
     "docket.hire",
     "docket.identity",
+    "docket.jobs",
+    "docket.jobs.executors",
     "docket.marketplace",
+    "docket.sessions",
     "experiments",
 ]
 
 [tool.setuptools.package-data]
-"docket.api" = ["static/*", "static/agents/*.registration.json", "web/*"]
+"docket.api" = [
+    "static/*",
+    "static/agents/*.registration.json",
+    "web/*",
+    # `web/*` does not descend, so the browser modules need their own globs. A wheel
+    # built without them serves the activation pages with every script 404ing.
+    "web/js/*",
+    "web/js/pages/*",
+]
+# The committed marketplace census. An installed Docket that shipped the marketplace code
+# without it would start with an empty shelf and no way to refill it offline.
+"docket.marketplace" = ["seed/*.json"]
 # /advantage.json is served from these files, so an installed Docket must carry them.
 # The v2 files are the evidence a report cites — the labelled corpus, the pre-registration
 # that hashes it, and the run recorded against that hash — and an install that shipped the
@@ -71,6 +91,24 @@ packages = [
     "v3/sources/*.html",
     "v3/provenance/*.json",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# `.venv` and `build` are in ruff's own defaults; they are named again because a release
+# builds both inside the checkout. `docket-w*` and `.claude` are the sibling worktrees this
+# repository is developed in — linting them would report another branch's code as this one's.
+extend-exclude = ["build", ".venv", "docket-w*", ".claude"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# The long lines in this module are shell fixtures embedded as Python strings: fake `curl`
+# bodies that the release script parses byte for byte. A `# noqa` cannot be placed inside a
+# string literal, and wrapping the line would change the script under test rather than the
+# test's formatting.
+"tests/test_release_scripts.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

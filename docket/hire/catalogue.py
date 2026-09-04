@@ -33,7 +33,7 @@ import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -66,6 +66,12 @@ GRID_BAND_PCT = 10
 GRID_LEVELS = 6
 # 25 USDT a level. Small enough to be a demonstration rather than a position.
 GRID_SIZE_PER_LEVEL = 25 * 10**18
+# 0.5%, the same figure `agents/grid/lifecycle.py` runs under. A grid trading through more
+# than half a percent of slippage is a grid whose levels are too big for the pool.
+GRID_SLIPPAGE_BPS = 50
+# The half-width of the band a yield migration mints into, in ticks either side of the
+# destination pool's current tick before it is aligned outward to that pool's own spacing.
+YIELD_BAND_WIDTH_TICKS = 1_000
 # The two Venus markets the health guard is allowed to draft actions in, with their
 # underlyings named beside them. Both pairs were read from BSC mainnet on 2026-08-10 and
 # the preview re-reads each vToken's own underlying() and refuses where the two disagree —
@@ -315,6 +321,30 @@ def _run_warden_scan(payload: dict) -> dict:
     return result | {"measured_value": _measured_value("warden-scan", elapsed)}
 
 
+def _observation_block(payload: dict) -> int | None:
+    """The block a caller pinned this read to, validated once for every service.
+
+    A paired experiment needs both arms answering about the same chain state, and "latest"
+    moves between them. v3-09 records an answer about a different block as a blocked
+    contract rather than a worse answer, so the block travels into every call rather than
+    being accepted and ignored.
+    """
+    raw = payload.get("observation_block")
+    if isinstance(raw, bool):
+        raise ValueError("observation_block must be a positive integer block number")
+    try:
+        block = None if raw is None else int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "observation_block must be a positive integer block number"
+        ) from exc
+    if block is not None and (
+        block <= 0 or (isinstance(raw, float) and raw != block)
+    ):
+        raise ValueError("observation_block must be a positive integer block number")
+    return block
+
+
 def _declared_number(payload: dict, field: str, *, allow_zero: bool) -> float | None:
     value = payload.get(field)
     if value is None:
@@ -423,20 +453,7 @@ def _run_range_doctor(payload: dict) -> dict:
     # A paired experiment needs both arms answering about the same chain state, and "latest"
     # moves between them. Without this the buyer can ask *what is true now* but not *what was
     # true at the moment we both looked*, and only the second is reproducible.
-    raw_block = payload.get("observation_block")
-    if isinstance(raw_block, bool):
-        raise ValueError("observation_block must be a positive integer block number")
-    try:
-        observation_block = None if raw_block is None else int(raw_block)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "observation_block must be a positive integer block number"
-        ) from exc
-    if observation_block is not None and (
-        observation_block <= 0
-        or (isinstance(raw_block, float) and raw_block != observation_block)
-    ):
-        raise ValueError("observation_block must be a positive integer block number")
+    observation_block = _observation_block(payload)
 
     snapshot_fields = ("pool_snapshot", "token_list_snapshot", "source_refs")
     supplied_snapshots = [payload.get(field) is not None for field in snapshot_fields]
@@ -573,16 +590,25 @@ def _run_grid_operator(payload: dict) -> dict:
 
 
 def _run_health_guard(payload: dict) -> dict:
-    """A preview, and structurally only a preview.
+    """A bounded read of one Venus account, at the head or at a block the caller pinned.
 
     `HealthGuardPreview` is the only class in its module: there is no armed counterpart to
-    construct by mistake, and this build ships no path that submits a Venus call at all.
-    The caps below bound what the drafted actions may commit; the trigger is the shortfall
-    Venus has to be reporting before anything is drafted.
+    construct by mistake, and this path submits no Venus call at all. The caps below bound
+    what the drafted actions may commit; the trigger is the shortfall Venus has to be
+    reporting before anything is drafted.
+
+    A pinned read needs an archive endpoint and is refused without one. Answering from the
+    head instead would be the one failure the registered contract is written to catch, and
+    it would look exactly like success.
     """
+    from ..agents.pancake.positions import PrunedStateError
     from ..agents.venus.guard import GuardPolicy, HealthGuardPreview, MarketPolicy
     from ..agents.venus.markets import VenusReader
 
+    observation_block = _observation_block(payload)
+    source_refs = payload.get("source_refs")
+    if source_refs is not None and not isinstance(source_refs, list):
+        raise ValueError("source_refs must be a list of typed source references")
     trigger = payload.get("trigger_shortfall_usd")
     policy = GuardPolicy(
         markets=(
@@ -601,9 +627,22 @@ def _run_health_guard(payload: dict) -> dict:
         ),
         trigger_shortfall_usd=GUARD_TRIGGER_USD if trigger is None else int(trigger),
     )
-    return HealthGuardPreview(reader=VenusReader(), policy=policy).preview(
-        payload["wallet"]
-    )
+    reader = VenusReader()
+    try:
+        result = HealthGuardPreview(reader=reader, policy=policy).preview(
+            payload["wallet"], observation_block=observation_block
+        )
+    except PrunedStateError as exc:
+        raise ValueError(
+            f"observation_block {observation_block} could not be read: {exc}"
+        ) from exc
+    # Stated rather than inferred: a caller that asked about a block has to be able to see
+    # which block it was answered about without re-deriving it from the rows.
+    result["requested_observation_block"] = observation_block
+    result["as_of_block"] = result["account"]["as_of_block"]
+    result["address"] = result["account"]["address"]
+    result["sources"] = source_refs
+    return result
 
 
 def _run_yield_router(payload: dict) -> dict:
@@ -649,7 +688,7 @@ def _run_yield_router(payload: dict) -> dict:
         with PoolClient() as client:
             rows, pools_raw = client.top_pools_snapshot()
             allowlist, tokens_raw = client.token_allowlist_snapshot()
-        observed_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        observed_at = datetime.now(UTC).isoformat(timespec="seconds")
         pools_evidence = {
             "url": (
                 "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top"
@@ -754,20 +793,55 @@ def _run_yield_router(payload: dict) -> dict:
 SERVICES: dict[str, Service] = {
     "range-doctor": Service(
         id="range-doctor",
-        name="Range Doctor",
+        name="Range Keeper",
         job_summary=(
-            "Diagnoses one wallet's PancakeSwap v3 position range and fee economics."
+            "Watches one PancakeSwap v3 position and prepares the reset when its range "
+            "is left."
         ),
         what_you_get=(
-            "A read-only diagnosis of the PancakeSwap v3 liquidity positions a BSC wallet holds "
-            "or has staked: for each one, whether the current tick sits inside its range and "
-            "where in that range it sits, the pool's gross and protocol-adjusted net 24h fee "
-            "rates when its reported figures clear a plausibility gate, and conditional wait "
-            "and recenter paths. Name one token id and declare its USD value and estimated "
-            "recenter cost to add fixed-notional dollar effects and cost-only break-even; those "
-            "two inputs are labelled as the caller's rather than derived from an unverified "
-            "price feed. Every finding carries the numbers it was computed from, so you can "
-            "check it against the chain yourself. Nothing is signed, approved, or moved."
+            "A persistent watch over one PancakeSwap v3 liquidity position, and the read-only "
+            "diagnosis it is built on. Each cycle Docket reads the position and its pool at one "
+            "BSC block and states whether the current tick sits inside the range, where in that "
+            "range it sits, and the pool's gross and protocol-adjusted net 24h fee rates when its "
+            "reported figures clear a plausibility gate. Declare the position's USD value and a "
+            "BNB price to add fixed-notional dollar effects, cost-only break-even, and the reset "
+            "arithmetic below; both are labelled as the caller's rather than derived from an "
+            "unverified price feed. When the position has been observed outside its range for "
+            "longer than your policy waits, you get an alert carrying that arithmetic in full: "
+            "how long it has been out, the fee recovery projected over a stated window against "
+            "the whole cost of acting — gas ceilings at the observed gas price, and the swap a "
+            "recentred range needs — and the multiple between them. If that multiple clears the "
+            "one you set, the whole reset is prepared as exact calls, in the order they have to "
+            "land: close the position, collect what it holds, rebalance the inventory through "
+            "one exact-input swap, and mint a replacement whose position NFT is issued to "
+            "your own address and never to Docket. The swap is there because a position that "
+            "left its range holds one token and a range drawn around the current tick needs "
+            "both. Its venue is chosen rather than assumed: PancakeSwap V2 is quoted first "
+            "and used only when its quote is within your slippage bound of the price your own "
+            "pool is trading at, because a pair that exists on V2 in name can be thin enough "
+            "there to lose most of a position; where it falls short the leg goes through "
+            "PancakeSwap's v3 router into the very pool your position was minted in. Either "
+            "way the minimum output is enforced by the router, and the mint is sized against "
+            "that minimum rather than a quote, so the amounts the position manager is asked to "
+            "pull are amounts the swap was obliged to deliver. An inventory already balanced "
+            "within your bound is minted without a swap and the record says so. Every token "
+            "approval in the bundle is for an exact amount and never unlimited. Each call is "
+            "put to the chain as an eth_call and a gas estimate before it is offered where its "
+            "preconditions already hold; the swap and the mint spend tokens the collect has "
+            "not released yet, so they are marked as waiting on it rather than tested against "
+            "a state that does not exist — and every call is simulated again from its real "
+            "sender immediately before it is sent. A batch the chain refuses comes back as an "
+            "alert rather than reaching a signer. One call is never in the bundle: the ERC-721 "
+            "approval that lets Docket touch your position NFT can only be made by the wallet "
+            "holding it, so Docket reads whether you have made it and asks rather than "
+            "drafting it. You sign the rest yourself, or grant a bounded session — a contract "
+            "allowlist, a per-token cap, a gas ceiling and an expiry, all checked by Docket "
+            "before every send rather than enforced by a chain, so what really bounds your "
+            "exposure is how much you fund the session with. Pause the watch or revoke the "
+            "session whenever you choose; revoking sweeps the session balance back to you, "
+            "including fee residue and any swap surplus left above the mint. Every finding "
+            "carries the numbers it was computed from, so you can check it against the chain "
+            "yourself."
         ),
         input_schema={
             "wallet": {
@@ -819,6 +893,59 @@ SERVICES: dict[str, Service] = {
                     "the caller-declared non-negative USD cost of recentering the exact "
                     "token_id, including every gas, swap fee and price-impact component the "
                     "caller wants counted. Requires token_id and is not derived by Docket"
+                ),
+            },
+            "bnb_usd": {
+                "type": "number",
+                "required": False,
+                "required_for_watch": True,
+                "description": (
+                    "the caller-declared USD price of BNB, used only to convert the gas "
+                    "ceilings of a reset into dollars. A one-off diagnosis never needs it. "
+                    "A persistent watch cannot act without it and reports every reset "
+                    "instead — and it is never defaulted, because Docket derives no token "
+                    "price and a default here would be Docket quietly supplying the one "
+                    "number it says it does not have"
+                ),
+            },
+            "out_of_range_minutes": {
+                "type": "integer",
+                "required": False,
+                "default": 60,
+                "description": (
+                    "how long the position has to be OBSERVED outside its range before a "
+                    "reset is priced. Only time between observations counts: a position "
+                    "that was inside at the last read and outside at this one has been out "
+                    "for no observed time, and no departure moment is invented between them"
+                ),
+            },
+            "min_net_benefit_multiple": {
+                "type": "number",
+                "required": False,
+                "default": 2.0,
+                "description": (
+                    "how many times the projected fee recovery has to exceed the whole cost "
+                    "of the reset before one is offered. Below 1 the policy would authorise "
+                    "a reset whose projection does not cover its own cost, and it is refused"
+                ),
+            },
+            "band_width_ticks": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "the half-width in ticks of the new range, so the band spans twice it. "
+                    "Omit it to keep the width the position already has. The bounds are "
+                    "snapped outward to the pool's own tick spacing, so the band is never "
+                    "returned narrower than asked for"
+                ),
+            },
+            "max_notional_usd": {
+                "type": "number",
+                "required": False,
+                "default": 1000.0,
+                "description": (
+                    "the largest declared position value a reset may be prepared for. A "
+                    "position above it is reported rather than acted on"
                 ),
             },
             "observation_block": {
@@ -885,25 +1012,45 @@ SERVICES: dict[str, Service] = {
     ),
     "grid-operator": Service(
         id="grid-operator",
-        name="Grid Operator Preview",
-        job_summary="Builds a read-only PancakeSwap V2 grid preview for one wallet.",
+        name="Grid Operator",
+        job_summary=(
+            "Places and manages automated grid levels on PancakeSwap V2 for one wallet."
+        ),
         what_you_get=(
             "A deterministic PancakeSwap V2 grid, built from a band you give it — or drawn "
-            "around the pair's current price if you give it none — and previewed against BSC "
-            "mainnet as it stands right now. You get the exact price levels and their "
+            "around the pair's current price if you give it none — and quoted against BSC "
+            "mainnet as it stands right now. No order rests on chain: V2 is an automated "
+            "market maker and holds no order book, so a level here is a price Docket "
+            "watches. The first observation that crosses it fires one bounded swap at "
+            "whatever the pool quotes at that moment, and cancelling costs no gas because "
+            "nothing was ever placed anywhere. Between two observations a level can be "
+            "crossed and uncrossed without firing, which an order book would have filled. "
+            "That is the honest cost of running a grid on an AMM and it is stated on every "
+            "record this returns. "
+            "A hire returns the read-only preview: the exact price levels and their "
             "spacing, which token each level spends and how much of it, the condition each "
             "level fires on, and for every level the full action record that acting would "
-            "commit to: the router's own live quote for that trade, the minimum output the "
-            "action would insist on, a hash of the exact calldata that binds it, a deadline, "
-            "a gas ceiling and a slippage bound. Nothing is signed, approved, submitted or "
-            "held. This is a preview and structurally only a preview: the object that runs "
-            "it holds no session key, no signer and no submitter, and has no method that "
-            "sends a transaction, so it cannot move anything. Acting on a level needs a "
-            "session the wallet's owner grants on chain, with a spend cap, a call allowlist "
-            "and an expiry that the session validator enforces at validation time — Docket "
-            "never holds the owner key and cannot grant or revoke on their behalf. Every "
-            "figure comes back with the block it was read at, so you can check any of it "
-            "against the chain yourself."
+            "commit to — the router's own live quote for that trade, the minimum output "
+            "the action insists on, a hash of the exact calldata that binds it, a "
+            "deadline, a gas ceiling and a slippage bound. Nothing is signed, approved, "
+            "submitted or held, and the object that produces it holds no session key, no "
+            "signer and no submitter. "
+            "Running the same grid is an activation with five operations over its life. "
+            "Create fixes the band, the level count, the amount per level, the total cap, "
+            "the expiry, the slippage bound and an optional shutdown threshold. Status "
+            "returns the levels still open, every fill read back off the chain's own "
+            "ERC-20 Transfer logs rather than assumed, and the amount committed against "
+            "the cap. Pause stops firing and keeps every level. Cancel retires every "
+            "remaining level and leaves the funds where they are, because retiring a "
+            "strategy is not a decision about the money. Revoke sweeps the session back "
+            "to the owner and ends it, and passing the expiry reaches that same path on "
+            "its own. The shutdown threshold is Docket's own observation and not a stop "
+            "order held by a venue: it retires the remaining levels and sells nothing. "
+            "Acting at all needs a session the wallet's owner grants on chain, with a "
+            "spend cap, a call allowlist and an expiry the session validator enforces at "
+            "validation time — Docket never holds the owner key and cannot grant or "
+            "revoke on their behalf. Every figure comes back with the block it was read "
+            "at, so you can check any of it against the chain yourself."
         ),
         input_schema={
             "wallet": {
@@ -981,6 +1128,95 @@ SERVICES: dict[str, Service] = {
                 "required": False,
                 "description": "level indexes already filled, which are not drafted again",
             },
+            "price_lower": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "activation only: bottom of the band a running grid is fixed to, in "
+                    "atomic units of the quote token per one whole base token. The "
+                    "one-shot preview above takes the same figure as lower"
+                ),
+            },
+            "price_upper": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "activation only: top of the band, same units; upper in the one-shot "
+                    "preview"
+                ),
+            },
+            "amount_per_level_atomic": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "activation only: what each level commits, in atomic units of the "
+                    "quote token. A sell level commits what that is worth in the base "
+                    "token at its own price, so every level puts the same value to work "
+                    "rather than the same quantity; size_per_level in the preview"
+                ),
+            },
+            "total_cap_atomic": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "activation only: the most this grid may commit over its whole life, "
+                    "in the same quote-token units. It moves when a level fires rather "
+                    "than when it fills, and a level that would pass it is refused rather "
+                    "than trimmed to what is left"
+                ),
+            },
+            "expires_at": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "activation only: the unix second the grid stops. Passing it sweeps "
+                    "the session back to the owner rather than merely halting, because a "
+                    "session outliving the spec that justified it is what an expiry is for"
+                ),
+            },
+            "max_slippage_bps": {
+                "type": "integer",
+                "required": False,
+                "default": GRID_SLIPPAGE_BPS,
+                "description": (
+                    "activation only: how far below the router's live quote a fill may "
+                    "land, in basis points, 1 to 500. It is written into the swap as "
+                    "amountOutMin, so no level is ever sent with a floor of zero"
+                ),
+            },
+            "stop_price": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "activation only: a shutdown threshold outside the band. An "
+                    "observation reaching it retires every remaining level and sends "
+                    "nothing — it is Docket's own observation, not a stop order held by "
+                    "a venue, and it is only as fast as the next observation"
+                ),
+            },
+            "direction_rule": {
+                "type": "string",
+                "required": False,
+                "default": "buy_below_sell_above",
+                "description": (
+                    "activation only: how levels are sided against the price observed "
+                    "when the grid started. The set is closed and holds one entry, so a "
+                    "second rule has to be added deliberately"
+                ),
+            },
+            "session_policy_note": {
+                "type": "string",
+                "required": False,
+                "advanced": True,
+                "description": (
+                    "activation only, and not a field to send: the session this grid runs "
+                    "under has to allow approve (0x095ea7b3) as well as "
+                    "swapExactTokensForTokens (0x38ed1739), and both the base and the "
+                    "quote token. The router pulls the input token out of the session "
+                    "with transferFrom, so a session granted the swap and not the "
+                    "approval can draft a level it can never settle"
+                ),
+            },
         },
         typical_seconds=25,
         price_display=HIRE_PRICE_DISPLAY,
@@ -992,28 +1228,41 @@ SERVICES: dict[str, Service] = {
     ),
     "health-guard": Service(
         id="health-guard",
-        name="Venus Health Guard Preview",
+        name="Health Shield",
         job_summary=(
-            "Reads one wallet's Venus Core Pool position and drafts bounded protective actions."
+            "Watches one Venus Core Pool position and prepares the least remedy that "
+            "restores its ratio."
         ),
         what_you_get=(
-            "A read-only report on what Venus Core Pool publishes about one BSC address's "
-            "lending position, and on what can honestly be derived from it. Venus publishes "
-            "liquidity and shortfall in USD and publishes no health factor at all — so you "
-            "get its own two figures verbatim, with the call and the block they came from, "
-            "and a collateral ratio computed here whose exact formula, inputs and scales are "
-            "stated inline beside it, together with a cross-check of that derivation against "
-            "Venus's own liquidity figure so you can see whether the two agree. For every "
-            "market the account has entered: supplied and borrowed balances, the collateral "
-            "factor, the exchange rate and the oracle price, each labelled with the call that "
-            "produced it. Where Venus reports a shortfall, you also get conservative draft "
-            "actions — repay and supply-collateral only, never borrow and never withdraw — "
-            "each fully bounded, with the exact contract and function, a hash of the calldata "
-            "that binds it, a cap, a floor, a deadline and a gas ceiling. Nothing is signed, "
-            "approved, submitted or held: the object that produces this holds no session key, "
-            "no signer and no submitter, it has no armed counterpart class in this build, and "
-            "no execution path for a Venus call exists here at all. Every figure comes back "
-            "with the block it was read at, so you can check any of it against the chain "
+            "A persistent watch over one BSC address's Venus Core Pool lending position, and "
+            "the read-only report it is built on. Venus publishes liquidity and shortfall in USD "
+            "and publishes no health factor at all — so you get its own two figures verbatim, "
+            "with the call and the block they came from, and a collateral ratio computed here "
+            "whose exact formula, inputs and scales are stated inline beside it, together with a "
+            "cross-check of that derivation against Venus's own liquidity figure so you can see "
+            "whether the two agree. For every market the account has entered: supplied and "
+            "borrowed balances, the collateral factor, the exchange rate and the oracle price, "
+            "each labelled with the call that produced it. Each cycle the derived ratio is "
+            "compared against the floor you set, and when it falls below you get an alert "
+            "carrying the smallest remedy that returns it above the line — a repay in one "
+            "borrowed market, or a collateral add — with the integer arithmetic that sized it "
+            "and the ratio recomputed after it. The remedy is prepared as exact calls: an "
+            "approval for the exact amount and never unlimited, then repayBorrowBehalf on the "
+            "vToken, which is the one Venus function a third party may call on a borrower's "
+            "account. Supplying collateral has no such form — mint credits whoever sends it — "
+            "so a collateral add is reported for you to sign from your own wallet and is never "
+            "offered for Docket to execute. Borrow and withdraw are encoded nowhere in this "
+            "service. The approval is put to the chain as an eth_call and a gas estimate "
+            "before it is offered; the call that spends under it is marked as waiting on that "
+            "approval rather than tested against a state that does not exist, and every call "
+            "is simulated again from its real sender immediately before it is sent. A batch "
+            "the chain refuses comes back as an alert rather than reaching a signer. You sign "
+            "the calls yourself, or grant a bounded session — a contract allowlist, a "
+            "per-token cap, a gas ceiling and an expiry, all checked by Docket before every "
+            "send rather than enforced by a chain, so what really bounds your exposure is how "
+            "much you fund the session with. Pause the watch or revoke the session whenever "
+            "you choose; revoking sweeps the session balance back to you. Every figure comes "
+            "back with the block it was read at, so you can check any of it against the chain "
             "yourself."
         ),
         input_schema={
@@ -1039,6 +1288,86 @@ SERVICES: dict[str, Service] = {
                     "comptroller reports it, before any action is drafted; zero is refused"
                 ),
             },
+            "observation_block": {
+                "type": "integer",
+                "required": False,
+                "advanced": True,
+                "description": (
+                    "read this account at this BSC block instead of the latest one. Every "
+                    "call behind the answer is pinned to it — the comptroller, each "
+                    "vToken's snapshot, the collateral factors and the oracle prices — so "
+                    "two readers at different times get the same result. Give it when the "
+                    "answer has to be reproducible. Public dataseeds prune, so a "
+                    "deployment without an archive endpoint refuses a pinned read with "
+                    "observation_block_unsupported rather than answering about the head, "
+                    "and a block the reachable nodes no longer hold is a stated read "
+                    "failure rather than an empty account"
+                ),
+            },
+            "source_refs": {
+                "type": "array",
+                "items": {"type": "object"},
+                "required": False,
+                "advanced": True,
+                "description": (
+                    "the frozen typed source references bound to this observation. They "
+                    "are echoed back under sources so a recorded pair carries the "
+                    "evidence it was answered against"
+                ),
+            },
+            "min_collateral_ratio": {
+                "type": "number",
+                "required": False,
+                "default": 1.25,
+                "description": (
+                    "the floor the watch holds the DERIVED collateral ratio to, as a "
+                    "multiple of the debt. Venus publishes no health factor; this is "
+                    "Docket's own ratio, and the formula that computes it travels with "
+                    "every answer. 1.0 is the point at which the weighted collateral "
+                    "exactly covers the debt"
+                ),
+            },
+            "mode": {
+                "type": "string",
+                "required": False,
+                "default": "repay",
+                "description": (
+                    "which remedy to size: repay, add_collateral, or either. Under either "
+                    "a repay is tried first, because it is the only one of the two a "
+                    "bounded session can complete for you — supplying collateral credits "
+                    "whoever sends it, so it is always yours to sign"
+                ),
+            },
+            "allowed_vtokens": {
+                "type": "array",
+                "items": {"type": "string"},
+                "required": False,
+                "required_for_watch": True,
+                "example": [VENUS_VUSDT, VENUS_VUSDC],
+                "description": (
+                    "required by a persistent watch and never defaulted: a market list "
+                    "Docket chose for you is a permission you did not grant. A one-off "
+                    "report needs none, and a watch without one sizes nothing. "
+                    "the Venus Core Pool vTokens a remedy may be sized in. The native "
+                    "market is refused: vBNB takes repayBorrowBehalf(address) with the "
+                    "amount as BNB value, which is a different function from the one this "
+                    "service encodes"
+                ),
+            },
+            "max_rescue_atomic": {
+                "type": "object",
+                "required": False,
+                "required_for_watch": True,
+                "example": {VENUS_USDT: GUARD_CAP, VENUS_USDC: GUARD_CAP},
+                "description": (
+                    "required by a persistent watch and never defaulted: a spend ceiling "
+                    "Docket chose for you is a cap you did not set. A one-off report needs "
+                    "none, and a watch without one sizes nothing. "
+                    "the largest remedy permitted per underlying token, keyed by that "
+                    "token's address in its own atomic units. A remedy above the cap is "
+                    "reported with the amount that was refused rather than trimmed to fit"
+                ),
+            },
         },
         typical_seconds=40,
         price_display=HIRE_PRICE_DISPLAY,
@@ -1050,9 +1379,9 @@ SERVICES: dict[str, Service] = {
     ),
     "yield-router": Service(
         id="yield-router",
-        name="Yield Router Preview",
+        name="Yield Router",
         job_summary=(
-            "Compares an eligible PancakeSwap v3 pool set and states switching break-even."
+            "Routes one PancakeSwap v3 position to the highest rate in a stated pool set."
         ),
         what_you_get=(
             "A comparison of PancakeSwap v3 pools on BSC at the rates they were observed at, "
@@ -1071,7 +1400,29 @@ SERVICES: dict[str, Service] = {
             "rather than dropped. Ordering is by one named observed metric and the payload "
             "says which, so no order here is an opinion Docket formed. The comparison needs "
             "no wallet; drafting a swap leg requires the wallet, token pair, amount and cap "
-            "declared together. Nothing is signed, approved, submitted or moved."
+            "declared together. Nothing is signed, approved, submitted or moved. "
+            "Acting on the comparison is an activation, and it builds the complete route "
+            "rather than one leg: the owner's own approval of the position NFT to the "
+            "session, scoped to that one token id; a decreaseLiquidity that burns the "
+            "position with non-zero minimums taken from the pool's live price rather than "
+            "left at zero; a collect of the tokens and whatever fees had accrued into the "
+            "session; up to three bounded swap legs, each quoted live and floored, to "
+            "reach the split the destination band needs at its current tick; an exact "
+            "allowance to the position manager for each destination token, never an "
+            "unlimited one; and a mint over a band of a stated number of ticks either "
+            "side of that tick, aligned outward to the pool's own spacing, with the new "
+            "position going to the owner rather than to the session. A read spec comes "
+            "back with it: which log carries the new token id and the exact "
+            "positions(tokenId) call that reads the result back, so the outcome can be "
+            "checked without asking Docket. The route carries its own disclosure — both "
+            "rates and when they were observed, the destination's liquidity and this "
+            "position's share of it, the protocol risk, the gas that could be estimated "
+            "and the calls that could not be, the slippage every step insists on, the "
+            "payback period and the minimum holding period it implies, the whole "
+            "transaction sequence in order, and the assumptions that would undo the case "
+            "for moving if they do not hold. A position held by the farm is "
+            "refused rather than planned around, because the owner cannot approve an NFT "
+            "MasterChefV3 holds."
         ),
         input_schema={
             "pool": {
@@ -1162,6 +1513,69 @@ SERVICES: dict[str, Service] = {
                 "description": (
                     "exact token-list HTTP response bytes as base64 with URL, observation "
                     "time and bare SHA-256; supplied together with pool_snapshot"
+                ),
+            },
+            "owner": {
+                "type": "string",
+                "required": False,
+                "description": (
+                    "activation only: the address holding the v3 position NFT. It signs "
+                    "the one approval the session is not allowed to make, and it is the "
+                    "recipient the new position is minted to — never the session, whose "
+                    "revocation could otherwise strand it"
+                ),
+            },
+            "session": {
+                "type": "string",
+                "required": False,
+                "description": (
+                    "activation only: the bounded session address the tokens transit "
+                    "between the collect and the mint. Revoking it sweeps whatever is "
+                    "left, including the dust the conservative mint amounts leave behind"
+                ),
+            },
+            "position_token_id": {
+                "type": "integer",
+                "required": False,
+                "description": (
+                    "activation only: which PancakeSwap v3 position NFT to move. A "
+                    "position staked in MasterChefV3 is refused, because the farm owns "
+                    "the NFT and the owner cannot approve what they do not hold"
+                ),
+            },
+            "band_width_ticks": {
+                "type": "integer",
+                "required": False,
+                "default": YIELD_BAND_WIDTH_TICKS,
+                "description": (
+                    "activation only: the half-width of the destination band, in ticks "
+                    "either side of that pool's current tick. It is aligned outward to "
+                    "the pool's own spacing, so the band is never narrower than the one "
+                    "asked for"
+                ),
+            },
+            "max_slippage_bps": {
+                "type": "integer",
+                "required": False,
+                "default": GRID_SLIPPAGE_BPS,
+                "description": (
+                    "activation only: the bound applied to the withdrawal minimums, every "
+                    "swap leg's floor and the mint's own minimums, in basis points, 1 to "
+                    "500. No step in the route carries a minimum of zero"
+                ),
+            },
+            "session_policy_note": {
+                "type": "string",
+                "required": False,
+                "advanced": True,
+                "description": (
+                    "activation only, and not a field to send: before any of this runs "
+                    "the owner signs approve(session, tokenId) on the position manager "
+                    "themselves, scoped to the one position. That is the one authority a "
+                    "session cannot grant itself and it is a precondition rather than a "
+                    "step — the route reads it and refuses to build without it. The "
+                    "session itself has to allow the position manager and the router, "
+                    "and the four calls this route makes on them"
                 ),
             },
         },

@@ -1,5 +1,5 @@
-from pathlib import Path
 import re
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -8,9 +8,24 @@ from docket.advantage.v2 import report as v2_report
 from docket.api import create_app
 from docket.store import Store
 
-
 WEB = Path(__file__).resolve().parents[1] / "docket" / "api" / "web"
 PAGES = tuple(sorted(WEB.glob("*.html")))
+
+# The four activation surfaces the marketplace pivot adds. Every page now carries the
+# pivot's nav and the ?v=13 cache-busting query — the product-surface lane moved the
+# older pages over — so this set exists to name what the pivot added rather than to
+# mark an exception.
+PIVOT_PAGES = frozenset(
+    {"activate.html", "my-agents.html", "search.html", "providers.html"}
+)
+PIVOT_NAV = (
+    ("/", "Explore"),
+    ("/search", "Find agents"),
+    ("/my-agents", "My agents"),
+    ("/providers", "Providers"),
+    ("/advantage", "Evidence"),
+    ("/llms.txt", "API"),
+)
 
 
 def test_every_surface_uses_the_restrained_light_stylesheet():
@@ -19,9 +34,9 @@ def test_every_surface_uses_the_restrained_light_stylesheet():
     assert "color-scheme: light" in css
     assert "color-scheme: dark" not in css
     assert 'content: "LP"' not in css
-    assert len(PAGES) == 9
+    assert len(PAGES) == 14
     for page in PAGES:
-        assert 'href="/static/style.css?v=12"' in page.read_text(encoding="utf-8")
+        assert 'href="/static/style.css?v=13"' in page.read_text(encoding="utf-8")
 
 
 def test_evidence_landings_link_to_depth_instead_of_collapsing_it():
@@ -63,11 +78,14 @@ def test_stats_has_a_server_rendered_human_surface_without_moving_its_json(tmp_p
 
 
 def test_navigation_and_generated_evidence_use_one_presentation_vocabulary():
-    working_page_expected = (
-        ("/", "Case file"),
-        ("/pancake", "PancakeSwap"),
-        ("/research", "Browse agents"),
-        ("/advantage", "Advantage report"),
+    """One nav, identical on every page, so a page a later lane adds carries the same
+    markup rather than inventing a second vocabulary for the same destinations."""
+    expected = (
+        ("/", "Explore"),
+        ("/search", "Find agents"),
+        ("/my-agents", "My agents"),
+        ("/providers", "Providers"),
+        ("/advantage", "Evidence"),
         ("/llms.txt", "API"),
     )
     for page in PAGES:
@@ -76,20 +94,16 @@ def test_navigation_and_generated_evidence_use_one_presentation_vocabulary():
         links = tuple(
             re.findall(r'<a href="([^"]+)"(?: aria-current="page")?>([^<]+)</a>', nav)
         )
-        expected = (
-            (
-                ("#evidence", "Case file"),
-                ("#services", "Services"),
-                ("#experiments", "Experiments"),
-                ("/advantage/v3.json", "Raw data"),
-            )
-            if page.name == "index.html"
-            else working_page_expected
-        )
         assert links == expected, page.name
+        page_footer = re.search(
+            r'<footer class="site-footer">.*?</footer>', document, re.S
+        ).group(0)
+        assert '<a href="/status">Status</a>' in page_footer, page.name
 
     index = (WEB / "index.html").read_text(encoding="utf-8")
-    footer = re.search(r'<footer class="site-footer">.*?</footer>', index, re.S).group(0)
+    footer = re.search(r'<footer class="site-footer">.*?</footer>', index, re.S).group(
+        0
+    )
     assert '<a href="/pancake">PancakeSwap</a>' in footer
     assert '<a href="/research">Browse agents</a>' in footer
 

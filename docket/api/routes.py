@@ -26,7 +26,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import asdict, replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
@@ -43,8 +43,8 @@ from fastapi.responses import (
     Response,
 )
 from fastapi.staticfiles import StaticFiles
-from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..advantage.harness import compare, load
 from ..advantage.v2.page import fill as fill_v2_page
@@ -54,7 +54,12 @@ from ..coverage import _PROBE_KINDS, _latest_observations, coverage_report
 from ..escrow import constants as escrow_constants
 from ..escrow.chain import JobNotFound, JobReader
 from ..escrow.flow import hire_calls
-from ..hire.admission import CANARY_MAX_AGE_SECONDS, resolve_admission
+from ..hire.admission import (
+    CANARY_MAX_AGE_SECONDS,
+    PAIRED_EVIDENCE_WINDOW_DAYS,
+    AdmissionResolution,
+    resolve_admission,
+)
 from ..hire.catalogue import SERVICES, PaidStockAdmission, get_service
 from ..hire.comparison import compare as compare_services_table
 from ..hire.receipts import (
@@ -86,7 +91,15 @@ from ..marketplace.registry import (
 from ..refresh import LAST_REFRESH_FILENAME
 from ..signals import signals_for
 from ..store import Store
-from .advantage_pages import v1_page, v3_family_page, v3_landing, v3_topic_page
+from .activations import activations_router
+from .advantage_pages import (
+    advantage_one_page,
+    v1_page,
+    v3_family_page,
+    v3_landing,
+    v3_topic_page,
+)
+from .marketplace_api import MarketplaceContext, marketplace_router
 from .models import (
     AgentDetail,
     AgentSummary,
@@ -104,6 +117,8 @@ from .models import (
     ServicesResponse,
     StatsResponse,
 )
+from .status import router as status_router
+from .summary import home_page, listing_facts, marketplace_summary, summary_router
 from .web_pages import pancake_initial, service_initial, stats_page
 
 logger = logging.getLogger(__name__)
@@ -262,7 +277,13 @@ def _category_job(category: Category | None) -> str | None:
     return next(entry.job for entry in CATEGORIES if entry.category is category)
 
 
-def _card(record: ServiceRecord, admission: PaidStockAdmission) -> ServiceCard:
+def _card(record: ServiceRecord, resolution: AdmissionResolution) -> ServiceCard:
+    """One marketplace listing, with the four admission facts and their evidence.
+
+    `admission` stays exactly the four booleans the release smoke and every existing
+    reader pin; `admission_evidence` sits beside it and names the artifact behind each,
+    so a limb that is false says what would open it rather than only that it is closed.
+    """
     return ServiceCard(
         service_id=record.service_id,
         name=record.name,
@@ -270,11 +291,12 @@ def _card(record: ServiceRecord, admission: PaidStockAdmission) -> ServiceCard:
         category_job=_category_job(record.category),
         what_you_get=record.what_you_get,
         price_display=record.price_display,
-        price_atomic=record.price_atomic,
+        price_atomic=str(record.price_atomic),
         asset=record.asset,
-        paid_stock=admission.passes,
+        paid_stock=resolution.passes,
         stock_status=record.stock_status,
-        admission=asdict(admission),
+        admission=asdict(resolution.admission),
+        admission_evidence=resolution.evidence,
         typical_seconds=record.typical_seconds,
         activation=record.activation,
         activation_means=record.activation_means,
@@ -577,7 +599,7 @@ def _snapshot_age_seconds(captured_at: str | None) -> int | None:
     if captured.tzinfo is None:
         return None
     age = (
-        datetime.now(timezone.utc) - captured.astimezone(timezone.utc)
+        datetime.now(UTC) - captured.astimezone(UTC)
     ).total_seconds()
     return None if age < 0 else int(age)
 
@@ -722,7 +744,6 @@ def create_app(
     # served must not change under them between two requests to the same process.
     advantage_v2 = advantage_v2_report()
     advantage_v1_shell = (WEB_DIR / "advantage.html").read_text(encoding="utf-8")
-    advantage_v1_page = v1_page(advantage_v1_shell)
     advantage_v2_shell = (WEB_DIR / "advantage-v2.html").read_text(encoding="utf-8")
     advantage_v2_page = fill_v2_page(advantage_v2_shell, advantage_v2)
     advantage_v2_pages = {
@@ -752,7 +773,30 @@ def create_app(
     advantage_v3_families = {
         family["spec_id"]: family for family in advantage_v3.get("families", [])
     }
+    # The one-page summary spans all three reports, so it is filled here — after v3 is
+    # reconstructed — and into the shell every v1 view is rendered from, so the landing
+    # and each task view carry the same table rather than two transcriptions of it.
+    advantage_v1_shell = advantage_one_page(
+        advantage_v1_shell,
+        experiments=experiments,
+        advantage_v2=advantage_v2,
+        advantage_v3=advantage_v3,
+    )
+    advantage_v1_page = v1_page(advantage_v1_shell)
     stats_shell = (WEB_DIR / "stats.html").read_text(encoding="utf-8")
+    # The home page's counters follow the same one-object boundary the reports do: counted
+    # once here and pinned, so two readers of one process never see two different totals.
+    # `GET /api/marketplace/summary` recounts per request, because an agent asking for the
+    # current state should be given the current state rather than the startup one.
+    marketplace_services = all_records()
+    home_shell = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    home = home_page(
+        home_shell,
+        marketplace_summary(
+            store, v3_report=advantage_v3, services=marketplace_services
+        ),
+        listing_facts(store, marketplace_services),
+    )
     # Unset means no recipient exists to name in a challenge, so the priced tier is
     # off and only the bounded free tier remains. Read once here rather than per
     # request: the terms a caller is quoted must not change under it mid-session.
@@ -878,11 +922,28 @@ def create_app(
         started, used = hires[client_ip]
         hires[client_ip] = (started, max(used - 1, 0))
 
-    def _effective_admission(service_id: str) -> PaidStockAdmission:
+    def _resolve_admission(service_id: str) -> AdmissionResolution:
+        """All four admission facts and the artifact behind each, from durable state.
+
+        The v3 report is the process-pinned one and the experiments are the same objects
+        `/advantage` serves, so an admission decision and the evidence pages a reader
+        checks it against cannot be two different reconstructions. A process that could
+        not rebuild the v3 report passes `None`, which closes the paired limb with the
+        reason rather than failing the request.
+        """
         service = get_service(service_id)
         if service is None:
             raise KeyError(service_id)
-        return resolve_admission(service, store.latest_canary_run(service_id))
+        return resolve_admission(
+            service,
+            store.latest_canary_run(service_id),
+            store=store,
+            v3_report=advantage_v3 if advantage_v3_status == 200 else None,
+            v1_experiments=experiments,
+        )
+
+    def _effective_admission(service_id: str) -> PaidStockAdmission:
+        return _resolve_admission(service_id).admission
 
     def _canary_authorized(request: Request, service_id: str) -> tuple[bool, bool]:
         supplied = request.headers.get("x-docket-canary")
@@ -914,7 +975,7 @@ def create_app(
         unchanged, so the machine contract is untouched by the human one."""
         response.headers["Vary"] = "Accept"
         if _prefers_html(request):
-            return FileResponse(WEB_DIR / "index.html", headers={"Vary": "Accept"})
+            return HTMLResponse(home, headers={"Vary": "Accept"})
         return {
             "service": "docket",
             "description": (
@@ -1021,7 +1082,22 @@ def create_app(
                 "to read its recorded finding and run it.</p>"
             )
         )
-        return HTMLResponse(shell.replace("<!-- service-opening -->", opening))
+        # Server-rendered, so the way through to activation survives scripting being off —
+        # and absent when no service was named, because a button that activates nothing in
+        # particular is worse than no button. The id is a catalogue key rather than caller
+        # text, and `quote` with no safe set percent-encodes every byte that is significant
+        # in HTML, so the value reaches the attribute inert either way.
+        activate = (
+            '<a class="btn btn-primary" href="/activate?service='
+            f'{quote(record.service_id, safe="")}">Activate</a>'
+            if record is not None
+            else ""
+        )
+        return HTMLResponse(
+            shell.replace("<!-- service-opening -->", opening).replace(
+                "<!-- service-activate -->", activate
+            )
+        )
 
     @app.get("/advantage", include_in_schema=False)
     def advantage_page() -> HTMLResponse:
@@ -1086,14 +1162,24 @@ def create_app(
                 422,
                 detail={"code": "invalid_query_parameter", "message": str(exc)},
             ) from exc
-        admission = resolve_admission(service, history[0] if history else {})
+        # The same resolution `/services` and `/hire` read, so the canary page and the
+        # catalogue cannot disagree about which services are actually for sale.
+        resolution = resolve_admission(
+            service,
+            history[0] if history else {},
+            store=store,
+            v3_report=advantage_v3 if advantage_v3_status == 200 else None,
+            v1_experiments=experiments,
+        )
         return {
             "service_id": service_id,
             "admission_max_age_seconds": CANARY_MAX_AGE_SECONDS,
+            "paired_evidence_window_days": PAIRED_EVIDENCE_WINDOW_DAYS,
             "latest": history[0] if history else None,
             "history": history,
-            "admission": asdict(admission),
-            "paid_stock": admission.passes,
+            "admission": asdict(resolution.admission),
+            "admission_evidence": resolution.evidence,
+            "paid_stock": resolution.passes,
         }
 
     @app.get("/llms.txt", response_class=PlainTextResponse)
@@ -1354,7 +1440,7 @@ def create_app(
             ),
             coverage=_coverage(coverage_report(store, sid)),
             associated_services=[
-                _card(record, _effective_admission(record.service_id))
+                _card(record, _resolve_admission(record.service_id))
                 for record in all_records()
                 if record.agent_id is not None
                 and record.agent_id.lower() == agent["agent_id"].lower()
@@ -1438,7 +1524,7 @@ def create_app(
                 observation = probe_one(
                     client,
                     target,
-                    now=datetime.now(timezone.utc).isoformat(),
+                    now=datetime.now(UTC).isoformat(),
                 )
             Store(db_path).record_on_demand_liveness(
                 observation, requested_from_ip_hash=requested_from_ip_hash
@@ -1491,9 +1577,13 @@ def create_app(
     def categories() -> CategoryResponse:
         """BNB's four jobs, each with what it gets done and how many services stand in it.
 
-        A zero here is the honest answer and not a gap being papered over: Docket lists a
-        service where it runs the work and can show a recorded run behind it, and it will
-        not stock a shelf with registry agents whose job nothing on chain states.
+        A zero here is the honest answer and not a gap being papered over: this route
+        counts only services Docket runs the work for and can show a recorded run behind,
+        so a bare shelf here is a bare shelf of Docket's own stock. Third-party registry
+        agents carrying one of these four categories are a separate layer served at
+        /api/agents, with a capability_source and a verification level on every listing;
+        `EMPTY_CATEGORY` points a reader there rather than letting a zero read as "nobody
+        on BSC does this job".
         """
         listings = []
         for entry in CATEGORIES:
@@ -1523,7 +1613,7 @@ def create_app(
         records = all_records() if category is None else records_in(category)
         return ServicesResponse(
             services=[
-                _card(record, _effective_admission(record.service_id))
+                _card(record, _resolve_admission(record.service_id))
                 for record in records
             ],
             total=len(records),
@@ -1559,7 +1649,7 @@ def create_app(
             )
         agent_path, identity_note = _identity_link(record)
         return ServiceDetail(
-            **_card(record, _effective_admission(record.service_id)).model_dump(),
+            **_card(record, _resolve_admission(record.service_id)).model_dump(),
             registration_uri=record.registration_uri,
             input_schema=record.input_schema,
             limitations=record.limitations,
@@ -1586,9 +1676,9 @@ def create_app(
                     price_display=svc.price_display,
                     price_atomic=svc.price_atomic,
                     asset=svc.asset,
-                    paid_stock=(admission := _effective_admission(svc.id)).passes,
+                    paid_stock=(resolution := _resolve_admission(svc.id)).passes,
                     stock_status=svc.stock_status,
-                    admission=asdict(admission),
+                    admission=asdict(resolution.admission),
                 )
                 for svc in SERVICES.values()
             ]
@@ -1803,9 +1893,9 @@ def create_app(
                 "payment_record_incomplete",
                 "The stored payment timestamp is incomplete and cannot be reconciled.",
             )
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stale_before = now - timedelta(seconds=SETTLEMENT_RECONCILE_STALE_SECONDS)
-        if updated_at.astimezone(timezone.utc) > stale_before:
+        if updated_at.astimezone(UTC) > stale_before:
             return _error(
                 409,
                 "settlement_still_active",
@@ -2650,5 +2740,48 @@ def create_app(
     def favicon() -> FileResponse:
         return FileResponse(WEB_DIR / "favicon.svg", media_type="image/svg+xml")
 
+    app.include_router(summary_router(store, advantage_v3, marketplace_services))
+    app.include_router(status_router(store, canary_service_id=canary_service_id))
+    app.include_router(
+        marketplace_router(
+            MarketplaceContext(
+                db_path=db_path,
+                spend_probe=lambda peer: _spend_window(
+                    hires,
+                    peer,
+                    attempts=FREE_TIER_HIRES,
+                    window_seconds=FREE_TIER_WINDOW_S,
+                ),
+                probe_attempts=FREE_TIER_HIRES,
+                probe_window_seconds=FREE_TIER_WINDOW_S,
+            )
+        )
+    )
+    # The four activation surfaces. Kept out of the schema for the reason /research and
+    # /service are: these are pages a person reads, and the machine contract for what they
+    # do is the JSON API they call, not the shell that calls it.
+    @app.get("/activate", include_in_schema=False)
+    def activate_page() -> FileResponse:
+        """One service, priced, with its permissions and custody stated before anything is
+        signed. The step the site did not have between reading a record and buying a run."""
+        return FileResponse(WEB_DIR / "activate.html")
+
+    @app.get("/my-agents", include_in_schema=False)
+    def my_agents_page() -> FileResponse:
+        """What one wallet has activated, and the controls that stop it."""
+        return FileResponse(WEB_DIR / "my-agents.html")
+
+    @app.get("/search", include_in_schema=False)
+    def search_page() -> FileResponse:
+        """Docket's own stock and the registry it observes, in one search, each result
+        carrying the level Docket's evidence actually supports."""
+        return FileResponse(WEB_DIR / "search.html")
+
+    @app.get("/providers", include_in_schema=False)
+    def providers_page() -> FileResponse:
+        """The supply side: claim an identity you own on chain, then list it."""
+        return FileResponse(WEB_DIR / "providers.html")
+
+    app.include_router(activations_router(store, services=SERVICES, pay_to=pay_to))
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
     return app

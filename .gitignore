@@ -24,3 +24,9 @@ dist/
 # calibration session guard. One byte each, recreated on demand; never evidence.
 *.lock
 !uv.lock
+
+# Playwright's own output. The browser suite is source; its report, traces and installed
+# packages are not, and `node_modules/` above already covers tests/e2e/node_modules.
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+BUILD-REPORT.md

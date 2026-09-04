@@ -11,8 +11,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from docket.api import create_app
-from docket.api import routes
+from docket.api import create_app, routes
 from docket.identity.register import (
     CATEGORY_SERVICE_IDS,
     REGISTRATION_BASE_URL,
@@ -20,7 +19,6 @@ from docket.identity.register import (
 )
 from docket.liveness import OUTCOMES
 from docket.store import Store
-
 
 AGENT_ID = "56:0xreg:136384"
 AGENT = {
@@ -392,7 +390,8 @@ def test_w6_frontend_contract_is_runtime_driven_and_actionable():
         page.index(heading) for heading in headings
     )
     assert (
-        "Range Doctor holds no key, requests no approval, and has no code path that sends a transaction"
+        "Range Doctor holds no key, requests no approval, and has no code path that "
+        "sends a transaction"
         in page
     )
     assert 'href="/skill.md"' in page
@@ -1363,7 +1362,8 @@ if (!(history.indexOf("first observation") < history.indexOf("Owner decision: WA
       history.indexOf("Owner decision: WAIT") < history.indexOf("later observation"))) {
   throw new Error("record sequence changed");
 }
-for (const text of ["below range", "in range", "could not be parsed", "was truncated", "does not run verify_history"]) {
+for (const text of ["below range", "in range", "could not be parsed",
+                    "was truncated", "does not run verify_history"]) {
   if (!history.includes(text)) throw new Error(`record omitted ${text}`);
 }
 
@@ -1455,10 +1455,12 @@ for (const text of ["$126.78", "across 22 eligible pools", "8.30 days", "0/231",
     assert completed.returncode == 0, completed.stderr
 
 
-def test_navigation_names_public_case_file_destinations():
+def test_navigation_names_public_marketplace_destinations():
     index = Path("docket/api/web/index.html").read_text(encoding="utf-8")
 
-    assert 'href="#evidence">Case file</a>' in index
-    assert 'href="#services">Services</a>' in index
-    assert 'href="#experiments">Experiments</a>' in index
-    assert 'href="/advantage/v3.json">Raw data</a>' in index
+    assert 'href="/" aria-current="page">Explore</a>' in index
+    assert 'href="/search">Find agents</a>' in index
+    assert 'href="/my-agents">My agents</a>' in index
+    assert 'href="/providers">Providers</a>' in index
+    assert 'href="/advantage">Evidence</a>' in index
+    assert 'href="/llms.txt">API</a>' in index

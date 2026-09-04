@@ -29,9 +29,10 @@ from base64 import b64decode
 from binascii import Error as Base64Error
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from ...agents.venus.guard import E18
 from ...hire.receipts import canonical_hash
 
 ARMS = ("agent", "manual")
@@ -124,13 +125,13 @@ YIELD_SOURCE_URLS = {
     "pools": "https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top",
     "token_list": "https://tokens.pancakeswap.finance/pancakeswap-extended.json",
 }
-RANGE_CAPTURE_NOT_BEFORE = datetime(2026, 8, 21, 12, tzinfo=timezone.utc)
-YIELD_CAPTURE_NOT_BEFORE = datetime(2026, 8, 26, 12, tzinfo=timezone.utc)
+RANGE_CAPTURE_NOT_BEFORE = datetime(2026, 8, 21, 12, tzinfo=UTC)
+YIELD_CAPTURE_NOT_BEFORE = datetime(2026, 8, 26, 12, tzinfo=UTC)
 YIELD_CAPTURE_ATTEMPTS = tuple(
     YIELD_CAPTURE_NOT_BEFORE + timedelta(minutes=offset) for offset in range(3)
 )
 YIELD_ASSISTED_CAPTURE_ATTEMPTS = tuple(
-    datetime(2026, 9, 3, 12, tzinfo=timezone.utc) + timedelta(minutes=offset)
+    datetime(2026, 9, 3, 12, tzinfo=UTC) + timedelta(minutes=offset)
     for offset in range(3)
 )
 YIELD_PRIOR_STAGE_ONE_PROTOCOL_HASH = (
@@ -204,6 +205,90 @@ RANGE_SUCCESSOR_ARM_IDENTITIES = {
 DISTINCT_SUCCESSOR_SPEC_IDS = frozenset(
     {"v3-06-yield-router-assisted", "v3-07-range-doctor"}
 )
+# Families registered fresh: there is no unlocked draft to correct and no published
+# predecessor ledger to answer, so they carry neither record. Naming them is what keeps the
+# absence deliberate — without this set the constructor would demand a protocol_correction,
+# and the cheapest way to satisfy that demand is to invent one.
+NEW_FAMILY_SPEC_IDS = frozenset({"v3-08-yield-router", "v3-09-health-guard"})
+YIELD_V8_CAPTURE_ATTEMPTS = tuple(
+    datetime(2026, 9, 6, 12, tzinfo=UTC) + timedelta(minutes=offset)
+    for offset in range(3)
+)
+# v3-06 registers that its baseline is Codex; this family registers the opposite. Yield
+# Router's catalogue admission exposes no paid hire at registration, so the agent arm is
+# registered as a public-endpoint hire whose receipt is published as returned rather than as
+# a settled purchase this protocol cannot promise.
+YIELD_V8_ARM_IDENTITIES = {
+    "agent": {
+        "arm": "agent",
+        "authorization": "receipt_published_as_returned",
+        "display_name": "Deployed Yield Router",
+        "human": False,
+        "independent": False,
+        "kind": "public_endpoint_hire",
+        "settled_payment_assumed": False,
+    },
+    "manual": {
+        "arm": "manual",
+        "display_name": "Human operator",
+        "human": True,
+        "independent": False,
+        "kind": "human_operator",
+        "operator": "owner",
+    },
+}
+HEALTH_SERVICE_ID = "health-guard"
+# Venus Core Pool's Unitroller and the two markets the deployed Health Guard's registered
+# policy covers (`docket/hire/catalogue.py` VENUS_VUSDC/VENUS_VUSDT). The frame enumerates
+# borrowers of exactly these two markets, so the registration pins them rather than letting
+# a collector widen the population after the draw.
+HEALTH_COMPTROLLER = "0xfd36e2c2a6789db23113685031d7f16329158384"
+HEALTH_VTOKENS = (
+    "0xeca88125a5adbe82614ffc12d0db554e2e2867c8",
+    "0xfd5840cd36d94d7229439859c0112a4185bc0255",
+)
+# Venus VToken (a Compound v2 fork) declares
+# `event Borrow(address borrower, uint borrowAmount, uint accountBorrows, uint totalBorrows)`
+# with no indexed parameter, so the borrower is the first data word and never a topic. The
+# registration carries the signature and the topic; `venus_capture` is where the topic is
+# checked against the keccak of that exact signature, because this module has no keccak.
+HEALTH_BORROW_EVENT = "Borrow(address,uint256,uint256,uint256)"
+HEALTH_FRAME_VERSION = "health.venus-borrowers.v1"
+HEALTH_RPC_FAILURE_POLICY = (
+    "Each registered JSON-RPC call is made once against DOCKET_ARCHIVE_RPC. Any "
+    "transport, JSON-RPC, ABI, pinned-header or completeness failure aborts the frame "
+    "without substituting an endpoint or retrying a sampled call."
+)
+HEALTH_STATUSES = (
+    "borrowing_with_headroom",
+    "no_position",
+    "shortfall",
+    "supplied_no_borrow",
+    "unreadable",
+)
+HEALTH_STRATA = ("shortfall", "borrowing_with_headroom", "supplied_no_borrow")
+# `E18` is imported from `agents.venus.guard` rather than restated: it is the scale that
+# module divides in, and a health answer key that disagreed with it by one unit of 1e-18 USD
+# would be a key no seat and no service could pass.
+HEALTH_ARM_IDENTITIES = {
+    "agent": {
+        "arm": "agent",
+        "authorization": "receipt_published_as_returned",
+        "display_name": "Deployed Health Guard",
+        "human": False,
+        "independent": False,
+        "kind": "public_endpoint_hire",
+        "settled_payment_assumed": False,
+    },
+    "manual": {
+        "arm": "manual",
+        "display_name": "Human operator",
+        "human": True,
+        "independent": False,
+        "kind": "human_operator",
+        "operator": "owner",
+    },
+}
 WARDEN_AUTHORABLE_CLASSES = frozenset(
     {
         "DRAIN_ADDRESS",
@@ -244,6 +329,11 @@ def is_range_successor_family(spec: "PairedSpec") -> bool:
 def is_yield_family(spec: "PairedSpec") -> bool:
     """Whether a registered family uses the Yield Router service protocol."""
     return spec.execution_protocol.get("agent_service_id") == "yield-router"
+
+
+def is_health_family(spec: "PairedSpec") -> bool:
+    """Whether a registered family uses the Health Guard service protocol."""
+    return spec.execution_protocol.get("agent_service_id") == HEALTH_SERVICE_ID
 
 
 def _warden_policy_enabled(spec: "PairedSpec") -> bool:
@@ -596,8 +686,17 @@ class PairedSpec:
             raise ValueError(
                 "spec: a distinct successor cannot be a protocol correction"
             )
+        if self.spec_id in NEW_FAMILY_SPEC_IDS and (
+            self.protocol_correction is not None
+            or self.successor_provenance is not None
+            or self.pilot_provenance is not None
+        ):
+            raise ValueError(
+                "spec: a newly registered family answers no predecessor and corrects no "
+                "draft, so it carries none of the three provenance records"
+            )
         if (
-            self.spec_id not in DISTINCT_SUCCESSOR_SPEC_IDS
+            self.spec_id not in DISTINCT_SUCCESSOR_SPEC_IDS | NEW_FAMILY_SPEC_IDS
             and self.protocol_correction is None
         ):
             raise ValueError("spec: protocol_correction is required for this family")
@@ -628,6 +727,10 @@ class PairedSpec:
             _validate_range_successor_registration(self)
         if self.spec_id == "v3-06-yield-router-assisted":
             _validate_yield_successor_registration(self)
+        if self.spec_id == "v3-08-yield-router":
+            _validate_yield_v8_registration(self)
+        if is_health_family(self):
+            _validate_health_registration(self)
 
         # The nested dicts remain ordinary JSON-shaped objects for deterministic saving.
         # Cache what construction validated so a later write through ``spec.scoring`` or
@@ -1105,7 +1208,7 @@ def range_sample_indices(spec: PairedSpec, total_supply: int) -> list[dict]:
         preimage = (
             f"{spec.stage_one_protocol_hash}|56|{RANGE_POSITION_MANAGER}|"
             f"{frame['observation_block']}|{counter}"
-        ).encode("utf-8")
+        ).encode()
         index = int.from_bytes(hashlib.sha256(preimage).digest(), "big") % total_supply
         if index not in seen:
             rows.append(
@@ -1129,7 +1232,8 @@ def _range_source_frame(sources: list[dict], repo_root: Path, conflict: tuple):
     by_kind = {source.get("kind"): source for source in sources}
     if set(by_kind) != {"transfer_logs", "position_enumeration", "pool_truth"}:
         raise ValueError(
-            "spec: Range manifest sources must be transfer_logs, position_enumeration and pool_truth"
+            "spec: Range manifest sources must be transfer_logs, position_enumeration "
+            "and pool_truth"
         )
 
     transfer = _locked_json(
@@ -2384,7 +2488,7 @@ def range_selected_positions(spec: PairedSpec, positions: list[dict]) -> list[di
                     (
                         f"{spec.stage_one_protocol_hash}|56|{RANGE_POSITION_MANAGER}|"
                         f"{row['token_id']}|{stratum}"
-                    ).encode("utf-8")
+                    ).encode()
                 ).hexdigest(),
             )
         )
@@ -2617,7 +2721,12 @@ def _computed_calibration_truth(spec: PairedSpec | str, inputs: dict) -> dict | 
     if (
         is_yield_family(spec)
         if isinstance(spec, PairedSpec)
-        else spec_id in {"v3-02-yield-router", "v3-06-yield-router-assisted"}
+        else spec_id
+        in {
+            "v3-02-yield-router",
+            "v3-06-yield-router-assisted",
+            "v3-08-yield-router",
+        }
     ):
         if not isinstance(inputs, dict):
             raise ValueError("spec: Yield calibration input must be an object")
@@ -2711,7 +2820,134 @@ def _computed_calibration_truth(spec: PairedSpec | str, inputs: dict) -> dict | 
             "days_to_recover": days,
             "decision": decision,
         }
+    if (
+        is_health_family(spec)
+        if isinstance(spec, PairedSpec)
+        else spec_id == "v3-09-health-guard"
+    ):
+        return _health_calibration_truth(inputs)
     return None
+
+
+def _health_scaled(value, context: str) -> int:
+    """One 1e18-scaled Venus figure, carried as a decimal string exactly as Venus records.
+
+    `markets.MarketPosition.as_record` and `guard.assess` both stringify these, because a
+    1e18-scaled USD figure passes the range a JSON double can hold exactly and a reader
+    whose parser silently makes it a float gets a different number back. The same
+    convention is enforced here rather than accepting whichever shape an author typed.
+    """
+    if not isinstance(value, str) or re.fullmatch(r"0|[1-9][0-9]*", value) is None:
+        raise ValueError(
+            f"spec: {context} must be a non-negative decimal integer string in the 1e18 "
+            "scale Venus reports"
+        )
+    return int(value)
+
+
+def _health_market_totals(markets: list) -> tuple[int, int]:
+    """Weighted collateral and borrowed USD by `guard.assess`'s exact integer arithmetic."""
+    weighted = 0
+    borrowed = 0
+    for row in markets:
+        if not isinstance(row, dict):
+            raise ValueError("spec: every Health market row must be an object")
+        _required_fields(
+            row,
+            {
+                "vtoken",
+                "collateral_factor_mantissa",
+                "vtoken_balance",
+                "borrow_balance",
+                "exchange_rate_mantissa",
+                "underlying_price_mantissa",
+            },
+            "Health market row",
+        )
+        if (
+            not isinstance(row["vtoken"], str)
+            or ADDRESS.fullmatch(row["vtoken"]) is None
+            or row["vtoken"] != row["vtoken"].lower()
+        ):
+            raise ValueError("spec: Health vtoken is not a lowercase 20-byte address")
+        values = {
+            name: _health_scaled(row[name], f"Health {name}")
+            for name in (
+                "collateral_factor_mantissa",
+                "vtoken_balance",
+                "borrow_balance",
+                "exchange_rate_mantissa",
+                "underlying_price_mantissa",
+            )
+        }
+        supplied = values["vtoken_balance"] * values["exchange_rate_mantissa"] // E18
+        weighted += (
+            supplied
+            * values["underlying_price_mantissa"]
+            // E18
+            * values["collateral_factor_mantissa"]
+            // E18
+        )
+        borrowed += (
+            values["borrow_balance"] * values["underlying_price_mantissa"] // E18
+        )
+    return weighted, borrowed
+
+
+def _health_calibration_truth(inputs: dict) -> dict:
+    """The status, ratio and cross-check `guard.assess` derives, recomputed here.
+
+    Every figure stays an integer in the 1e18 scale Venus reports, and the ratio is emitted
+    as the decimal string `assess` emits. Nothing is converted to float: a ratio that
+    survives a round trip through a double is a different number from the one the guard
+    published, and a calibration key that disagreed with the service by one unit of 1e-18
+    would be an answer key nobody could pass.
+    """
+    if not isinstance(inputs, dict):
+        raise ValueError("spec: Health calibration input must be an object")
+    _required_fields(
+        inputs,
+        {"markets", "error_code", "liquidity_usd", "shortfall_usd", "complete"},
+        "Health calibration input",
+    )
+    if not isinstance(inputs["markets"], list):
+        raise ValueError("spec: Health calibration markets must be a list")
+    if not isinstance(inputs["complete"], bool):
+        raise ValueError("spec: Health calibration completeness must be a boolean")
+    if not isinstance(inputs["error_code"], int) or isinstance(
+        inputs["error_code"], bool
+    ):
+        raise ValueError("spec: Health calibration error_code must be an integer")
+    liquidity = _health_scaled(inputs["liquidity_usd"], "Health liquidity_usd")
+    shortfall = _health_scaled(inputs["shortfall_usd"], "Health shortfall_usd")
+    weighted, borrowed = _health_market_totals(inputs["markets"])
+    if not inputs["complete"]:
+        status = "unreadable"
+    elif not inputs["markets"] or not (weighted or borrowed):
+        status = "no_position"
+    elif not borrowed:
+        status = "supplied_no_borrow"
+    elif shortfall > 0:
+        status = "shortfall"
+    else:
+        status = "borrowing_with_headroom"
+    ratio = (
+        str(weighted * E18 // borrowed)
+        if status in ("shortfall", "borrowing_with_headroom")
+        else None
+    )
+    derived_headroom = weighted - borrowed
+    venus_headroom = liquidity - shortfall
+    return {
+        "status": status,
+        "weighted_collateral_usd": str(weighted),
+        "borrowed_usd": str(borrowed),
+        "collateral_ratio": ratio,
+        "derived_headroom_usd": str(derived_headroom),
+        "venus_headroom_usd": str(venus_headroom),
+        "difference_usd": str(abs(derived_headroom - venus_headroom)),
+        "exactly_equal": derived_headroom == venus_headroom,
+    }
 
 
 def _calibration_truth_matches(actual, expected) -> bool:
@@ -2881,6 +3117,16 @@ def _validate_evaluator_calibration(
         raise ValueError(
             "spec: Yield calibration must cover eligibility and exclusions"
         )
+    if is_health_family(spec):
+        statuses = {case["expected"]["status"] for case in shared_cases}
+        if (
+            not {"shortfall", "borrowing_with_headroom"} <= statuses
+            or len(statuses) < 3
+        ):
+            raise ValueError(
+                "spec: Health calibration must cover shortfall, headroom and at least "
+                "one state that has no ratio at all"
+            )
     if is_warden_family(spec) and {
         case["expected_hostile"] for case in shared_cases
     } != {True, False}:
@@ -3107,7 +3353,7 @@ def _utc_timestamp(value: str, context: str) -> datetime:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
         raise ValueError(f"spec: {context} is not an ISO timestamp") from exc
-    if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
+    if parsed.tzinfo is None or parsed.utcoffset() != UTC.utcoffset(parsed):
         raise ValueError(f"spec: {context} must be UTC")
     return parsed
 
@@ -3355,6 +3601,221 @@ def _validate_yield_successor_registration(spec: PairedSpec) -> None:
         raise ValueError("spec: Yield assisted successor provenance is invalid")
 
 
+def _validate_yield_v8_registration(spec: PairedSpec) -> None:
+    """The human-versus-agent Yield family: a new registration, not a successor."""
+    if not is_yield_family(spec):
+        raise ValueError("spec: v3-08 must use Yield Router")
+    if spec.inputs_ref != "docket/advantage/v3/inputs/08-yield-cases.json":
+        raise ValueError("spec: v3-08 inputs_ref is invalid")
+    if yield_capture_attempts(spec) != YIELD_V8_CAPTURE_ATTEMPTS:
+        raise ValueError("spec: v3-08 capture schedule is invalid")
+    if spec.execution_protocol.get("arm_identities") != YIELD_V8_ARM_IDENTITIES:
+        raise ValueError("spec: v3-08 arm identities are invalid")
+    lowered = spec.claim.lower()
+    if "human operator" not in lowered:
+        raise ValueError(
+            "spec: the v3-08 claim must say the manual arm is a human operator, because "
+            "the family it sits beside registered a Codex baseline and the two comparisons "
+            "do not mean the same thing"
+        )
+    if {arm: spec.arms[arm].get("display_name") for arm in ARMS} != {
+        "agent": "Deployed Yield Router",
+        "manual": "Human operator",
+    }:
+        raise ValueError("spec: v3-08 arm display names are invalid")
+
+
+def _health_frame(spec: PairedSpec) -> dict:
+    """The registered Venus borrower frame: block, markets, window and selection rule."""
+    frame = spec.case_selection.get("frame_definition")
+    if not isinstance(frame, dict):
+        raise ValueError("spec: Health family needs a frame_definition object")
+    _required_fields(
+        frame,
+        {
+            "version",
+            "chain_id",
+            "comptroller",
+            "vtokens",
+            "borrow_event",
+            "borrow_topic",
+            "borrower_data_word",
+            "enumeration_from_block",
+            "enumeration_to_block",
+            "enumeration_chunk_blocks",
+            "observation_block",
+            "observation_block_hash",
+            "observation_time",
+            "rpc_failure_policy",
+            "source_methods",
+            "selection_rule",
+            "strata",
+            "status_vocabulary",
+            "complete_required",
+            "block_pin_rule",
+            "block_pin_endpoints",
+        },
+        "Health frame definition",
+    )
+    source_methods = [
+        "eth_blockNumber",
+        "eth_getBlockByNumber",
+        "eth_getLogs",
+        "getAssetsIn",
+        "getAccountLiquidity",
+        "markets",
+        "oracle",
+        "getAccountSnapshot",
+        "getUnderlyingPrice",
+    ]
+    endpoints = frame["block_pin_endpoints"]
+    if (
+        frame["version"] != HEALTH_FRAME_VERSION
+        or frame["chain_id"] != 56
+        or str(frame["comptroller"]).lower() != HEALTH_COMPTROLLER
+        or [str(value).lower() for value in frame["vtokens"]] != list(HEALTH_VTOKENS)
+        or frame["borrow_event"] != HEALTH_BORROW_EVENT
+        or not isinstance(frame["borrow_topic"], str)
+        or re.fullmatch(r"0x[0-9a-f]{64}", frame["borrow_topic"]) is None
+        or frame["borrower_data_word"] != 0
+        or frame["source_methods"] != source_methods
+        or frame["rpc_failure_policy"] != HEALTH_RPC_FAILURE_POLICY
+        or frame["complete_required"] is not True
+        or sorted(frame["status_vocabulary"]) != sorted(HEALTH_STATUSES)
+        or not isinstance(endpoints, list)
+        or len(endpoints) < 2
+        or len(set(endpoints)) != len(endpoints)
+        or not all(
+            isinstance(endpoint, str) and endpoint.startswith("https://")
+            for endpoint in endpoints
+        )
+        or not str(frame["block_pin_rule"]).strip()
+    ):
+        raise ValueError("spec: Health frame definition is invalid")
+    for name in (
+        "enumeration_from_block",
+        "enumeration_to_block",
+        "enumeration_chunk_blocks",
+        "observation_block",
+    ):
+        if (
+            not isinstance(frame[name], int)
+            or isinstance(frame[name], bool)
+            or frame[name] <= 0
+        ):
+            raise ValueError(f"spec: Health frame {name} is invalid")
+    if (
+        frame["enumeration_from_block"] >= frame["enumeration_to_block"]
+        or frame["enumeration_to_block"] != frame["observation_block"]
+    ):
+        raise ValueError(
+            "spec: the Health enumeration window must end at the observation block, or "
+            "the frame would name borrowers the pinned state cannot describe"
+        )
+    if (
+        not isinstance(frame["observation_block_hash"], str)
+        or re.fullmatch(r"0x[0-9a-f]{64}", frame["observation_block_hash"]) is None
+    ):
+        raise ValueError("spec: Health observation block hash is invalid")
+    _utc_timestamp(frame["observation_time"], "Health observation time")
+    window = frame["enumeration_to_block"] - frame["enumeration_from_block"] + 1
+    if window % frame["enumeration_chunk_blocks"] != 0:
+        raise ValueError(
+            "spec: the Health enumeration window must divide exactly into its registered "
+            "chunk, or the last chunk is a size the registration never fixed"
+        )
+    if frame["selection_rule"] != {
+        "digest": "SHA-256",
+        "order": "ascending_digest",
+        "preimage": (
+            "UTF8(stage_one_protocol_hash || '|56|' || lowercase(comptroller) "
+            "|| '|' || lowercase(account) || '|' || stratum_name)"
+        ),
+        "take": "one_per_stratum",
+    }:
+        raise ValueError("spec: Health selection rule is invalid")
+    strata = frame["strata"]
+    if (
+        not isinstance(strata, list)
+        or [row.get("name") for row in strata if isinstance(row, dict)]
+        != list(HEALTH_STRATA)
+        or any(
+            set(row) != {"name", "definition"}
+            or not isinstance(row["definition"], str)
+            or not row["definition"].strip()
+            for row in strata
+        )
+    ):
+        raise ValueError("spec: Health strata are invalid")
+    return frame
+
+
+def _health_conflict_exclusion(spec: PairedSpec) -> set[str]:
+    """The experiment party's own wallets, checked against the ones this build knows.
+
+    Equality rather than a floor, for the reason `_range_conflict_exclusion` gives: a list
+    free to grow could delete an honest third party's Venus account from the draw on an
+    unfalsifiable claim, and a list free to shrink could draw Docket's own position into
+    Docket's own evidence.
+    """
+    exclusion = spec.case_selection.get("conflict_exclusion")
+    if not isinstance(exclusion, dict) or set(exclusion) != {
+        "wallets",
+        "excluded_reason",
+    }:
+        raise ValueError(
+            "spec: Health case_selection needs a conflict_exclusion with exactly "
+            "wallets and excluded_reason"
+        )
+    wallets = exclusion["wallets"]
+    if (
+        not isinstance(wallets, list)
+        or not wallets
+        or not all(
+            isinstance(wallet, str)
+            and wallet == wallet.lower()
+            and ADDRESS.fullmatch(wallet)
+            for wallet in wallets
+        )
+        or len(set(wallets)) != len(wallets)
+        or set(wallets) != RANGE_CONTROLLED_WALLETS
+    ):
+        raise ValueError(
+            "spec: Health conflict wallets do not match the wallets this build knows the "
+            "experiment party controls"
+        )
+    if exclusion["excluded_reason"] != RANGE_CONFLICT_REASON:
+        raise ValueError(
+            f"spec: Health conflict exclusions must be recorded as {RANGE_CONFLICT_REASON!r}"
+        )
+    return set(wallets)
+
+
+def _validate_health_registration(spec: PairedSpec) -> None:
+    """A Health family answers a pinned Venus block with a human on the other arm."""
+    if spec.category != "health factor":
+        raise ValueError("spec: a Health family is registered under health factor")
+    _health_conflict_exclusion(spec)
+    if spec.inputs_ref != "docket/advantage/v3/inputs/09-health-accounts.json":
+        raise ValueError("spec: Health inputs_ref is invalid")
+    _health_frame(spec)
+    lowered = spec.claim.lower()
+    if "human operator" not in lowered or "no health factor" not in lowered:
+        raise ValueError(
+            "spec: a Health claim must say the manual arm is a human operator and that "
+            "Venus publishes no health factor; the category name is the exact place a "
+            "reader would otherwise assume a published figure exists"
+        )
+    if spec.execution_protocol.get("arm_identities") != HEALTH_ARM_IDENTITIES:
+        raise ValueError("spec: Health arm identities are invalid")
+    contract = spec.execution_protocol.get("blocked_contract_rule")
+    if not isinstance(contract, str) or "observation block" not in contract:
+        raise ValueError(
+            "spec: a Health family must register what happens when the deployed service "
+            "cannot answer at the registered observation block"
+        )
+
+
 def _yield_number(row: dict, field: str) -> float:
     try:
         value = float(row[field])
@@ -3521,7 +3982,9 @@ def _validate_yield_inputs(
             "spec: Yield manifest does not partition every raw pool exactly once"
         )
     if len(included) < spec.n_planned:
-        raise ValueError("spec: Yield inputs have fewer than five eligible pools")
+        raise ValueError(
+            f"spec: Yield inputs have fewer than {spec.n_planned} eligible pools"
+        )
 
     source_ids = [str(row.get("id") or "").lower() for row in pool_rows]
     if any(ADDRESS.fullmatch(pool_id) is None for pool_id in source_ids):
@@ -3639,6 +4102,288 @@ def _validate_yield_inputs(
                     raise ValueError(f"spec: Yield case truth has incorrect {name}")
             elif actual != value:
                 raise ValueError(f"spec: Yield case truth has incorrect {name}")
+
+
+HEALTH_ACCOUNT_FIELDS = frozenset(
+    {
+        "account",
+        "entered_markets",
+        "error_code",
+        "liquidity_usd",
+        "shortfall_usd",
+        "oracle",
+        "complete",
+        "markets",
+        "status",
+        "weighted_collateral_usd",
+        "borrowed_usd",
+        "collateral_ratio",
+        "derived_headroom_usd",
+        "venus_headroom_usd",
+        "difference_usd",
+        "exactly_equal",
+    }
+)
+HEALTH_FRAME_FIELDS = frozenset(
+    {
+        "accounts",
+        "conflict_exclusions",
+        "borrow_event",
+        "borrow_topic",
+        "borrow_log_count",
+        "chain_id",
+        "complete",
+        "comptroller",
+        "enumeration_from_block",
+        "enumeration_to_block",
+        "observation_block",
+        "observation_block_hash",
+        "observation_time",
+        "rpc_call_accounting",
+        "vtokens",
+    }
+)
+
+
+def health_account_truth(account: dict) -> dict:
+    """Recompute one frame row's derived block from the raw Venus figures beside it."""
+    return _health_calibration_truth(account)
+
+
+def _health_stratum(account: dict) -> str | None:
+    status = account["status"]
+    return status if status in HEALTH_STRATA else None
+
+
+def health_selected_accounts(spec: PairedSpec, accounts: list[dict]) -> list[dict]:
+    """Select the registered lowest-hash account from each stratum, once."""
+    frame = _health_frame(spec)
+    comptroller = str(frame["comptroller"]).lower()
+    selected = []
+    for stratum in HEALTH_STRATA:
+        candidates = [row for row in accounts if _health_stratum(row) == stratum]
+        if not candidates:
+            raise ValueError(f"spec: Health stratum {stratum!r} is empty")
+        selected.append(
+            min(
+                candidates,
+                key=lambda row: hashlib.sha256(
+                    (
+                        f"{spec.stage_one_protocol_hash}|56|{comptroller}|"
+                        f"{row['account']}|{stratum}"
+                    ).encode()
+                ).hexdigest(),
+            )
+        )
+    return selected
+
+
+def _health_frame_source(spec: PairedSpec, source_refs, repo_root: Path):
+    """Reopen the frozen Venus frame and check every row against the registration."""
+    if (
+        not isinstance(source_refs, list)
+        or len(source_refs) != 1
+        or not isinstance(source_refs[0], dict)
+        or source_refs[0].get("kind") != "venus_frame"
+    ):
+        raise ValueError("spec: Health inputs need exactly one venus_frame source ref")
+    body = _locked_json(source_refs[0], repo_root, "Health frame source")
+    if not isinstance(body, dict) or set(body) != HEALTH_FRAME_FIELDS:
+        raise ValueError("spec: Health frame source does not carry its exact fields")
+    frame = _health_frame(spec)
+    if (
+        body["chain_id"] != frame["chain_id"]
+        or str(body["comptroller"]).lower() != str(frame["comptroller"]).lower()
+        or [str(value).lower() for value in body["vtokens"]] != list(HEALTH_VTOKENS)
+        or body["borrow_event"] != frame["borrow_event"]
+        or body["borrow_topic"] != frame["borrow_topic"]
+        or body["enumeration_from_block"] != frame["enumeration_from_block"]
+        or body["enumeration_to_block"] != frame["enumeration_to_block"]
+        or body["observation_block"] != frame["observation_block"]
+        or str(body["observation_block_hash"]).lower()
+        != frame["observation_block_hash"]
+        or body["observation_time"] != frame["observation_time"]
+        or body["complete"] is not True
+        or not isinstance(body["borrow_log_count"], int)
+        or isinstance(body["borrow_log_count"], bool)
+        or body["borrow_log_count"] <= 0
+        or not isinstance(body["accounts"], list)
+        or not body["accounts"]
+        or not isinstance(body["conflict_exclusions"], list)
+    ):
+        raise ValueError("spec: Health frame source contradicts its registration")
+    conflicted = _health_conflict_exclusion(spec)
+    exclusions = body["conflict_exclusions"]
+    if (
+        not all(
+            isinstance(value, str)
+            and ADDRESS.fullmatch(value) is not None
+            and value == value.lower()
+            for value in exclusions
+        )
+        or exclusions != sorted(set(exclusions))
+        or not set(exclusions) <= conflicted
+    ):
+        raise ValueError(
+            "spec: Health conflict exclusions are not a sorted subset of the registered "
+            "experiment-party wallets"
+        )
+    # The two registered vTokens bound where a borrower is *found*, not which markets the
+    # account still holds at the pinned block. Venus auto-enters a market on borrow and lets
+    # an account exit it once nothing is owed, so a row whose `getAssetsIn` names neither
+    # vToken — or names nothing at all — is a borrower who repaid and left inside the window.
+    # That is the history the enumeration rule exists to find, `case_selection.excluded` names
+    # no such condition, and the frame is first-write with no registered recovery. It carries
+    # no ratio and fills no stratum on its own merits; it is not refused.
+    seen = set()
+    for account in body["accounts"]:
+        if not isinstance(account, dict) or set(account) != HEALTH_ACCOUNT_FIELDS:
+            raise ValueError("spec: every Health frame row needs its exact fields")
+        address = account["account"]
+        if (
+            not isinstance(address, str)
+            or ADDRESS.fullmatch(address) is None
+            or address != address.lower()
+            or address in seen
+        ):
+            raise ValueError("spec: Health frame accounts are invalid or duplicated")
+        seen.add(address)
+        entered = account["entered_markets"]
+        if (
+            not isinstance(entered, list)
+            or not all(
+                isinstance(value, str)
+                and ADDRESS.fullmatch(value) is not None
+                and value == value.lower()
+                for value in entered
+            )
+            or len(set(entered)) != len(entered)
+        ):
+            raise ValueError("spec: Health entered markets are invalid")
+        if (
+            not isinstance(account["markets"], list)
+            or [
+                row.get("vtoken") for row in account["markets"] if isinstance(row, dict)
+            ]
+            != entered
+        ):
+            raise ValueError(
+                "spec: Health market rows must follow getAssetsIn exactly once each"
+            )
+        if address in conflicted:
+            raise ValueError(
+                "spec: an experiment-party wallet reached the Health frame; conflicts are "
+                "removed before any account state is read, not scored afterwards"
+            )
+        if (
+            not isinstance(account["oracle"], str)
+            or ADDRESS.fullmatch(account["oracle"]) is None
+        ):
+            raise ValueError("spec: Health oracle address is invalid")
+        derived = health_account_truth(account)
+        if {name: account[name] for name in derived} != derived:
+            raise ValueError(
+                "spec: a Health frame row's derived block contradicts the guard formula "
+                "applied to the raw figures beside it"
+            )
+    if body["rpc_call_accounting"] != _health_expected_accounting(
+        frame, body["accounts"]
+    ):
+        raise ValueError(
+            "spec: the Health frame's RPC call accounting is not what the registered "
+            "method implies for the rows it carries"
+        )
+    return body["accounts"], exclusions, frame
+
+
+def _health_expected_accounting(frame: dict, accounts: list) -> dict:
+    """The call count the registered method implies, recomputed from the frame itself.
+
+    The Range successor lock checks its collector this way and the Health one has to as
+    well: a frame is a claim about reads that happened, and a row assembled by hand or a
+    collector that quietly took an extra look would otherwise satisfy every structural rule.
+    Conflicted wallets are removed before any balance is read, so they consume nothing here.
+    """
+    window = frame["enumeration_to_block"] - frame["enumeration_from_block"] + 1
+    entered = [account["entered_markets"] for account in accounts]
+    distinct_vtokens = {vtoken for markets in entered for vtoken in markets}
+    counts = {
+        # Three header reads outside the enumeration: the head, the pinned block and the
+        # comptroller's oracle.
+        "eth_blockNumber": 1,
+        "eth_getBlockByNumber": 1,
+        "oracle": 1,
+        "eth_getLogs": window // frame["enumeration_chunk_blocks"],
+        "getAssetsIn": len(accounts),
+        "getAccountLiquidity": len(accounts),
+        "getAccountSnapshot": sum(len(markets) for markets in entered),
+        # Cached per vToken, not per account.
+        "markets": len(distinct_vtokens),
+        "getUnderlyingPrice": len(distinct_vtokens),
+    }
+    return counts | {"total": sum(counts.values())}
+
+
+def _validate_health_inputs(
+    spec: PairedSpec, body: dict, cases: list[dict], repo_root: Path
+) -> None:
+    manifest = body.get("selection_manifest")
+    if not isinstance(manifest, dict):
+        raise ValueError("spec: Health inputs need a selection_manifest")
+    _required_fields(
+        manifest,
+        {"eligible_accounts", "conflict_exclusions", "source_refs"},
+        "Health selection manifest",
+    )
+    source_refs = manifest["source_refs"]
+    accounts, conflict_exclusions, frame = _health_frame_source(
+        spec, source_refs, repo_root
+    )
+    expected_eligible = [
+        {
+            name: account[name]
+            for name in ("account", "status", "collateral_ratio", "exactly_equal")
+        }
+        for account in accounts
+    ]
+    if manifest["eligible_accounts"] != expected_eligible:
+        raise ValueError("spec: Health eligible accounts differ from the frozen frame")
+    if manifest["conflict_exclusions"] != conflict_exclusions:
+        raise ValueError(
+            "spec: Health conflict exclusions differ from the frozen frame"
+        )
+    selected = health_selected_accounts(spec, accounts)
+    if len(cases) != len(selected):
+        raise ValueError("spec: Health cases do not fill every stratum")
+    required = {
+        "case_id",
+        "selection_stratum",
+        "chain_id",
+        "comptroller",
+        "account",
+        "observation_block",
+        "observation_time",
+        "trigger_shortfall_usd",
+        "source_refs",
+        "truth",
+    }
+    for case, account in zip(cases, selected, strict=True):
+        _required_fields(case, required, "Health case")
+        stratum = _health_stratum(account)
+        if (
+            set(case) != required
+            or case["case_id"] != f"health-{stratum}-{account['account'][2:10]}"
+            or case["selection_stratum"] != stratum
+            or case["chain_id"] != 56
+            or str(case["comptroller"]).lower() != HEALTH_COMPTROLLER
+            or case["account"] != account["account"]
+            or case["observation_block"] != frame["observation_block"]
+            or case["observation_time"] != frame["observation_time"]
+            or case["trigger_shortfall_usd"] != E18
+            or case["source_refs"] != source_refs
+            or case["truth"] != health_account_truth(account)
+        ):
+            raise ValueError("spec: Health case contradicts its frozen frame")
 
 
 def _warden_vendor_classes(body: dict, repo_root: Path) -> set[str]:
@@ -3891,6 +4636,8 @@ INPUT_VALIDATORS = {
     "v3-05-range-doctor": _validate_range_successor_inputs,
     "v3-06-yield-router-assisted": _validate_yield_inputs,
     "v3-07-range-doctor": _validate_range_successor_inputs,
+    "v3-08-yield-router": _validate_yield_inputs,
+    "v3-09-health-guard": _validate_health_inputs,
 }
 
 

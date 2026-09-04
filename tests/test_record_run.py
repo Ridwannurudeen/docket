@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,7 +7,6 @@ import pytest
 
 from docket.advantage import record_run
 from docket.hire.receipts import canonical_hash
-
 
 RECORDED_RUNS = (
     Path(__file__).resolve().parents[1] / "docket" / "advantage" / "recorded_runs"
@@ -65,7 +64,7 @@ def _yield_result():
 
 
 def _clock():
-    return datetime(2026, 8, 22, 12, 0, tzinfo=timezone.utc)
+    return datetime(2026, 8, 22, 12, 0, tzinfo=UTC)
 
 
 def test_record_uses_the_catalogue_runner_and_writes_the_existing_record_shape(
@@ -265,7 +264,7 @@ def test_cli_parses_the_payload_and_calls_the_recorder(tmp_path, monkeypatch):
             "health-guard",
             {"wallet": "0x0000000000000000000000000000000000000001"},
             out,
-            timezone.utc,
+            UTC,
         )
     ]
 

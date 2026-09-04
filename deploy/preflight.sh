@@ -59,8 +59,12 @@ readonly -a UNIT_NAMES=(
     docket.service
     docket-canary.service
     docket-canary.timer
+    docket-jobs.service
+    docket-jobs.timer
     docket-lp-record.service
     docket-lp-record.timer
+    docket-probe.service
+    docket-probe.timer
     docket-refresh.service
     docket-refresh.timer
     docket-v3-capture.service
@@ -71,6 +75,8 @@ readonly -a UNIT_NAMES=(
     docket-v3-yield-v6-capture.timer
     docket-v3-range-v7-capture.service
     docket-v3-range-v7-capture.timer
+    docket-v3-yield-v8-capture.service
+    docket-v3-yield-v8-capture.timer
 )
 UNIT_FILES=()
 for name in "${UNIT_NAMES[@]}"; do

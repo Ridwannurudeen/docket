@@ -1,7 +1,7 @@
 import base64
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -19,8 +19,7 @@ from docket.hire.receipts import canonical_hash
 from docket.hire.x402 import B402_NETWORK, B402_RELAYER, EIP712_DOMAINS, verify_payment
 from docket.store import Store
 
-
-NOW = datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 15, 12, 0, tzinfo=UTC)
 BASE_URL = "https://docket.example"
 WALLET = "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"
 TOKEN_ID = 7_087_132

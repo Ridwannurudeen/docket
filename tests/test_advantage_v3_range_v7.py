@@ -1,12 +1,11 @@
 import json
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from docket.advantage.v3 import capture, range_capture
 from docket.advantage.v3 import spec as spec_module
-
 
 ROOT = spec_module.REPO_ROOT
 SPEC_PATH = ROOT / "docket/advantage/v3/specs/v3-07-range-doctor.json"
@@ -90,7 +89,7 @@ def test_v7_frame_is_pinned_before_its_pool_truth_and_the_capture_is_future_date
     )
     schedule = [slot.scheduled_at for slot in _capture_slots(spec)]
     assert schedule == [
-        datetime(2026, 9, 5, 12, minute, tzinfo=timezone.utc) for minute in range(3)
+        datetime(2026, 9, 5, 12, minute, tzinfo=UTC) for minute in range(3)
     ]
 
     changed = _constructor_record()

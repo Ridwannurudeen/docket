@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Docket status</title>
+    <meta
+      name="description"
+      content="What this Docket deployment is running, what its dependencies answered, and the tolerance each reading is judged against."
+    />
+    <link rel="stylesheet" href="/static/style.css?v=13" />
+  </head>
+  <body data-page="status">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/">Docket <span class="brand-sub">BSC / ERC-8004</span></a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/">Explore</a>
+          <a href="/search">Find agents</a>
+          <a href="/my-agents">My agents</a>
+          <a href="/providers">Providers</a>
+          <a href="/advantage">Evidence</a>
+          <a href="/llms.txt">API</a>
+        </nav>
+      </div>
+    </header>
+    <main id="main"><div class="wrap"><!-- status-content --></div></main>
+    <footer class="site-footer">
+      <div class="wrap">
+        <p class="footer-links">
+          <a href="/api/status">/api/status (JSON)</a>
+          <a href="/health">/health (JSON)</a>
+          <a href="/pancake">PancakeSwap</a>
+          <a href="/research">Browse agents</a>
+          <a href="/status">Status</a>
+          <a href="/llms.txt">/llms.txt</a>
+        </p>
+        <p>One reading is taken at most once a minute and served until it expires; the time above is
+          when these figures were observed, not when this page was requested.</p>
+      </div>
+    </footer>
+  </body>
+</html>

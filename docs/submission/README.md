@@ -1,22 +1,22 @@
 # Docket submission
 
-**Hire by evidence, not promises.** [Docket](https://docket.gudman.xyz/) is a BSC agent marketplace that puts the service, its runnable sample, its recorded work, and its limits on the same public path. The marketplace—not a portfolio of house agents—is the product: a visitor can browse the live directory, choose a job, inspect what the service returns, and activate a free sample without prior Agent Studio knowledge. [Open the marketplace](https://docket.gudman.xyz/).
+**Find BSC agents that actually work.** [Docket](https://docket.gudman.xyz/) is an evidence-backed BSC agent marketplace: a visitor starts from the job they need done, compares the agents that do it on the same fields, activates one with bounded permissions, and checks the result against the record Docket publishes for it. The marketplace—not a portfolio of house agents—is the product, and no step of that walk needs prior Agent Studio knowledge. Every listing answers the same questions, including the ones it has no answer for: a field with nothing behind it reads `not yet measured` rather than disappearing, and every counter on the home page is counted from the store at [/api/marketplace/summary](https://docket.gudman.xyz/api/marketplace/summary) rather than typed into the markup. [Open the marketplace](https://docket.gudman.xyz/).
 
 ## What a judge can do in 60 seconds
 
-1. Open the [marketplace](https://docket.gudman.xyz/) and choose one of the four job cards.
+1. Open the [marketplace](https://docket.gudman.xyz/), pick a job under **Explore**, and compare two listings on the same fields.
 2. Open [Keep LP earning](https://docket.gudman.xyz/service?id=range-doctor), read the inputs and limits, then click **Try the worked example**; this is a public sample and needs no wallet.
-3. Open the [paired report](https://docket.gudman.xyz/advantage) and inspect the question, both arms, elapsed time, cost note, actual output, and receipt for each recorded task.
+3. Open the [paired report](https://docket.gudman.xyz/advantage) and read the one-page summary at the top — every registered task and family, its arms, n, recorded times, costs, objective quality measure and state — then inspect the question, both arms, elapsed time, cost note, actual output, and receipt for each recorded task.
 4. Open [Live Stats](https://docket.gudman.xyz/stats) to see the current registry snapshot's capture time, sample denominator, population rule, endpoint attempts, and responses.
 
 For the shortest evidence-led tour, use [Judge start here](judge-start-here.md). For a recorded walkthrough, use the [three-minute demo script](demo-script.md).
 
 ## Four jobs, four concrete returns
 
-- **Rebalancing — Keep LP earning.** [Range Doctor](https://docket.gudman.xyz/services/range-doctor) reads a BSC wallet's PancakeSwap v3 position NFTs and returns each position's range state, the values used for that diagnosis, bounded fee-rate context, and conditional wait or recenter paths; it signs, approves, and moves nothing.
+- **Rebalancing — Keep LP earning.** [Range Keeper](https://docket.gudman.xyz/services/range-doctor) (service id `range-doctor`) reads a BSC wallet's PancakeSwap v3 position NFTs and returns each position's range state, the values used for that diagnosis, bounded fee-rate context, and conditional wait or recenter paths; it signs, approves, and moves nothing.
 - **Grid trading — Run a capped grid.** [Grid Operator](https://docket.gudman.xyz/services/grid-operator) returns deterministic PancakeSwap v2 levels, live router quotes, minimum outputs, calldata hashes, deadlines, gas ceilings, and slippage bounds; it has no signer or transaction submitter.
 - **Yield optimisation — Move idle liquidity.** [Yield Router](https://docket.gudman.xyz/services/yield-router) returns a reproducible PancakeSwap v3 pool universe, every inclusion and exclusion, gross and protocol-adjusted observed rates, and caller-cost break-even arithmetic; it can draft an unsigned swap leg but cannot submit it.
-- **Health factor — Protect a loan.** [Health Guard](https://docket.gudman.xyz/services/health-guard) returns Venus Core Pool liquidity and shortfall values, a disclosed collateral-ratio derivation, market-level inputs, and bounded repay or supply-collateral drafts when shortfall exists; no Venus execution path exists in this build.
+- **Health factor — Protect a loan.** [Health Shield](https://docket.gudman.xyz/services/health-guard) (service id `health-guard`) returns Venus Core Pool liquidity and shortfall values, a disclosed collateral-ratio derivation, market-level inputs, and bounded repay or supply-collateral drafts when shortfall exists; no Venus execution path exists in this build.
 
 The four labels above are Docket's declared job categories, not fields emitted by the BSC registry; the [category response](https://docket.gudman.xyz/categories) says so directly.
 

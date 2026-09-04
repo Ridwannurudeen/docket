@@ -22,11 +22,13 @@ import os
 import tempfile
 from pathlib import Path
 
+from ...hire.catalogue import GUARD_TRIGGER_USD
 from .calibration import assemble_evaluator_calibration, verify_calibration_capture
 from .spec import (
     REPO_ROOT,
-    PairedSpec,
     YIELD_SOURCE_URLS,
+    PairedSpec,
+    _health_frame_source,
     _range_successor_public_position,
     _range_successor_source_frame,
     _range_successor_stratum,
@@ -35,6 +37,9 @@ from .spec import (
     _validate_inputs,
     _yield_first_failed_gate,
     _yield_number,
+    health_account_truth,
+    health_selected_accounts,
+    is_health_family,
     is_range_successor_family,
     is_warden_family,
     lock_inputs,
@@ -157,6 +162,78 @@ def assemble_range_envelope(
             "candidate_wallets": sorted(wallets),
             "eligible_positions": [
                 _range_successor_public_position(position) for position in positions
+            ],
+            "conflict_exclusions": conflicts,
+            "source_refs": source_refs,
+        },
+        "cases": cases,
+        "calibration_set": {
+            "sha256": hashlib.sha256(calibration_set).hexdigest(),
+            "body_base64": base64.b64encode(calibration_set).decode("ascii"),
+        },
+        "evaluator_calibration": evaluator_calibration,
+    }
+    try:
+        verify_calibration_capture(spec, envelope, calibration_dir)
+        _validate_inputs(spec, _envelope_bytes(envelope), repo_root)
+    except ValueError as exc:
+        raise AssemblyRefused(str(exc)) from exc
+    return envelope
+
+
+def assemble_health_envelope(
+    spec: PairedSpec,
+    source_refs: list[dict],
+    *,
+    repo_root: Path,
+    calibration_dir: Path,
+    calibration_set: bytes,
+    evaluator_calibration: list[dict],
+) -> dict:
+    """Build Health inputs from one complete pinned Venus borrower frame.
+
+    Nothing here decides anything: the eligible manifest is the frame in its published
+    order, the cases are whatever the registered per-stratum selection hash lands on, and
+    every truth block is recomputed from the frame's own raw figures rather than copied out
+    of it.
+    """
+    if not is_health_family(spec):
+        raise AssemblyRefused("lock-health accepts only Health Guard families")
+    try:
+        accounts, conflicts, frame = _health_frame_source(spec, source_refs, repo_root)
+        selected = health_selected_accounts(spec, accounts)
+    except ValueError as exc:
+        raise AssemblyRefused(str(exc)) from exc
+    cases = [
+        {
+            "case_id": f"health-{account['status']}-{account['account'][2:10]}",
+            "selection_stratum": account["status"],
+            "chain_id": 56,
+            "comptroller": str(frame["comptroller"]).lower(),
+            "account": account["account"],
+            "observation_block": frame["observation_block"],
+            "observation_time": frame["observation_time"],
+            "trigger_shortfall_usd": GUARD_TRIGGER_USD,
+            "source_refs": source_refs,
+            "truth": health_account_truth(account),
+        }
+        for account in selected
+    ]
+    envelope = {
+        "spec_id": spec.spec_id,
+        "stage_one_protocol_hash": spec.stage_one_protocol_hash,
+        "selection_manifest": {
+            "eligible_accounts": [
+                {
+                    name: account[name]
+                    for name in (
+                        "account",
+                        "status",
+                        "collateral_ratio",
+                        "exactly_equal",
+                    )
+                }
+                for account in accounts
             ],
             "conflict_exclusions": conflicts,
             "source_refs": source_refs,
@@ -570,6 +647,72 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"locked {input_path} with inputs_sha256={locked.inputs_sha256}. "
             "Commit the frame, capture-bound pool truth, input and specification together."
+        )
+        return 0
+
+    if arguments and arguments[0] == "lock-health":
+        parser = argparse.ArgumentParser(
+            description="Assemble and lock the pinned Venus borrower family."
+        )
+        parser.add_argument("command")
+        parser.add_argument("spec", help="path to the Health specification JSON")
+        parser.add_argument("frame", help="path to the complete Venus borrower frame")
+        parser.add_argument("calibration_set", help="path to the eight-case key")
+        parser.add_argument(
+            "evaluator_calibration", help="both seats' calibration results JSON"
+        )
+        parser.add_argument(
+            "calibration_dir", help="directory holding both seat capture artifacts"
+        )
+        args = parser.parse_args(arguments)
+        try:
+            spec_path = Path(args.spec)
+            spec = load(spec_path, repo_root=REPO_ROOT)
+            source_refs = [
+                _range_source_ref(Path(args.frame), "venus_frame", REPO_ROOT)
+            ]
+            envelope = assemble_health_envelope(
+                spec,
+                source_refs,
+                repo_root=REPO_ROOT,
+                calibration_dir=Path(args.calibration_dir),
+                calibration_set=Path(args.calibration_set).read_bytes(),
+                evaluator_calibration=json.loads(
+                    Path(args.evaluator_calibration).read_text(encoding="utf-8")
+                ),
+            )
+            raw = _envelope_bytes(envelope)
+            _validate_inputs(spec, raw, REPO_ROOT)
+            input_path = Path(REPO_ROOT) / spec.inputs_ref
+            try:
+                write_envelope(spec, envelope, repo_root=REPO_ROOT)
+            except AssemblyRefused:
+                if not input_path.is_file() or input_path.read_bytes() != raw:
+                    raise
+            locked = lock_inputs(spec, repo_root=REPO_ROOT)
+            temporary_spec = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    dir=spec_path.parent,
+                    prefix=f".{spec_path.name}.",
+                    suffix=".tmp",
+                    delete=False,
+                ) as temporary:
+                    temporary_spec = Path(temporary.name)
+                    temporary.write(spec_path.read_bytes())
+                    temporary.flush()
+                    os.fsync(temporary.fileno())
+                save(locked, temporary_spec, repo_root=REPO_ROOT)
+                temporary_spec.replace(spec_path)
+            finally:
+                if temporary_spec is not None:
+                    temporary_spec.unlink(missing_ok=True)
+        except (AssemblyRefused, OSError, ValueError) as refusal:
+            print(f"assembly refused: {refusal}")
+            return 2
+        print(
+            f"locked {input_path} with inputs_sha256={locked.inputs_sha256}. "
+            "Commit the frame, input and specification together."
         )
         return 0
 

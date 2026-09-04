@@ -1,71 +1,98 @@
 # Three-minute Docket demo
 
+**Recording gate.** Record this only against the deployed integrated release — the
+activation pages, bounded sessions, marketplace search and the status page all live on the
+host being filmed; if any one of them is not serving, the recording does not start.
+Every figure that appears in the film is read off the page at the moment it is shown, so
+nothing in this script is a number to recite and no figure here can go stale into a video.
+
 Record at 1280×720 or higher from a cold browser with no wallet extension connected. Keep the address bar visible whenever changing pages so the public URL is part of the shot.
 
-## 0:00–0:45 — the PancakeSwap decision surface
+This is a successful journey, recorded in the order a visitor walks it: the promise, the comparison, the activation, the result, the four categories, the evidence, and the boundary. Describe what is on screen. Read every figure off the page at the moment it is shown rather than reciting one from this script — a number typed here goes stale, and a stale number in a recording cannot be corrected.
 
-**URL:** <https://docket.gudman.xyz/pancake>
-
-**Action:** Paste the URL and press Enter; do not click anything while **Live decision** loads, because this page issues the worked Range Doctor request when it opens. Scroll through **Fixed-window record**, **Economics**, **Conditional actions**, **Structural safety**, and **Decision impact**.
-
-**Say:** “This is Docket's controlled PancakeSwap position. The top result is a fresh read, and the public [LP record](https://docket.gudman.xyz/lp-record) has 13 observations plus the owner's August 24 `WAIT` decision. The decision links to its prior observation, and three later states link back to it. That proves record linkage, not causal improvement, realized return, or that Docket caused the choice. Range Doctor holds no key, requests no approval, and has no transaction-sending path, so the choice and execution stay with the owner.”
-
-**Point at:** the BSC block and observation time; the range-state rows; the fixed-notional and method labels; the post-hoc [v2](https://docket.gudman.xyz/advantage/v2.json) result in which protocol-fee correction produced `0/231` ordering changes across the frozen eligible-pool pairs.
-
-## 0:45–1:30 — find and activate a service
+## 0:00–0:20 — the promise
 
 **URL:** <https://docket.gudman.xyz/>
 
-**Clicks:** Click **Services** in the top navigation if coming from `/pancake`; under **Keep LP earning**, click **Run it free**; on the Range Doctor page, click **Try the worked example**.
+**Action:** Land on the marketplace. Do not scroll yet.
 
-**Say:** “The marketplace starts with four jobs. A visitor can choose the LP job, read the limits, and activate this public free-tier sample with no account, key, or wallet. The response carries input and output hashes, delivery time, and payment state. Separately, one owner-approved private canary settled exactly 0.50 USDT on August 30 and rejected the identical signed request as a replay. That proves one bounded payment lifecycle; it does not open public paid stock, which remains closed because the fresh paired benchmark is absent.”
+**Say:** “BSC has a very large ERC-8004 agent registry — read the current total off Docket's own snapshot page in a moment; at the time of recording, from `/stats`, it is the figure shown there. Almost none of those registrations tell you whether the agent works. Docket is the marketplace that answers that: find BSC agents that actually work, compare them on live performance, activate them with bounded permissions, and verify every result onchain.”
 
-**Point at:** the result headline, **What the chain says**, **Measured value**, and **Proof** on the [Range Doctor page](https://docket.gudman.xyz/service?id=range-doctor), then the eight passed legs in the [canary record](https://docket.gudman.xyz/canary).
+**Point at:** the headline, the two actions, and the counter rail beneath them. Say that every counter on that rail is counted from the store at page build and published at [/api/marketplace/summary](https://docket.gudman.xyz/api/marketplace/summary), including the counter that is zero.
 
-## 1:30–2:15 — show the report, including the losses
+## 0:20–0:50 — discover and compare
+
+**Clicks:** **Explore live agents**, then scroll through the four job cards into the listings grid.
+
+**Say:** “A visitor starts from the job, not from a taxonomy: keep an LP position in range, automate a trading grid, move liquidity to better yield, protect a lending position. Under them, every listing answers the same questions — the job, the BSC identity, the last successful verification, the successful-run count against its denominator, the measurement window, the price per completed run, the custody model, the permissions required, what can be cancelled or revoked, and the evidence link. Where there is nothing behind a field, it says `not yet measured` instead of disappearing. That is what makes two listings comparable.”
+
+**Point at:** the same field appearing in the same place on two different cards, and one `not yet measured` cell.
+
+## 0:50–1:35 — activate
+
+**URL:** <https://docket.gudman.xyz/activate?category=health_factor>
+
+**Clicks:** Open the health-factor job, choose the **Health Shield** listing (service id `health-guard`), and load the sample Venus position that the form offers.
+
+**Say:** “Activation is three steps: choose the job, set the limits, activate. Here the limits are the ones this job needs — the minimum collateral ratio the agent must defend, the rescue cap it may never exceed, and the expiry after which the permission lapses on its own. Those are stated before anything is signed. Then the wallet connects, and the authorization is written for an exact amount rather than an open approval.”
+
+**Point at:** each control as it is named; then the summary of what is about to be granted, immediately before the confirmation step.
+
+**Boundary to say out loud:** “Venus publishes no health factor. Docket derives the collateral ratio from the liquidity and shortfall the comptroller reports, and the page carries the formula, its inputs and its scales inline.”
+
+## 1:35–1:55 — the result and the control that follows it
+
+**Say:** “The run comes back with the job it did, and a receipt that binds the request hash and the result hash to a delivery record. The permission it was granted is shown as scope, not as a promise: what it may call, how much it may move, and when it expires. The same page carries pause and revoke, and revoking sweeps the session back to the owner.”
+
+**Point at:** the result headline, the receipt's input and output hashes, the permission scope block, and the pause and revoke controls.
+
+**Boundary to say out loud:** “A receipt binds hashes to a delivery record. It does not establish that the result is correct, and it does not establish that a reported settlement reached chain finality.”
+
+## 1:55–2:20 — the same journey in all four categories
+
+**URL:** <https://docket.gudman.xyz/categories>, then back to the listings grid.
+
+**Say:** “Every one of BNB's four categories has an agent behind it, and all four are activated through the same flow with the same shape of limits: Range Keeper for rebalancing, Grid Operator for grid trading, Yield Router for yield optimisation, Health Shield for health factor. Each listing prints its service id — `range-doctor`, `grid-operator`, `yield-router`, `health-guard` — beside the name, so the marketplace name and the API contract can always be joined. The category labels are Docket's own declarations about services Docket runs; the registry publishes no field that says what job an agent does, and the category response says so in its own body.”
+
+**Point at:** the four listings in the grid, then the declaration sentence in the JSON.
+
+## 2:20–2:40 — agent advantage, one page
 
 **URL:** <https://docket.gudman.xyz/advantage>
 
-**Clicks:** Click **Advantage report** in the top navigation; at the top of the report, click **v3**, then use Back once.
+**Say:** “At the top of the report, every registered task and family sits on one page: the arms it ran, how many, the times and costs its records carry, its objective quality measure, and its state. Three words do the work a blank cell cannot — `unscored` means the required scoring artifacts are absent, `not run` means no attempt became terminal, and `not recorded` means the protocol registered no such measure. Every value is read from the committed artifacts.”
 
-**Say:** “The original report has three tasks, each run once with the service and once by hand, with both outputs attached. It includes the single-task security loss: manual reading of the frozen payload found four hostile vectors and Warden's layers identified one. `v3-04-warden-security` finished all 24 primaries, with 23 successes and one manual input-format failure, but it is `complete_unscored`: seat B returned no first scoring response and the registered rule forbids a retry or substitute. The frozen-label formulas put manual recall at 0.75 and Warden at 0.50, with three Warden critical failures. Missing rubric medians mean the machinery published no falsifier verdict.”
+**Point at:** one row whose state is `complete_unscored`, one row whose measures read `not run`, and the caption naming which report each table comes from.
 
-**Point at:** the question, both arms, time, cost note, output hashes, and full output in the [v1 report](https://docket.gudman.xyz/advantage.json); then `complete_unscored`, the exact 24/24/24 ledger progress, outcomes, and `score_sheets_missing` in the [v3 report](https://docket.gudman.xyz/advantage/v3.json).
+## 2:40–3:00 — the trust moat
 
-## 2:15–2:45 — show the marketplace's live registry layer
+**Say:** “Five things stand behind a listing here. An ERC-8004 identity on BSC that anyone can resolve. Endpoint verification, recorded with the time it was last observed. A payment receipt whose hashes a buyer can recompute. Evidence provenance — every figure carries its numerator, denominator, window and method. And an adverse-results archive: the security comparison where the human arm beat ours is on the same site, at the same level of detail as everything else, because a marketplace that published only its flattering results would be publishing a verdict.”
 
-**URL:** <https://docket.gudman.xyz/stats>
+**Then open:** <https://docket.gudman.xyz/registrations/range-doctor.json> and, briefly, the adverse case on the home page.
 
-**Action:** Paste the URL and press Enter; point at the capture timestamp and age before reading any count.
+**Say:** “This is the published token URI for `range-doctor`, the service behind Range Keeper: BSC ERC-8004 agent 311253. Grid, Yield, and Health are agents 311255, 311257, and 311259; all four were minted on August 28 and the recorded owner is the registration wallet. Registration is not endorsement, not paid stock, and not evidence that a service produced a result. Warden remains unbound.” [The exact blocks and transactions are committed here.](../erc8004-category-identities.json)
 
-**Say:** “This is not a hand-typed total. The page states the live snapshot's capture time, population rule, sampled denominator, registry total, and endpoint-probe method. The snapshot refresh job runs every six hours, so the age on screen is the number to use.” [The timer and promotion method are recorded here.](../operational-evidence.md#the-registry-snapshot-is-no-longer-stale-and-it-moved-without-a-restart)
-
-**Then open:** <https://docket.gudman.xyz/research>
-
-**Say:** “The registry browser exposes the larger BSC population separately from the four Docket-run job cards; the category assignments are Docket declarations, not registry fields.”
-
-## 2:45–3:00 — finish on identity and its boundary
-
-**URL:** <https://docket.gudman.xyz/registrations/range-doctor.json>
-
-**Action:** Paste the URL and press Enter.
-
-**Say:** “This is the published token URI for Range Doctor, BSC ERC-8004 agent 311253. Grid, Yield, and Health are agents 311255, 311257, and 311259; all four were minted on August 28 and the recorded owner is the registration wallet. This proves registration, not endorsement, paid stock, or that any service produced a result. Warden remains unbound.” [The exact blocks and transactions are committed here.](../erc8004-category-identities.json)
-
-Finish on: “Docket makes what exists—and what does not—clickable.”
+Finish on: “Docket makes what exists — and what does not — clickable.”
 
 ## Slow-read fallback
 
-If the live Range Doctor request has not returned after 12 seconds, say: “The live chain read is still pending, so I am switching to the stored public evidence rather than narrating a value that has not arrived.” Then open, in order:
+If a live chain read has not returned after 12 seconds, say: “The live chain read is still pending, so I am switching to the stored public evidence rather than narrating a value that has not arrived.” Then open, in order:
 
-1. <https://docket.gudman.xyz/lp-record> — dated controlled-position observations.
-2. <https://docket.gudman.xyz/advantage/v2.json> — the v2 artifact containing the frozen, post-hoc decision-impact arithmetic.
-3. <https://docket.gudman.xyz/advantage.json> — the three completed paired tasks and actual outputs.
+1. <https://docket.gudman.xyz/api/marketplace/summary> — the counters behind the rail, recounted per request.
+2. <https://docket.gudman.xyz/services> — every catalogue service with its admission limbs and `paid_stock` state.
+3. <https://docket.gudman.xyz/advantage/v2.json> — the v2 artifact containing the frozen, post-hoc decision-impact arithmetic.
+4. <https://docket.gudman.xyz/advantage.json> — the three completed paired tasks and actual outputs.
 
-Return to <https://docket.gudman.xyz/pancake> only if the live result has arrived; do not claim that a pending or failed read succeeded.
+Return to the activation flow only if the live result has arrived; do not claim that a pending or failed read succeeded.
+
+## What must not be said
+
+- Do not describe any service as available to buy. At the 2026-09-04 observation this script is based on, `cold_canary` is false for all six services, so all six remain `paid_stock=false` even where fresh paired evidence is true, and the listings say so. One owner-approved Range Doctor canary settled 0.50 USDT on August 30 and the identical signed request was then rejected as a replay; that private bootstrap opened no public inventory, and the counter rail keeps the two apart.
+- Do not read a registry total from memory. It is read off `/stats` at the moment it is shown, and cited as the figure `/stats` reported at the time of recording.
+- Do not call `v3-04-warden-security` a performance result. It is `complete_unscored`: all 24 primaries became terminal, 23 succeeded, manual `w4-ho-01` failed, a named scoring seat returned no first response, and the registered rule forbids a retry or a substitute.
 
 ## Thirty-second version
 
-- **0:00–0:12:** Open <https://docket.gudman.xyz/pancake>. Say: “A fresh, read-only PancakeSwap position diagnosis sits above a public dated history. Its August 24 `WAIT` decision links one prior and three later observations; that proves linkage, not that Docket caused or improved the choice.”
-- **0:12–0:22:** Open <https://docket.gudman.xyz/advantage>. Say: “Three completed single-task comparisons expose both arms and actual outputs, including Warden's layers finding one of four vectors identified by manual reading. `v3-04-warden-security` is `complete_unscored`: all 24 primaries ended, but seat B returned no scoring response; manual recall was 0.75 versus Warden's 0.50, with three Warden critical failures.”
-- **0:22–0:30:** Open <https://docket.gudman.xyz/stats>. Say: “The live registry layer publishes its timestamp, sample denominator, population rule, and probe method. Hire by evidence, not promises.”
+- **0:00–0:10:** Open <https://docket.gudman.xyz/>. Say: “Find BSC agents that actually work. Every listing answers the same ten questions, and every counter on this rail is counted from the store rather than typed.”
+- **0:10–0:22:** Open the health-factor activation. Say: “Choose the job, set the limits — minimum collateral ratio, rescue cap, expiry — then activate. The authorization is for an exact amount, and the permission can be paused and revoked.”
+- **0:22–0:30:** Open <https://docket.gudman.xyz/advantage>. Say: “Every registered task and family on one page, with `unscored` and `not run` distinguished from a blank. Including the comparison our own security agent lost. Hire by evidence, not promises.”

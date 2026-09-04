@@ -252,6 +252,23 @@ def test_a_payment_table_predating_operator_recovery_is_migrated(tmp_path: Path)
     assert "operator_recovered_at" in columns
 
 
+def test_an_activation_table_predating_revisions_is_migrated(tmp_path: Path):
+    path = tmp_path / "legacy-activations.sqlite3"
+    legacy_schema = SCHEMA.replace(
+        "    expires_at TEXT,\n    revision INTEGER NOT NULL DEFAULT 0\n",
+        "    expires_at TEXT\n",
+    )
+    assert legacy_schema != SCHEMA
+    with sqlite3.connect(path) as conn:
+        conn.executescript(legacy_schema)
+
+    Store(path)
+
+    with sqlite3.connect(path) as conn:
+        columns = {row[1]: row for row in conn.execute("PRAGMA table_info(activations)")}
+    assert columns["revision"][4] == "0"
+
+
 def test_concurrent_store_initialization_serializes_a_legacy_payment_migration(
     tmp_path: Path, monkeypatch
 ):

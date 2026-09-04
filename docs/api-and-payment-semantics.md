@@ -107,7 +107,8 @@ latest canary run controls the `cold_canary` limb: only `passed` with a UTC
 `finished_at` no more than 36 hours old opens it. An absent, running, failed,
 `not_yet_exercised`, future-dated, or stale latest run closes it. `GET /canary` exposes
 the 129600-second limit, latest run, bounded newest-first history, the resulting four
-facts, and `paid_stock`; history starts empty. It is false for all six services now.
+facts, and `paid_stock`; history starts empty. At the 2026-09-04 observation recorded
+here, `cold_canary=false` for all six services, so all six remain `paid_stock=false`.
 Every durable run names its target, start and finish time, verdict, and structured checks;
 each check records the leg, what was checked, its status, what was observed, and the
 evidence for the status. Closing the gate removes Pay and hire but leaves the free
@@ -116,12 +117,15 @@ The 2026-08-30 owner-approved Range Doctor canary is run 18. All eight legs pass
 including one exact 0.50 USDT settlement, proof binding, and rejection of the identical
 signed request with `409 authorization_replay`. The post-canary source records
 `true_settlement=true` and `decision_grade_presenter=true`; the durable run makes
-`cold_canary=true` only while it remains fresh. `fresh_paired_benchmark` remains false, so
-Range Doctor and the other five services remain `paid_stock=false`. That source was
-deployed on 2026-09-02 as release `4a632c0`, so production now serves Range Doctor's
-`true_settlement=true` limb. The canary timer remains disabled, so no run is fresh and
-`cold_canary=false`; with `fresh_paired_benchmark=false` as well, paid stock stays closed
-for all six services.
+`cold_canary=true` only while it remains fresh. `fresh_paired_benchmark` is derived on
+every decision from the newest terminal v3 family or complete v1 pair for that service,
+provided its artifact timestamp is inside the disclosed 30-day window. At 2026-09-04
+12:00 UTC, the committed artifacts make that limb true for Range Doctor and SOLVENT until
+September 7 and for Warden until September 26; it is false for Grid Operator, Yield Router,
+and Health Guard. The source deployed on 2026-09-02 as release `4a632c0` serves Range
+Doctor's `true_settlement=true` limb. The canary timer remains disabled and no service has
+a fresh passed run, so `cold_canary=false` for all six and therefore every service remains
+`paid_stock=false`, regardless of its paired-benchmark value.
 The shared catalogue term is 0.50 USDT, represented as
 `500000000000000000` atomic units of token
 `0x55d398326f99059fF775485246999027B3197955`; the token reports 18 decimals on BSC

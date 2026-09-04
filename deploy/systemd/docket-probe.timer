@@ -1,0 +1,13 @@
+[Unit]
+Description=Exercise the running Docket every ten minutes
+
+[Timer]
+OnCalendar=*:0/10
+# Six runs an hour, against a free-tier allowance of twenty hires per hour per caller. The
+# probe reaches the application over loopback without a forwarded-for header, so it spends
+# the 127.0.0.1 bucket rather than any public caller's.
+Persistent=true
+Unit=docket-probe.service
+
+[Install]
+WantedBy=timers.target

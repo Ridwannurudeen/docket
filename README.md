@@ -1,66 +1,137 @@
 # Docket
 
-**Hire by evidence, not promises.**
+**Find BSC agents that actually work.**
 
-Docket is an evidence-first BSC agent marketplace: browse jobs, inspect runnable samples
-and recorded work, and run bounded services without giving Docket a signer. It publishes
-measurements, inputs, limitations, and receipts, then leaves the decision to the reader.
+Docket is an evidence-backed BSC agent marketplace: compare agents on live performance,
+activate them with bounded permissions, and verify every result onchain. Every figure it
+publishes carries its numerator, denominator, observation window and method, and an
+absent result is named rather than filled in.
 
-## What a judge can do in 60 seconds
+## Four jobs, four agents
 
-1. Open the [marketplace](https://docket.gudman.xyz/) and choose **Keep LP earning**.
-2. On the [Range Doctor page](https://docket.gudman.xyz/service?id=range-doctor), click
-   **Try the worked example** to run the public sample without a wallet.
-3. Inspect the [paired report](https://docket.gudman.xyz/advantage) and the raw
-   [registry snapshot](https://docket.gudman.xyz/stats), where each figure carries its
-   observation boundary.
+| Category | Service | What it does now | Custody | Activation route |
+|---|---|---|---|---|
+| Rebalancing — keep an LP position in range | Range Keeper (`range-doctor`) · BSC ERC-8004 agent 311253 | Reads a wallet's PancakeSwap v3 positions, states where the tick sits in each range, and prepares the wait and recenter routes with the figures behind them | Self-custodial by default: Docket holds no key to your wallet. An optional bounded session you fund yourself is scoped by contract, function and token allowlists, per-action and total caps and an expiry, and is revocable at any time with a sweep back to you. The position NFT never transfers to Docket | `/activate?category=rebalancing` |
+| Grid trading — run a capped grid | Grid Operator (`grid-operator`) · BSC ERC-8004 agent 311255 | Places levels inside a price band with live router quotes, minimum outputs, deadlines, gas ceilings and slippage bounds; levels fire bounded swaps from the session, and the grid can be paused, cancelled or revoked | Self-custodial by default: Docket holds no key to your wallet. An optional bounded session you fund yourself is scoped by contract, function and token allowlists, per-action and total caps and an expiry, and is revocable at any time with a sweep back to you. Nothing leaves your wallet except the amount you fund the session with | `/activate?category=grid_trading` |
+| Yield optimisation — move idle liquidity | Yield Router (`yield-router`) · BSC ERC-8004 agent 311257 | Compares a reproducible pool universe on gross and protocol-adjusted rates, publishes every inclusion and exclusion, computes payback against the declared switching cost, and prepares the complete route: remove, swap, approve exact, add | Self-custodial by default: Docket holds no key to your wallet. An optional bounded session you fund yourself is scoped by contract, function and token allowlists, per-action and total caps and an expiry, and is revocable at any time with a sweep back to you. Approvals are written for an exact amount, never unlimited | `/activate?category=yield_optimisation` |
+| Health factor — protect a loan | Health Shield (`health-guard`) · BSC ERC-8004 agent 311259 | Reads a Venus Core Pool account, derives the collateral ratio from its stated inputs, and defends a minimum ratio with bounded repay or supply-collateral actions inside a rescue cap | Self-custodial by default: Docket holds no key to your wallet. An optional bounded session you fund yourself is scoped by contract, function and token allowlists, per-action and total caps and an expiry, and is revocable at any time with a sweep back to you. The borrower account never transfers to Docket | `/activate?category=health_factor` |
+
+Range Keeper and Health Shield are the marketplace names for the services whose ids are
+`range-doctor` and `health-guard`. The service ids never move, and the API, the
+registration documents and every evidence record below keep the names those services were
+registered and measured under.
+
+The category labels are Docket's own declarations about services Docket runs; the BSC
+registry publishes no field that says what job an agent does, and the
+[category response](https://docket.gudman.xyz/categories) says so directly. A
+registration is not endorsement, evidence of paid stock, or evidence that a service
+produced a result. `/activate` is the browser flow those routes open and the bounded
+session is what it grants; **what runs at this commit** is the free-tier sample on every
+service page — for example
+[Range Keeper](https://docket.gudman.xyz/service?id=range-doctor) — and
+`POST /hire/<service_id>` for an agent that has never seen the site. "What is not true
+yet", below, states exactly which parts of the row above are still being built.
+
+## Sixty seconds
+
+1. Open the [marketplace](https://docket.gudman.xyz/) and pick a job from **Explore**;
+   each listing answers the same questions, including the ones it has no answer for.
+2. On the [Range Keeper page](https://docket.gudman.xyz/service?id=range-doctor), click
+   **Try the worked example** to run the public sample with no account, key or wallet.
+3. Read the counters that framed the listing at
+   [/api/marketplace/summary](https://docket.gudman.xyz/api/marketplace/summary), and the
+   [paired report](https://docket.gudman.xyz/advantage) behind them, where every figure
+   carries its observation boundary.
 
 The longer evidence-led route is in [Judge start here](docs/submission/judge-start-here.md).
 
-## What is not true yet
+## Evidence
 
-A registered claim that fails and says so is the result the v3 report was built to be able
-to publish. It fixes the comparison rules before seeing the exact cases, then keeps the run
-visible even when the result is adverse or scoring cannot finish.
+### Measured decision impact
 
-**The agent did not beat the human here.**
+**$126.78 median annual overstatement at $10k notional (n=22) and payback arriving a
+median 8.30 days later than gross implies.** Across 231 candidate moves in the frozen v2
+corpus, ranking reversals were 0/231; the median 49.3% gross-to-net fee-rate overstatement
+is secondary. These are post-hoc measurements on one frozen daily snapshot, not realized
+returns or a forecast.
 
-V3 vocabulary used below: an **arm** is one side of the agent-versus-human comparison; a
-**primary** is one scheduled attempt on one case by one arm, with no scored retry; a **seat**
-is a fixed model evaluator of anonymised outputs; the **input lock** fixes the exact cases and
-their hashes; a **frozen label** is a hostile/benign answer fixed before evaluation; and a
-**falsifier** is a condition written in advance that would refute the bounded claim.
-`complete_unscored` means every scheduled attempt ended but required scoring artifacts are
-absent. `superseded_before_input_lock` means a later registration replaced the family before
-exact inputs were locked, so neither arm ran.
+One 2026 [preprint measuring BSC ERC-8004 activity](https://arxiv.org/abs/2606.26028)
+reports that 4% of registrations expose a live endpoint, 59.2% of reviewers show
+coordinated Sybil behaviour, and 77.9% of agents with feedback retain no valid feedback
+after Sybil filtering; those network-wide results motivate scrutiny but do not establish
+Docket's performance. A separate 2026
+[preprint on Ethereum ERC-8004 activity](https://arxiv.org/abs/2606.12128) describes a
+registration-heavy, operationally shallow ecosystem; its network and sample differ from
+Docket's BSC snapshot.
 
-- No service is in paid stock. One owner-approved Range Doctor canary settled exactly
-  0.50 USDT on 2026-08-30 and rejected the identical signed request as a replay; that
-  private bootstrap did not open public paid inventory.
-- The four category services now have BSC ERC-8004 registrations, but registration is
-  not endorsement, evidence of paid stock, or evidence that a service produced a result;
-  `warden-scan` remains unbound.
-- V3 fixed its questions, input locking, arm order, clocks, failure treatment, scoring
-  process, and falsifier before the exact cases were run. It then ran 12 planned pairs:
-  all 24 primaries became terminal, 23 succeeded, and manual `w4-ho-01` failed with
-  `invoke_error` / `JSONDecodeError`. A named scoring seat returned no first response;
-  retry and substitution are forbidden, so rubric quality is permanently unscored.
-  Frozen-label formulas put Warden recall at 4/8 (0.50) versus manual 6/8 (0.75) and
-  record three Warden critical failures. `v3-04-warden-security` is therefore
-  `complete_unscored`, not a scored performance result. At the committed-artifact observation
-  on 2026-08-29, the committed v3 artifacts contain 7 families: `v3-02-yield-router` is
-  `abandoned_after_failed_primary`; `v3-04-warden-security` is `complete_unscored`;
-  `v3-05-range-doctor` is `locked_not_run`; `v3-06-yield-router-assisted` and
-  `v3-07-range-doctor` are
-  `registered_waiting_for_inputs`; `v3-01-range-doctor` and `v3-03-warden-security` are
-  `superseded_before_input_lock`.
-- The controlled LP record links an Aug 24 `WAIT` decision to one prior and three later
-  observations, but it proves neither causal improvement nor realized return.
+The first-party planner skills shown in
+[PancakeSwap's execution model](https://github.com/pancakeswap/pancakeswap-ai) stop at
+generated deep links, the same boundary Range Doctor keeps. On 2026-08-22, a read-only
+`_meta { block { number timestamp } hasIndexingErrors }` query sent by GraphQL POST to the
+PancakeSwap BSC V3 subgraph endpoint (`https://thegraph.pancakeswap.com/exchange-v3-bsc`;
+see PancakeSwap's [official Subgraph documentation](https://developer.pancakeswap.finance/apis/subgraph))
+returned block 95193979, timestamp 1777389823 (2026-04-28T15:23:43Z), and
+`hasIndexingErrors: true`. Docket instead reads
+[PancakeSwap's live Explorer API](https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top)
+and SHA-pins the response bytes.
 
-These limits are visible in the live service, v3, and LP-record responses; the
-[submission package](docs/submission/README.md) keeps the same boundary.
+### Current service state
 
-## Submission claims
+| Service | Category | Stock state | On-chain identity | What runs now |
+|---|---|---|---|---|
+| Range Doctor | Rebalancing | Candidate | BSC ERC-8004 agent 311253 | Read-only PancakeSwap v3 diagnosis |
+| Grid Operator | Grid trading | Preview | BSC ERC-8004 agent 311255 | Deterministic plan and transaction preview |
+| Yield Router | Yield optimisation | Preview | BSC ERC-8004 agent 311257 | Bounded PancakeSwap pool comparison and optional action draft |
+| Health Guard | Health factor | Preview | BSC ERC-8004 agent 311259 | Venus position read and conservative action draft |
+| SOLVENT | None | Research | BSC ERC-8004 agent 136384 | Last published historical signal |
+| Warden | None | Beta | None | Upstream payload scan |
+
+`price_display` and `price_atomic` are catalogue terms for a service after admission;
+they are not evidence that the service can be bought now. `GET /hire` exposes the
+admission limbs and `paid_stock` state directly, and
+`GET /api/marketplace/summary` counts settled hire payments, separating the internal
+canary's from public ones rather than reporting one total.
+
+### Evidence status
+
+- V1 stores three paired, single-observation records and their complete receipts under
+  `docket/advantage/experiments/`. Every recorded payment status is `free_tier`.
+- V2 stores its corpora, registered specifications, completed runs, null baselines, and
+  computed falsifiers under `docket/advantage/v2/`.
+- V3 stores seven stage-one specifications plus the claim-once runner, prompt-blinded
+  scoring, report builder, and served page under `docket/advantage/v3/`. v3-04 Warden binds
+  `inputs_sha256=23b09164c6940848ac109f05db3f7342f46a0bad71c17ebc9cac53dd4f8fc4e6`.
+  Both calibration seats passed on their first attempt at 8/8 decisions, 8/8 verdicts,
+  and class micro-F1 1.0000. The ledger is complete at 24 claimed and 24 terminal: 23
+  succeeded, while manual `w4-ho-01` records `invoke_error` / `JSONDecodeError`. The
+  operator's contemporaneous account is that a crib sheet not present in this repository
+  led to payload text being pasted instead of the JSON answer object; the repository does
+  not establish that cause. Seat A's first response is preserved as 4,452 bytes; seat B returned
+  no response within the adapter's 300-second limit. The registered rule forbids another
+  request or a substitute, so no second sheet or A/B mapping exists, disagreement cannot be
+  computed, rubric quality is permanently unscored, and the report state is
+  `complete_unscored` with `score_sheets_missing`. Read-only formula limbs—not a published
+  §10 result—show Warden recall 4/8 (0.50) versus manual 6/8 (0.75), precision 4/4 (1.00)
+  versus 6/8 (0.75), valid scans 12/12 versus 11/12, three Warden critical failures,
+  11/12 complete pairs, median saving 27.86 seconds, and median agent/manual ratio
+  0.0610434. Warden missed its recall, zero-critical, complete-pair, and median-saving
+  limbs. Missing rubric medians prevent a complete falsifier evaluation, so the report
+  publishes neither `refuted` nor `not_refuted`. At the 2026-08-30 live-report
+  observation, v3-01 and v3-03 are `superseded_before_input_lock`, v3-02 is
+  `abandoned_after_failed_primary`, v3-04 is `complete_unscored`, v3-05 is
+  `locked_not_run`, and v3-06 is `registered_waiting_for_inputs`.
+
+The [one-page summary](https://docket.gudman.xyz/advantage) at the top of the report puts
+every registered task and family on one screen — arms, n, recorded times, out-of-pocket
+cost, objective quality measure and state — with `unscored`, `not run` and `not recorded`
+distinguished rather than blanked.
+
+Do not describe the v3 Git sequence as externally preregistered. A checkable witness would
+require the exact registration commit to be anchored outside the owner's control before
+any input lock or run—for example, a reachable immutable remote object or a third-party
+timestamp/chain commitment whose time and digest can be read independently.
+
+### Submission claims
 
 These are the complete factual sentences intended for reuse in a submission. Each ID
 links to the exact field, artifact, identity, transaction, or missing proof in the
@@ -74,18 +145,19 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
   is beta.
 - **C-03.** On 2026-08-30, exactly one owner-approved Range Doctor canary settled
   0.50 USDT and the identical signed request was then rejected with
-  `409 authorization_replay`. This proves one private canary payment lifecycle, not public
-  paid stock: all six services still report `paid_stock=false`.
-- **C-04.** The v3 paired report has six families and one completed family:
+  `409 authorization_replay`. This establishes one private canary payment lifecycle, not
+  public paid stock: all six services still report `paid_stock=false`.
+- **C-04.** At the 2026-08-30 live-report observation the v3 paired report had six
+  families and one completed family:
   `v3-04-warden-security` is `complete_unscored` with `score_sheets_missing` after all 24
   primaries became terminal (23 succeeded; manual `w4-ho-01` failed). Seat B returned no
   first scoring response, and the registered no-retry/no-substitution rule makes rubric
   quality permanently unscored. Read-only frozen-label formulas show Warden recall 4/8
-  (0.50) versus manual 6/8 (0.75), Warden precision 4/4 (1.00) versus manual 6/8 (0.75),
+  (0.50) versus manual 6/8 (0.75), Warden precision 4/4 (1.00) versus 6/8 (0.75),
   12/12 versus 11/12 valid scans, three Warden critical failures, 11/12 complete pairs, a
   27.86-second median saving, and a 0.0610434 median agent/manual ratio. With no rubric
-  medians, no registered falsifier verdict exists. At the 2026-08-30 live-report
-  observation, `v3-01-range-doctor` and `v3-03-warden-security` are
+  medians, no registered falsifier verdict exists. At that same observation,
+  `v3-01-range-doctor` and `v3-03-warden-security` are
   `superseded_before_input_lock`; `v3-02-yield-router` is
   `abandoned_after_failed_primary`; `v3-04-warden-security` is `complete_unscored`;
   `v3-05-range-doctor` is `locked_not_run`; and `v3-06-yield-router-assisted` is
@@ -126,48 +198,47 @@ links to the exact field, artifact, identity, transaction, or missing proof in t
 The table records where evidence is missing instead of substituting a number or a
 transaction that does not exist.
 
-## Current service state
+## What is not true yet
 
-| Service | Category | Stock state | On-chain identity | What runs now |
-|---|---|---|---|---|
-| Range Doctor | Rebalancing | Candidate | BSC ERC-8004 agent 311253 | Read-only PancakeSwap v3 diagnosis |
-| Grid Operator | Grid trading | Preview | BSC ERC-8004 agent 311255 | Deterministic plan and transaction preview |
-| Yield Router | Yield optimisation | Preview | BSC ERC-8004 agent 311257 | Bounded PancakeSwap pool comparison and optional action draft |
-| Health Guard | Health factor | Preview | BSC ERC-8004 agent 311259 | Venus position read and conservative action draft |
-| SOLVENT | None | Research | BSC ERC-8004 agent 136384 | Last published historical signal |
-| Warden | None | Beta | None | Upstream payload scan |
+A registered claim that fails and says so is the result the v3 report was built to be able
+to publish. It fixes the comparison rules before seeing the exact cases, then keeps the run
+visible even when the result is adverse or scoring cannot finish.
 
-`price_display` and `price_atomic` are catalogue terms for a service after admission;
-they are not evidence that the service can be bought now. `GET /hire` exposes the
-admission limbs and `paid_stock` state directly.
+**The agent did not beat the human here.**
 
-## Measured decision impact
+V3 vocabulary used below: an **arm** is one side of the agent-versus-human comparison; a
+**primary** is one scheduled attempt on one case by one arm, with no scored retry; a **seat**
+is a fixed model evaluator of anonymised outputs; the **input lock** fixes the exact cases and
+their hashes; a **frozen label** is a hostile/benign answer fixed before evaluation; and a
+**falsifier** is a condition written in advance that would refute the bounded claim.
+`complete_unscored` means every scheduled attempt ended but required scoring artifacts are
+absent. `superseded_before_input_lock` means a later registration replaced the family before
+exact inputs were locked, so neither arm ran.
 
-**$126.78 median annual overstatement at $10k notional (n=22) and payback arriving a
-median 8.30 days later than gross implies.** Across 231 candidate moves in the frozen v2
-corpus, ranking reversals were 0/231; the median 49.3% gross-to-net fee-rate overstatement
-is secondary. These are post-hoc measurements on one frozen daily snapshot, not realized
-returns or a forecast.
+- No service is in paid stock. One owner-approved Range Doctor canary settled exactly
+  0.50 USDT on 2026-08-30 and rejected the identical signed request as a replay; that
+  private bootstrap did not open public paid inventory.
+- The four category services now have BSC ERC-8004 registrations, but registration is
+  not endorsement, evidence of paid stock, or evidence that a service produced a result;
+  `warden-scan` remains unbound.
+- The browser activation flow described in the matrix above — the funded bounded session,
+  its allowlists, caps and expiry, pause, and revoke-with-sweep — is being built. What runs
+  at this commit is the free-tier sample on every service page and the x402 paid path that
+  is still closed at admission. No service in this build holds a session key, a signer or a
+  transaction submitter, so nothing it prepares can be sent without the owner sending it.
+- V3 fixed its questions, input locking, arm order, clocks, failure treatment, scoring
+  process, and falsifier before the exact cases were run. It then ran 12 planned pairs:
+  all 24 primaries became terminal, 23 succeeded, and manual `w4-ho-01` failed with
+  `invoke_error` / `JSONDecodeError`. A named scoring seat returned no first response;
+  retry and substitution are forbidden, so rubric quality is permanently unscored.
+  Frozen-label formulas put Warden recall at 4/8 (0.50) versus manual 6/8 (0.75) and
+  record three Warden critical failures. `v3-04-warden-security` is therefore
+  `complete_unscored`, not a scored performance result. At the committed-artifact observation on 2026-08-29, the committed v3 artifacts contain 9 families: `v3-02-yield-router` is `abandoned_after_failed_primary`; `v3-04-warden-security` is `complete_unscored`; `v3-05-range-doctor` is `locked_not_run`; `v3-06-yield-router-assisted` and `v3-07-range-doctor` and `v3-08-yield-router` and `v3-09-health-guard` are `registered_waiting_for_inputs`; `v3-01-range-doctor` and `v3-03-warden-security` are `superseded_before_input_lock`.
+- The controlled LP record links an Aug 24 `WAIT` decision to one prior and three later
+  observations, but it establishes neither causal improvement nor realized return.
 
-One 2026 [preprint measuring BSC ERC-8004 activity](https://arxiv.org/abs/2606.26028)
-reports that 4% of registrations expose a live endpoint, 59.2% of reviewers show
-coordinated Sybil behaviour, and 77.9% of agents with feedback retain no valid feedback
-after Sybil filtering; those network-wide results motivate scrutiny but do not establish
-Docket's performance. A separate 2026
-[preprint on Ethereum ERC-8004 activity](https://arxiv.org/abs/2606.12128) describes a
-registration-heavy, operationally shallow ecosystem; its network and sample differ from
-Docket's BSC snapshot.
-
-The first-party planner skills shown in
-[PancakeSwap's execution model](https://github.com/pancakeswap/pancakeswap-ai) stop at
-generated deep links, the same boundary Range Doctor keeps. On 2026-08-22, a read-only
-`_meta { block { number timestamp } hasIndexingErrors }` query sent by GraphQL POST to the
-PancakeSwap BSC V3 subgraph endpoint (`https://thegraph.pancakeswap.com/exchange-v3-bsc`;
-see PancakeSwap's [official Subgraph documentation](https://developer.pancakeswap.finance/apis/subgraph))
-returned block 95193979, timestamp 1777389823 (2026-04-28T15:23:43Z), and
-`hasIndexingErrors: true`. Docket instead reads
-[PancakeSwap's live Explorer API](https://explorer.pancakeswap.com/api/cached/pools/v3/bsc/list/top)
-and SHA-pins the response bytes.
+These limits are visible in the live service, v3, and LP-record responses; the
+[submission package](docs/submission/README.md) keeps the same boundary.
 
 ## Install and test
 
@@ -196,6 +267,7 @@ Then inspect the machine contract without running a network-bound hire:
 curl http://127.0.0.1:8000/categories
 curl http://127.0.0.1:8000/services
 curl http://127.0.0.1:8000/hire
+curl http://127.0.0.1:8000/api/marketplace/summary
 curl http://127.0.0.1:8000/advantage/v2.json
 curl http://127.0.0.1:8000/advantage/v3.json
 ```
@@ -204,40 +276,6 @@ The CI package job separately builds a wheel, installs it into a fresh environme
 the checkout, imports all four category packages, posts all four hire routes with only
 their external network runners replaced by deterministic in-process responses, and checks
 the installed v3 JSON, HTML, and agent-facing documentation.
-
-## Evidence status
-
-- V1 stores three paired, single-observation records and their complete receipts under
-  `docket/advantage/experiments/`. Every recorded payment status is `free_tier`.
-- V2 stores its corpora, registered specifications, completed runs, null baselines, and
-  computed falsifiers under `docket/advantage/v2/`.
-- V3 stores six stage-one specifications plus the claim-once runner, prompt-blinded
-  scoring, report builder, and served page under `docket/advantage/v3/`. v3-04 Warden binds
-  `inputs_sha256=23b09164c6940848ac109f05db3f7342f46a0bad71c17ebc9cac53dd4f8fc4e6`.
-  Both calibration seats passed on their first attempt at 8/8 decisions, 8/8 verdicts,
-  and class micro-F1 1.0000. The ledger is complete at 24 claimed and 24 terminal: 23
-  succeeded, while manual `w4-ho-01` records `invoke_error` / `JSONDecodeError`. The
-  operator's contemporaneous account is that a crib sheet not present in this repository
-  led to payload text being pasted instead of the JSON answer object; the repository does
-  not prove that cause. Seat A's first response is preserved as 4,452 bytes; seat B returned
-  no response within the adapter's 300-second limit. The registered rule forbids another
-  request or a substitute, so no second sheet or A/B mapping exists, disagreement cannot be
-  computed, rubric quality is permanently unscored, and the report state is
-  `complete_unscored` with `score_sheets_missing`. Read-only formula limbs—not a published
-  §10 result—show Warden recall 4/8 (0.50) versus manual 6/8 (0.75), precision 4/4 (1.00)
-  versus 6/8 (0.75), valid scans 12/12 versus 11/12, three Warden critical failures,
-  11/12 complete pairs, median saving 27.86 seconds, and median agent/manual ratio
-  0.0610434. Warden missed its recall, zero-critical, complete-pair, and median-saving
-  limbs. Missing rubric medians prevent a complete falsifier evaluation, so the report
-  publishes neither `refuted` nor `not_refuted`. At the 2026-08-30 live-report
-  observation, v3-01 and v3-03 are `superseded_before_input_lock`, v3-02 is
-  `abandoned_after_failed_primary`, v3-04 is `complete_unscored`, v3-05 is
-  `locked_not_run`, and v3-06 is `registered_waiting_for_inputs`.
-
-Do not describe the v3 Git sequence as externally preregistered. A checkable witness would
-require the exact registration commit to be anchored outside the owner's control before
-any input lock or run—for example, a reachable immutable remote object or a third-party
-timestamp/chain commitment whose time and digest can be read independently.
 
 ## Documentation
 

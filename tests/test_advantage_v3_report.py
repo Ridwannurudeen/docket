@@ -4,8 +4,6 @@ import json
 import os
 from pathlib import Path
 
-from docket.advantage.v3 import report, runner, scoring
-
 from test_advantage_v3_scoring import (
     _append_attempt,
     _complete_range_ledger,
@@ -13,6 +11,8 @@ from test_advantage_v3_scoring import (
     _range_output,
     _score_sheet,
 )
+
+from docket.advantage.v3 import report, runner, scoring
 
 
 def _build_report(tmp_path):
@@ -87,12 +87,14 @@ def test_the_committed_families_preserve_the_failed_primary_and_name_its_success
         report.LOCKED_NOT_RUN,
         report.REGISTERED_WAITING,
         report.REGISTERED_WAITING,
+        report.REGISTERED_WAITING,
+        report.REGISTERED_WAITING,
     ]
     assert payload["summary"]["states"] == {
         report.COMPLETE_UNSCORED: 1,
         report.ABANDONED_AFTER_FAILED_PRIMARY: 1,
         report.LOCKED_NOT_RUN: 1,
-        report.REGISTERED_WAITING: 2,
+        report.REGISTERED_WAITING: 4,
         report.SUPERSEDED_BEFORE_INPUT_LOCK: 2,
     }
     assert "proved" not in json.dumps(payload).lower()
@@ -102,12 +104,12 @@ def test_the_committed_families_preserve_the_failed_primary_and_name_its_success
     assert by_id["v3-04-warden-security"]["unscored_reason"] == "score_sheets_missing"
     predecessor = by_id["v3-02-yield-router"]
     assert predecessor["abandoned_by"] == "v3-06-yield-router-assisted"
-    assert predecessor["successor_provenance"] == (
-        by_id["v3-06-yield-router-assisted"]["spec"]["successor_provenance"]
+    assert (
+        predecessor["successor_provenance"]
+        == (by_id["v3-06-yield-router-assisted"]["spec"]["successor_provenance"])
     )
     assert any(
-        event.get("kind") == runner.TERMINATED
-        and event.get("outcome") == runner.FAILED
+        event.get("kind") == runner.TERMINATED and event.get("outcome") == runner.FAILED
         for event in predecessor["ledger"]
     )
     assert by_id["v3-04-warden-security"]["run_progress"] == {

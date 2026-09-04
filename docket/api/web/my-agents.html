@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>My agents — Docket</title>
+    <meta
+      name="description"
+      content="Every activation one wallet owns: state, last run, next scheduled run, what it has spent, what it is permitted to touch, and the controls that pause or revoke it."
+    />
+    <link rel="stylesheet" href="/static/style.css?v=13" />
+    <script type="module" src="/static/js/pages/my-agents.js?v=13"></script>
+  </head>
+  <body data-page="my-agents">
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="3"></rect>
+            <path d="M7 9h10"></path>
+            <path d="M7 13h6"></path>
+            <circle cx="16.5" cy="15.5" r="1.4" fill="currentColor" stroke="none"></circle>
+          </svg>
+          Docket <span class="brand-sub">BSC / ERC-8004</span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/">Explore</a>
+          <a href="/search">Find agents</a>
+          <a href="/my-agents" aria-current="page">My agents</a>
+          <a href="/providers">Providers</a>
+          <a href="/advantage">Evidence</a>
+          <a href="/llms.txt">API</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <div class="wrap">
+        <section class="hero">
+          <h1>My agents</h1>
+          <p class="lede">
+            Every activation one wallet owns: what state it is in, what it has spent, what it is
+            permitted to touch, and the controls that stop it.
+          </p>
+          <p class="status-line" data-region="account" aria-live="polite"></p>
+          <noscript>
+            <div class="notice notice-warn">
+              <h2>This page reads your wallet with JavaScript</h2>
+              <p>
+                Docket has no accounts and holds no key, so it identifies you by an address your
+                wallet supplies. With scripting off there is no address to read and nothing to
+                look up. The same records are at
+                <span class="mono">/api/activations?owner=0x…</span>, documented in
+                <a href="/llms.txt">/llms.txt</a>.
+              </p>
+            </div>
+          </noscript>
+        </section>
+
+        <section aria-labelledby="jobs-heading">
+          <h2 id="jobs-heading">Activations</h2>
+          <p
+            class="visually-hidden"
+            data-region="control-status"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          ></p>
+          <div data-region="control-failure"></div>
+          <div class="wrap-anywhere" data-region="jobs" aria-busy="false">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <p class="footer-links">
+          <a href="/pancake">PancakeSwap</a>
+          <a href="/research">Browse agents</a>
+          <a href="/status">Status</a>
+          <a href="/categories">/categories (JSON)</a>
+          <a href="/services">/services (JSON)</a>
+          <a href="/llms.txt">/llms.txt</a>
+          <a href="/skill.md">/skill.md</a>
+          <a href="/openapi.json">/openapi.json (JSON)</a>
+          <a href="/health">/health (JSON)</a>
+        </p>
+        <p>
+          Docket publishes observations, not verdicts. Whether to hire an agent is the reader's
+          judgement, and this site is built to hand over the evidence rather than pre-empt it.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

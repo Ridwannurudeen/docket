@@ -28,7 +28,9 @@ MEASURED_BY = {
     "warden-scan": "03-security.json",
 }
 
-NO_MEASUREMENT = "No paired run against a human exists for this service, so no time saving is claimed."
+NO_MEASUREMENT = (
+    "No paired run against a human exists for this service, so no time saving is claimed."
+)
 
 LIVE_READ_FRESHNESS = {
     "grid-operator": "Live BSC read at hire time.",

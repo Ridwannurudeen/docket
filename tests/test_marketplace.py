@@ -110,13 +110,32 @@ def test_every_category_names_the_job_in_words_a_stranger_reads():
 
 
 def test_a_category_is_docket_declaring_a_label_not_measuring_one():
-    """The registry records nothing about what job an agent does. Any category on this
-    site is therefore Docket's own label for a service Docket runs, and it has to say so
-    in the same breath — otherwise it reads as a measured property of the agent."""
+    """The registry records nothing about what job an agent does. A category on a service
+    Docket runs is therefore Docket's own label, and it has to say so in the same breath —
+    otherwise it reads as a measured property of the agent."""
     declaration = CATEGORY_DECLARATION.lower()
     assert "docket" in declaration
     assert "declar" in declaration
     assert "third-party" in declaration or "registry agent" in declaration
+    assert "not measured" in declaration
+
+
+def test_the_declaration_separates_the_two_layers_that_share_the_four_names():
+    """/categories and /api/agents both use these four names and mean different things by
+    them. The declaration travels on both /categories and /services, so it is where a
+    reader is told which claim they are looking at — and it has to name how a third-party
+    category is arrived at, not merely admit that one exists."""
+    declaration = CATEGORY_DECLARATION.lower()
+    assert "/categories" in declaration and "/api/agents" in declaration
+    for source in (
+        "capability_source",
+        "provider_declared",
+        "registration_metadata",
+        "docket_classified",
+    ):
+        assert source in declaration, source
+    assert "reading of published prose" in declaration
+    assert "hireable" in declaration
 
 
 # --------------------------------------------------------------------- metrics
@@ -490,34 +509,57 @@ def test_the_health_factor_card_says_venus_publishes_no_health_factor():
     for phrase in (
         "venus publishes no health factor",
         "derived here rather than read",
-        "structurally only a preview",
-        "no execution path for a venus call exists here",
         "repay and supply-collateral only",
         "borrowing and withdrawing are not encoded",
         "a liquidation that did not happen",
         "single recorded read; no paired run against a person",
+        # Custody, stated rather than implied.
+        "docket never holds a key to your wallet",
+        "revoking it sweeps its balance back to you at any time",
+        "never transferred to docket",
+        "always yours to sign",
+        "exact amount and never unlimited",
+        "not rules a chain enforces",
+        "how much you fund the session with",
+        # What a mined transaction does not prove.
+        "not by itself evidence of how much was retired",
     ):
         assert phrase in lowered, phrase
-    assert record.activation == "one_shot"
+    # The preview posture is gone rather than merely outweighed: this service prepares
+    # calls, and a card still calling itself structurally only a preview would be wrong.
+    for gone in ("structurally only a preview", "no execution path for a venus call"):
+        assert gone not in lowered, gone
+    assert record.activation == "policy_action"
     assert record.agent_id is not None
 
 
 def test_the_yield_card_bounds_its_own_superlative_and_promises_no_execution():
     """ "Highest available APR" is a claim about a population. The card names the
-    population, and says the half of a move this build does not draft."""
+    population, and says what the route still cannot do for you.
+
+    "not built in this stage" left with the swap-leg-only build: the complete move is
+    built now, so the card would have been claiming a limitation it no longer has — which
+    is the same defect as claiming a capability it does not have, in the other direction.
+    What replaces it is the set of things that are still true: the owner's own NFT
+    approval is a precondition and not a step, a staked position is refused, and
+    impermanent loss is modelled nowhere.
+    """
     record = SERVICES["yield-router"]
     lowered = record.limitations.lower()
     for phrase in (
         "bounded by the stated eligible set",
         "highest within that set at that moment",
         "supplied by the caller and is not derived",
-        "not built in this stage",
+        "a precondition the route reads before it builds",
+        "staked in masterchefv3 is refused",
+        "impermanent loss is not modelled",
         "no execution guarantee of any kind",
         "one day, not a forecast",
         "single recorded read; no paired run against a person",
     ):
         assert phrase in lowered, phrase
-    assert record.activation == "one_shot"
+    assert "not built in this stage" not in lowered
+    assert record.activation == "policy_action"
     assert record.agent_id is not None
 
 
@@ -552,8 +594,8 @@ def test_the_grid_service_says_a_hire_previews_rather_than_trades():
         "single recorded read; no paired run against a person",
     ):
         assert phrase in lowered, phrase
-    assert record.activation == "one_shot"
-    assert "acts on chain" not in record.activation_means.lower()
+    assert record.activation == "policy_action"
+    assert "acts on chain" in record.activation_means.lower()
 
 
 def test_the_empty_shelves_say_why_and_promise_nothing():
@@ -563,10 +605,21 @@ def test_the_empty_shelves_say_why_and_promise_nothing():
         assert promise not in lowered, promise
 
 
+def test_an_empty_shelf_points_at_the_other_layer_without_selling_it():
+    """A zero on this shelf means Docket runs no service for this job. Left there alone it
+    reads as "nobody on BSC does this", which the marketplace layer disproves — so the
+    sentence names that layer, and in the same breath refuses to present anything in it as
+    hireable on the strength of being in a registry."""
+    lowered = EMPTY_CATEGORY.lower()
+    assert "/api/agents" in lowered
+    assert "hireable on the strength of being in the registry" in lowered
+    assert "placeholder" in lowered
+
+
 def test_range_doctor_is_declared_into_rebalancing_because_that_is_its_subject():
     record = SERVICES["range-doctor"]
     assert record.category is Category.REBALANCING
-    assert record.activation == "one_shot"
+    assert record.activation == "policy_action"
 
 
 def test_the_two_services_outside_the_four_are_listed_rather_than_filed_wrongly():
@@ -579,7 +632,9 @@ def test_the_two_services_outside_the_four_are_listed_rather_than_filed_wrongly(
 
 def test_five_services_carry_identities_and_warden_scan_remains_unbound():
     bound = {
-        service_id for service_id, record in SERVICES.items() if record.agent_id is not None
+        service_id
+        for service_id, record in SERVICES.items()
+        if record.agent_id is not None
     }
     assert bound == {
         "grid-operator",
@@ -757,9 +812,35 @@ def test_warden_card_recomputes_both_dated_corpus_measurements():
 
 
 def test_range_doctor_states_the_limits_its_own_audit_named():
+    """The audit-named limits stay; the custody model is stated beside them.
+
+    "read-only" left this card when the watch gained prepared calls. What replaces it is
+    not softer — it is the specific shape of the authority: no key to the wallet, a
+    session the owner grants and revokes, and a position NFT that never moves to Docket.
+    """
     limitations = SERVICES["range-doctor"].limitations.lower()
-    for phrase in ("v3", "read-only", "tokensowed", "ticks rather than prices"):
+    for phrase in (
+        "v3",
+        "tokensowed",
+        "ticks rather than prices",
+        # Custody, stated rather than implied.
+        "docket never holds a key to your wallet",
+        "revoking it sweeps its balance back to you at any time",
+        "no position nft is ever transferred to docket",
+        # The caps are Docket's own checks, not a chain's. Saying otherwise would make a
+        # Python gate read as a guarantee the chain stands behind.
+        "not rules a chain enforces",
+        "how much you fund the session with",
+        "stay there until you revoke",
+        # What the watch cannot know.
+        "realises impermanent loss",
+        "a departure between two reads is not dated",
+        "not a forecast",
+        "single recorded read; no paired run against a person",
+    ):
         assert phrase in limitations, phrase
+    # The old posture is gone rather than merely outweighed: this service prepares calls.
+    assert "read-only: nothing is signed" not in limitations
 
 
 def test_solvent_signal_is_sold_as_a_dated_record_rather_than_a_live_one():

@@ -21,9 +21,13 @@ a site that makes none.
 limitations. The first keeps the two halves joined; the second is the sentence a
 marketplace is most tempted to leave out.
 
-What is NOT enforced here is a category on anything Docket does not run. The ERC-8004
-record carries nothing that says what job an agent does, so Docket declares a category
-for its own services and assigns none to anybody else's — see `CATEGORY_DECLARATION`.
+What is NOT enforced here is a category on anything Docket does not run. `ServiceRecord`
+covers the services Docket runs, and for those a category is Docket's own declaration.
+The ERC-8004 record carries nothing that says what job an agent does, so a third-party
+agent's category is never read off its registration alone: `external.ExternalListing`
+carries one only with a `capability_source` saying whether its owner declared it, its
+registration declared it, or Docket's printed rule table read it out of the capability
+text — see `CATEGORY_DECLARATION`, which describes both layers.
 """
 
 import re
@@ -34,7 +38,11 @@ from typing import Literal
 from ..hire.catalogue import SERVICES as HIRE_SERVICES
 
 
-class Category(str, Enum):
+# Not `enum.StrEnum`: that changes what `str(member)` and f-string interpolation
+# produce, from the qualified `Category.MEMBER` a log line or an error message shows to
+# the bare value. The value already crosses JSON through `.value`, so the substitution
+# would trade a diagnostic for nothing.
+class Category(str, Enum):  # noqa: UP042
     """BNB's four job categories, and exactly those four.
 
     A str enum so a query parameter typed as this rejects anything else at the door

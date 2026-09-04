@@ -19,7 +19,8 @@ promised not to do.
 """
 
 from ..advantage.record_run import load_record
-from ..advantage.v2.report import run as v2_run, security_scores
+from ..advantage.v2.report import run as v2_run
+from ..advantage.v2.report import security_scores
 from .models import CATEGORIES, Category, EvidenceRef, Metric, ServiceRecord
 
 # The v2 security figures, scored here from the committed corpus and the committed run by the
@@ -52,23 +53,43 @@ _HEALTH_OBSERVATION = _HEALTH_OUTPUT["observation"]
 _GRID_OBSERVATION = _GRID_OUTPUT["observation"]
 _YIELD_OBSERVATION = _YIELD_OUTPUT["observation"]
 
-# Said wherever a category is shown. The ERC-8004 record carries nothing that states
-# what job an agent does, so a category is a label Docket puts on its own work and
-# never a property it measured on somebody else's.
+# Said wherever a category is shown. Two layers now use the same four names, and the
+# sentence has to separate them or a reader takes one for the other.
+#
+# This text said, until the marketplace layer existed, that Docket "assigns none to a
+# third-party registry agent". That was true of the whole site and is now true of only
+# half of it: /categories and /services still describe the six services Docket runs, but
+# /api/agents does put a category on somebody else's agent. Leaving the old sentence in
+# place would have been the more comfortable choice and the dishonest one — a reader on
+# /categories would have been told Docket does not do a thing Docket does two routes away.
+# So the declaration names both layers, and it names how the second one is arrived at.
 CATEGORY_DECLARATION = (
-    "A category here is Docket's own declaration about a service Docket runs: the job we "
-    "say it does. It is not read from chain and it is not measured. An ERC-8004 "
-    "registration records nothing about what job an agent does, so Docket declares "
-    "categories for its own services and assigns none to a third-party registry agent."
+    "Docket serves two layers under these same four names, and they are not the same "
+    "claim. On /categories and /services a category is Docket's own declaration about a "
+    "service Docket runs: the job we say it does, not read from chain and not measured. "
+    "On /api/agents a third-party agent from the BSC registry may also carry one, and "
+    "every such listing states where it came from in capability_source: "
+    "provider_declared where the agent's on-chain owner signed a claim saying so, "
+    "registration_metadata where the ERC-8004 registration's own fields say so, or "
+    "docket_classified where Docket's published keyword rule table read the agent's own "
+    "capability text. A docket_classified category is a reading of published prose, "
+    "labelled as a reading, and it is never a property Docket measured. Each of those "
+    "listings also carries a verification level and the evidence behind it, and no "
+    "registry entry is offered as hireable until Docket has run a sample invocation "
+    "against it and had a schema-valid result come back."
 )
 
-# Said on a category with nothing in it. It states why the shelf is empty and stops
-# there — no placeholder card, and no date nobody has committed to.
+# Said on a category with nothing in it. It states why the shelf is empty, points at the
+# layer that may not be empty, and stops there — no placeholder card, and no date nobody
+# has committed to.
 EMPTY_CATEGORY = (
-    "No service here yet. Docket lists a service only where it runs the work itself and "
-    "can show a recorded run behind it, and it has none for this job. It does not stock "
-    "the shelf with agents from the registry, because nothing in an ERC-8004 record says "
-    "what job an agent does — the registry is browsable in full under Research."
+    "No service here yet. Docket lists a service under one of these four jobs only where "
+    "it runs the work itself and can show a recorded run behind it, and it has none for "
+    "this job. Third-party agents describing this job may still exist on chain: they are "
+    "listed separately at /api/agents, each one carrying where its category came from and "
+    "what Docket has actually observed of its endpoint. None of them is offered as "
+    "hireable on the strength of being in the registry, and this shelf holds no "
+    "placeholder standing in for one."
 )
 
 # Said above the services that are not in any of the four.
@@ -86,10 +107,8 @@ SERVICES: dict[str, ServiceRecord] = {
         # an invented ratio under the label the shelf is named after is the exact
         # fabrication this inventory exists to refuse.
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311259",
-        registration_uri=(
-            "https://docket.gudman.xyz/registrations/health-guard.json"
-        ),
-        activation="one_shot",
+        registration_uri=("https://docket.gudman.xyz/registrations/health-guard.json"),
+        activation="policy_action",
         evidence_modality="live_read",
         metrics=(
             Metric(
@@ -126,15 +145,34 @@ SERVICES: dict[str, ServiceRecord] = {
             "entered are read, which is the same set the comptroller itself iterates, so a "
             "supply in a market the account never entered is not collateral and does not "
             "appear. Prices come from whichever oracle the comptroller currently names, "
-            "read at the same block. What a hire returns is a preview and structurally only "
-            "a preview: the object that produces it holds no session key, no signer and no "
-            "submitter, it has no armed counterpart class in this build, and no execution "
-            "path for a Venus call exists here — so acting on a drafted action needs work "
-            "this stage did not do, on top of a session the wallet's owner grants on chain. "
-            "Drafted actions are repay and supply-collateral only; borrowing and withdrawing "
-            "are not encoded and no argument produces one. An action changes a balance Venus "
-            "holds at the block it lands in and establishes nothing about a liquidation that "
-            "did not happen, because that is a claim about a world nobody observed. A "
+            "Docket never holds a key to your wallet and cannot sign for it. Prepared calls are "
+            "yours to sign unless you grant a session key. That key is created by Docket and "
+            "bounded by a contract allowlist, a per-token cap, a gas ceiling and an expiry you set "
+            "— but those are checks Docket runs in front of every send, not rules a chain "
+            "enforces, "
+            "so what actually caps your exposure is how much you fund the session with. Fund it "
+            "with what you are willing to lose to a bug. Revoking it sweeps its balance back to "
+            "you "
+            "at any time. Your borrower account is never transferred to Docket and nothing is "
+            "custodied on your behalf: a repay is repayBorrowBehalf, which pays your debt down out "
+            "of the session's own tokens and moves nothing of yours. Supplying collateral has no "
+            "on-behalf form at all — mint credits whoever calls it — so a collateral add is always "
+            "yours to sign, is reported rather than offered for execution, and a session is never "
+            "permitted to send one. Every approval is for an exact amount and never unlimited. The "
+            "approval is put to the chain before it is offered; the call that spends under it is "
+            "marked as waiting on that approval rather than simulated against a state that does "
+            "not "
+            "exist, and every call is simulated again from its real sender immediately before it "
+            "is "
+            "sent."
+            " Venus caps a repay at what is owed rather than reverting and signals "
+            "failure by returning an error code rather than reverting, so a mined "
+            "transaction is not by itself evidence of how much was retired; that is "
+            "read from the next account snapshot. Remedies are repay and "
+            "supply-collateral only; borrowing and withdrawing are not encoded and no "
+            "argument produces one. A remedy changes a balance Venus holds at the "
+            "block it lands in and establishes nothing about a liquidation that did "
+            "not happen, because that is a claim about a world nobody observed. A "
             "single recorded read; no paired run against a person stands behind the "
             "metrics on this card."
         ),
@@ -146,10 +184,8 @@ SERVICES: dict[str, ServiceRecord] = {
         # superlative: the comparison names the set it is a comparison within, and the set
         # names its source, its moment and everything it turned away.
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311257",
-        registration_uri=(
-            "https://docket.gudman.xyz/registrations/yield-router.json"
-        ),
-        activation="one_shot",
+        registration_uri=("https://docket.gudman.xyz/registrations/yield-router.json"),
+        activation="policy_action",
         evidence_modality="live_read",
         metrics=(
             Metric(
@@ -185,14 +221,22 @@ SERVICES: dict[str, ServiceRecord] = {
             "here always means highest within that set at that moment and never highest "
             "anywhere. The switching cost is supplied by the caller and is not derived — "
             "Docket reads no BNB price here and does not invent one — and a break-even is "
-            "only as good as the number it was handed. A move is drafted as one swap leg "
-            "through the same PancakeSwap V2 router the grid uses; adding the resulting "
-            "assets as liquidity to the destination pool is not built in this stage, so a "
-            "drafted move gets the caller into the right asset and no further. Nothing is "
-            "signed, approved, submitted or held and there is no execution guarantee of any "
-            "kind: a drafted swap is a record of what acting would commit to, and acting "
-            "needs a session the wallet's owner grants on chain. A single recorded read; "
-            "no paired run against a person stands behind the metrics on this card."
+            "only as good as the number it was handed. A hire returns the comparison and "
+            "at most one drafted swap leg. The complete move — withdraw, collect, up to "
+            "three bounded swap legs, exact-amount allowances and a mint over a band "
+            "aligned to the destination pool's own spacing — is built under an activation "
+            "and needs a session the wallet's owner grants on chain, plus one approval "
+            "the owner signs themselves for the position NFT: that authority is a "
+            "precondition the route reads before it builds, not a step it can take. A "
+            "position staked in MasterChefV3 is refused rather than planned around, "
+            "because the farm owns the NFT. Impermanent loss is not modelled anywhere in "
+            "the break-even, and the amounts the mint asks for are the conservative "
+            "floors of the steps before it, so what the legs return above those floors "
+            "stays in the session as dust until it is swept. Nothing is signed, "
+            "submitted or held by a hire, and there is no execution guarantee of any "
+            "kind: a drafted call is a record of what acting would commit to. A single "
+            "recorded read; no paired run against a person stands behind the metrics on "
+            "this card."
         ),
     ),
     "grid-operator": ServiceRecord(
@@ -203,14 +247,10 @@ SERVICES: dict[str, ServiceRecord] = {
         # says in its first breath that a hire previews rather than trades, because a
         # category filled with an overstatement is worse than one left honestly empty.
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311255",
-        registration_uri=(
-            "https://docket.gudman.xyz/registrations/grid-operator.json"
-        ),
-        # `one_shot` and not `policy_action`, which is the tempting one. A hire runs once
-        # and hands back a preview; it does not act on chain within a policy, and saying
-        # it did would be claiming the half of this service that needs a session nobody
-        # has granted yet.
-        activation="one_shot",
+        registration_uri=("https://docket.gudman.xyz/registrations/grid-operator.json"),
+        # A hire still hands back a preview; a policy activation is the separately
+        # registered executor path that can act under an owner-granted session.
+        activation="policy_action",
         evidence_modality="live_read",
         metrics=(
             Metric(
@@ -243,11 +283,18 @@ SERVICES: dict[str, ServiceRecord] = {
         ),
         limitations=(
             "PancakeSwap V2 exact-input swaps on BSC mainnet and nothing else: no V3, no "
-            "limit orders, no adding or removing liquidity. What a hire returns is a "
-            "preview and structurally only a preview — the object that produces it holds "
-            "no session key, no signer and no submitter and has no method that sends a "
-            "transaction, so it cannot move anything, and every figure in it is a read. "
-            "Acting on a level needs a session the wallet's owner grants on chain, with a "
+            "adding or removing liquidity, and no resting orders of any kind. A V2 pool "
+            "is an automated market maker and holds no order book, so a level here is a "
+            "price Docket watches: the first observation that crosses it fires one "
+            "bounded swap at whatever the pool quotes then, a level can be crossed and "
+            "uncrossed between two observations without firing, and the shutdown "
+            "threshold is Docket's own observation rather than a stop order held by a "
+            "venue. What a hire returns is a preview and structurally only a preview — "
+            "the object that produces it holds no session key, no signer and no "
+            "submitter and has no method that sends a transaction, so it cannot move "
+            "anything, and every figure in it is a read. Running the grid is an "
+            "activation with create, status, pause, cancel and revoke over its life, and "
+            "acting at all needs a session the wallet's owner grants on chain, with a "
             "spend cap, a call allowlist and an expiry that the session validator enforces "
             "at validation time; Docket never holds the owner key and cannot grant or "
             "revoke on their behalf. Docket's own checks sit in front of the chain's and "
@@ -267,10 +314,8 @@ SERVICES: dict[str, ServiceRecord] = {
         # Lowercased exactly as a snapshot stores an agent_id, following the SOLVENT
         # binding below so /agents/{agent_id} can resolve it when the snapshot holds it.
         agent_id="56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311253",
-        registration_uri=(
-            "https://docket.gudman.xyz/registrations/range-doctor.json"
-        ),
-        activation="one_shot",
+        registration_uri=("https://docket.gudman.xyz/registrations/range-doctor.json"),
+        activation="policy_action",
         evidence_modality="live_read",
         metrics=(
             Metric(
@@ -321,14 +366,41 @@ SERVICES: dict[str, ServiceRecord] = {
             ),
         ),
         limitations=(
-            "PancakeSwap v3 on BSC only, and read-only: nothing is signed, approved or "
-            "moved. It reads ticks rather than prices, and a position's uncollected fees "
-            "come from tokensOwed, which is stale until something touches the position — "
-            "so that figure can read low. One hire reads a bounded slice of a wallet's "
-            "positions, newest first, and returns positions_held beside positions_examined "
-            "so a truncated read announces itself. Closed positions are counted and not "
-            "detailed. Every next step it states is conditional on a belief it names, and "
-            "acting on any of them is the reader's decision."
+            "PancakeSwap v3 on BSC only. "
+            "Docket never holds a key to your wallet and cannot sign for it. A one-off hire reads "
+            "and states what it read; a persistent watch adds prepared calls, and those calls are "
+            "yours to sign unless you grant a session key. That key is created by Docket and "
+            "bounded by a contract allowlist, a per-token cap, a gas ceiling and an expiry you set "
+            "— but be exact about what those bounds are: they are checks Docket runs in front of "
+            "every send, not rules a chain enforces, so what actually caps your exposure is how "
+            "much you fund the session with. Fund it with what you are willing to lose to a bug. "
+            "Revoking it sweeps its balance back to you at any time. The ERC-721 approval over "
+            "your "
+            "position NFT is yours to make because only its holder can, Docket asks for it rather "
+            "than drafting it, the replacement position is minted to your address, and no position "
+            "NFT is ever transferred to Docket. The session holds the two tokens between closing "
+            "the old position and minting the new one; fee residue swept by the collect and any "
+            "surplus the swap leaves above the mint's floor stay there until you revoke. Each call "
+            "is put to the chain before it is offered where its preconditions already hold; the "
+            "swap and the mint spend tokens the collect has not released yet, so they are marked "
+            "as "
+            "waiting on it rather than simulated against a state that does not exist — and every "
+            "call is simulated again from its real sender immediately before it is sent. Resetting "
+            "a range realises impermanent loss that was unrealised while the position sat still, "
+            "and that loss is not in the figures the decision was made on."
+            " It reads ticks rather than prices, and a position's uncollected fees "
+            "come from tokensOwed, which is stale until something touches the "
+            "position — so that figure can read low. Time outside a range is only ever "
+            "the time between observations that saw it outside; a departure between "
+            "two reads is not dated. Fee projections annualise one pool-wide 24-hour "
+            "observation and are not a forecast or this position's measured earnings. "
+            "A confirmed transaction shows the reset executed as it was authorised and "
+            "shows nothing about whether it was worth taking. A staked position cannot "
+            "be reset at all: MasterChefV3 holds its NFT. One read covers a bounded "
+            "slice of a wallet's positions, newest first, and returns positions_held "
+            "beside positions_examined so a truncated read announces itself; closed "
+            "positions are counted and not detailed. A single recorded read; no paired "
+            "run against a person stands behind the metrics on this card."
         ),
     ),
     "solvent-signal": ServiceRecord(

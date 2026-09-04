@@ -55,6 +55,45 @@ GET /health
 
     curl -s "$DOCKET/health"
 
+GET /api/status
+    Whether this deployment is serving, and the readings behind that word. Returns
+    `status` ("ok", "degraded" or "down"), `deployed_commit` (the commit the running
+    environment records for itself, resolved once at process start, else this checkout's
+    HEAD, else "source"), and six readings:
+
+      db                   reachable, SQLite journal mode, and the database file with the
+                           directory holding it
+      latest_refresh       the newest COMPLETE snapshot — the one being served — with its
+                           finished_at, its age in whole seconds, and `complete`
+      refresh_in_progress  {started_at, age_seconds} while a sweep is running, else null.
+                           A sweep takes up to two hours; it is not a missing sweep, and it
+                           is judged only on outliving the unit's own 7200s deadline
+      latest_canary        verdict, `exercised` (whether the paid path was actually put
+                           through its paces: `not_yet_exercised` and `running` were not),
+                           finished_at, age_seconds
+      rpc                  one eth_blockNumber against one endpoint, one connection, no
+                           retry, 5s: endpoint_host, ok, block_number, latency_ms, and
+                           `reason` naming what happened when ok is false
+      probes               ok_count/fail_count over window_hours (24), last_run_at, plus
+                           recent_ok of recent_considered — the last 3 runs, which are what
+                           the verdict is taken from. One transient failure is reported in
+                           the window counts and does not make the deployment degraded
+
+    "down" means only that the store could not be read; every other reading comes out of it,
+    so treat them as absent rather than zero. "ok" covers serving, the refresh, the chain
+    read and the probes — it does not assert that the paid path works; `latest_canary` is
+    where that is said. No parameters.
+
+    A reading is taken at most once every 60 seconds per process and served until it
+    expires, so `generated_at` is when the figures were observed rather than when you asked
+    for them: polling faster returns the same document, byte for byte. This route also
+    carries a per-peer allowance of 60 reads per 3600 seconds and answers 429 with
+    {error_code: "status_rate_limited", message} and a Retry-After header beyond it. The
+    same document is rendered as a page at /status, with each reading's tolerance beside it;
+    that page is not metered.
+
+    curl -s "$DOCKET/api/status"
+
 GET /pancake
     With Accept: text/html, the PancakeSwap evidence dashboard. JSON/default callers get
     the same-origin source paths for its live Range Doctor hire, fixed-window LP record,
@@ -549,12 +588,23 @@ GET /advantage/v3.json
     quality and the registered falsifier verdict remain unavailable. Read-only frozen-label
     formulas put Warden recall at 4/8 (0.50) versus manual 6/8 (0.75) and record three Warden
     critical failures. At the committed-artifact observation on 2026-08-29, the committed v3
-    artifacts contain 7 families: `v3-02-yield-router` is
-    `abandoned_after_failed_primary`; `v3-04-warden-security` is `complete_unscored`;
-    `v3-05-range-doctor` is `locked_not_run`; `v3-06-yield-router-assisted` and
-    `v3-07-range-doctor` are
-    `registered_waiting_for_inputs`; `v3-01-range-doctor` and
-    `v3-03-warden-security` are `superseded_before_input_lock`.
+    artifacts contain 9 families: `v3-02-yield-router` is `abandoned_after_failed_primary`;
+    `v3-04-warden-security` is `complete_unscored`; `v3-05-range-doctor` is
+    `locked_not_run`; `v3-06-yield-router-assisted` and `v3-07-range-doctor` and
+    `v3-08-yield-router` and `v3-09-health-guard` are `registered_waiting_for_inputs`;
+    `v3-01-range-doctor` and `v3-03-warden-security` are `superseded_before_input_lock`.
+    V3-08 and v3-09 are newly registered families rather than successors: each corrects no
+    unlocked draft and answers no published ledger, and neither changes any earlier family's
+    published state. V3-08 puts a human operator against the deployed Yield Router; v3-09
+    puts one against the deployed Health Guard on Venus accounts pinned at one BSC block,
+    where Venus publishes no health factor and the collateral ratio is derived rather than
+    read.
+    The summary object also carries one_page: one row per registered v1 task, v2 experiment
+    and v3 family, with arms, planned and terminal counts, median agent and manual seconds,
+    out-of-pocket cost per arm, objective quality per arm and the state. Every figure is
+    read out of a committed artifact and a null names why that artifact does not carry it.
+    Its verdict field is always null: nothing in that table ranks an arm, a task or a
+    family against another.
 
     curl -s "$DOCKET/advantage/v3.json"
 
@@ -564,6 +614,18 @@ GET /advantage/v3
     is served, so its figures cannot drift from /advantage/v3.json during the process.
 
     curl -s "$DOCKET/advantage/v3"
+
+GET /api/marketplace/summary
+    The marketplace's own counters, recounted per request and derived from the durable
+    records rather than typed anywhere: services_total, services_paid_stock,
+    public_paid_hires (settled hire payments that are not the internal canary's),
+    canary_settlements, erc8004_identities, v3_families, external_listings_by_level,
+    activations_by_state, deployed_commit, and generated_at. A counter whose table does
+    not exist in this build reports an empty object rather than a zero nobody counted.
+    The home page is rendered from this same object at process startup, so the page and
+    this route cannot be two transcriptions of one count.
+
+    curl -s "$DOCKET/api/marketplace/summary"
 
 GET /llms.txt
     This file. text/plain.
@@ -585,11 +647,20 @@ GET /openapi.json
 
 ## Errors
 
-Every error, at every status, has the same shape:
+Two shapes, and which one you get is decided by the path, not by the status.
+
+Everything outside /api/ answers with the nested shape:
 
     {"error": {"code": "agent_not_found", "message": "what to do about it"}}
 
-Branch on "code", which is stable. "message" is prose for a human and may change.
+Routes under /api/ answer with the flat shape:
+
+    {"error_code": "status_rate_limited", "message": "what to do about it"}
+
+Both carry the same two fields under different names, and both are stable to branch on.
+A client that reads `body.get("error", {}).get("code") or body.get("error_code")` handles
+either without knowing which route it called. "message" is prose for a human and may change.
+
 
       agent_not_found          404  no such agent in the served snapshot
       service_not_found        404  no such service; GET /hire lists them
@@ -607,6 +678,9 @@ Branch on "code", which is stable. "message" is prose for a human and may change
       invalid_query_parameter  422  message names the offending parameter
       hire_rate_limited        429  the free allowance is spent and no payment route exists;
                                     Retry-After says when the window resets
+      status_rate_limited      429  GET /api/status is spent for this peer; flat shape, and
+                                    Retry-After says when the window resets. One reading
+                                    stands for 60s, so polling harder returns nothing new
       free_tier_exhausted      429  the free allowance is spent; Retry-After and the x402
                                     challenge travel alongside this error so payment can
                                     be presented on the next request
@@ -817,7 +891,17 @@ Three rules govern that layer, and they are the reason it is small.
       registration says what job an agent does, so no agent in /agents has one, and
       inferring one from a name or a description would be inventing the field. If you
       are asked which registry agents do LP rebalancing, the honest answer is that
-      Docket does not know and does not guess.
+      /agents does not know and does not guess.
+
+      /api/agents is a third plane and it does answer that question, under a rule it
+      prints. A marketplace listing carries a category from one of exactly three
+      sources, named in capability_source on every listing: provider_declared (the
+      on-chain owner said so, having signed a claim), registration_metadata (the
+      registration's own agent_type or categories field said so), or docket_classified
+      (Docket's published keyword rule table read the capability text). The third is a
+      reading of somebody's published prose, labelled as a reading and carrying the
+      exact rules that matched in classification_rationale, and it never appears on
+      /agents. See "Marketplace search and providers" below.
 
   An empty category says it is empty.
       Four of the four have a service in them — rebalancing, grid_trading,
@@ -873,6 +957,176 @@ The identity cross-link has three states and says which one it is, because "no l
       index does not hold it.
       Do not report this as an unregistered service, and do not report it as one Docket
       has observations for.
+
+
+## Marketplace search and providers
+
+/agents serves the snapshot: the agents one recorded sweep captured, and nothing that
+sweep missed. /api/agents serves the marketplace: any BSC agent Docket can find, joined
+to what Docket has actually observed of it. The two are different planes and they answer
+different questions — /agents is "what did the last sweep hold", /api/agents is "who can
+do this job, and what is behind that claim".
+
+Errors on the /api/ prefix are flat: {"error_code": ..., "message": ...}. Every other
+route on this host answers {"error": {"code": ..., "message": ...}}. That divergence is
+deliberate and it is the only place it appears; branch on the prefix, not on the status.
+
+### The verification level vocabulary
+
+Six levels, weakest to strongest. Every listing carries verification.level, which is null
+until Docket has observed something, plus verification.evidence: one row per level, each
+saying whether the check passed, when, and what was read.
+
+  registered         IdentityRegistry.ownerOf answered on BSC chain 56. Evidence: the
+                     owner address, the tokenURI, and which RPC endpoint answered.
+  endpoint_detected  the registration names an a2a or mcp endpoint. A web link is a
+                     homepage and does not count: "the marketing site answered" is not
+                     "the service answered". Web endpoints are still listed, under their
+                     own kind.
+  live               that endpoint answered a guarded request at any status — a 404 still
+                     proves a host is up, which is the same vocabulary the liveness sweep
+                     uses. Read the status code in the evidence before quoting this.
+  payment_tested     the endpoint answered HTTP 402 with a body that parses as an x402
+                     challenge. READ ONLY. Docket reads the challenge and never presents a
+                     payment, so this level says a price exists and says nothing about
+                     whether paying it works.
+  docket_tested      one DOCKET-DEFINED sample invocation came back as a schema-valid
+                     structured result, and NOTHING ELSE. It does not mean a payment was
+                     tested, it does not mean one was not, and it is not a statement about
+                     price, safety or fitness. Evidence: the request sent, the SHA-256 of
+                     the result, and the schema it was checked against.
+
+                     Only a request Docket itself defined can reach this level. Docket has
+                     exactly one today and it is the MCP tools/list capability query, which
+                     is read-only and calls no listed tool. A sample the listing's own
+                     owner supplied CANNOT raise it, however well it validates: a seller
+                     who supplies both the input and the schema it is checked against is a
+                     seller certifying themselves. An A2A endpoint therefore stops at live
+                     until a Docket-defined request exists for its category — fetching an
+                     agent card is a description of an agent, not a result it produced.
+  docket_verified    docket_tested plus a registered paired-benchmark family for this
+                     listing. Nothing reaches this level today: Docket's v3 families are
+                     registered against Docket's own service ids, so no external listing
+                     has one, and the level is recorded as unreached rather than skipped.
+
+Two rules about how the ladder moves.
+
+  docket_tested requires live, not payment_tested. Read as a strict chain, the ordering
+  would mean an endpoint that answers a real request for free can never be tested, which
+  would put a service that only quotes a price above one that did the work. So the two
+  levels both hang off live, and the ordering above is for display only.
+
+  A chain outage never costs a listing a level. ownerOf failing because every RPC
+  endpoint refused is recorded as rpc_unavailable, not as not_registered, and the listing
+  keeps the level it already held. The response says so in chain_read_failed.
+
+Because of the first of those, never read payment from the level. Every listing carries
+verification.payment_tested as its own boolean, beside verification.level, together with
+verification.payment_tested_evidence — the run that decided it, or null where the level
+was never attempted. A listing at docket_tested with payment_tested: false is the normal
+case and is not a contradiction: it means Docket sent a sample invocation, got a
+schema-valid result, and read no x402 challenge from that endpoint. Quote the boolean,
+never the level, when the question is about payment.
+
+hireable is a third separate boolean and it is false until docket_tested. Being in the
+registry, being claimed by its owner, quoting a price, and shipping a sample that passes
+the owner's own schema are none of them evidence that the agent does anything.
+
+A provider MAY declare a sample_input and an output_schema, and Docket does send that
+sample and does publish the result — as an evidence row named provider_sample_ok, which
+is outside the level vocabulary and raises nothing. Its detail carries raises_level: false.
+Read it as "the seller's own example worked", never as a level.
+
+A chain outage that leaves a listing standing is visible on the listing. When ownerOf
+could not be read and the previous level was held, the served block keeps the evidence and
+verified_at that earned the level and adds held_from_outage: true with held_at, the moment
+Docket last tried and could not look. The failed attempt is in the runs, not in the
+listing: the alternative was publishing the strongest level in the vocabulary over six
+failed checks, dated now.
+
+### Endpoints
+
+GET /api/agents
+    Marketplace listings. Parameters: q (free text over the listing name, the capability
+    text it was classified from, and the agent id), category (one of rebalancing,
+    grid_trading, yield_optimisation, health_factor), level (one of the six above; exact
+    match, never a range), limit (1..100, default 20) and offset. Returns items, total,
+    the filters applied, the level vocabulary, listings_by_level, and registry_lookup.
+
+    Listings Docket already holds are answered from the store. When q is given and the
+    store cannot fill the page, Docket asks the BSC registry index for ONE narrowed page
+    and caches what comes back as listings at level null — being findable in an index is
+    not an observation. registry_lookup says whether that happened, how many rows it
+    added, and why it did not when it did not. That lookup is bounded to 60 per hour per
+    peer address; the bound is a fact about this host, not about the registry.
+
+    curl -s "$DOCKET/api/agents?q=health%20factor&category=health_factor"
+
+GET /api/agents/{agent_id}
+    One listing, with the level vocabulary and the prerequisite table. agent_id is the
+    chain:registry:token form, or a bare token id. A listing Docket does not hold is
+    fetched once from the registry index and cached, spending from the same lookup bound.
+
+    curl -s "$DOCKET/api/agents/56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:43129"
+
+GET /api/agents/{agent_id}/verification
+    The listing's current verification block, its hireable flag, and the newest runs THIS
+    DEPLOYMENT recorded — every level attempt it made, passed or failed, with what it read.
+    A listing seeded from the committed census arrives with that census's evidence in
+    verification.evidence and no runs here at all until somebody verifies it against this
+    instance; runs_note says so on every response. Nothing here is fetched from the network.
+
+    curl -s "$DOCKET/api/agents/56:0x8004.../43129/verification"
+
+POST /api/agents/{agent_id}/verify
+    Re-run every level against this listing now and record what each one observes. Body
+    is an empty JSON object. Spends from the same per-IP free-work allowance the re-probe
+    route spends from, and answers 429 with Retry-After when it is gone. Returns the level
+    reached, the previous level, chain_read_failed, the evidence rows, and the updated
+    listing. It never pays and never sends a transaction.
+
+    curl -s -X POST -H 'content-type: application/json' -d '{}' \
+      "$DOCKET/api/agents/56:0x8004.../43129/verify"
+
+POST /api/providers/claim
+    Two shapes on one route. {"agent_id": "..."} mints a single-use nonce and returns the
+    exact message to sign: "Docket provider claim {agent_id} {nonce}". Signing it with
+    personal_sign and posting {"agent_id", "nonce", "signature"} spends the nonce: Docket
+    recovers the signer and compares it to ownerOf(agentId) on chain 56. A nonce is valid
+    for 900 seconds and can be spent here or on POST /api/providers/listings, never both.
+
+    curl -s -X POST -H 'content-type: application/json' \
+      -d '{"agent_id":"56:0x8004...:43129"}' "$DOCKET/api/providers/claim"
+
+POST /api/providers/listings
+    Spend a nonce and write the owner's own description of their agent. Body:
+    agent_id, nonce, signature, capabilities (required), and optionally category, price,
+    payment_method (x402, free or off_platform), sample_input and output_schema. The
+    listing is written at level registered with capability_source provider_declared and
+    hireable false.
+
+    Endpoints are NOT taken from this call. They come from the ERC-8004 registration
+    Docket already read, so a provider who wants a different endpoint listed changes
+    their registration, which is a public act on chain rather than a private one on
+    Docket's database.
+
+    curl -s -X POST -H 'content-type: application/json' \
+      -d '{"agent_id":"...","nonce":"...","signature":"0x...","capabilities":"..."}' \
+      "$DOCKET/api/providers/listings"
+
+Refusal codes on these routes: invalid_category, invalid_level, invalid_query,
+invalid_limit, invalid_offset, invalid_json, invalid_agent_id, invalid_claim,
+invalid_signature, invalid_capabilities, invalid_payment_method, invalid_price,
+invalid_sample_input, invalid_output_schema, listing_not_found, lookup_rate_limited,
+claim_rate_limited, verify_rate_limited, registry_unavailable, stale_nonce,
+bad_signature, not_owner, not_registered, chain_unavailable.
+
+An agent id is a token id or its full chain:registry:token form on chain 56, at most 80
+characters, and anything else is invalid_agent_id (422) on every route that takes one.
+Both spellings resolve to the same listing.
+
+chain_unavailable is not a refusal of the claim. It means Docket could not read the chain,
+so the claim is neither accepted nor rejected; retry it.
 
 
 ## Hiring
@@ -993,6 +1247,231 @@ the owner enables it. Before that, `python -m docket.hire.x402 preflight` reads 
 USDT balance and Relayer allowance, whitelist, pause state, bytecode and domain, then sends
 one signed `/verify` request without calling `/settle`. Its report never contains the key,
 signature or authorization. A facilitator response is still not proof of chain finality.
+
+
+## Activations: hiring a service as a standing instruction
+
+POST /hire/{service_id} runs one call and forgets it. An activation is the same work held
+as a record: who asked, what they asked for, what happened, what has to happen next, and
+who may change it. It is the shape `/my-agents` reads and the shape an agent should use
+when the caller is a person with a wallet rather than a script with a payment header.
+
+Two kinds, and they diverge after the third state.
+
+- `one_shot` runs the service once and hands back a result and a receipt.
+  quoted -> awaiting_wallet -> authorized -> paid_or_reserved -> queued -> running ->
+  needs_approval -> completed | failed | refunded
+- `persistent` holds a bounded session key and keeps acting until it is stopped.
+  quoted -> awaiting_wallet -> authorized -> awaiting_session -> funded -> active ->
+  paused -> active, with `needs_approval` reachable from `active`, and every ending
+  going through `revoking` to `revoked` or `expired`.
+
+Two of those states exist because the web process holds no session key. It never reads
+the master password, so it can neither mint a key nor sweep one, and the two steps that
+need one belong to Docket's own job runner:
+
+- `awaiting_session` — the owner has authorized and no key exists yet. `session` is
+  `null` and `next_action` is `{kind: "wait", detail: {reason: "session being created",
+  poll_seconds: 5}}`. The job runner mints the key on its next pass, which is at most a
+  minute away, and `next_action` then becomes `fund_session` carrying the address.
+- `revoking` — closing has been asked for and the float has not yet been proved returned.
+  `revoke`, `cancel` and expiry all land here. The job runner sweeps, then reads the
+  session's balances again at a later block; the activation becomes `revoked` (or
+  `expired`, per `next_action.detail.closing_to`) only when they read zero. A sweep that
+  was broadcast is not a sweep that landed, so "we sent it" is never served as the end of
+  the story — a failed sweep leaves the activation in `revoking` and is retried.
+
+`expired` therefore means the policy ran out AND the float was returned. An activation
+whose policy has expired but whose sweep has not yet succeeded reads `revoking`.
+
+Illegal moves are refused with `illegal_transition` and change nothing. Every accepted
+move appends to `events` with `from_state`, `to_state`, a reason, and an `actor` of
+`user`, `docket` or `chain`, so an activation is its own audit trail rather than a
+current state with the history discarded.
+
+    GET  /api/activations/policy-defaults?service_id=range-doctor
+    GET  /api/activations/nonce?owner=0x..&service_id=range-doctor
+    POST /api/activations
+    GET  /api/activations?owner=0x..&state=..&limit=..&offset=..    # owner required
+    GET  /api/activations/{activation_id}
+    GET  /api/activations/{activation_id}/prepared
+    POST /api/activations/{activation_id}/approve
+    POST /api/activations/{activation_id}/pause
+    POST /api/activations/{activation_id}/cancel
+    POST /api/activations/{activation_id}/revoke
+
+### Proving the owner asked
+
+Every mutating call carries `nonce` and `owner_signature`. The signature is an EIP-191
+`personal_sign` over the exact string Docket issued, and there are exactly two shapes:
+
+    Docket activation create {service_id} {nonce}
+    Docket activation {activation_id} {action} {nonce}
+
+where `{action}` is `approve`, `pause`, `cancel` or `revoke`. When the call carries
+evidence — a `tx_hash` or a `payment_id` — that value is appended to the message and
+signed with it:
+
+    Docket activation {activation_id} approve {nonce} {tx_hash}
+
+A signature over the shorter form authorises "approve this activation" and not "approve
+it against THIS transaction", so anything else could be substituted into the body
+afterwards. Sign what you are sending.
+
+The exact rule, because a message that differs by one character does not verify:
+
+    base    = "Docket activation " + activation_id + " " + action + " " + nonce
+    message = base + " " + tx_hash      if the body carries tx_hash
+            = base + " " + payment_id   if the body carries payment_id
+            = base                      if it carries neither
+
+Single ASCII spaces, no trailing space, values byte-for-byte as they appear in the body —
+a `tx_hash` is not lowercased, checksummed or 0x-normalised before it is signed or before
+it is checked. A body carrying BOTH `tx_hash` and `payment_id` is refused with 422
+`missing_field`: only one of them can be bound, and the other would travel unsigned. For a create, the nonce
+comes from GET /api/activations/nonce, which returns `{nonce, message, expires_at,
+expires_in_seconds}` and expires in 600 seconds; supply `service_id` on that call and the
+`message` it returns is the exact string to sign. For every other call the nonce is the
+activation's own current `auth_nonce`, which the activation carries and which rotates
+after every accepted mutation. A nonce is single-use: the spend is one atomic statement,
+so two requests holding the same signature cannot both succeed and the loser is told
+`stale_nonce` rather than silently replaying the winner's work.
+
+Docket never holds an owner key and never asks for one. What it stores is the address a
+signature recovered to, which anybody can recheck.
+
+### Errors
+
+Activation routes answer `{"error_code", "message"}`. This is deliberately not the
+`{"error": {"code", "message"}}` envelope every other Docket route uses, and a client
+must read the two shapes separately rather than assuming one. The codes:
+
+- `bad_signature` (401) — `owner_signature` is not a signature over that message.
+- `not_owner` (403) — it is a signature, and it recovered to somebody else.
+- `stale_nonce` (409) — that nonce was already spent or has expired.
+- `illegal_transition` (409) — the state machine has no such move, or the row changed
+  underneath the request.
+- `policy_violation` (409, 422) — a policy that bounds nothing, or a payment or
+  transaction offered as proof that does not bind to what it was offered for.
+- `simulation_failed` (409) — a prepared call the chain refused. Docket does not hand it
+  to a browser to sign.
+- `expired` (409) — the session policy's own expiry has passed. The activation moves to
+  `revoking` and closes as `expired` once its float has been proved returned.
+- `too_many_activations` (422) — this owner already holds the maximum number of
+  activations that have not finished. Cancel or revoke one first.
+- `activation_not_found` (404), `service_not_found` (404), `missing_field` (422),
+  `invalid_json` (400), `sessions_unavailable` (503).
+
+Checks run in that order: signature, then owner, then nonce, then expiry, then the
+transition. A caller learns the first thing that is wrong, not the last.
+
+### What has to happen next
+
+Every activation carries `next_action: {kind, detail}` from the closed vocabulary
+`connect_wallet`, `approve_token`, `sign_payment`, `fund_session`, `approve_nft`,
+`sign_transaction`, `wait`, `none`. Read it rather than inferring the next step from the
+state; the detail carries what the step needs.
+
+`GET /api/activations/{activation_id}/prepared` returns `{calls: [...]}` — the transactions the
+owner is being asked to sign, each with `to`, `data`, `value_atomic`, `chain_id` 56,
+`gas_ceiling`, `deadline`, `purpose`, and its own `simulation` taken at a named block. A
+call whose simulation says the chain refused it is never handed over: the route answers
+`simulation_failed` instead, because signing it would revert at the owner's expense.
+
+### One-shot activations
+
+`kind: "one_shot"` on the free tier: create, then approve with no further body, and the
+service runs. The result lands in `result` and a receipt in `receipts`, hash-bound to the
+inputs by the same `build_receipt` every hire uses, so `input_hash` and `output_hash` are
+recomputable exactly as described under "Recomputing the hashes yourself". A run that
+fails moves to `failed` with the failure in the event's reason; nothing is swallowed.
+
+On the paid tier the quote reads `payment_scheme: "x402-exact"`. Settle the hire through
+POST /hire/{service_id} in the usual way, then approve the activation with the
+`payment_id` that hire returned. Docket binds it only if the row exists, settled, bought
+this service, was paid by this owner, and its `input_hash` equals the canonical hash of
+this activation's `inputs`. Anything else is `policy_violation`, and the activation does
+not move. A payment for different work is not payment for this work.
+
+### Persistent activations and session keys
+
+A persistent activation acts on chain through its own throwaway EOA. Docket generates the
+key, encrypts it immediately into a keystore, and stores only the keystore; the master
+password comes from a file the operator installs and there is no default, so a deployment
+without one refuses persistent activations with `sessions_unavailable` rather than
+running them under a password published in this source.
+
+You do not have to compose the allowlists yourself, and you are not expected to know
+them. `GET /api/activations/policy-defaults?service_id=..` returns the skeleton for that
+service's category — the contracts its session must call, the selectors it may send, the
+tokens it may spend, and small starting caps — with `expires_at` left for you, because how
+long a session may run is the one bound Docket will not choose on an owner's behalf. Send
+it back as `policy` with an expiry added, or omit `contract_allowlist`,
+`function_allowlist` and `token_allowlist` from your own policy and Docket fills those
+three from the same table its executors act against. The activation records which happened
+in `policy.policy_source`: `owner`, `docket_defaults`, or `mixed`. Caps, slippage and gas
+price you do set are kept as sent and validated as sent.
+
+The whole policy is validated BEFORE the nonce is spent, so a malformed one costs you an
+error and not a signature: the same nonce is still good for the corrected request.
+
+The policy is required at create time and bounds the session: `contract_allowlist`,
+`function_allowlist` (4-byte selectors), `token_allowlist`, `per_action_limit_atomic` and
+`total_cap_atomic` per token, `max_slippage_bps`, `max_gas_price_wei`, `expires_at`, and
+`emergency_pause`. Atomic amounts are strings. A policy with an empty allowlist or a cap
+of zero is refused rather than accepted as permissive, and every capped token needs both
+a per-action limit and a total cap or one action could spend the session.
+
+An approval is bounded like a spend, and by the same cap. `approve` may only name a
+spender that is in `contract_allowlist` — an allowance granted to an address the session
+may not even call would be pulled later, in somebody else's transaction, where no bound of
+Docket's applies — and `transfer` may only pay the owner or the session. A granted
+allowance is held against the lifetime cap until the pull that consumes it lands or it is
+set to zero, so a run of passes that approve and stop cannot accumulate standing
+allowances past the cap. Closing sets every outstanding approval to zero before it sweeps,
+and `revoked` requires the allowances to read zero as well as the balances.
+
+Read the limit of what that buys you. A session key is an ordinary EOA and nothing on
+chain constrains it: the policy is a second gate in Docket's own process, and the real
+loss ceiling is the float the owner moved to the session address. That is why funding is
+per-activation and sized at the cap, and why revoking sweeps.
+
+`next_action` after create is `fund_session`, whose `detail.requirements` lists what the
+owner must send: one transfer per capped token, plus any ERC-721 approvals the create
+request named in `nft_approvals` (each `{contract, token_id}`, and each checked against
+the policy's own contract allowlist). Approve with the `tx_hash` of each. Docket moves to
+`funded` only when a mined receipt carries a log that matches — the right contract, the
+right event, the session address as the recipient, and at least the amount asked for. A
+transaction hash on its own proves nothing.
+
+Once `active`, Docket's own timer evaluates the session every minute. Where the
+proposed action is inside the policy the session sends it and appends a receipt carrying
+the transaction hash, gas and status. Where it is not — or where no session key is
+available — the activation moves to `needs_approval` with `next_action.kind:
+"sign_transaction"` and the prepared calls, and the owner signs it themselves.
+
+Every pass, including one that decided to do nothing, writes what it observed to
+`result.last_decision`: `{kind, summary, observed_at, block, evidence}`. That is the
+running record of what has been watched and it is the only state carried between passes,
+so a `noop` there is a real observation rather than an absence of one. A one-shot's own
+output lives in the other keys of `result` and is never touched by it.
+
+What a session may spend is read out of the calldata Docket is about to broadcast, per
+call, never from a figure supplied alongside it. The functions Docket can read are the
+ones its own agents build — ERC-20 `approve` and `transfer`, PancakeSwap V2
+`swapExactTokensForTokens`, Venus `repayBorrow`, `repayBorrowBehalf` and `mint`, and the
+v3 position manager's `mint`, `increaseLiquidity`, `decreaseLiquidity` and `collect`. A
+call outside that list which carries value, or is aimed at a token the session may spend,
+is refused rather than charged zero: an action inside no cap is worse than an action
+refused. A batch is put to the session cap once, as a total, before any of it is sent, so
+a batch that would be refused three transactions in is refused at zero instead.
+
+`pause` stops Docket sending anything; `approve` resumes it. `revoke` and `cancel` move
+the activation to `revoking`; the job runner then returns every allowlisted token balance,
+every token a swap paid the session in, and the spare BNB, and closes the activation only
+once those balances read zero. A sweep that cannot reach the chain is recorded and
+retried on the next pass — the activation stays `revoking` rather than claiming a float
+came back that did not.
 
 
 ## Escrow: the other rail, and the week it takes

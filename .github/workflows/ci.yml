@@ -28,6 +28,84 @@ jobs:
       - run: uv sync --locked --extra dev --no-build --no-install-project --python "$pythonLocation/bin/python"
       - run: .venv/bin/python -m pytest -q
 
+  # Job names are load-bearing: the branch ruleset requires `test (3.11)`, `test (3.12)` and
+  # `package` by name, and `lint` and `audit` join them rather than replacing any of them.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - run: 'python -m pip install --require-hashes --only-binary=:all: -r deploy/build-requirements.txt'
+      - run: uv sync --locked --extra dev --no-build --no-install-project --python "$pythonLocation/bin/python"
+      # The whole tree, with the exclusions the config names. A lint that only ran over
+      # `docket/` would leave the tests and the deployment scripts unread by it.
+      - run: .venv/bin/ruff check .
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - run: 'python -m pip install --require-hashes --only-binary=:all: -r deploy/build-requirements.txt'
+      - run: uv sync --locked --extra dev --no-build --no-install-project --python "$pythonLocation/bin/python"
+      # Audited from the lock rather than from `pip list`: the environment a `uv sync` builds
+      # has no pip in it, and the set that matters is the one the lock pins for everyone
+      # rather than whatever this runner happened to resolve.
+      - name: Export the dependency set the lock pins
+        run: |
+          uv export --quiet --frozen --extra dev --no-emit-project --format requirements.txt \
+            --output-file "$RUNNER_TEMP/audit-requirements.txt"
+      - name: Audit that set against the published advisories
+        run: |
+          .venv/bin/pip-audit --strict --disable-pip --require-hashes --progress-spinner off \
+            -r "$RUNNER_TEMP/audit-requirements.txt"
+  # The browser half of the suite. The activation surfaces are shells whose whole behaviour
+  # is JavaScript — the wallet conversation, the x402 envelope, the failure recovery — and
+  # pytest can only assert that the shells are served. This job drives them in a real
+  # browser against a real uvicorn, with the wallet and the not-yet-merged lanes' APIs
+  # faked at the network boundary. Playwright is a test-time dependency only: nothing under
+  # `docket/` imports it and no page loads anything from npm.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: tests/e2e/package-lock.json
+      - run: 'python -m pip install --require-hashes --only-binary=:all: -r deploy/build-requirements.txt'
+      # The same environment the `test` job builds, because the fixture starts uvicorn out
+      # of it. `DOCKET_PYTHON` then points Playwright at that interpreter rather than at the
+      # `.venv/Scripts/python.exe` a Windows checkout would have.
+      - run: uv sync --locked --extra dev --no-build --no-install-project --python "$pythonLocation/bin/python"
+      - run: npm ci
+        working-directory: tests/e2e
+      - run: npx playwright install --with-deps chromium
+        working-directory: tests/e2e
+      - run: npx playwright test
+        working-directory: tests/e2e
+        env:
+          DOCKET_PYTHON: ${{ github.workspace }}/.venv/bin/python
+      # A browser failure is a screenshot, a trace and a DOM snapshot, none of which
+      # survive the runner. Without them a red e2e job says only which assertion failed,
+      # which is the least useful half of what the suite already recorded.
+      - uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        if: failure()
+        with:
+          name: playwright-failure
+          path: |
+            tests/e2e/playwright-report/
+            tests/e2e/test-results/
+          retention-days: 7
+
   package:
     runs-on: ubuntu-latest
     steps:

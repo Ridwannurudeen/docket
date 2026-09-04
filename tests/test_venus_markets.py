@@ -18,10 +18,14 @@ different contracts' answers, and a row that does not say which call produced wh
 number is a row nobody can check against the chain.
 """
 
+from types import SimpleNamespace
+
 import pytest
 from web3 import Web3
 
+from docket.agents.pancake.positions import PrunedStateError
 from docket.agents.venus.markets import (
+    BSC_RPCS,
     ORACLE_ABI,
     ROW_SOURCES,
     UNITROLLER,
@@ -154,8 +158,13 @@ class _Eth:
             }
         return type("C", (), {"functions": _Functions(handlers)})()
 
-    def call(self, tx):
-        """The raw `underlying()` probe. Returns bytes, and empty bytes is an answer."""
+    def call(self, tx, block_identifier="latest"):
+        """The raw `underlying()` probe. Returns bytes, and empty bytes is an answer.
+
+        Takes a `block_identifier` because the real one does: every read carries the block
+        it is asking about, and a fake that ignored it would let a pinned read silently
+        answer from the head — the one failure the registered contract exists to catch.
+        """
         self._record("underlying", None)
         value = MARKETS[Web3.to_checksum_address(tx["to"])]["underlying"]
         if value == b"":
@@ -349,3 +358,97 @@ def test_the_reader_is_read_only_all_the_way_down():
     source = inspect.getsource(markets)
     for forbidden in ("send_raw_transaction", "sign_transaction", "private_key", "eth.account"):
         assert forbidden not in source, forbidden
+
+
+# ------------------------------------------------------------- pinned reads
+
+
+class _PinnedRpc:
+    """A chain that records the block every read asked about.
+
+    v3-09 records an answer about a different block as a blocked contract rather than a
+    worse answer, so "which block did each call actually name" is the property under test —
+    not whether the numbers came back.
+    """
+
+    def __init__(self, *, pruned=False):
+        self.blocks = []
+        self._pruned = pruned
+
+    def __call__(self, do):
+        outer = self
+
+        class _Eth:
+            block_number = 119_999_999
+
+            def call(self, tx, block_identifier="latest"):
+                outer._note(block_identifier)
+                return b""
+
+            def contract(self, address=None, abi=None):
+                return _Contract()
+
+        class _Contract:
+            functions = None
+
+            def __getattr__(self, name):
+                raise AttributeError(name)
+
+        return do(SimpleNamespace(eth=_Eth()))
+
+    def _note(self, block_identifier):
+        self.blocks.append(block_identifier)
+        if self._pruned:
+            raise ValueError("missing trie node 0xdead (path )")
+
+
+def test_a_pinned_read_needs_an_archive_endpoint_and_says_so_when_there_is_none():
+    """Answering from the head instead is the one failure the registered contract exists
+    to catch, and it looks exactly like success."""
+    reader = VenusReader(archive_rpc="")
+    with pytest.raises(ValueError, match="observation_block_unsupported"):
+        reader.account(HOLDER, observation_block=119_627_412)
+    with pytest.raises(ValueError, match="DOCKET_ARCHIVE_RPC is not set"):
+        reader.listed_markets(observation_block=119_627_412)
+
+
+def test_a_pinned_read_puts_the_archive_endpoint_first():
+    """The public dataseeds prune, so the order is the one `positions.py` uses: the
+    archive, then the ordinary endpoints behind it."""
+    reader = VenusReader(archive_rpc="https://archive.example")
+    handle = reader._at(119_627_412)
+    assert handle._urls[0] == "https://archive.example"
+    assert tuple(handle._urls[1:]) == BSC_RPCS
+    # A head read never reaches for it.
+    assert reader._at(None) is reader._rpc
+
+
+def test_an_environment_archive_endpoint_is_read_the_way_positions_reads_it(monkeypatch):
+    monkeypatch.setenv("DOCKET_ARCHIVE_RPC", " https://env.example ")
+    assert VenusReader().archive_rpc == "https://env.example"
+    monkeypatch.delenv("DOCKET_ARCHIVE_RPC")
+    assert VenusReader().archive_rpc == ""
+
+
+def test_a_pinned_read_names_that_block_on_every_call_it_makes():
+    rpc = _PinnedRpc()
+    reader = VenusReader(rpc=rpc, archive_rpc="https://archive.example")
+    reader.underlying_of(VUSDT, observation_block=119_627_412)
+    assert rpc.blocks == [119_627_412]
+    rpc.blocks.clear()
+    reader.underlying_of(VUSDT)
+    assert rpc.blocks == ["latest"]
+
+
+def test_a_block_the_endpoints_no_longer_hold_is_a_stated_failure_not_an_empty_account():
+    """A pruned node answers `missing trie node` rather than the state that was there.
+    Reading that as "this account has nothing" would turn a gap in the infrastructure into
+    a claim about somebody's position."""
+    reader = VenusReader(
+        rpc=_PinnedRpc(pruned=True), archive_rpc="https://archive.example"
+    )
+    with pytest.raises(PrunedStateError, match="block 119627412 is no longer held"):
+        reader.underlying_of(VUSDT, observation_block=119_627_412)
+    # A head read of the same failure is left as the ordinary error it is.
+    with pytest.raises(ValueError, match="missing trie node"):
+        reader.underlying_of(VUSDT)

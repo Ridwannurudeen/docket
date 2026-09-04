@@ -40,7 +40,7 @@ import time
 from base64 import b64decode, b64encode
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -51,6 +51,7 @@ from .spec import (
     YIELD_SOURCE_URLS,
     PairedSpec,
     assert_runnable,
+    is_health_family,
     is_range_family,
     is_warden_family,
     is_yield_family,
@@ -85,7 +86,7 @@ SPEED_ELIGIBLE = (SUCCEEDED,)
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def ledger_path(spec: PairedSpec, runs_dir: Path) -> Path:
@@ -250,7 +251,7 @@ def capture_due_sources(
         raise ValueError(
             f"runner: {spec.spec_id} has no registered HTTP capture schedule"
         )
-    observed_now = now or datetime.now(timezone.utc)
+    observed_now = now or datetime.now(UTC)
     if observed_now.tzinfo is None or observed_now.utcoffset() != timedelta(0):
         raise ValueError("runner: capture time must be timezone-aware UTC")
     path = capture_ledger_path(spec, captures_dir)
@@ -467,7 +468,7 @@ def recover_interrupted(
     """
     path = ledger_path(spec, runs_dir)
     closed = []
-    detected_at = datetime.now(timezone.utc)
+    detected_at = datetime.now(UTC)
     with _ledger_lock(path):
         for slot, state in _fold_state(_read_events_unlocked(path)).items():
             if not state.is_dangling:
@@ -530,7 +531,7 @@ def claim_slot(
                 f"{state.started.get('recorded_at')}. A primary attempt is claimed once — "
                 "a second run cannot be recorded or reported."
             )
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
         return _append_event_unlocked(
             path,
             {
@@ -1002,6 +1003,36 @@ def _manual_reveal(
     elif is_yield_family(spec):
         source_ref = spec.inputs_ref
         snapshots = inputs["source_snapshots"]
+    elif is_health_family(spec):
+        # The frozen Venus frame is a repository artifact rather than embedded response
+        # bytes, so the reveal hands over the account's own pinned rows with the digest
+        # they were locked under. The truth block is already stripped by `_manual_case`.
+        frame_ref = next(
+            source for source in case["source_refs"] if source["kind"] == "venus_frame"
+        )
+        frame = _read_locked_json(frame_ref, repo_root)
+        row = next(
+            account
+            for account in frame["accounts"]
+            if account["account"] == case["account"]
+        )
+        derived = {
+            "status",
+            "weighted_collateral_usd",
+            "borrowed_usd",
+            "collateral_ratio",
+            "derived_headroom_usd",
+            "venus_headroom_usd",
+            "difference_usd",
+            "exactly_equal",
+        }
+        return {
+            **revealed,
+            "frame_ref": f"{frame_ref['ref']}#accounts/{case['account']}",
+            "account_state": {
+                name: value for name, value in row.items() if name not in derived
+            },
+        }
     else:
         return revealed
 
@@ -1081,6 +1112,13 @@ def _agent_payload(spec: PairedSpec, inputs: dict, case: dict, repo_root: Path) 
             "horizon_days": case["decision_horizon_days"],
             "pool_snapshot": inputs["source_snapshots"]["pools"],
             "token_list_snapshot": inputs["source_snapshots"]["token_list"],
+        }
+    if is_health_family(spec):
+        return {
+            "wallet": case["account"],
+            "trigger_shortfall_usd": case["trigger_shortfall_usd"],
+            "observation_block": case["observation_block"],
+            "source_refs": case["source_refs"],
         }
     if is_warden_family(spec):
         return {"payload": case["text"]}

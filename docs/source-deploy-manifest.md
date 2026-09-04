@@ -120,7 +120,10 @@ docket.escrow
 docket.execution
 docket.hire
 docket.identity
+docket.jobs
+docket.jobs.executors
 docket.marketplace
+docket.sessions
 experiments
 ```
 
@@ -172,6 +175,9 @@ artifact. The warning remains a backend-maintenance risk; this build does not hi
 | `docket/advantage/v3/specs/v3-05-range-doctor.json` | `23208479f4f96ee0e8ec878fb49bf08c6918849e2cce022e57fe971ae5f123fe` |
 | `docket/advantage/v3/specs/v3-06-yield-router-assisted.json` | `2ac836e15989710aec91ce9c2ebeb8fac49e32962c595cebfdbf09e5aad766d5` |
 | `docket/advantage/v3/specs/v3-07-range-doctor.json` | `7423d660bcaa7f05fd99d4b5bf049f5ffde7e8016a04e934b0d3105065b2fe44` |
+| `docket/advantage/v3/specs/v3-08-yield-router.json` | `f439b7c606bfda2613d842e314499b8677cad2b45369cdee1dc11bc93ba7577d` |
+| `docket/advantage/v3/specs/v3-09-health-guard.json` | `524bd4820f58469756e0d3fbedef7d26b61d571f2c6d8a71e43b6b91c95fa2d8` |
+| `docket/advantage/v3/sources/health-v9-calibration-set.json` | `23845a548d2551383bba62f814b00bb317316c6e814f936e453d203374a9c457` |
 | `docket/advantage/v3/sources/range-v5-calibration-set.json` | `df2e7247f712247462689b7718ee978e6bbb7596ebf05998754ec8bb540b77c6` |
 | `docket/advantage/v3/sources/range-v5-enumerable-frame.json` | `ea41a6391e2d40f15c394224d9c7b0699b3eeca4968a2de9f75c43df32469761` |
 | `docket/advantage/v3/sources/range-v5-evaluator-calibration.json` | `08e39929d39a9042cb24d18911257233ed3e77bc6951184554bb1f0d7ca27f55` |
@@ -187,6 +193,7 @@ artifact. The warning remains a backend-maintenance risk; this build does not hi
 | `docket/advantage/v3/sources/yield-v2-calibration-set.json` | `4194cd7f5ae7b5eb6535a8a228deaf238b80ee68630bf0a18ca8bb4bb0f2c5b6` |
 | `docket/advantage/v3/sources/yield-v2-evaluator-calibration.json` | `de46911bed9c8f7fe993e39f4668fd86240f1edc77fa517e7c96cd854636e4e7` |
 | `docket/advantage/v3/sources/yield-v6-assisted-calibration-set.json` | `a78ac78c79ef3b47905db0d2b365a82a2d31d24940b3867e87c21954ff59f08f` |
+| `docket/advantage/v3/sources/yield-v8-calibration-set.json` | `434011a5d1e60accc718d56b1f2fd3146fa8e46335c5aa129a640b7f3353ac6c` |
 | `docket/advantage/v3/provenance/warden-v3-03-pilot.json` | `8ed4c761e10c590da88c04764536d791ab5c3f2aa68d0945378c41f572cb99ef` |
 | `docket/advantage/v3/provenance/warden-pilot-history.json` | `2221f0c31f594c8dcf90aeaafaf2de241b77c095cdb4730b6cabb248f8103419` |
 | `docket/advantage/v3/provenance/range-v3-05-feasibility.json` | `6f878193b0b8fbf973c363f358ab5e932515a3f9770934406048d55d5b565874` |

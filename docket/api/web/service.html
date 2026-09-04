@@ -8,8 +8,8 @@
       name="description"
       content="One Docket service: what arrives, what to send, what it costs, what has been observed of it, what it cannot do — and the control that runs it."
     />
-    <link rel="stylesheet" href="/static/style.css?v=12" />
-    <script type="module" src="/static/app.js?v=12"></script>
+    <link rel="stylesheet" href="/static/style.css?v=13" />
+    <script type="module" src="/static/app.js?v=13"></script>
   </head>
   <body data-page="service">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -35,10 +35,11 @@
           Docket <span class="brand-sub">BSC / ERC-8004</span>
         </a>
         <nav class="site-nav" aria-label="Primary">
-          <a href="/">Case file</a>
-          <a href="/pancake">PancakeSwap</a>
-          <a href="/research">Browse agents</a>
-          <a href="/advantage">Advantage report</a>
+          <a href="/">Explore</a>
+          <a href="/search">Find agents</a>
+          <a href="/my-agents">My agents</a>
+          <a href="/providers">Providers</a>
+          <a href="/advantage">Evidence</a>
           <a href="/llms.txt">API</a>
         </nav>
       </div>
@@ -51,6 +52,9 @@
           <div class="wrap-anywhere" data-region="service">
             <!-- service-opening -->
           </div>
+          <p class="btn-row">
+            <!-- service-activate -->
+          </p>
           <noscript>
             <div class="notice notice-warn">
               <h2>The service record remains readable</h2>
@@ -92,6 +96,7 @@ curl -s -X POST /hire/range-doctor \
     <footer class="site-footer">
       <div class="wrap">
         <p class="footer-links">
+          <a href="/status">Status</a>
           <a href="/categories">/categories (JSON)</a>
           <a href="/services">/services (JSON)</a>
           <a href="/stats">Registry coverage (snapshot required)</a>

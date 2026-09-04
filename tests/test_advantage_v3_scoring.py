@@ -11,13 +11,12 @@ from base64 import b64encode
 from pathlib import Path
 
 import pytest
+from test_advantage_v3_spec import SPECS_DIR, _input_record, _source_ref
 
 import docket.advantage.v3.spec as spec_module
 from docket.advantage.v3 import runner, scoring
 from docket.advantage.v3.spec import PairedSpec, load, lock_inputs, save
 from docket.hire.receipts import canonical_hash
-
-from test_advantage_v3_spec import SPECS_DIR, _input_record, _source_ref
 
 
 def _locked_family(tmp_path: Path, monkeypatch, spec_id: str):
@@ -156,7 +155,7 @@ def _range_output(service_name: str = "Range Doctor") -> dict:
 
 def _complete_range_ledger(spec, inputs: dict, ledger: Path, *, failed=None):
     failed = failed or set()
-    for index, case in enumerate(inputs["cases"]):
+    for case in inputs["cases"]:
         for arm in ("manual", "agent"):
             identity = (case["case_id"], arm)
             outcome = runner.FAILED if identity in failed else runner.SUCCEEDED

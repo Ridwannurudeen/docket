@@ -15,7 +15,7 @@ tempted to leave off. A confirmed transaction shows an action executed as author
 does not show the action was worth taking.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..hire.receipts import canonical_hash
 
@@ -69,6 +69,6 @@ def action_receipt(
         "note": EXECUTION_NOTE,
     }
     return body | {
-        "issued_at": datetime.now(timezone.utc).isoformat(),
+        "issued_at": datetime.now(UTC).isoformat(),
         "receipt_hash": canonical_hash(body),
     }

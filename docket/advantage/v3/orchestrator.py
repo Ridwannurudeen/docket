@@ -34,7 +34,7 @@ from .runner import (
     scheduled_slots,
     terminate_slot,
 )
-from .spec import REPO_ROOT, assert_runnable, load
+from .spec import REPO_ROOT, assert_runnable, is_health_family, load
 
 
 class OrchestratorRefused(RuntimeError):
@@ -152,6 +152,32 @@ def hire_agent(spec, payload, *, hire=None, client=None, headers=None) -> dict:
             },
             "receipt": receipt,
         }
+    if is_health_family(spec):
+        # The registered question names one account at one block. A response about the
+        # same account at a later block is a different observation, not a worse answer,
+        # so it is recorded as a blocked service contract rather than a rubric zero —
+        # exactly what execution_protocol.blocked_contract_rule registers.
+        assessment = result.get("assessment") if isinstance(result, dict) else None
+        observed_block = (
+            assessment.get("as_of_block") if isinstance(assessment, dict) else None
+        )
+        observed_address = result.get("address") if isinstance(result, dict) else None
+        if observed_block != payload["observation_block"] or str(
+            observed_address or ""
+        ).lower() != str(payload["wallet"]).lower():
+            return {
+                "failure": {
+                    "kind": runner.BLOCKED_CONTRACT,
+                    "message": (
+                        "the deployed service answered about "
+                        f"{observed_address!r} at block {observed_block!r} rather than "
+                        f"{payload['wallet']!r} at the registered observation block "
+                        f"{payload['observation_block']}"
+                    ),
+                },
+                "forced_outcome": runner.BLOCKED_CONTRACT,
+                "receipt": receipt,
+            }
     cost = None
     amount = payment.get("amount")
     asset = payment.get("asset")

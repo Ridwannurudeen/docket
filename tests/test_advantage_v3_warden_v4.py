@@ -10,7 +10,6 @@ from docket.advantage.v3 import calibration, rehearsal, report, runner
 from docket.advantage.v3 import spec as spec_module
 from docket.advantage.v3.spec import load
 
-
 ROOT = Path(__file__).resolve().parents[1]
 V3 = ROOT / "docket/advantage/v3"
 SPEC_PATH = V3 / "specs/v3-04-warden-security.json"
@@ -369,7 +368,7 @@ def test_report_marks_the_unlocked_predecessor_superseded_and_v4_complete_unscor
     payload = report.report()
     by_id = {family["spec_id"]: family for family in payload["families"]}
 
-    assert payload["summary"]["n_families"] == 7
+    assert payload["summary"]["n_families"] == 9
     assert by_id["v3-03-warden-security"]["state"] == (
         report.SUPERSEDED_BEFORE_INPUT_LOCK
     )

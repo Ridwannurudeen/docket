@@ -27,7 +27,7 @@ import hashlib
 import json
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import doctor
@@ -143,7 +143,7 @@ def observe(
     a caller that thought it had substituted a reader would reach the chain instead.
     """
     reporter = reporter or doctor.report
-    observed_at = (now or datetime.now(timezone.utc)).isoformat()
+    observed_at = (now or datetime.now(UTC)).isoformat()
     record = {
         "record_version": RECORD_VERSION,
         "observed_at": observed_at,
@@ -340,7 +340,7 @@ def main(argv: list[str] | None = None) -> int:
             parser.error(
                 "decide requires the latest observation report to have a decision sentence"
             )
-        decided_at = args.decided_at or datetime.now(timezone.utc).isoformat()
+        decided_at = args.decided_at or datetime.now(UTC).isoformat()
         decision = _append_owner_decision(
             path,
             history,

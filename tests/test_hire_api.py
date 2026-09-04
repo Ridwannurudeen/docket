@@ -6,7 +6,7 @@ import sqlite3
 import threading
 import time
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -15,10 +15,9 @@ from eth_account.messages import encode_typed_data
 from fastapi.testclient import TestClient
 
 from docket.agents.pancake import doctor
-from docket.api import create_app
-from docket.api import routes
+from docket.api import create_app, routes
 from docket.api.routes import FREE_TIER_HIRES
-from docket.hire import catalogue
+from docket.hire import admission, catalogue
 from docket.hire.catalogue import SERVICES, USDT_TOKEN, PaidStockAdmission, get_service
 from docket.hire.x402 import (
     B402_NETWORK,
@@ -30,6 +29,9 @@ from docket.store import Store
 
 PAY_TO = "0x" + "11" * 20
 WALLET = "0x451871A1753903FB8fdd64a6B838E95aB8D5B80f"
+# Wide enough that the committed v1 experiment stays inside it however long after 2026 a
+# test runs, and still a real date the expiry instant can be printed from.
+A_CENTURY_S = 100 * 365 * 24 * 60 * 60
 
 
 def _stub_report(address, **kwargs):
@@ -100,31 +102,67 @@ def _client(
         token_file.write_text(canary_token, encoding="ascii")
         monkeypatch.setenv("DOCKET_CANARY_TOKEN_FILE", str(token_file))
     if admit_range:
-        monkeypatch.setitem(
-            SERVICES,
-            "range-doctor",
-            replace(
-                get_service("range-doctor"),
-                admission=PaidStockAdmission(True, True, True, True),
-            ),
-        )
-        store = Store(db_path)
-        run_id = store.begin_canary_run("range-doctor", "http://testserver")
-        store.finish_canary_run(
-            run_id,
-            verdict="passed",
-            checks=[
-                {
-                    "leg": "complete_human_result",
-                    "checked": "the complete paid hire chain",
-                    "status": "passed",
-                    "observed": {"settlement_amount": "0.50"},
-                    "evidence": {"replay_status": 409},
-                }
-            ],
-        )
+        _admit_range_doctor(monkeypatch, db_path)
     # No snapshot is ingested: hiring must not depend on one.
     return TestClient(create_app(db_path, facilitator=facilitator))
+
+
+def _admit_range_doctor(monkeypatch, db_path):
+    """Open every admission limb from durable state, the way production would.
+
+    Three of the four limbs are derived now, so replacing the catalogue constant admits
+    nothing. This seeds what each one actually reads. The paired limb is opened by
+    widening the disclosed freshness window rather than by inventing an artifact: the
+    committed v1 experiment `01-liquidity` is a real paired benchmark that names
+    range-doctor, and widening the window is what keeps this fixture from depending on
+    how far today is from the day it ran.
+    """
+    monkeypatch.setattr(admission, "PAIRED_EVIDENCE_WINDOW_SECONDS", A_CENTURY_S)
+    store = Store(db_path)
+    run_id = store.begin_canary_run("range-doctor", "http://testserver")
+    store.finish_canary_run(
+        run_id,
+        verdict="passed",
+        checks=[
+            {
+                "leg": "complete_human_result",
+                "checked": "the complete paid hire chain",
+                "status": "passed",
+                "observed": {"settlement_amount": "0.50"},
+                "evidence": {"replay_status": 409},
+            }
+        ],
+    )
+    _settle_one_hire(store)
+
+
+def _settle_one_hire(store, service_id="range-doctor", payment_id="0xseed"):
+    """One hire_payments row walked to `settled` through the store's own state machine.
+
+    Idempotent: a test that builds two apps over the same database seeds this twice, and
+    the second claim on the same nonce is the store correctly refusing a replay.
+    """
+    claimed, _existing = store.reserve_payment(
+        nonce="0x" + "5e" * 32,
+        payment_id=payment_id,
+        service_id=service_id,
+        payer=catalogue.CONTROLLED_EXAMPLE_WALLET,
+        recipient=PAY_TO,
+        asset=USDT_TOKEN,
+        amount=str(5 * 10**17),
+        resource=f"http://testserver/hire/{service_id}",
+        input_hash="0x" + "aa" * 32,
+    )
+    if not claimed:
+        return
+    store.record_payment_output(payment_id, output_hash="0x" + "bb" * 32, result={})
+    assert store.begin_payment_settlement(payment_id)
+    store.finish_payment(
+        payment_id,
+        transaction_id="0x" + "cc" * 32,
+        network=B402_NETWORK,
+        receipt={"settled": True},
+    )
 
 
 def _authorization(
@@ -195,7 +233,7 @@ def _seed_payment_state(db_path, *, nonce, stale, status="settling"):
     if status == "settling":
         assert store.begin_payment_settlement(payment_id) is True
     age_seconds = routes.SETTLEMENT_RECONCILE_STALE_SECONDS + (60 if stale else -60)
-    updated_at = datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
+    updated_at = datetime.now(UTC) - timedelta(seconds=age_seconds)
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             "UPDATE hire_payments SET updated_at = ? WHERE nonce = ?",

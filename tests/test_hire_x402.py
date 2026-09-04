@@ -14,16 +14,18 @@ from docket.hire.x402 import (
     BSC_CHAIN_ID,
     EIP712_DOMAINS,
     GENERIC_FACILITATOR,
+    OK,
     TRANSFER_WITH_AUTHORIZATION_TYPES,
     FacilitatorClient,
-    OK,
-    build_signed_payment,
     build_challenge,
+    build_signed_payment,
     facilitator_envelope,
-    main as preflight_main,
     parse_payment_header,
     payment_preflight,
     verify_payment,
+)
+from docket.hire.x402 import (
+    main as preflight_main,
 )
 
 PAY_TO = "0x" + "11" * 20

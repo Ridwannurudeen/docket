@@ -23,7 +23,11 @@ from enum import Enum
 from . import now
 
 
-class ActionState(str, Enum):
+# Not `enum.StrEnum`: that changes what `str(member)` and f-string interpolation
+# produce, from the qualified `ActionState.MEMBER` a log line or an error message shows to
+# the bare value. The value already crosses JSON through `.value`, so the substitution
+# would trade a diagnostic for nothing.
+class ActionState(str, Enum):  # noqa: UP042
     """A str enum so a state survives a round trip through JSON as itself."""
 
     DRAFT = "draft"

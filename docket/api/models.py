@@ -196,11 +196,15 @@ class ServiceCard(pydantic.BaseModel):
     category_job: str | None
     what_you_get: str
     price_display: str
-    price_atomic: int
+    price_atomic: str
     asset: str
     paid_stock: bool
     stock_status: str
     admission: dict[str, bool]
+    # One sentence per limb naming the artifact that decided it — the canary run, the
+    # settled payment row, the paired benchmark, or the reason there is none. `admission`
+    # stays exactly the four booleans every existing reader pins.
+    admission_evidence: dict[str, str]
     typical_seconds: int
     activation: str
     activation_means: str

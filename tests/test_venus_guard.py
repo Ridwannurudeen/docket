@@ -382,11 +382,11 @@ class _Reader:
         self._underlyings = underlyings
         self.asked: list[str] = []
 
-    def account(self, address):
+    def account(self, address, *, observation_block=None):
         self.asked.append("account")
         return self._state
 
-    def underlying_of(self, vtoken):
+    def underlying_of(self, vtoken, *, observation_block=None):
         self.asked.append("underlying_of")
         return self._underlyings[Web3.to_checksum_address(vtoken)]
 

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -86,7 +86,7 @@ def test_health_names_the_snapshot_it_serves(client):
 
 
 def test_snapshot_age_never_turns_bad_or_future_time_into_freshness():
-    future = (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat()
+    future = (datetime.now(UTC) + timedelta(minutes=1)).isoformat()
 
     assert _snapshot_age_seconds("not-a-timestamp") is None
     assert _snapshot_age_seconds("2026-08-15T12:00:00") is None

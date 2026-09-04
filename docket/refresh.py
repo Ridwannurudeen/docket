@@ -4,7 +4,7 @@ import json
 import os
 import socket
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -29,7 +29,7 @@ def _write_refresh_status(store: Store, status: str) -> None:
     temporary = destination.with_name(f".{LAST_REFRESH_FILENAME}.tmp")
     payload = {
         "status": status,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     temporary.write_text(
         json.dumps(payload, sort_keys=True) + "\n",

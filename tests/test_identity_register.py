@@ -2,7 +2,7 @@ import ast
 import json
 import re
 import tomllib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -13,14 +13,21 @@ from web3 import Web3
 
 from docket.hire.catalogue import SERVICES
 from docket.identity import register
-from docket.marketplace.registry import SERVICES as MARKETPLACE_SERVICES, get_record
+from docket.marketplace.registry import SERVICES as MARKETPLACE_SERVICES
+from docket.marketplace.registry import get_record
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "docket" / "api" / "static" / "agents"
 IDENTITY_EVIDENCE = ROOT / "docs" / "erc8004-category-identities.json"
 SERVICE_IDS = ("range-doctor", "grid-operator", "yield-router", "health-guard")
 SENDER = "0xE4fe23FB57dbb9AC2f685ea29B6b9A1409A0d359"
-DOCUMENT_TIME = datetime(2026, 8, 28, 10, 44, 53, tzinfo=timezone.utc)
+DOCUMENT_TIME = datetime(2026, 8, 28, 10, 44, 53, tzinfo=UTC)
+# The two services the marketplace pivot rewrote. Their committed documents were
+# re-rendered on 2026-09-03 from the new catalogue copy, so they carry that instant
+# instead: updatedAt is when a document was written, not when its agent was minted,
+# and leaving it at the mint-day stamp would make a changed description look untouched.
+PIVOT_TIME = datetime(2026, 9, 3, 12, 0, 0, tzinfo=UTC)
+DOCUMENT_TIMES = {"range-doctor": PIVOT_TIME, "health-guard": PIVOT_TIME}
 IDENTITY_FACTS = {
     fact["service_id"]: fact
     for fact in json.loads(IDENTITY_EVIDENCE.read_text(encoding="utf-8"))["services"]
@@ -29,6 +36,12 @@ IDENTITY_FACTS = {
 
 def _document_clock() -> datetime:
     return DOCUMENT_TIME
+
+
+def _clock_for(service_id: str):
+    """The instant this service's committed document was rendered at."""
+    stamp = DOCUMENT_TIMES.get(service_id, DOCUMENT_TIME)
+    return lambda: stamp
 
 
 def _signature(entry: dict) -> str:
@@ -113,8 +126,9 @@ def test_registration_documents_are_generated_from_the_catalogue():
         service = SERVICES[service_id]
         record = get_record(service_id)
         agent_id = IDENTITY_FACTS[service_id]["agent_id"]
+        clock = _clock_for(service_id)
         generated = register.build_registration_json(
-            service, clock=_document_clock, agent_id=agent_id
+            service, clock=clock, agent_id=agent_id
         )
         assert record is not None
         assert set(generated) == {
@@ -175,13 +189,13 @@ def test_registration_documents_are_generated_from_the_catalogue():
         ]
         assert generated["documentation"] == "https://docket.gudman.xyz/llms.txt"
         assert generated["limitations"] == record.limitations
-        assert generated["updatedAt"] == "2026-08-28T10:44:53Z"
+        assert generated["updatedAt"] == clock().strftime("%Y-%m-%dT%H:%M:%SZ")
 
         document = register.render_registration_document(
-            service, clock=_document_clock, agent_id=agent_id
+            service, clock=clock, agent_id=agent_id
         )
         assert document == register.render_registration_document(
-            service, clock=_document_clock, agent_id=agent_id
+            service, clock=clock, agent_id=agent_id
         )
         assert (
             STATIC.joinpath(f"{service_id}.registration.json").read_bytes() == document
@@ -360,7 +374,7 @@ def test_plan_cli_prints_an_unsigned_costed_plan_and_refuses_other_actions(capsy
     assert result == 0
     output = json.loads(capsys.readouterr().out)
     assert output["registration"] == register.build_registration_json(
-        SERVICES["range-doctor"], clock=_document_clock, agent_id=311_253
+        SERVICES["range-doctor"], clock=_clock_for("range-doctor"), agent_id=311_253
     )
     assert output["token_uri"] == (
         "https://docket.gudman.xyz/registrations/range-doctor.json"

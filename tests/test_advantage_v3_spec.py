@@ -674,6 +674,8 @@ def test_each_family_stage_one_refuses_a_generic_envelope_without_its_truth_sche
         "v3-05-range-doctor": "selection_manifest",
         "v3-06-yield-router-assisted": "Yield calibration input",
         "v3-07-range-doctor": "selection_manifest",
+        "v3-08-yield-router": "Yield calibration input",
+        "v3-09-health-guard": "Health calibration input",
     }
     for path in REGISTERED:
         spec = replace(load(path), inputs_sha256="")
@@ -1257,6 +1259,8 @@ def test_all_seven_families_have_their_registered_lock_state():
         "v3-05-range-doctor",
         "v3-06-yield-router-assisted",
         "v3-07-range-doctor",
+        "v3-08-yield-router",
+        "v3-09-health-guard",
     ]
     specs = [load(p) for p in REGISTERED]
     assert any(spec.category == "security" for spec in specs)
@@ -1268,6 +1272,8 @@ def test_all_seven_families_have_their_registered_lock_state():
         "v3-05-range-doctor": 3,
         "v3-06-yield-router-assisted": 5,
         "v3-07-range-doctor": 3,
+        "v3-08-yield-router": 3,
+        "v3-09-health-guard": 3,
     }
     assert {spec.spec_id for spec in specs if spec.runnable} == {
         "v3-02-yield-router",
@@ -1377,6 +1383,14 @@ def test_each_family_records_a_legible_pre_lock_correction():
     }
     for spec in map(load, REGISTERED):
         correction = spec.protocol_correction
+        if spec.spec_id in spec_module.NEW_FAMILY_SPEC_IDS:
+            # Registered fresh: no unlocked draft to correct and no published ledger to
+            # answer, so all three provenance records are absent by construction rather
+            # than by omission.
+            assert correction is None
+            assert spec.successor_provenance is None
+            assert spec.pilot_provenance is None
+            continue
         if spec.spec_id == "v3-07-range-doctor":
             # A distinct successor to a published, locked family. Its provenance
             # link is asserted in test_advantage_v3_range_v7.py against the
@@ -1551,7 +1565,7 @@ def test_all_five_registered_families_fix_the_same_execution_protocol():
     assert {p["blinding_parity"] for p in protocols} == {"even_a_is_agent"}
     assert {int(p["sheets_per_seat"]) for p in protocols} == {1}
     # The projection is the one part that must differ: the families return different shapes.
-    assert len({p["normalisation_version"] for p in protocols}) == 4
+    assert len({p["normalisation_version"] for p in protocols}) == 5
     for protocol in protocols:
         # The honest limit of prompt-level blinding travels with the registration.
         assert (

@@ -3,7 +3,6 @@ import re
 import subprocess
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "docs" / "claims-to-evidence.md"
 EVIDENCE_REPRODUCTION = ROOT / "docs" / "evidence-reproduction.md"
@@ -27,6 +26,9 @@ JUDGE_FACING_DOCUMENTS = (
 )
 CURRENT_SETTLEMENT_DOCUMENTS = (
     ROOT / "README.md",
+    # The homepage is a settlement document too: its counters and its stock note state
+    # what has and has not settled, and it contradicted the README once already.
+    ROOT / "docket/api/web/index.html",
     ROOT / "docs/api-and-payment-semantics.md",
     ROOT / "docs/claims-to-evidence.md",
     ROOT / "docs/deployment-runbook.md",
@@ -104,7 +106,7 @@ def test_every_claimed_file_sha256_resolves_to_a_tracked_file():
 def test_evidence_reproduction_lists_all_current_v3_families():
     document = EVIDENCE_REPRODUCTION.read_text(encoding="utf-8")
 
-    assert "V3 has exactly seven stage-one specifications:" in document
+    assert "V3 has exactly nine stage-one specifications:" in document
     for spec_path in sorted((ROOT / "docket/advantage/v3/specs").glob("*.json")):
         assert spec_path.stem in document
     assert "V3-02 and v3-05 have no claimed primaries" not in document

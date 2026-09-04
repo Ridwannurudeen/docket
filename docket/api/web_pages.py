@@ -1,7 +1,7 @@
 """Server-rendered initial states for the judge-facing data pages."""
 
 import html
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..marketplace.models import ServiceRecord
 
@@ -14,7 +14,7 @@ def _display_date(value) -> str:
     if not value or "T" not in str(value):
         return str(value or "—")
     parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return parsed.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
 
 def service_initial(record: ServiceRecord) -> str:
@@ -70,7 +70,8 @@ def service_initial(record: ServiceRecord) -> str:
         f'<dl class="deflist panel">{inputs}</dl></section>'
         '<section aria-labelledby="limits-heading"><h2 id="limits-heading">What it cannot do</h2>'
         f'<div class="notice notice-warn"><p>{_esc(record.limitations)}</p></div></section>'
-        '<section aria-labelledby="identity-heading"><h2 id="identity-heading">Its identity on chain</h2>'
+        '<section aria-labelledby="identity-heading">'
+        '<h2 id="identity-heading">Its identity on chain</h2>'
         f'<div class="panel"><p>{_esc(record.identity_line)}</p></div></section>'
     )
 
@@ -87,17 +88,28 @@ def _pancake_record(history: dict) -> str:
         report = line.get("report") or {}
         position = (report.get("positions") or [{}])[0]
         diagnosis = position.get("diagnosis") or {}
+        decision = (
+            line.get("decision")
+            or diagnosis.get("decision")
+            or line.get("error")
+            or "No decision sentence recorded."
+        )
         rows.append(
             "<tr>"
             f"<td>{_esc(_display_date(line.get('decided_at') or line.get('observed_at')))}</td>"
             f"<td>{_esc(line.get('kind') or 'observation')}</td>"
-            f"<td>{_esc(line.get('decision') or diagnosis.get('decision') or line.get('error') or 'No decision sentence recorded.')}</td>"
+            f"<td>{_esc(decision)}</td>"
             "</tr>"
         )
+    truncation = (
+        "The response was truncated."
+        if history["truncated"]
+        else "The response was not truncated."
+    )
     return (
         '<div class="table-wrap"><table><caption>Latest '
         f"{len(rows)} of {len(lines)} parsed rows from /lp-record. "
-        f"{'The response was truncated.' if history['truncated'] else 'The response was not truncated.'}"
+        f"{truncation}"
         '</caption><thead><tr><th scope="col">Date</th><th scope="col">Kind</th>'
         f'<th scope="col">Decision</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
     )
@@ -136,21 +148,29 @@ def pancake_initial(
         ),
         "<!-- pancake-impact-initial -->": (
             '<div class="impact-grid"><article class="impact-stat"><p class="metric-label">'
-            f'Annual overstatement</p><p class="metric-value">${fixed["median_annual_overstatement_usd"]:,.2f}</p>'
-            f'<p class="metric-note">Median at ${fixed["notional_usd"]:,.0f} fixed notional (n={fixed["n_pools"]}).</p></article>'
+            "Annual overstatement</p>"
+            f'<p class="metric-value">${fixed["median_annual_overstatement_usd"]:,.2f}</p>'
+            f'<p class="metric-note">Median at ${fixed["notional_usd"]:,.0f} fixed notional '
+            f'(n={fixed["n_pools"]}).</p></article>'
             '<article class="impact-stat"><p class="metric-label">Payback delay</p>'
-            f'<p class="metric-value">{payback["median_days_later_than_gross_implies"]:.2f} days</p>'
-            f'<p class="metric-note">Median across {payback["n_moves"]} candidate moves.</p></article>'
+            '<p class="metric-value">'
+            f'{payback["median_days_later_than_gross_implies"]:.2f} days</p>'
+            f'<p class="metric-note">Median across {payback["n_moves"]} candidate '
+            "moves.</p></article>"
             '<article class="impact-stat"><p class="metric-label">Ranking reversals</p>'
             f'<p class="metric-value">{reversal["numerator"]}/{reversal["denominator"]}</p>'
-            '<p class="metric-note">Ordered eligible-pool pairs in the frozen corpus.</p></article></div>'
-            f'<div class="notice"><p><strong>post-hoc</strong> — {_esc(impact["registration_note"])}</p>'
+            '<p class="metric-note">Ordered eligible-pool pairs in the frozen corpus.</p>'
+            "</article></div>"
+            '<div class="notice"><p><strong>post-hoc</strong> — '
+            f'{_esc(impact["registration_note"])}</p>'
             f'<p class="dim">{_esc(reversal["what_this_measures"])}</p></div>'
         ),
         "<!-- pancake-context-initial -->": (
             f"<p>{_esc(context['first_party_skills'])}</p><p>On {_esc(meta['query_observed_at'])}, "
-            f'the subgraph reported indexed time <span class="mono">{_esc(meta["indexed_at"])}</span> '
-            f'and <span class="mono">hasIndexingErrors: {_esc(str(meta["has_indexing_errors"]).lower())}</span>.</p>'
+            'the subgraph reported indexed time <span class="mono">'
+            f'{_esc(meta["indexed_at"])}</span> '
+            'and <span class="mono">hasIndexingErrors: '
+            f'{_esc(str(meta["has_indexing_errors"]).lower())}</span>.</p>'
             f'<p class="dim">{_esc(meta["method"])}</p>'
         ),
     }
@@ -201,14 +221,21 @@ def stats_page(shell: str, stats) -> str:
         '<section class="hero"><h1>Registry coverage</h1><p class="lede"><strong>'
         f"{coverage.sampled:,} of {coverage.expected:,} agents sampled</strong> in snapshot "
         f"{coverage.snapshot_id}; complete means complete for the recorded population "
-        f'<span class="mono">{_esc(coverage.population or "unspecified")}</span>, not necessarily the chain.</p></section>'
-        '<section aria-labelledby="coverage-heading"><h2 id="coverage-heading">What this snapshot contains</h2>'
-        '<div class="table-wrap"><table class="stats-table"><caption>Counts from one served snapshot; registry scale is a lower bound.</caption>'
+        f'<span class="mono">{_esc(coverage.population or "unspecified")}</span>, '
+        "not necessarily the chain.</p></section>"
+        '<section aria-labelledby="coverage-heading">'
+        '<h2 id="coverage-heading">What this snapshot contains</h2>'
+        '<div class="table-wrap"><table class="stats-table">'
+        "<caption>Counts from one served snapshot; registry scale is a lower bound.</caption>"
         f"<tbody>{table_rows}</tbody></table></div></section>"
-        '<section aria-labelledby="families-heading"><h2 id="families-heading">Largest self-declared name families</h2>'
-        '<p class="section-note">The first word of each agent-chosen name; not verified deployer provenance.</p>'
-        '<div class="table-wrap"><table class="stats-table"><thead><tr><th scope="col">Name family</th>'
-        f'<th scope="col">Agents</th><th scope="col">Share</th></tr></thead><tbody>{families}</tbody></table></div></section>'
+        '<section aria-labelledby="families-heading">'
+        '<h2 id="families-heading">Largest self-declared name families</h2>'
+        '<p class="section-note">The first word of each agent-chosen name; not verified '
+        "deployer provenance.</p>"
+        '<div class="table-wrap"><table class="stats-table">'
+        '<thead><tr><th scope="col">Name family</th>'
+        '<th scope="col">Agents</th><th scope="col">Share</th></tr></thead>'
+        f"<tbody>{families}</tbody></table></div></section>"
         '<section aria-labelledby="probe-heading"><h2 id="probe-heading">Probe method</h2>'
         f'<div class="panel"><p>{_esc(stats.probe_method)}</p></div></section>'
     )

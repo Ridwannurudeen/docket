@@ -9,7 +9,7 @@ import hashlib
 import json
 import tomllib
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -241,7 +241,7 @@ def build_registration_json(
         "documentation": "https://docket.gudman.xyz/llms.txt",
         "limitations": record.limitations,
         "updatedAt": (
-            updated_at.astimezone(timezone.utc)
+            updated_at.astimezone(UTC)
             .isoformat(timespec="seconds")
             .replace("+00:00", "Z")
         ),

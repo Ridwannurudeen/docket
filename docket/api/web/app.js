@@ -12,7 +12,7 @@ const ENTITIES = {
 
 /* Names, descriptions and endpoint URLs are whatever a publisher wrote on
    chain, so every one of them is escaped before it reaches innerHTML. */
-function escapeHTML(value) {
+export function escapeHTML(value) {
   return String(value === null || value === undefined ? "" : value).replace(
     /[&<>"']/g,
     (ch) => ENTITIES[ch],
@@ -586,7 +586,7 @@ function paintRunFailure(container, err) {
     </div>`;
 }
 
-function wireArrayControls(form) {
+export function wireArrayControls(form) {
   for (const control of form.querySelectorAll("[data-array-control]")) {
     control.addEventListener("click", (event) => {
       if (event.target.matches("[data-array-add]")) {

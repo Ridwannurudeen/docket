@@ -12,16 +12,15 @@ day a server-side check gets mistaken for safety.
 import re
 
 import pytest
-
-from docket.api.models import BANNED_FIELD_NAMES
 from web3 import Web3
 
+from docket.api.models import BANNED_FIELD_NAMES
 from docket.execution.authority import (
     ACCOUNT_ABI,
     ALTANA_KEYSTORE,
     KEYSTORE_ABI,
-    BscChainReader,
     AltanaSessionAuthority,
+    BscChainReader,
     CallPermission,
     IntegrationGap,
     SessionPermissions,
@@ -396,7 +395,7 @@ def test_a_reference_with_no_public_key_cannot_produce_a_keystore_id():
     """Refused rather than guessed: an id derived from the wrong bytes reads as a key the
     KeyStore has never heard of, which is indistinguishable from a revoked one."""
     with pytest.raises(ValueError):
-        _ref(public_key=None).key_id
+        _ = _ref(public_key=None).key_id
 
 
 def test_a_live_status_is_four_reads_and_says_which_ones():

@@ -1,0 +1,61 @@
+[Unit]
+Description=Advance Docket's live persistent activations by one pass
+# Deliberately not Wants=docket.service. The tick reads and writes the same database the
+# API serves from, and it does not need the API to be up; coupling them would mean an API
+# restart could skip a pass over somebody's funded session.
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=docket
+Group=docket
+WorkingDirectory=/var/lib/docket
+Environment=DOCKET_DB=/var/lib/docket/data/agents.sqlite3
+# Optional, and absent until the owner installs a session master password. Without
+# DOCKET_SESSION_KEY_FILE no session key can be created or opened, so persistent
+# activations are refused rather than run with a default password. See
+# deploy/docket-sessions.conf.example.
+EnvironmentFile=-/etc/docket/docket-sessions.conf
+ExecStart=/opt/docket/.venv/bin/python -P -m docket.jobs.tick
+
+# This box carries roughly eighteen other live projects, and a pass that is late is not a
+# pass that is wrong: the next timer is a minute away.
+Nice=10
+IOSchedulingClass=idle
+# No timeout, and the bound lives in the code instead. One activation can legitimately
+# hold a pass for about thirteen minutes — eight sends each waiting up to 90 s for a
+# receipt, plus a 60 s sweep — so a queue of them is unbounded in wall clock and ANY
+# finite value here would eventually SIGTERM a pass somewhere inside a batch rather than
+# between two activations. `docket.jobs.tick` stops starting new activations after twenty
+# minutes and finishes the one in hand; the timer brings it back a minute later, and
+# systemd will not start a second instance of a oneshot while one is running.
+TimeoutStartSec=infinity
+Restart=no
+UMask=0027
+CapabilityBoundingSet=
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectClock=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ReadWritePaths=/var/lib/docket
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
