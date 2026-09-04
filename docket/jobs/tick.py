@@ -406,6 +406,11 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
         service.store.save_activation(activation, expected_updated_at=expected)
         return
 
+    # What the durable record already holds of this pass's spend. `execute` persists
+    # before every broadcast, so by the final write some of this pass's spend is already
+    # on the row; a baseline frozen at the start of the pass would offer the whole pass
+    # delta to a stale merge and have it added on top of the part already there. It moves
+    # with each successful write, so the delta a merge adds is only what is not yet saved.
     spent_baseline = dict(session.spent_atomic)
 
     # Rebound after every write, because `execute` persists before each broadcast and
@@ -427,6 +432,8 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
             activation, expected_updated_at=checkpoint["at"]
         )
         checkpoint["at"] = activation.updated_at
+        spent_baseline.clear()
+        spent_baseline.update(session.spent_atomic)
 
     failed = None
     for call in decision.prepared:

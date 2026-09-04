@@ -214,6 +214,28 @@ class StaleActivation(ValueError):
     """The stored activation moved between the read and the write, so nothing was written."""
 
 
+def _strictly_after(written: str, held: str | None) -> str | None:
+    """The stamp to store so this write moves the row past the value the caller held.
+
+    Returns `None` when the caller's stamp is already behind the one being written, which
+    is the ordinary case and needs no adjustment. When the two share a microsecond — or
+    when a clock has stepped backwards — the written stamp is nudged one microsecond past
+    the held one, so the row never records the same `updated_at` twice running.
+    """
+    if not held:
+        return None
+    try:
+        moving_to = datetime.fromisoformat(written)
+        holding = datetime.fromisoformat(held)
+    except ValueError:
+        # A stamp this module did not write. The guard still compares it literally, and
+        # there is nothing sensible to advance it past, so leave it exactly as it came.
+        return None
+    if moving_to > holding:
+        return None
+    return (holding + timedelta(microseconds=1)).isoformat()
+
+
 def _activation_row(activation: Activation, *, with_nonce: bool = True) -> tuple:
     """The row, in column order. `with_nonce=False` drops `auth_nonce` for the update
     statement, which must never write it — see `save_activation`."""
@@ -1169,13 +1191,20 @@ class Store:
         signature would be accepted a second time. The one column this statement must not
         touch is the one that makes a signature single-use.
 
-        The bound this carries, stated rather than left to be discovered: the guard is a
-        timestamp, so two writers whose mutations land inside the same microsecond are
-        indistinguishable to it and the second would overwrite the first. Every write to
-        one activation is preceded by spending that activation's single-use `auth_nonce`
-        or by the tick, which holds one activation at a time, so the window is narrow —
-        but it is a window, and a revision counter rather than a clock would close it.
+        The guard is a timestamp, and two mutations can land inside the same microsecond
+        — a clock's resolution is not a promise about ordering. So the stamp this writes
+        is forced past the one it replaced: a row's `updated_at` strictly increases, and
+        a second writer still holding the old value can therefore never match the row
+        after the first writer has moved it. Without that, two writes sharing a
+        microsecond were indistinguishable to the guard and the later one silently
+        discarded the earlier — including, in the worst ordering, a broadcast it had
+        already recorded. The cost is that `updated_at` can run up to a microsecond ahead
+        of the clock under contention, which is a price worth paying for a
+        compare-and-swap that actually swaps.
         """
+        moved = _strictly_after(activation.updated_at, expected_updated_at)
+        if moved is not None:
+            activation.updated_at = moved
         with self._conn() as conn:
             cursor = conn.execute(
                 """UPDATE activations

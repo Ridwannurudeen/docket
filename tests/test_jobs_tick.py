@@ -16,7 +16,7 @@ from docket.jobs import tick
 from docket.jobs.executors import EXECUTORS, NoopExecutor, register
 from docket.jobs.executors.base import Decision, PreparedCall
 from docket.jobs.service import ActivationService
-from docket.store import Store
+from docket.store import StaleActivation, Store
 from tests.test_jobs_service import (
     NFPM,
     OWNER,
@@ -1312,3 +1312,72 @@ def test_a_pass_stops_starting_new_activations_once_its_budget_is_gone(
         if (row.result or {}).get("last_decision")
     ]
     assert len(evaluated) == 1
+
+
+def test_spend_already_checkpointed_by_this_pass_is_not_merged_a_second_time(
+    tmp_path, sessions_key
+):
+    """The delta a stale merge adds is what is not yet saved, not the whole pass.
+
+    `execute` persists before every broadcast, so by the final write part of this pass's
+    spend is already on the row. A baseline frozen at the start of the pass would offer
+    that part to the merge a second time, and the durable total would overstate what the
+    session had spent — never a cap bypass, but a session disabled long before it had
+    spent its float. Two swaps of ten each must read as twenty however the writes raced."""
+    store = Store(tmp_path / "tick.sqlite3")
+    rpc = SendingRpc()
+    _, activation = _active(store, rpc)
+    register("rebalancing", ActionExecutor(calls=2))
+
+    saves = {"n": 0}
+    real_save = store.save_activation
+
+    def racing_save(row, *, expected_updated_at):
+        # Two calls write five times: a pending record and a hash for each, then the
+        # settled batch. The last one carries the whole pass's spend, and it is the one
+        # raced here — by which point the first call's spend is already on the row.
+        saves["n"] += 1
+        if saves["n"] == 5:
+            other = store.get_activation(row.activation_id)
+            other.note("another writer got here first", actor="user")
+            real_save(other, expected_updated_at=expected_updated_at)
+        return real_save(row, expected_updated_at=expected_updated_at)
+
+    store.save_activation = racing_save
+    tick.run_once(store, rpc=rpc, environment=sessions_key)
+    store.save_activation = real_save
+
+    stored = store.get_activation(activation.activation_id)
+    assert len(rpc.sent) == 2
+    assert any("merged onto its record" in event.reason for event in stored.events)
+    assert stored.session["spent_atomic"][USDT] == str(20 * 10**18)
+
+
+def test_two_writes_inside_one_microsecond_cannot_both_win(tmp_path):
+    """The compare-and-swap is a timestamp, so the timestamp has to move.
+
+    Two writers reading the same row and mutating it within one clock tick used to hold
+    the same `updated_at`, which made them indistinguishable to the guard: the second
+    write matched the row the first had already changed and silently discarded it. The
+    stored stamp is now forced past the one it replaced, so the second writer is refused
+    and takes the merge path that keeps both records."""
+    store = Store(tmp_path / "tick.sqlite3")
+    _, activation = _active(store, FakeRpc())
+    expected = activation.updated_at
+
+    first = store.get_activation(activation.activation_id)
+    second = store.get_activation(activation.activation_id)
+
+    # Both mutate without the clock advancing between them.
+    frozen = first.updated_at
+    first.note("first writer", actor="docket", at=frozen)
+    second.note("second writer", actor="docket", at=frozen)
+
+    store.save_activation(first, expected_updated_at=expected)
+    assert first.updated_at > expected
+
+    with pytest.raises(StaleActivation):
+        store.save_activation(second, expected_updated_at=expected)
+
+    kept = store.get_activation(activation.activation_id)
+    assert [event.reason for event in kept.events][-1] == "first writer"
