@@ -1400,7 +1400,9 @@ def test_a_stamp_this_module_did_not_write_is_replaced_rather_than_kept(tmp_path
         row = store.get_activation(activation.activation_id)
         held = row.updated_at
         # A distinct reason each time: identical consecutive notes are dropped, and a
-        # dropped note would leave `updated_at` untouched and prove nothing.
+        # dropped note would leave `updated_at` untouched and prove nothing. `at=` is not
+        # a test-only affordance — `service.py` passes its own injectable clock through
+        # it on every transition, so these are the shapes production can really produce.
         row.note(f"a caller supplied {supplied}", actor="user", at=supplied)
         store.save_activation(row, expected_updated_at=held)
 
@@ -1413,3 +1415,36 @@ def test_a_stamp_this_module_did_not_write_is_replaced_rather_than_kept(tmp_path
         stale.updated_at = held
         with pytest.raises(StaleActivation):
             store.save_activation(stale, expected_updated_at=held)
+
+
+def test_a_replaced_stamp_never_moves_the_row_backwards(tmp_path):
+    """Callers pass their own clock, and a clock can be frozen or wrong.
+
+    When a stamp cannot be ordered the row takes a different one, but reaching for the
+    wall clock alone would not do: a caller whose clock runs ahead leaves the row on a
+    future value, and replacing that with the real time now would move the row *behind*
+    a value a reader may still hold — which is exactly how a stale write gets to match a
+    second time. The replacement is whichever of the two is later, so the column only
+    ever moves forwards."""
+    store = Store(tmp_path / "tick.sqlite3")
+    _, activation = _active(store, FakeRpc())
+
+    ahead = "2099-01-01T00:00:00+00:00"
+    row = store.get_activation(activation.activation_id)
+    held = row.updated_at
+    row.note("a clock that runs ahead", actor="user", at=ahead)
+    store.save_activation(row, expected_updated_at=held)
+    assert store.get_activation(activation.activation_id).updated_at == ahead
+
+    # Now an unorderable stamp arrives while the row sits in the future.
+    row = store.get_activation(activation.activation_id)
+    row.note("a stamp that is not a time", actor="user", at="the-clock-said-so")
+    store.save_activation(row, expected_updated_at=ahead)
+
+    stored = store.get_activation(activation.activation_id).updated_at
+    assert datetime.fromisoformat(stored) > datetime.fromisoformat(ahead)
+
+    stale = store.get_activation(activation.activation_id)
+    stale.updated_at = ahead
+    with pytest.raises(StaleActivation):
+        store.save_activation(stale, expected_updated_at=ahead)

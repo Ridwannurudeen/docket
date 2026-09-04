@@ -231,17 +231,24 @@ def _strictly_after(written: str, held: str | None) -> str | None:
     if not held:
         return None
     try:
-        moving_to = datetime.fromisoformat(written)
         holding = datetime.fromisoformat(held)
-        already_after = moving_to > holding
     except (ValueError, TypeError):
-        # Not two comparable instants: an unparseable stamp, or one written without a
-        # timezone beside one with it. There is no ordering to reason about, so the row
-        # takes a stamp this module made instead.
+        # Not even the held value is an instant, so there is nothing to order against.
+        # The row still must not keep a value a competing writer could match again.
         return _now()
-    if already_after:
-        return None
-    return (holding + timedelta(microseconds=1)).isoformat()
+    after_holding = (holding + timedelta(microseconds=1)).isoformat()
+    try:
+        if datetime.fromisoformat(written) > holding:
+            return None
+    except (ValueError, TypeError):
+        # An unparseable stamp, or one written without a timezone beside one with it.
+        # `_now()` alone would not do: these callers pass their own clock, and a frozen
+        # or skewed one could put the row *behind* a value some reader still holds,
+        # which is the shape that lets a stale write match a second time. Whichever of
+        # the two is later is the one that keeps the column moving forwards.
+        moved = _now()
+        return moved if moved > after_holding else after_holding
+    return after_holding
 
 def _activation_row(activation: Activation, *, with_nonce: bool = True) -> tuple:
     """The row, in column order. `with_nonce=False` drops `auth_nonce` for the update
