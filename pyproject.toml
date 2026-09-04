@@ -54,7 +54,15 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-"docket.api" = ["static/*", "static/agents/*.registration.json", "web/*"]
+"docket.api" = [
+    "static/*",
+    "static/agents/*.registration.json",
+    "web/*",
+    # `web/*` does not descend, so the browser modules need their own globs. A wheel
+    # built without them serves the activation pages with every script 404ing.
+    "web/js/*",
+    "web/js/pages/*",
+]
 # The committed marketplace census. An installed Docket that shipped the marketplace code
 # without it would start with an empty shelf and no way to refill it offline.
 "docket.marketplace" = ["seed/*.json"]

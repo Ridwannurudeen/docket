@@ -11,6 +11,22 @@ from docket.store import Store
 WEB = Path(__file__).resolve().parents[1] / "docket" / "api" / "web"
 PAGES = tuple(sorted(WEB.glob("*.html")))
 
+# The four activation surfaces the marketplace pivot adds. Every page now carries the
+# pivot's nav and the ?v=13 cache-busting query — the product-surface lane moved the
+# older pages over — so this set exists to name what the pivot added rather than to
+# mark an exception.
+PIVOT_PAGES = frozenset(
+    {"activate.html", "my-agents.html", "search.html", "providers.html"}
+)
+PIVOT_NAV = (
+    ("/", "Explore"),
+    ("/search", "Find agents"),
+    ("/my-agents", "My agents"),
+    ("/providers", "Providers"),
+    ("/advantage", "Evidence"),
+    ("/llms.txt", "API"),
+)
+
 
 def test_every_surface_uses_the_restrained_light_stylesheet():
     css = (WEB / "style.css").read_text(encoding="utf-8")
@@ -18,7 +34,7 @@ def test_every_surface_uses_the_restrained_light_stylesheet():
     assert "color-scheme: light" in css
     assert "color-scheme: dark" not in css
     assert 'content: "LP"' not in css
-    assert len(PAGES) == 10
+    assert len(PAGES) == 14
     for page in PAGES:
         assert 'href="/static/style.css?v=13"' in page.read_text(encoding="utf-8")
 

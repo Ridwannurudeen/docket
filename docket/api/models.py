@@ -196,7 +196,7 @@ class ServiceCard(pydantic.BaseModel):
     category_job: str | None
     what_you_get: str
     price_display: str
-    price_atomic: int
+    price_atomic: str
     asset: str
     paid_stock: bool
     stock_status: str

@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Service — Docket</title>
+    <title>Activate — Docket</title>
     <meta
       name="description"
-      content="One Docket service: what arrives, what to send, what it costs, what has been observed of it, what it cannot do — and the control that runs it."
+      content="Activate one Docket service: what it costs, what it is permitted to do, who holds the funds, the evidence behind it, and the controls that run it."
     />
     <link rel="stylesheet" href="/static/style.css?v=13" />
-    <script type="module" src="/static/app.js?v=13"></script>
+    <script type="module" src="/static/js/pages/activate.js?v=13"></script>
   </head>
-  <body data-page="service">
+  <body data-page="activate">
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="site-header">
@@ -49,58 +49,77 @@
       <div class="wrap">
         <section class="hero">
           <p class="section-note"><a href="/#services">Back to the services</a></p>
-          <div class="wrap-anywhere" data-region="service">
-            <!-- service-opening -->
+          <div class="wrap-anywhere" data-region="listing">
+            <span class="skeleton skeleton-row skeleton-wide"></span>
+            <span class="skeleton skeleton-row skeleton-wide"></span>
           </div>
-          <p class="btn-row">
-            <!-- service-activate -->
-          </p>
           <noscript>
             <div class="notice notice-warn">
-              <h2>The service record remains readable</h2>
+              <h1>Activation needs a browser that runs scripts</h1>
               <p>
-                With JavaScript off, the server-rendered offer, observations, inputs, evidence, and
-                limits above remain. Only the browser form is unavailable. The work still runs
-                from a terminal with no account, key or wallet:
+                Paying for a run means signing an EIP-712 authorization with your own wallet,
+                and a wallet is reached from JavaScript. The work itself needs neither: a
+                terminal with no account, key or wallet can run the free tier, and a client
+                that can sign can pay for one.
               </p>
-              <pre>curl -s /services
-curl -s /services/range-doctor
+              <pre>curl -s /services/range-doctor
 curl -s -X POST /hire/range-doctor \
   -H 'content-type: application/json' \
   -d '{"wallet":"0x…"}'</pre>
               <p>
-                <a href="/llms.txt">/llms.txt</a> carries every service's input schema and the
-                whole contract for that request.
+                <a href="/llms.txt">/llms.txt</a> carries the input schema, the exact x402
+                challenge and the header a paying client sends.
               </p>
             </div>
           </noscript>
         </section>
 
-        <section data-region="activation-section" aria-labelledby="activate-heading">
-          <h2 id="activate-heading">Run it</h2>
-          <div class="wrap-anywhere" data-region="activate">
-            <span class="skeleton skeleton-row skeleton-wide"></span>
-          </div>
+        <div data-region="chain" hidden></div>
+        <div data-region="account" hidden></div>
+
+        <div data-region="controls">
+          <section aria-labelledby="kind-heading">
+            <h2 id="kind-heading">How you want it to run</h2>
+            <div data-region="kind"></div>
+          </section>
+
+          <section aria-labelledby="inputs-heading">
+            <h2 id="inputs-heading">What to send it</h2>
+            <p class="section-note">
+              Prefilled from the worked example this service publishes, so the form is already a
+              request that runs. Change any of it before you send it.
+            </p>
+            <div class="wrap-anywhere" data-region="sample"></div>
+            <div data-region="actions"></div>
+          </section>
+        </div>
+
+        <section aria-labelledby="progress-heading">
+          <h2 id="progress-heading">What Docket did</h2>
           <p
             class="visually-hidden"
-            data-region="outcome-status"
+            data-region="live-status"
             role="status"
             aria-live="polite"
             aria-atomic="true"
           ></p>
-          <div class="wrap-anywhere" data-region="outcome" aria-busy="false"></div>
+          <ol class="progress-log" data-region="progress"></ol>
         </section>
+
+        <section data-region="activation" hidden aria-labelledby="activation-heading"></section>
+
+        <div class="wrap-anywhere" data-region="outcome" aria-busy="false"></div>
       </div>
     </main>
 
     <footer class="site-footer">
       <div class="wrap">
         <p class="footer-links">
+          <a href="/pancake">PancakeSwap</a>
+          <a href="/research">Browse agents</a>
           <a href="/status">Status</a>
           <a href="/categories">/categories (JSON)</a>
           <a href="/services">/services (JSON)</a>
-          <a href="/stats">Registry coverage (snapshot required)</a>
-          <a href="/agents">/agents (JSON) · snapshot required</a>
           <a href="/llms.txt">/llms.txt</a>
           <a href="/skill.md">/skill.md</a>
           <a href="/openapi.json">/openapi.json (JSON)</a>

@@ -1,0 +1,12 @@
+{
+  "name": "docket-e2e",
+  "private": true,
+  "description": "Browser tests for Docket's activation surfaces. Playwright is a test-time dependency only: Docket ships no JavaScript package and the served pages import nothing from here.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "ethers": "^6.17.0"
+  }
+}

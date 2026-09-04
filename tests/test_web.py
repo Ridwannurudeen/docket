@@ -24,6 +24,18 @@ NEGOTIATED_PATHS = (
 )
 
 
+def _ui_files():
+    """Every file the browser is served, including the ES modules under `web/js/`.
+
+    `glob("*")` stopped at the top level, so the day a subdirectory appeared it also tried
+    to read one as a file. Walking the tree instead widens what these checks cover rather
+    than narrowing it: the pivot's wallet, payment and page modules are now held to the
+    same no-remote-anything, no-verdict-language and no-typed-figure rules as the HTML.
+    """
+    return sorted(path for path in WEB_DIR.rglob("*") if path.is_file())
+
+
+
 @pytest.fixture
 def client(tmp_path):
     db = tmp_path / "d.sqlite3"
@@ -219,7 +231,7 @@ def test_snapshot_age_is_rendered_as_an_exact_server_value():
 
 def test_no_external_requests_anywhere_in_the_ui():
     """Zero third-party surface: no CDN, no web fonts, no remote anything."""
-    for f in WEB_DIR.glob("*"):
+    for f in _ui_files():
         text = f.read_text(encoding="utf-8")
         text = text.replace('xmlns="http://www.w3.org/2000/svg"', "")
         assert "http://" not in text, f"{f.name} references http://"
@@ -236,7 +248,7 @@ def test_ui_uses_no_verdict_language():
     saying the opposite of what this test is here to catch. The banned words are still
     banned as words; every page predating this change passes either way.
     """
-    for f in WEB_DIR.glob("*"):
+    for f in _ui_files():
         text = f.read_text(encoding="utf-8").lower()
         for word in BANNED:
             pattern = rf"\b{re.escape(word)}\b"
@@ -278,7 +290,7 @@ def test_the_case_file_does_not_misstate_a_registry_slice_as_a_census():
 def test_no_registry_figure_is_typed_into_a_page():
     """Every number on this site is read from the API at runtime. A registry total hard-coded
     into the markup would go stale silently, and staleness in a denominator is the whole bug."""
-    for f in WEB_DIR.glob("*"):
+    for f in _ui_files():
         text = f.read_text(encoding="utf-8")
         for stale in ("247,278", "247278", "247,065", "247065", "247,146", "247146"):
             assert stale not in text, f"{f.name} hard-codes a registry total: {stale}"
