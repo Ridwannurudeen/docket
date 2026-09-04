@@ -187,6 +187,11 @@ case "${url}" in
             printf '%s\n' 'body {}'
         else
             printf '%s\n' ':root { --bg: #fff; }'
+            if [[ "${FAKE_LARGE_STATIC:-0}" == 1 ]]; then
+                for ((i = 0; i < 20000; i++)); do
+                    printf '%s\n' 'static-response-padding'
+                done
+            fi
         fi
         ;;
     */)
@@ -2083,6 +2088,24 @@ def test_release_rolls_back_when_a_served_contract_is_missing_fields(
     assert "systemctl enable --now docket-canary.timer" not in result.stdout
     assert "Rollback completed" in result.stderr
     assert (root / "opt" / "docket" / "old-release.txt").is_file()
+
+
+def test_release_static_smoke_drains_a_large_response_after_its_marker(tmp_path):
+    root = tmp_path / "root"
+    _prepare_live_release(root)
+    fake_bin = _fake_bin(tmp_path)
+    wheel = tmp_path / "docket-0.1.0-py3-none-any.whl"
+    digest = _write_wheel(wheel)
+
+    result = _run(
+        "release.sh",
+        "--dry-run",
+        _write_release_manifest(wheel, digest).as_posix(),
+        environment=_environment(root, fake_bin, FAKE_LARGE_STATIC="1"),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Release complete" in result.stdout
 
 
 @pytest.mark.parametrize(
