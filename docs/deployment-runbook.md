@@ -82,7 +82,7 @@ nondeterministic.
 The VPS release is a copied tree under `/opt/docket`, not a Git checkout. Build the release
 bundle outside the checkout, then run the following from Git Bash. The tar stream carries the
 generated manifest and wheel plus the complete `deploy/` directory, including the hashed
-runtime lock and all nineteen tracked unit files.
+runtime lock and all twenty-one tracked unit files.
 
 ```bash
 bundle=$(realpath /path/outside/checkout/docket-release)
@@ -100,7 +100,7 @@ ssh <deploy-user>@<host> \
 `preflight.sh` requires `nginx -t` to exit successfully, print `test is successful`, and
 emit exactly the operator-supplied number of lines containing the fixed `[warn]` token, whether
 nginx uses timestamped error-log or `nginx: [warn]` form. It also requires at least 2 GiB free
-under `/opt`, verifies all nineteen tracked units with `systemd-analyze verify`, and prints the
+under `/opt`, verifies all twenty-one tracked units with `systemd-analyze verify`, and prints the
 current journal disk use. It never edits or reloads nginx. The tracked rate-limit example is
 still an owner-reviewed, separately applied nginx change.
 
@@ -266,6 +266,28 @@ command without running it. The process lock path and host commands are injectab
 fake-root mode for deterministic concurrency and failure tests. The live root-ownership check is
 omitted because the fake bundle is intentionally owned by the test user. The test suite supplies
 a fake `curl` to exercise rollback.
+
+### Session keys and `docket-jobs.service`
+
+`docket-jobs.service` is the only unit that reads `DOCKET_SESSION_KEY_FILE`, and
+`docket.service` must never be given it: the web process is deliberately incapable of
+minting a session key or sweeping one. See `deploy/docket-sessions.conf.example`.
+
+While the key file is absent, persistent activations are still created and still
+readable. They stop at `awaiting_session`, and any that were closing stop at `revoking`.
+Both of those states **occupy one of the five open-activation slots an owner is allowed**,
+so an owner who tries repeatedly on a deployment with no key file installed will be
+refused with `too_many_activations` until the file arrives or they cancel. One-shot
+activations are unaffected.
+
+`TimeoutStartSec=infinity`, deliberately. One activation can legitimately hold a pass for
+about thirteen minutes (eight sends each waiting up to 90 s for a receipt, plus a 60 s
+sweep wait), so a queue of them has no wall-clock bound and any finite value would
+eventually SIGTERM a pass inside a batch rather than between two activations. The bound is
+in the code: `docket.jobs.tick.PASS_BUDGET_SECONDS` stops the pass starting new
+activations after twenty minutes and lets it finish the one in hand, and systemd will not
+start a second instance of a oneshot while one is running. A pass that is still going when
+the next timer fires is not an error; the queue it did not reach is picked up next time.
 
 ### V3 experiment-arm ledgers
 

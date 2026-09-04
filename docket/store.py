@@ -12,6 +12,8 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from .jobs.models import Activation, dumps, loads
+
 # Why a sweep stopped. Closed, because an open vocabulary here would let a new stop condition
 # arrive unclassified and be served as if it were a clean finish. Only `exhausted` may be
 # promoted to readers; the rest describe a sweep that ended without reaching the end.
@@ -219,7 +221,62 @@ CREATE TABLE IF NOT EXISTS provider_claims (
     owner TEXT
 );
 CREATE INDEX IF NOT EXISTS provider_claims_agent ON provider_claims (agent_id, nonce);
+CREATE TABLE IF NOT EXISTS activations (
+    activation_id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL,
+    category TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    owner TEXT NOT NULL,
+    state TEXT NOT NULL,
+    quote_json TEXT NOT NULL,
+    policy_json TEXT,
+    session_json TEXT,
+    inputs_json TEXT NOT NULL,
+    result_json TEXT,
+    receipts_json TEXT NOT NULL,
+    events_json TEXT NOT NULL,
+    next_action_json TEXT NOT NULL,
+    auth_nonce TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    expires_at TEXT
+);
+CREATE INDEX IF NOT EXISTS activations_owner ON activations (owner);
+CREATE INDEX IF NOT EXISTS activations_service ON activations (service_id);
+CREATE INDEX IF NOT EXISTS activations_state ON activations (state);
+CREATE INDEX IF NOT EXISTS activations_created ON activations (created_at);
+-- The encrypted keystore of one activation's session key. Separate from `activations`
+-- because that row is served to a browser and this one must never be: nothing reads
+-- `keystore_json` except the tick and the revoke sweep, both of which ask for it by
+-- activation id.
+CREATE TABLE IF NOT EXISTS sessions (
+    activation_id TEXT PRIMARY KEY,
+    address TEXT NOT NULL,
+    keystore_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    revoked_at TEXT
+);
+-- Nonces issued for a `create` that has no activation to carry one yet. Single-use: the
+-- consuming DELETE is what makes it so, not a flag a second request could race.
+CREATE TABLE IF NOT EXISTS activation_nonces (
+    nonce TEXT PRIMARY KEY,
+    owner TEXT NOT NULL,
+    message TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
 """
+
+# How long a create nonce stays spendable. Long enough for a person to read a wallet
+# prompt, short enough that a nonce left open in a tab is not still open tomorrow.
+ACTIVATION_NONCE_TTL_SECONDS = 600
+MAX_ACTIVATION_PAGE = 200
+# How many create nonces one owner may hold at once, and how many open persistent
+# activations. Both bound work a stranger can ask this process to do on an address
+# they do not control: a nonce costs a row, an open session costs a keystore and a
+# slice of every tick.
+MAX_LIVE_NONCES_PER_OWNER = 20
+MAX_OPEN_ACTIVATIONS_PER_OWNER = 5
 
 
 def _now() -> str:
@@ -237,6 +294,106 @@ def _probe_run(row: sqlite3.Row) -> dict:
     run["ok"] = bool(run["ok"])
     run["steps"] = json.loads(run.pop("steps_json"))
     return run
+class StaleActivation(ValueError):
+    """The stored activation moved between the read and the write, so nothing was written."""
+
+
+def _strictly_after(written: str, held: str | None) -> str | None:
+    """The stamp to store so this write moves the row past the value the caller held.
+
+    Returns `None` when the stamp being written already sits after the held one, which is
+    the ordinary case and needs no adjustment.
+
+    Everything else is adjusted, because this column is the concurrency token rather than
+    caller data. Two stamps sharing a microsecond, a clock that stepped backwards, a stamp
+    a caller supplied through `at=` that is not a timestamp at all, one without a timezone
+    that cannot even be compared with an aware one — each would leave the row holding a
+    value a competing writer could still match. A stamp that cannot be ordered is replaced
+    outright with this module's own, so the column stays parseable and monotonic and the
+    same value can never come back around to be matched a second time.
+    """
+    if not held:
+        return None
+    try:
+        holding = datetime.fromisoformat(held)
+    except (ValueError, TypeError):
+        # Not even the held value is an instant, so there is nothing to order against.
+        # The row still must not keep a value a competing writer could match again.
+        return _now()
+    after_holding = (holding + timedelta(microseconds=1)).isoformat()
+    try:
+        if datetime.fromisoformat(written) > holding:
+            return None
+    except (ValueError, TypeError):
+        # An unparseable stamp, or one written without a timezone beside one with it.
+        # `_now()` alone would not do: these callers pass their own clock, and a frozen
+        # or skewed one could put the row *behind* a value some reader still holds,
+        # which is the shape that lets a stale write match a second time. Whichever of
+        # the two is later is the one that keeps the column moving forwards.
+        moved = _now()
+        return moved if moved > after_holding else after_holding
+    return after_holding
+
+def _activation_row(activation: Activation, *, with_nonce: bool = True) -> tuple:
+    """The row, in column order. `with_nonce=False` drops `auth_nonce` for the update
+    statement, which must never write it — see `save_activation`."""
+    return (
+        activation.activation_id,
+        activation.service_id,
+        activation.category,
+        activation.kind,
+        activation.owner,
+        activation.state,
+        dumps(activation.quote.to_dict()),
+        None if activation.policy is None else dumps(activation.policy),
+        None if activation.session is None else dumps(activation.session),
+        dumps(activation.inputs),
+        None if activation.result is None else dumps(activation.result),
+        dumps([receipt.to_dict() for receipt in activation.receipts]),
+        dumps([event.to_dict() for event in activation.events]),
+        dumps(activation.next_action.to_dict()),
+        *((activation.auth_nonce,) if with_nonce else ()),
+        activation.created_at,
+        activation.updated_at,
+        activation.expires_at,
+    )
+
+
+def _activation(row: sqlite3.Row) -> Activation:
+    return Activation.from_dict(
+        {
+            "activation_id": row["activation_id"],
+            "service_id": row["service_id"],
+            "category": row["category"],
+            "kind": row["kind"],
+            "owner": row["owner"],
+            "state": row["state"],
+            "quote": loads(row["quote_json"]),
+            "policy": loads(row["policy_json"]),
+            "session": loads(row["session_json"]),
+            "inputs": loads(row["inputs_json"]),
+            "result": loads(row["result_json"]),
+            "receipts": loads(row["receipts_json"], []),
+            "events": loads(row["events_json"], []),
+            "next_action": loads(row["next_action_json"]),
+            "auth_nonce": row["auth_nonce"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "expires_at": row["expires_at"],
+        }
+    )
+
+
+def _activation_filter(owner: str | None, state: str | None) -> tuple[str, tuple]:
+    clauses = []
+    args: tuple = ()
+    if owner is not None:
+        clauses.append("owner = ?")
+        args += (owner,)
+    if state is not None:
+        clauses.append("state = ?")
+        args += (state,)
+    return (" WHERE " + " AND ".join(clauses) if clauses else ""), args
 
 
 def _agent(row: sqlite3.Row) -> dict:
@@ -1286,3 +1443,253 @@ class Store:
                 (owner, verified_at, nonce),
             )
         return cursor.rowcount == 1
+    def payment_by_id(self, payment_id: str) -> dict:
+        """One hire payment by its own id, decoded the way `payment_by_nonce` decodes it.
+
+        An activation binds a payment it did not itself make — the buyer settled it
+        through `POST /hire/{service_id}` and quotes the id back — so the lookup has to
+        be by the identifier the buyer holds.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM hire_payments WHERE payment_id = ?", (payment_id,)
+            ).fetchone()
+        if row is None:
+            return {}
+        payment = dict(row)
+        for field in ("result_json", "receipt_json"):
+            if payment[field] is not None:
+                payment[field.removesuffix("_json")] = json.loads(payment[field])
+        return payment
+
+    def create_activation(self, activation: Activation) -> None:
+        """Insert one activation. A repeated id is an error, never an overwrite."""
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """INSERT INTO activations
+                   (activation_id, service_id, category, kind, owner, state, quote_json,
+                    policy_json, session_json, inputs_json, result_json, receipts_json,
+                    events_json, next_action_json, auth_nonce, created_at, updated_at,
+                    expires_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT DO NOTHING""",
+                _activation_row(activation),
+            )
+        if cursor.rowcount != 1:
+            raise ValueError(f"activation {activation.activation_id} already exists")
+
+    def get_activation(self, activation_id: str) -> Activation | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM activations WHERE activation_id = ?", (activation_id,)
+            ).fetchone()
+        return _activation(row) if row else None
+
+    def list_activations(
+        self,
+        owner: str | None = None,
+        state: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Activation]:
+        """Newest first, because an owner reading a list is looking for what just
+        happened. Ordered by `created_at` and then by id, so two activations created in
+        the same microsecond still come back in one fixed order rather than SQLite's."""
+        if not 1 <= limit <= MAX_ACTIVATION_PAGE:
+            raise ValueError(
+                f"activation page size must be between 1 and {MAX_ACTIVATION_PAGE}"
+            )
+        if offset < 0:
+            raise ValueError("activation page offset cannot be negative")
+        sql, args = _activation_filter(owner, state)
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM activations{sql} "
+                "ORDER BY created_at DESC, activation_id DESC LIMIT ? OFFSET ?",
+                (*args, limit, offset),
+            ).fetchall()
+        return [_activation(row) for row in rows]
+
+    def count_activations(
+        self, owner: str | None = None, state: str | None = None
+    ) -> int:
+        sql, args = _activation_filter(owner, state)
+        with self._conn() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) AS n FROM activations{sql}", args
+            ).fetchone()
+        return int(row["n"])
+
+    def save_activation(self, activation: Activation, *, expected_updated_at: str):
+        """Write one activation back, refusing a row that moved underneath the caller.
+
+        Two ticks, or a tick and an owner's revoke, can reach the same activation at the
+        same time. Without this the later write would silently discard the earlier one's
+        events — including, in the worst ordering, the record of a transaction that had
+        already been broadcast. The read-modify-write is made safe by the row's own
+        `updated_at` rather than by a lock the API would have to hold across a chain call.
+
+        `auth_nonce` is deliberately NOT in the SET. `rotate_auth_nonce` is its only
+        writer, and it runs before the work this saves — so writing the in-memory copy
+        back here would restore the nonce that request just spent, and a replayed
+        signature would be accepted a second time. The one column this statement must not
+        touch is the one that makes a signature single-use.
+
+        The guard is a timestamp, and two mutations can land inside the same microsecond
+        — a clock's resolution is not a promise about ordering. So the stamp this writes
+        is forced past the one it replaced: a row's `updated_at` strictly increases, and
+        a second writer still holding the old value can therefore never match the row
+        after the first writer has moved it. Without that, two writes sharing a
+        microsecond were indistinguishable to the guard and the later one silently
+        discarded the earlier — including, in the worst ordering, a broadcast it had
+        already recorded. The cost is that `updated_at` can run up to a microsecond ahead
+        of the clock under contention, which is a price worth paying for a
+        compare-and-swap that actually swaps.
+        """
+        moved = _strictly_after(activation.updated_at, expected_updated_at)
+        if moved is not None:
+            activation.updated_at = moved
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE activations
+                   SET service_id = ?, category = ?, kind = ?, owner = ?, state = ?,
+                       quote_json = ?, policy_json = ?, session_json = ?,
+                       inputs_json = ?, result_json = ?, receipts_json = ?,
+                       events_json = ?, next_action_json = ?,
+                       created_at = ?, updated_at = ?, expires_at = ?
+                   WHERE activation_id = ? AND updated_at = ?""",
+                (
+                    *_activation_row(activation, with_nonce=False)[1:],
+                    activation.activation_id,
+                    expected_updated_at,
+                ),
+            )
+        if cursor.rowcount != 1:
+            raise StaleActivation(
+                f"{activation.activation_id} changed since it was read "
+                f"(expected updated_at {expected_updated_at})"
+            )
+
+    def rotate_auth_nonce(
+        self, activation_id: str, *, expected_nonce: str, new_nonce: str
+    ) -> bool:
+        """Spend one activation nonce and issue the next, in one statement.
+
+        This is what makes a signature single-use. It deliberately leaves `updated_at`
+        alone: the mutation that follows carries its own optimistic check against the
+        value the caller read, and bumping the timestamp here would make every rotation
+        invalidate the very write it exists to authorize.
+        """
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE activations SET auth_nonce = ?
+                   WHERE activation_id = ? AND auth_nonce = ?""",
+                (new_nonce, activation_id, expected_nonce),
+            )
+        return cursor.rowcount == 1
+
+    def issue_activation_nonce(
+        self, *, nonce: str, owner: str, message: str, now: datetime | None = None
+    ) -> str:
+        """Record a nonce a `create` may be signed against, and drop the expired ones."""
+        moment = datetime.now(UTC) if now is None else now
+        expires_at = moment + timedelta(seconds=ACTIVATION_NONCE_TTL_SECONDS)
+        with self._conn() as conn:
+            conn.execute(
+                "DELETE FROM activation_nonces WHERE expires_at <= ?",
+                (moment.isoformat(),),
+            )
+            # One owner cannot hold an unbounded number of live nonces: the route is
+            # unauthenticated by design — anyone may ask for one — so the oldest are
+            # dropped rather than left to accumulate a row per request.
+            conn.execute(
+                """DELETE FROM activation_nonces
+                   WHERE owner = ? AND nonce NOT IN (
+                       SELECT nonce FROM activation_nonces WHERE owner = ?
+                       ORDER BY issued_at DESC, nonce DESC LIMIT ?
+                   )""",
+                (owner, owner, MAX_LIVE_NONCES_PER_OWNER - 1),
+            )
+            conn.execute(
+                """INSERT INTO activation_nonces
+                   (nonce, owner, message, issued_at, expires_at)
+                   VALUES (?,?,?,?,?)""",
+                (nonce, owner, message, moment.isoformat(), expires_at.isoformat()),
+            )
+        return expires_at.isoformat()
+
+    def consume_activation_nonce(
+        self, nonce: str, owner: str, now: datetime | None = None
+    ) -> tuple[bool, str]:
+        """Spend a create nonce, and hand back the message it was issued against.
+
+        The DELETE is the single-use guarantee: two concurrent requests holding the same
+        signature cannot both see a rowcount of one. The message comes back with it so the
+        caller can check that the sentence being signed is the sentence this nonce was
+        issued for — a nonce taken out for one service must not be spendable on another.
+        """
+        moment = datetime.now(UTC) if now is None else now
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT message FROM activation_nonces
+                   WHERE nonce = ? AND owner = ? AND expires_at > ?""",
+                (nonce, owner, moment.isoformat()),
+            ).fetchone()
+            cursor = conn.execute(
+                """DELETE FROM activation_nonces
+                   WHERE nonce = ? AND owner = ? AND expires_at > ?""",
+                (nonce, owner, moment.isoformat()),
+            )
+        if cursor.rowcount != 1:
+            return False, ""
+        return True, (row["message"] if row else "")
+
+    def create_session(
+        self, activation_id: str, *, address: str, keystore_json: str
+    ) -> None:
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """INSERT INTO sessions
+                   (activation_id, address, keystore_json, created_at)
+                   VALUES (?,?,?,?)
+                   ON CONFLICT DO NOTHING""",
+                (activation_id, address, keystore_json, _now()),
+            )
+        if cursor.rowcount != 1:
+            raise ValueError(f"activation {activation_id} already holds a session key")
+
+    def get_session(self, activation_id: str) -> dict:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM sessions WHERE activation_id = ?", (activation_id,)
+            ).fetchone()
+        return dict(row) if row else {}
+
+    def mark_session_revoked(self, activation_id: str) -> bool:
+        """Close a session once. A second call is False, not a second revocation."""
+        with self._conn() as conn:
+            cursor = conn.execute(
+                """UPDATE sessions SET revoked_at = ?
+                   WHERE activation_id = ? AND revoked_at IS NULL""",
+                (_now(), activation_id),
+            )
+        return cursor.rowcount == 1
+
+    def open_activation_count(self, owner: str, states) -> int:
+        """How many of this owner's activations are in any of `states`."""
+        placeholders = ",".join("?" for _ in states)
+        with self._conn() as conn:
+            row = conn.execute(
+                f"""SELECT COUNT(*) AS n FROM activations
+                    WHERE owner = ? AND state IN ({placeholders})""",
+                (owner, *states),
+            ).fetchone()
+        return int(row["n"])
+
+    def activations_by_state(self) -> dict[str, int]:
+        """How many activations stand in each state. Empty where none exist."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT state, COUNT(*) AS n FROM activations GROUP BY state"
+            ).fetchall()
+        return {row["state"]: int(row["n"]) for row in rows}

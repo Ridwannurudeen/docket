@@ -51,6 +51,20 @@ def token_key(token: str) -> str:
     return _token_key(token)
 
 
+def _summed(amounts: dict) -> dict[str, int]:
+    """Normalise the keys of a spend record and ADD what collides.
+
+    Two spellings of one address are one cap. Taking the last one seen would silently
+    forget everything spent under the other, which is a cap that grows by however many
+    ways a token can be written down.
+    """
+    summed: dict[str, int] = {}
+    for token, amount in amounts.items():
+        key = _token_key(token)
+        summed[key] = summed.get(key, 0) + int(amount)
+    return summed
+
+
 @dataclass(frozen=True)
 class SessionPolicy:
     """What one session may call, spend, and for how long."""
@@ -157,7 +171,7 @@ class SessionPolicy:
         if self.has_expired():
             return False, f"the policy expired at {self.expires_at}"
         allowed_tokens = {_token_key(token) for token in self.token_allowlist}
-        already = {_token_key(token): int(amount) for token, amount in spent.items()}
+        already = _summed(spent)
         total = {
             _token_key(token): int(amount)
             for token, amount in self.total_cap_atomic.items()
@@ -233,7 +247,7 @@ class SessionPolicy:
         if value:
             amounts[NATIVE_TOKEN] = amounts.get(NATIVE_TOKEN, 0) + value
         allowed_tokens = {_token_key(token) for token in self.token_allowlist}
-        already = {_token_key(token): int(amount) for token, amount in spent.items()}
+        already = _summed(spent)
         per_action = {
             _token_key(token): int(amount)
             for token, amount in self.per_action_limit_atomic.items()

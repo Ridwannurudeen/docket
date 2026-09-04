@@ -1249,6 +1249,231 @@ one signed `/verify` request without calling `/settle`. Its report never contain
 signature or authorization. A facilitator response is still not proof of chain finality.
 
 
+## Activations: hiring a service as a standing instruction
+
+POST /hire/{service_id} runs one call and forgets it. An activation is the same work held
+as a record: who asked, what they asked for, what happened, what has to happen next, and
+who may change it. It is the shape `/my-agents` reads and the shape an agent should use
+when the caller is a person with a wallet rather than a script with a payment header.
+
+Two kinds, and they diverge after the third state.
+
+- `one_shot` runs the service once and hands back a result and a receipt.
+  quoted -> awaiting_wallet -> authorized -> paid_or_reserved -> queued -> running ->
+  needs_approval -> completed | failed | refunded
+- `persistent` holds a bounded session key and keeps acting until it is stopped.
+  quoted -> awaiting_wallet -> authorized -> awaiting_session -> funded -> active ->
+  paused -> active, with `needs_approval` reachable from `active`, and every ending
+  going through `revoking` to `revoked` or `expired`.
+
+Two of those states exist because the web process holds no session key. It never reads
+the master password, so it can neither mint a key nor sweep one, and the two steps that
+need one belong to Docket's own job runner:
+
+- `awaiting_session` — the owner has authorized and no key exists yet. `session` is
+  `null` and `next_action` is `{kind: "wait", detail: {reason: "session being created",
+  poll_seconds: 5}}`. The job runner mints the key on its next pass, which is at most a
+  minute away, and `next_action` then becomes `fund_session` carrying the address.
+- `revoking` — closing has been asked for and the float has not yet been proved returned.
+  `revoke`, `cancel` and expiry all land here. The job runner sweeps, then reads the
+  session's balances again at a later block; the activation becomes `revoked` (or
+  `expired`, per `next_action.detail.closing_to`) only when they read zero. A sweep that
+  was broadcast is not a sweep that landed, so "we sent it" is never served as the end of
+  the story — a failed sweep leaves the activation in `revoking` and is retried.
+
+`expired` therefore means the policy ran out AND the float was returned. An activation
+whose policy has expired but whose sweep has not yet succeeded reads `revoking`.
+
+Illegal moves are refused with `illegal_transition` and change nothing. Every accepted
+move appends to `events` with `from_state`, `to_state`, a reason, and an `actor` of
+`user`, `docket` or `chain`, so an activation is its own audit trail rather than a
+current state with the history discarded.
+
+    GET  /api/activations/policy-defaults?service_id=range-doctor
+    GET  /api/activations/nonce?owner=0x..&service_id=range-doctor
+    POST /api/activations
+    GET  /api/activations?owner=0x..&state=..&limit=..&offset=..    # owner required
+    GET  /api/activations/{activation_id}
+    GET  /api/activations/{activation_id}/prepared
+    POST /api/activations/{activation_id}/approve
+    POST /api/activations/{activation_id}/pause
+    POST /api/activations/{activation_id}/cancel
+    POST /api/activations/{activation_id}/revoke
+
+### Proving the owner asked
+
+Every mutating call carries `nonce` and `owner_signature`. The signature is an EIP-191
+`personal_sign` over the exact string Docket issued, and there are exactly two shapes:
+
+    Docket activation create {service_id} {nonce}
+    Docket activation {activation_id} {action} {nonce}
+
+where `{action}` is `approve`, `pause`, `cancel` or `revoke`. When the call carries
+evidence — a `tx_hash` or a `payment_id` — that value is appended to the message and
+signed with it:
+
+    Docket activation {activation_id} approve {nonce} {tx_hash}
+
+A signature over the shorter form authorises "approve this activation" and not "approve
+it against THIS transaction", so anything else could be substituted into the body
+afterwards. Sign what you are sending.
+
+The exact rule, because a message that differs by one character does not verify:
+
+    base    = "Docket activation " + activation_id + " " + action + " " + nonce
+    message = base + " " + tx_hash      if the body carries tx_hash
+            = base + " " + payment_id   if the body carries payment_id
+            = base                      if it carries neither
+
+Single ASCII spaces, no trailing space, values byte-for-byte as they appear in the body —
+a `tx_hash` is not lowercased, checksummed or 0x-normalised before it is signed or before
+it is checked. A body carrying BOTH `tx_hash` and `payment_id` is refused with 422
+`missing_field`: only one of them can be bound, and the other would travel unsigned. For a create, the nonce
+comes from GET /api/activations/nonce, which returns `{nonce, message, expires_at,
+expires_in_seconds}` and expires in 600 seconds; supply `service_id` on that call and the
+`message` it returns is the exact string to sign. For every other call the nonce is the
+activation's own current `auth_nonce`, which the activation carries and which rotates
+after every accepted mutation. A nonce is single-use: the spend is one atomic statement,
+so two requests holding the same signature cannot both succeed and the loser is told
+`stale_nonce` rather than silently replaying the winner's work.
+
+Docket never holds an owner key and never asks for one. What it stores is the address a
+signature recovered to, which anybody can recheck.
+
+### Errors
+
+Activation routes answer `{"error_code", "message"}`. This is deliberately not the
+`{"error": {"code", "message"}}` envelope every other Docket route uses, and a client
+must read the two shapes separately rather than assuming one. The codes:
+
+- `bad_signature` (401) — `owner_signature` is not a signature over that message.
+- `not_owner` (403) — it is a signature, and it recovered to somebody else.
+- `stale_nonce` (409) — that nonce was already spent or has expired.
+- `illegal_transition` (409) — the state machine has no such move, or the row changed
+  underneath the request.
+- `policy_violation` (409, 422) — a policy that bounds nothing, or a payment or
+  transaction offered as proof that does not bind to what it was offered for.
+- `simulation_failed` (409) — a prepared call the chain refused. Docket does not hand it
+  to a browser to sign.
+- `expired` (409) — the session policy's own expiry has passed. The activation moves to
+  `revoking` and closes as `expired` once its float has been proved returned.
+- `too_many_activations` (422) — this owner already holds the maximum number of
+  activations that have not finished. Cancel or revoke one first.
+- `activation_not_found` (404), `service_not_found` (404), `missing_field` (422),
+  `invalid_json` (400), `sessions_unavailable` (503).
+
+Checks run in that order: signature, then owner, then nonce, then expiry, then the
+transition. A caller learns the first thing that is wrong, not the last.
+
+### What has to happen next
+
+Every activation carries `next_action: {kind, detail}` from the closed vocabulary
+`connect_wallet`, `approve_token`, `sign_payment`, `fund_session`, `approve_nft`,
+`sign_transaction`, `wait`, `none`. Read it rather than inferring the next step from the
+state; the detail carries what the step needs.
+
+`GET /api/activations/{activation_id}/prepared` returns `{calls: [...]}` — the transactions the
+owner is being asked to sign, each with `to`, `data`, `value_atomic`, `chain_id` 56,
+`gas_ceiling`, `deadline`, `purpose`, and its own `simulation` taken at a named block. A
+call whose simulation says the chain refused it is never handed over: the route answers
+`simulation_failed` instead, because signing it would revert at the owner's expense.
+
+### One-shot activations
+
+`kind: "one_shot"` on the free tier: create, then approve with no further body, and the
+service runs. The result lands in `result` and a receipt in `receipts`, hash-bound to the
+inputs by the same `build_receipt` every hire uses, so `input_hash` and `output_hash` are
+recomputable exactly as described under "Recomputing the hashes yourself". A run that
+fails moves to `failed` with the failure in the event's reason; nothing is swallowed.
+
+On the paid tier the quote reads `payment_scheme: "x402-exact"`. Settle the hire through
+POST /hire/{service_id} in the usual way, then approve the activation with the
+`payment_id` that hire returned. Docket binds it only if the row exists, settled, bought
+this service, was paid by this owner, and its `input_hash` equals the canonical hash of
+this activation's `inputs`. Anything else is `policy_violation`, and the activation does
+not move. A payment for different work is not payment for this work.
+
+### Persistent activations and session keys
+
+A persistent activation acts on chain through its own throwaway EOA. Docket generates the
+key, encrypts it immediately into a keystore, and stores only the keystore; the master
+password comes from a file the operator installs and there is no default, so a deployment
+without one refuses persistent activations with `sessions_unavailable` rather than
+running them under a password published in this source.
+
+You do not have to compose the allowlists yourself, and you are not expected to know
+them. `GET /api/activations/policy-defaults?service_id=..` returns the skeleton for that
+service's category — the contracts its session must call, the selectors it may send, the
+tokens it may spend, and small starting caps — with `expires_at` left for you, because how
+long a session may run is the one bound Docket will not choose on an owner's behalf. Send
+it back as `policy` with an expiry added, or omit `contract_allowlist`,
+`function_allowlist` and `token_allowlist` from your own policy and Docket fills those
+three from the same table its executors act against. The activation records which happened
+in `policy.policy_source`: `owner`, `docket_defaults`, or `mixed`. Caps, slippage and gas
+price you do set are kept as sent and validated as sent.
+
+The whole policy is validated BEFORE the nonce is spent, so a malformed one costs you an
+error and not a signature: the same nonce is still good for the corrected request.
+
+The policy is required at create time and bounds the session: `contract_allowlist`,
+`function_allowlist` (4-byte selectors), `token_allowlist`, `per_action_limit_atomic` and
+`total_cap_atomic` per token, `max_slippage_bps`, `max_gas_price_wei`, `expires_at`, and
+`emergency_pause`. Atomic amounts are strings. A policy with an empty allowlist or a cap
+of zero is refused rather than accepted as permissive, and every capped token needs both
+a per-action limit and a total cap or one action could spend the session.
+
+An approval is bounded like a spend, and by the same cap. `approve` may only name a
+spender that is in `contract_allowlist` — an allowance granted to an address the session
+may not even call would be pulled later, in somebody else's transaction, where no bound of
+Docket's applies — and `transfer` may only pay the owner or the session. A granted
+allowance is held against the lifetime cap until the pull that consumes it lands or it is
+set to zero, so a run of passes that approve and stop cannot accumulate standing
+allowances past the cap. Closing sets every outstanding approval to zero before it sweeps,
+and `revoked` requires the allowances to read zero as well as the balances.
+
+Read the limit of what that buys you. A session key is an ordinary EOA and nothing on
+chain constrains it: the policy is a second gate in Docket's own process, and the real
+loss ceiling is the float the owner moved to the session address. That is why funding is
+per-activation and sized at the cap, and why revoking sweeps.
+
+`next_action` after create is `fund_session`, whose `detail.requirements` lists what the
+owner must send: one transfer per capped token, plus any ERC-721 approvals the create
+request named in `nft_approvals` (each `{contract, token_id}`, and each checked against
+the policy's own contract allowlist). Approve with the `tx_hash` of each. Docket moves to
+`funded` only when a mined receipt carries a log that matches — the right contract, the
+right event, the session address as the recipient, and at least the amount asked for. A
+transaction hash on its own proves nothing.
+
+Once `active`, Docket's own timer evaluates the session every minute. Where the
+proposed action is inside the policy the session sends it and appends a receipt carrying
+the transaction hash, gas and status. Where it is not — or where no session key is
+available — the activation moves to `needs_approval` with `next_action.kind:
+"sign_transaction"` and the prepared calls, and the owner signs it themselves.
+
+Every pass, including one that decided to do nothing, writes what it observed to
+`result.last_decision`: `{kind, summary, observed_at, block, evidence}`. That is the
+running record of what has been watched and it is the only state carried between passes,
+so a `noop` there is a real observation rather than an absence of one. A one-shot's own
+output lives in the other keys of `result` and is never touched by it.
+
+What a session may spend is read out of the calldata Docket is about to broadcast, per
+call, never from a figure supplied alongside it. The functions Docket can read are the
+ones its own agents build — ERC-20 `approve` and `transfer`, PancakeSwap V2
+`swapExactTokensForTokens`, Venus `repayBorrow`, `repayBorrowBehalf` and `mint`, and the
+v3 position manager's `mint`, `increaseLiquidity`, `decreaseLiquidity` and `collect`. A
+call outside that list which carries value, or is aimed at a token the session may spend,
+is refused rather than charged zero: an action inside no cap is worse than an action
+refused. A batch is put to the session cap once, as a total, before any of it is sent, so
+a batch that would be refused three transactions in is refused at zero instead.
+
+`pause` stops Docket sending anything; `approve` resumes it. `revoke` and `cancel` move
+the activation to `revoking`; the job runner then returns every allowlisted token balance,
+every token a swap paid the session in, and the spare BNB, and closes the activation only
+once those balances read zero. A sweep that cannot reach the chain is recorded and
+retried on the next pass — the activation stays `revoking` rather than claiming a float
+came back that did not.
+
+
 ## Escrow: the other rail, and the week it takes
 
 POST /hire/{service_id} answers one call. It settles only for an admitted service with

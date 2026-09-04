@@ -608,6 +608,86 @@ means changing the registration on chain. A declared `sample_input`/`output_sche
 and published under `provider_sample_ok` and cannot make the listing hireable — only step 4
 can, and only through Docket's own sample. `chain_unavailable` is not a refusal: it means
 Docket could not read the chain and the claim is neither accepted nor rejected.
+## Workflow 8: activate a service for a wallet, then pause or revoke it
+
+An activation is a hire held as a record instead of a single call: who asked, what they
+asked for, what happened, what has to happen next. Use it when the caller is a person
+with a wallet. Use `POST /hire/{service_id}` when the caller is a script with a payment
+header.
+
+```bash
+OWNER=0x...
+# 1. take a nonce and the exact message it must be signed against
+curl -s "$DOCKET/api/activations/nonce?owner=$OWNER&service_id=range-doctor"
+# 2. personal_sign that message, then create
+curl -s -X POST "$DOCKET/api/activations" -H 'content-type: application/json' -d '{
+  "service_id":"range-doctor","kind":"one_shot","owner":"'"$OWNER"'",
+  "nonce":"<nonce>","owner_signature":"0x<sig>","inputs":{"wallet":"0x..."}}'
+# 3. sign "Docket activation {id} approve {auth_nonce}" and approve to run it
+curl -s -X POST "$DOCKET/api/activations/<activation_id>/approve" \
+  -H 'content-type: application/json' \
+  -d '{"nonce":"<auth_nonce>","owner_signature":"0x<sig>"}'
+# 4. read it back
+curl -s "$DOCKET/api/activations/<activation_id>"
+curl -s "$DOCKET/api/activations?owner=$OWNER"
+```
+
+The message shapes are fixed and there are only two:
+
+    Docket activation create {service_id} {nonce}
+    Docket activation {activation_id} {action} {nonce}
+
+`{action}` is `approve`, `pause`, `cancel` or `revoke`. A `tx_hash` or `payment_id` in the
+body is appended after a single space and signed with it — verbatim, not normalised — and
+a body carrying both is refused, because only one can be bound and the other would travel
+unsigned. The create nonce comes from
+`/api/activations/nonce` and lasts 600 seconds. Every other call signs the activation's
+own `auth_nonce`, which rotates after each accepted mutation — read the activation again
+before signing the next one. A nonce is single-use, so a replayed signature is
+`stale_nonce`, not a second run.
+
+Three things to carry into any answer built on this layer:
+
+- **Read `next_action`, do not infer the next step from `state`.** Its `kind` comes from
+  the closed vocabulary `connect_wallet`, `approve_token`, `sign_payment`,
+  `fund_session`, `approve_nft`, `sign_transaction`, `wait`, `none`, and its `detail`
+  carries what that step needs. `GET /api/activations/{activation_id}/prepared` returns the calls to
+  sign, each with its own simulation; a call the chain refused is answered as
+  `simulation_failed` rather than handed over to be signed and reverted.
+- **These routes answer a different error shape.** `{"error_code", "message"}`, not the
+  `{"error": {"code", "message"}}` envelope every other Docket route uses. The codes are
+  `bad_signature`, `not_owner`, `stale_nonce`, `illegal_transition`, `policy_violation`,
+  `simulation_failed`, `expired`, `activation_not_found`, `service_not_found`,
+  `missing_field`, `invalid_json`, `sessions_unavailable`, `too_many_activations`,
+  checked in that order. `GET /api/activations` requires `owner`.
+- **Two states mean "Docket's job runner is doing something only it can do".** The web
+  process holds no session key and never reads the master password, so
+  `awaiting_session` (no key yet, `session` is `null`) and `revoking` (closing, float not
+  yet proved returned) both resolve on the next pass of a timer that runs every minute.
+  Poll rather than treating either as an error, and never report `revoking` as closed:
+  `revoked` and `expired` are only reached from balances that read zero.
+- **Ask for the allowlists rather than composing them.**
+  `GET /api/activations/policy-defaults?service_id=..` returns the session policy skeleton
+  for that service's category; add `expires_at` and send it as `policy`, or omit the three
+  allowlists from your own and Docket fills them from the same table its executors act
+  against. `policy.policy_source` on the activation says which happened. The policy is
+  validated before the nonce is spent, so a malformed one does not cost a signature.
+- **A persistent activation's policy is a second gate, not the limit.** `kind:
+  "persistent"` requires a policy naming `contract_allowlist`, `function_allowlist`,
+  `token_allowlist`, `per_action_limit_atomic`, `total_cap_atomic`, `max_slippage_bps`,
+  `max_gas_price_wei` and `expires_at`, all atomic amounts as strings. Docket holds the
+  session key as an ordinary EOA, so nothing on chain enforces those bounds; the real
+  loss ceiling is the float the owner sent to the session address, which is why funding
+  is sized at the cap and why `revoke` sweeps it back. Say that when a user asks how safe
+  it is, rather than quoting the allowlist as if it were enforcement. A deployment with
+  no session master password installed refuses persistent activations outright with
+  `sessions_unavailable`; one-shot activations are unaffected.
+
+`pause` stops Docket sending anything and `approve` resumes it. `cancel` ends a one-shot
+that has not run as `refunded` — nothing was charged and the state says so rather than
+implying money moved — and moves a persistent one to `revoking`, which becomes `revoked`
+once the job runner has swept the float back and read the balances to prove it.
+
 
 ## What Docket will not give you
 

@@ -497,6 +497,8 @@ readonly -a UNIT_NAMES=(
     docket.service
     docket-canary.service
     docket-canary.timer
+    docket-jobs.service
+    docket-jobs.timer
     docket-lp-record.service
     docket-lp-record.timer
     docket-probe.service
@@ -516,6 +518,7 @@ readonly -a UNIT_NAMES=(
 )
 readonly -a TIMER_NAMES=(
     docket-canary.timer
+    docket-jobs.timer
     docket-lp-record.timer
     docket-probe.timer
     docket-refresh.timer

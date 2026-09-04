@@ -86,6 +86,7 @@ from ..marketplace.registry import (
 from ..refresh import LAST_REFRESH_FILENAME
 from ..signals import signals_for
 from ..store import Store
+from .activations import activations_router
 from .advantage_pages import (
     advantage_one_page,
     v1_page,
@@ -2742,5 +2743,6 @@ def create_app(
         """The supply side: claim an identity you own on chain, then list it."""
         return FileResponse(WEB_DIR / "providers.html")
 
+    app.include_router(activations_router(store, services=SERVICES, pay_to=pay_to))
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
     return app
