@@ -53,6 +53,7 @@ const state = {
   pollingSince: 0,
   policyDefaults: null,
   pending: null,
+  answer: null,
 };
 
 /* --------------------------------------------------------------- unit maths */
@@ -100,10 +101,10 @@ function permissionsCopy(record, kind) {
     );
   }
   return (
-    `Two wallet actions and no standing permission: one ERC-20 approval for exactly ` +
-    `${escapeHTML(record.price_display)}, so the B402 relayer can pull that amount, and one ` +
-    "signed authorization for the same amount. Nothing is approved beyond the price, and " +
-    "nothing remains approved afterwards."
+    `At most two wallet actions: if your existing allowance is short, Docket requests ` +
+    `exactly ${escapeHTML(record.price_display)} for the B402 relayer, then asks for one ` +
+    "signed authorization for the same amount. Docket never requests more than the exact " +
+    "price and never reduces or revokes an allowance you granted before."
   );
 }
 
@@ -228,8 +229,13 @@ function fromAtomic(record, atomic, fallback) {
   }
 }
 
-function firstAmount(map) {
-  const rows = Object.values(map || {});
+/* The cap for the token this page priced in, which is the one the reader is being shown a
+   figure for. The skeleton carries caps for every token its category allows; picking the
+   first would prefill the box with a limit for some other token. */
+function capFor(map, asset) {
+  const caps = map || {};
+  if (caps[asset] !== undefined) return caps[asset];
+  const rows = Object.values(caps);
   return rows.length ? rows[0] : null;
 }
 
@@ -268,12 +274,12 @@ function limitsForm(record, defaults) {
   const symbol = assetSymbol(record);
   const total = fromAtomic(
     record,
-    firstAmount(defaults.total_cap_atomic),
+    capFor(defaults.total_cap_atomic, record.asset),
     "10",
   );
   const perAction = fromAtomic(
     record,
-    firstAmount(defaults.per_action_limit_atomic),
+    capFor(defaults.per_action_limit_atomic, record.asset),
     "1",
   );
   const slippage =
@@ -347,20 +353,26 @@ function readPolicy() {
     .toISOString()
     .replace(/\.\d{3}Z$/, "Z");
   const defaults = state.policyDefaults;
-  /* The allowlists travel back exactly as they arrived. Only the caps below are the
-     reader's, and they are the only fields this form is permitted to write. */
+  /* The skeleton goes back whole. The three allowlists are the category's and are not this
+     page's to edit; the cap maps cover every token the category allows, and replacing them
+     with a single entry for this service's asset would quietly drop the limits on all the
+     others. Only the fields the form actually rendered are overwritten, and `expires_at` is
+     added because it is the one bound the server deliberately leaves to the owner. */
   return {
-    contract_allowlist: defaults.contract_allowlist || [],
-    function_allowlist: defaults.function_allowlist || [],
-    token_allowlist: defaults.token_allowlist || [record.asset],
-    per_action_limit_atomic: { [record.asset]: perAction.toString() },
-    total_cap_atomic: { [record.asset]: total.toString() },
+    ...defaults,
+    per_action_limit_atomic: {
+      ...(defaults.per_action_limit_atomic || {}),
+      [record.asset]: perAction.toString(),
+    },
+    total_cap_atomic: {
+      ...(defaults.total_cap_atomic || {}),
+      [record.asset]: total.toString(),
+    },
     max_slippage_bps: Math.trunc(number("max_slippage_bps")),
     max_gas_price_wei: (
       BigInt(Math.round(number("max_gas_price_gwei") * 1e6)) * 1000n
     ).toString(),
     expires_at: expiresAt,
-    emergency_pause: false,
   };
 }
 
@@ -371,7 +383,11 @@ function readInputs() {
     .filter(([name, field]) => {
       if (!field.required) return false;
       if (field.type === "array") {
-        const container = form.querySelector(`[data-array-control="${name}"]`);
+        /* The field name comes from the service record, so it is not this module's to
+           assume selector-safe: one carrying a quote would break out of the attribute. */
+        const container = form.querySelector(
+          `[data-array-control="${CSS.escape(name)}"]`,
+        );
         return (
           container &&
           !Array.from(container.querySelectorAll("input")).some((input) =>
@@ -572,10 +588,48 @@ const RECOVERY = {
    while the server would still accept it on time; once the window has closed the only
    honest thing left is the identifier the reader can quote to a person, because a fresh
    signature would risk paying twice for work that may already be bought. */
+/* Whether the signed authorization could still be accepted, on the server's clock. The
+   browser's own reading is not the one that decides: the server compares `validBefore`
+   against its `now`, and the offset measured when the challenge arrived is the only thing
+   here that knows the difference between the two. */
+function pendingIsLive(pending) {
+  const serverNow = Math.floor(Date.now() / 1000) + (pending.clockOffset || 0);
+  return serverNow < pending.validBefore;
+}
+
+/* A payment that settled with an activation not yet bound to it. Everything that costs
+   money has already happened, so the only thing on offer is binding it again — never the
+   flow that would pay a second time. */
+const BIND_ONLY_CODES = new Set([
+  "bad_signature",
+  "not_owner",
+  "stale_nonce",
+  "network_error",
+  "account_changed",
+  "no_account",
+  "user_rejected",
+  "unsafe_message",
+  "illegal_transition",
+]);
+
+function bindOnlyRecovery(err) {
+  return {
+    heading: "The payment settled, and the activation is not bound to it yet",
+    note:
+      "The work is bought and its receipt is above. What failed was recording which " +
+      `activation it belongs to (${err.code || err.error_code}). Binding again costs ` +
+      "nothing and pays nothing.",
+    actions: [
+      { label: "Bind it again", action: "bind-only" },
+      { label: "Check My agents", href: "/my-agents" },
+    ],
+  };
+}
+
 function lostResponseRecovery(recovery) {
   const pending = state.pending;
   if (!pending) return recovery;
-  const expired = Math.floor(Date.now() / 1000) >= pending.validBefore;
+  const expired = !pendingIsLive(pending);
   if (expired || pending.resent) {
     return {
       ...recovery,
@@ -605,6 +659,8 @@ function paintFailure(err) {
   };
   if (code === "payment_outcome_unknown") {
     recovery = lostResponseRecovery(recovery);
+  } else if (state.answer && BIND_ONLY_CODES.has(code)) {
+    recovery = bindOnlyRecovery(err);
   }
   const outcome = region("outcome");
   outcome.innerHTML = failurePanel(err, recovery);
@@ -694,20 +750,27 @@ function paintNextAction() {
   if (!target || !activation) return;
   const next = activation.next_action || { kind: "none", detail: {} };
   const detail = next.detail || {};
-  if (next.kind === "fund_session") {
-    /* Each requirement carries whether it has been satisfied and, once it has, the
-       transaction that satisfied it. Rendering only the amounts would leave a reader who
-       has already sent one of two transfers unable to tell which one is still owed. */
+  if (next.kind === "fund_session" || next.kind === "approve_nft") {
+    /* Two kinds of requirement, and they are not the same request. `fund_session` asks for
+       a token transfer and names an amount; `approve_nft` asks the owner to approve one
+       position to the session and names a contract and a token id. Each carries whether it
+       has been satisfied and, once it has, the transaction that satisfied it — rendering
+       only the amounts would leave a reader who has already sent one of two unable to tell
+       which is still owed. */
     const requirements = (detail.requirements || [])
-      .map(
-        (row) =>
-          `<li data-requirement="${escapeHTML(row.kind || "transfer")}" data-satisfied="${row.satisfied ? "yes" : "no"}">
-             <span class="mono">${escapeHTML(row.amount_atomic)}</span> atomic units of
-             <span class="mono">${escapeHTML(row.token || "BNB")}</span>
+      .map((row) => {
+        const what =
+          row.kind === "approve_nft"
+            ? `position <span class="mono">${escapeHTML(row.token_id)}</span> on
+               <span class="mono">${escapeHTML(row.contract)}</span>`
+            : `<span class="mono">${escapeHTML(row.amount_atomic)}</span> atomic units of
+               <span class="mono">${escapeHTML(row.token || "BNB")}</span>`;
+        return `<li data-requirement="${escapeHTML(row.kind || "fund_session")}" data-satisfied="${row.satisfied ? "yes" : "no"}">
+             ${what}
              — ${row.satisfied ? "received" : "still owed"}
              ${row.tx_hash ? `<span class="mono wrap-anywhere">${escapeHTML(row.tx_hash)}</span>` : ""}
-           </li>`,
-      )
+           </li>`;
+      })
       .join("");
     const outstanding = (detail.requirements || []).filter(
       (row) => !row.satisfied,
@@ -791,6 +854,9 @@ function schedulePoll() {
 }
 
 async function pollOnce() {
+  /* The timeout that fired this has run; clearing the handle keeps `stopPolling` from
+     cancelling a timer that no longer exists while a fresh one is being scheduled. */
+  state.poller = null;
   if (!state.activation || state.polling) return;
   if (Date.now() - state.pollingSince > POLL_BUDGET_MS) {
     stopPolling();
@@ -962,8 +1028,12 @@ async function activateAndPay() {
        time, so resending stops being a recovery and becomes a wasted round trip. */
     state.pending = {
       header,
+      envelope,
       inputs,
       validBefore: Number(envelope.payload.authorization.validBefore),
+      /* The offset the signature was built against, so the window is re-checked on the
+         server's clock rather than on a browser one that may be minutes out. */
+      clockOffset: Number(challenge.clock_offset_seconds || 0),
       nonce: envelope.payload.authorization.nonce,
       resent: false,
     };
@@ -980,7 +1050,18 @@ async function activateAndPay() {
 
     await bindPayment(answer);
   } catch (err) {
-    paintFailure(err);
+    /* A replay refusal here means this authorization had already settled — the work is
+       bought. The 409 carries no payment id, but the id is a hash of the envelope this
+       page still holds, so the activation can be bound to a payment the reader has
+       already made rather than left claiming a receipt nothing points at. */
+    if (
+      (err.code || err.error_code) === "authorization_replay" &&
+      state.pending
+    ) {
+      await bindSettledReplay(state.pending);
+    } else {
+      paintFailure(err);
+    }
   } finally {
     busy(false);
   }
@@ -1000,6 +1081,8 @@ async function activateAndPay() {
     something other than what they read and agreed to — so the flow stops here, before the
     wallet opens, rather than after they have approved it. */
 function assertTermsMatchTheQuote(terms) {
+  /* Atomic prices arrive from `/services` as decimal strings, so comparison never passes
+     through JavaScript's imprecise Number representation. */
   const quotedAmount = String(state.record.price_atomic);
   const quotedAsset = String(state.record.asset);
   if (terms.amountAtomic !== quotedAmount) {
@@ -1022,6 +1105,20 @@ function assertTermsMatchTheQuote(terms) {
 async function resendPayment() {
   const pending = state.pending;
   if (!pending || pending.resent) return;
+  /* Re-checked here, not only where the button was drawn. The panel may have been on
+     screen for minutes, and sending a window the server has since closed turns a recovery
+     into a 402 whose ordinary recovery is "sign a fresh payment" — the one thing that must
+     not be offered when a settled first attempt is still possible. */
+  if (!pendingIsLive(pending)) {
+    paintFailure(
+      new payment.PaymentError(
+        "payment_outcome_unknown",
+        "That authorization's window closed while this was on screen, so it cannot be " +
+          "resent.",
+      ),
+    );
+    return;
+  }
   pending.resent = true;
   busy(true);
   say("Resending the same signed authorization.");
@@ -1038,19 +1135,103 @@ async function resendPayment() {
     paintResult(answer, { free: false });
     await bindPayment(answer);
   } catch (err) {
+    const code = err && (err.code || err.error_code);
+    /* A replay refusal on a resend is the good outcome: it proves the first attempt
+       landed. The payment id is derivable from the bytes that were sent, so the run can
+       still be bound to this activation without the server having to hand one back. */
+    if (code === "authorization_replay") {
+      await bindSettledReplay(pending);
+      return;
+    }
+    /* Anything the server could not read is still, from here, an unknown outcome — the
+       first attempt may have settled. Reporting it as `payment_invalid` would surface the
+       ordinary recovery for that code, which offers a fresh payment. */
+    if (code === "payment_invalid" || code === "payment_not_verified") {
+      paintFailure(
+        new payment.PaymentError(
+          "payment_outcome_unknown",
+          `Docket refused the resent authorization (${code}). That does not say whether ` +
+            "the first attempt settled, so no new payment is offered.",
+        ),
+      );
+      return;
+    }
     paintFailure(err);
   } finally {
     busy(false);
   }
 }
 
-/** Bind a settled payment to the activation the reader opened for it. */
+/** A resend refused as a replay: the payment settled, so bind the activation to it.
+
+    The 409 carries no payment id — it is a refusal, not a receipt — but the id is a hash
+    of the envelope the browser still holds, computed by the same recipe the server uses.
+    Deriving it is what turns "your money left and nothing here knows about it" into a
+    bound activation. */
+async function bindSettledReplay(pending) {
+  say(
+    "Docket had already settled that authorization. Binding it to your activation.",
+  );
+  let derived;
+  try {
+    derived = await payment.paymentId(pending.envelope);
+  } catch (err) {
+    paintFailure(
+      new api.ApiError(
+        "payment_id_underivable",
+        "That payment settled, and this browser could not compute the id it was filed " +
+          `under. Quote the authorization nonce to support: ${pending.nonce}.`,
+      ),
+    );
+    return;
+  }
+  state.pending = null;
+  try {
+    await bindPayment({ payment_id: derived, receipt: null, result: null });
+  } catch (err) {
+    region("outcome").innerHTML = failurePanel(err, {
+      heading: "The payment settled, and Docket could not bind it here",
+      note:
+        `The work is paid for. Its payment id is ${derived}. Binding it to this ` +
+        "activation failed, so quote that id rather than signing anything else.",
+      actions: [
+        { label: "Bind it again", action: "bind-only" },
+        { label: "Check My agents", href: "/my-agents" },
+      ],
+    });
+  }
+}
+
+/** Bind again, and only bind. Reached from a settled payment whose activation is not
+    recorded against it; nothing on this path can spend. */
+async function retryBind() {
+  if (!state.answer) return;
+  busy(true);
+  try {
+    await bindPayment(state.answer);
+  } catch (err) {
+    paintFailure(err);
+  } finally {
+    busy(false);
+  }
+}
+
+/** Bind a settled payment to the activation the reader opened for it.
+
+    The payment id is signed into the message, not merely sent beside it: a signature over
+    "approve this activation" with an unsigned id in the body would authorise binding
+    whatever id happened to arrive with it. */
 async function bindPayment(answer) {
   if (!state.activation) return;
+  /* Held so a bind that fails can be retried on its own. Everything before this point has
+     already happened — the payment settled — so the recovery for a failed bind must never
+     be the flow that would pay again. */
+  state.answer = answer;
   say("Binding the payment to your activation.");
+  const account = await signingAccount();
   const signature = await wallet.personalSign(
-    api.authMessage(state.activation, "approve"),
-    await signingAccount(),
+    api.authMessage(state.activation, "approve", answer.payment_id),
+    account,
   );
   state.activation = await api.approveActivation(
     state.activation.activation_id,
@@ -1060,6 +1241,7 @@ async function bindPayment(answer) {
       payment_id: answer.payment_id,
     },
   );
+  state.answer = null;
   paintActivation();
   say("Bound. This activation is yours and is listed on My agents.");
   startPolling();
@@ -1103,7 +1285,7 @@ async function onFundSession(event) {
   try {
     if (!state.account) state.account = await wallet.connect();
     const signature = await wallet.personalSign(
-      api.authMessage(state.activation, "approve"),
+      api.authMessage(state.activation, "approve", hash),
       await signingAccount(),
     );
     state.activation = await api.approveActivation(
@@ -1179,7 +1361,7 @@ async function onSignPrepared() {
       say(`Sent ${call.purpose} in ${lastHash}.`);
     }
     const signature = await wallet.personalSign(
-      api.authMessage(state.activation, "approve"),
+      api.authMessage(state.activation, "approve", lastHash),
       await signingAccount(),
     );
     state.activation = await api.approveActivation(
@@ -1232,7 +1414,16 @@ async function paintLimits() {
   const target = region("limits-body");
   if (state.policyDefaults) return;
   try {
-    state.policyDefaults = await api.policyDefaults(state.record.service_id);
+    /* The route answers an envelope — service, category, the skeleton, token hints, and
+       what the owner still has to add — not a bare policy. */
+    const envelope = await api.policyDefaults(state.record.service_id);
+    state.policyDefaults = envelope.policy || null;
+    if (!state.policyDefaults) {
+      throw new api.ApiError(
+        "policy_defaults_missing",
+        "Docket answered with no session policy for this service.",
+      );
+    }
     target.innerHTML = limitsForm(state.record, state.policyDefaults);
   } catch (err) {
     state.policyDefaults = null;
@@ -1290,6 +1481,7 @@ function wireRecovery() {
     if (action === "poll-once") pollOnce();
     if (action === "load-limits") paintLimits();
     if (action === "resend-payment") resendPayment();
+    if (action === "bind-only") retryBind();
   });
 }
 
@@ -1363,7 +1555,7 @@ export async function init() {
        approve something the server will refuse as `not_owner`; `signingAccount` is the
        guard, and this is the warning. */
     wallet.onAccountsChanged((account) => {
-      const notice = region("chain");
+      const notice = region("account");
       if (
         !state.account ||
         (account && account.toLowerCase() === state.account.toLowerCase())

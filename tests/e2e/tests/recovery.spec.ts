@@ -23,28 +23,26 @@ test.describe("failure recovery", () => {
   test("a replayed authorization explains itself and does not offer a blind retry first", async ({
     page,
   }) => {
+    const approves: string[] = [];
     await mockHire(page, { kind: "replay" });
+    await page.route("**/api/activations/*/approve", async (route) => {
+      approves.push(route.request().postData() ?? "");
+      await route.fallback();
+    });
     await page.goto("/activate?service=range-doctor");
     await page.getByRole("button", { name: /Activate and pay/ }).click();
 
     await expect(
-      page.getByRole("heading", {
-        name: "That authorization was already used",
-      }),
+      page.getByRole("heading", { name: "Your activation" }),
     ).toBeVisible();
-    await expect(page.getByText("authorization_replay")).toBeVisible();
-    /* A replay refusal means the authorization reached Docket and was already spent, so
-       the work behind it is bought. There is no fresh-payment button on this panel at all:
-       one click from a reader who has just been told something went wrong would buy the
-       same work twice. */
-    const actions = page.locator(".panel-error .btn-row");
-    await expect(
-      actions.getByRole("link", { name: "Check My agents" }),
-    ).toBeVisible();
-    await expect(actions.getByRole("button")).toHaveCount(0);
-    await expect(
-      page.getByText("Do not sign a second payment for it.", { exact: false }),
-    ).toBeVisible();
+    /* A replay proves the original authorization settled. The browser derives its payment
+       id from the exact envelope and binds that settled payment; it never offers a second
+       purchase. */
+    await expect.poll(() => approves.length).toBe(1);
+    const body = JSON.parse(approves[0]);
+    expect(body.payment_id).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(body.payment_header).toBeUndefined();
+    await expect(page.locator('[data-action="resend-payment"]')).toHaveCount(0);
   });
 
   test("a facilitator rejection says nothing was charged and offers the next step", async ({

@@ -50,7 +50,7 @@ test("a persistent session shows the allowlists it would run inside, unedited", 
      "bounded" session should be able to see what the bound is. */
   await expect(page.getByText("What this session may touch")).toBeVisible();
   await expect(
-    page.getByText(POLICY_DEFAULTS.contract_allowlist[0]),
+    page.getByText(POLICY_DEFAULTS.policy.contract_allowlist[0]),
   ).toBeVisible();
   await expect(page.getByText("0x88316456", { exact: false })).toBeVisible();
   /* And they are not editable here: only the caps are the reader's. */
@@ -71,9 +71,15 @@ test("a persistent session shows the allowlists it would run inside, unedited", 
   const policy = JSON.parse(bodies[0]).policy;
   /* The allowlists travel back exactly as they arrived — a browser that sent an empty one
      would be asking for a session permitted to call nothing. */
-  expect(policy.contract_allowlist).toEqual(POLICY_DEFAULTS.contract_allowlist);
-  expect(policy.function_allowlist).toEqual(POLICY_DEFAULTS.function_allowlist);
-  expect(policy.token_allowlist).toEqual(POLICY_DEFAULTS.token_allowlist);
+  expect(policy.contract_allowlist).toEqual(
+    POLICY_DEFAULTS.policy.contract_allowlist,
+  );
+  expect(policy.function_allowlist).toEqual(
+    POLICY_DEFAULTS.policy.function_allowlist,
+  );
+  expect(policy.token_allowlist).toEqual(
+    POLICY_DEFAULTS.policy.token_allowlist,
+  );
   /* Only the cap the reader changed is theirs. */
   expect(policy.total_cap_atomic[USDT]).toBe("25000000000000000000");
   expect(policy.max_slippage_bps).toBe(50);
@@ -268,7 +274,7 @@ test("switching accounts mid-flow is said, and stops the next signature", async 
     ]);
   });
 
-  const notice = page.locator('[data-region="chain"]');
+  const notice = page.locator('[data-region="account"]');
   await expect(notice).toBeVisible();
   await expect(notice).toContainText("switched accounts");
   await expect(notice).toContainText(

@@ -24,6 +24,25 @@ import {
 
 const state = { account: null, activations: [], expanded: new Set() };
 
+/** The account this page will sign with, checked against the one it listed for. */
+async function signingAccount() {
+  const current = await wallet.currentAccount();
+  if (!current) {
+    throw new wallet.WalletError(
+      "no_account",
+      "The wallet has no account connected any more. Reconnect and try again.",
+    );
+  }
+  if (state.account && current.toLowerCase() !== state.account.toLowerCase()) {
+    throw new wallet.WalletError(
+      "account_changed",
+      `This list is for ${state.account} and the wallet is now on ${current}. Nothing was ` +
+        "signed and nothing changed.",
+    );
+  }
+  return current;
+}
+
 /* An activation id reaches this page from the server, so it is not this module's to assume
    well-formed. `CSS.escape` makes it safe inside an attribute selector: an id carrying a
    quote or a bracket would otherwise break the selector out of its attribute and match
@@ -254,9 +273,14 @@ async function runControl(activationId, action) {
   );
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const nonce = activation.auth_nonce;
+    /* Re-read rather than carried: a reader who switched accounts between loading this
+       list and pressing a control would otherwise sign as the address the page remembered,
+       and the server would refuse it as `not_owner` after the wallet had already asked
+       them to approve it. Pause, cancel and revoke carry no evidence in their bodies, so
+       the message binds nothing beyond the nonce. */
     const signature = await wallet.personalSign(
       api.authMessage(activation, action),
-      state.account,
+      await signingAccount(),
     );
     try {
       const updated = await call(activationId, {

@@ -332,13 +332,14 @@ def test_every_mutating_control_signs_the_message_the_server_issues():
         assert control in jobs, control
 
     api = _read("api.js")
-    assert "return `Docket activation ${activationId} ${action} ${nonce}`;" in api
+    assert "const message = `Docket activation ${activationId} ${action} ${nonce}`;" in api
+    assert "return binds ? `${message} ${binds}` : message;" in api
     # The message is composed here and checked before it reaches a wallet. A field on the
     # response is not trusted for it: a response is attacker-reachable the moment anything
     # between the browser and Docket is, and `personal_sign` over a server-supplied string
     # is a signature over whatever that string turned out to say.
     assert "auth_message" not in api
-    assert "if (!message.startsWith(prefix))" in api
+    assert "if (value && /\\s/.test(String(value)))" in api
     assert '"unsafe_message"' in api
     # A create has no counterpart here on purpose: `/api/activations/nonce` issues that
     # message and the browser signs it verbatim, which is stricter than rebuilding it.
@@ -367,7 +368,8 @@ def test_the_session_policy_allowlists_are_fetched_and_never_invented():
     assert "api.policyDefaults(state.record.service_id)" in source
     assert "What this session may touch" in source
     assert "policy_defaults_missing" in source
-    assert "contract_allowlist: defaults.contract_allowlist || []" in source
+    assert "state.policyDefaults = envelope.policy || null" in source
+    assert "...defaults" in source
     assert "policyDefaults" in _read("api.js")
 
 

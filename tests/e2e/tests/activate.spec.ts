@@ -2,6 +2,7 @@ import {
   ACCOUNT,
   PAY_TO,
   PRICE_ATOMIC,
+  RECEIPT,
   RELAYER,
   USDT,
   activation,
@@ -46,7 +47,7 @@ test("a reader walks from the home page to a paid result and its receipt", async
     page.getByText("0.50 USDT", { exact: false }).first(),
   ).toBeVisible();
   await expect(
-    page.getByText("Two wallet actions and no standing permission"),
+    page.getByText("At most two wallet actions", { exact: false }),
   ).toBeVisible();
   await expect(page.getByText("No custody.", { exact: false })).toBeVisible();
 
@@ -257,7 +258,7 @@ test("the activation is bound with a signature over the message the plan specifi
   const signed = await signedMessages(page);
   expect(signed).toEqual([
     "Docket activation create range-doctor nonce-one",
-    `Docket activation ${activation().activation_id} approve nonce-two`,
+    `Docket activation ${activation().activation_id} approve nonce-two ${RECEIPT.payment.payment_id}`,
   ]);
 });
 

@@ -29,7 +29,7 @@ export const SERVICE = {
   what_you_get:
     "A read-only diagnosis of the PancakeSwap v3 liquidity positions a BSC wallet holds.",
   price_display: "0.50 USDT",
-  price_atomic: 500000000000000000,
+  price_atomic: PRICE_ATOMIC,
   asset: USDT,
   paid_stock: true,
   stock_status: "admitted",
@@ -172,6 +172,9 @@ export const WALLET_INIT = ({
         message: string;
       } | null,
       calls,
+      /* Exposed so a route mock can recompute what a correct signature would have been
+         and refuse anything else, the way the server does. */
+      digest: (input: string) => digest(input),
     };
 
     const digest = (input: string) => {
@@ -304,6 +307,16 @@ export async function installNoWallet(page: Page) {
 
 /* ------------------------------------------------------------- the fake server */
 
+/** The hex form `personal_sign` is handed, which is what the fake wallet digests. */
+function hexUtf8(message: string) {
+  return (
+    "0x" +
+    Array.from(new TextEncoder().encode(message))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("")
+  );
+}
+
 function json(
   route: Route,
   status: number,
@@ -416,16 +429,42 @@ export async function mockHire(
 
 /** The SessionPolicy skeleton `/api/activations/policy-defaults` serves: the allowlists a
     category declares and the caps Docket proposes. */
-export const POLICY_DEFAULTS = {
-  contract_allowlist: ["0x46A15B0b27311cedF172AB29E4f4766fbE7F4364"],
+export const WBNB = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c";
+
+/* More than one token, and `expires_at` deliberately absent — the shape Lane B's
+   `defaults_for` actually produces. The caps cover every token the category allows, and
+   how long a session may run is the one bound the server leaves to the owner. A browser
+   that replaced these maps with a single entry for the service's own asset would quietly
+   drop the limits on every other token. */
+export const POLICY_SKELETON = {
+  contract_allowlist: [
+    "0x46A15B0b27311cedF172AB29E4f4766fbE7F4364",
+    "0x10ED43C718714eb63d5aA57B78B54704E256024E",
+  ],
   function_allowlist: ["0x88316456", "0x0c49ccbe"],
-  token_allowlist: [USDT],
-  per_action_limit_atomic: { [USDT]: "1000000000000000000" },
-  total_cap_atomic: { [USDT]: "10000000000000000000" },
+  token_allowlist: [USDT, WBNB],
+  per_action_limit_atomic: {
+    [USDT]: "1000000000000000000",
+    [WBNB]: "20000000000000000",
+  },
+  total_cap_atomic: {
+    [USDT]: "10000000000000000000",
+    [WBNB]: "200000000000000000",
+  },
   max_slippage_bps: 50,
   max_gas_price_wei: "5000000000",
-  expires_at: null,
   emergency_pause: false,
+};
+
+/** The envelope `/api/activations/policy-defaults` returns: the skeleton is nested under
+    `policy`, beside what the owner still has to add. */
+export const POLICY_DEFAULTS = {
+  service_id: "range-doctor",
+  category: "rebalancing",
+  policy: POLICY_SKELETON,
+  token_hints: {},
+  you_must_add: ["expires_at"],
+  note: "Send this as `policy` with an `expires_at` added.",
 };
 
 export async function mockActivations(
@@ -466,14 +505,41 @@ export async function mockActivations(
       expires_in_seconds: 900,
     }),
   );
-  await page.route("**/api/activations/*/approve", (route) =>
-    approveError
+  /* This mock verifies rather than accepts. Lane B binds the evidence into the signed
+     text — `Docket activation {id} {action} {nonce} {tx_hash or payment_id}` — so a
+     browser that signed the unbound form would be refused in production while a mock that
+     returned 200 for anything let the suite pass. The fake wallet's signatures are a
+     deterministic function of what was signed, so the expected signature for the expected
+     message can be recomputed here and compared. A mismatch answers 401 `bad_signature`,
+     which is exactly what the real server would do. */
+  await page.route("**/api/activations/*/approve", async (route) => {
+    const body = JSON.parse(route.request().postData() || "{}");
+    const id = new URL(route.request().url()).pathname.split("/").at(-2);
+    const binds = body.tx_hash || body.payment_id || "";
+    const base = `Docket activation ${id} approve ${body.nonce}`;
+    const expected = binds ? `${base} ${binds}` : base;
+    const wanted = await page.evaluate(
+      (message) =>
+        (
+          window as unknown as {
+            __wallet: { digest: (input: string) => string };
+          }
+        ).__wallet.digest(`personal:${message}`),
+      hexUtf8(expected),
+    );
+    if (body.owner_signature !== wanted) {
+      return json(route, 401, {
+        error_code: "bad_signature",
+        message: `owner_signature is not a signature over ${JSON.stringify(expected)}.`,
+      });
+    }
+    return approveError
       ? json(route, approveError.status, {
           error_code: approveError.error_code,
           message: approveError.message,
         })
-      : json(route, 200, afterApprove),
-  );
+      : json(route, 200, afterApprove);
+  });
   await page.route("**/api/activations/*/pause", (route) =>
     json(
       route,

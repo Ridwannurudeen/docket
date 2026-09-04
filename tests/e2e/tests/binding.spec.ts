@@ -83,7 +83,7 @@ test("a server-supplied message is never signed; the browser composes and checks
   const signed = await signedMessages(page);
   expect(signed).toEqual([
     "Docket activation create range-doctor nonce-one",
-    `Docket activation ${activation().activation_id} approve nonce-two`,
+    `Docket activation ${activation().activation_id} approve nonce-two ${RECEIPT.payment.payment_id}`,
   ]);
   for (const message of signed) {
     expect(message).not.toContain("send all funds");

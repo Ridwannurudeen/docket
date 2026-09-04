@@ -128,7 +128,7 @@ test("a continuous session asks to be funded and binds the transaction the reade
 
   expect(await signedMessages(page)).toEqual([
     "Docket activation create range-doctor nonce-one",
-    `Docket activation ${FUND_ME.activation_id} approve ${FUND_ME.auth_nonce}`,
+    `Docket activation ${FUND_ME.activation_id} approve ${FUND_ME.auth_nonce} ${hash}`,
   ]);
 });
 

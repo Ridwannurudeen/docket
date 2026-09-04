@@ -207,10 +207,11 @@ export function paymentTerms(challenge) {
   };
 }
 
-/** Make sure the relayer may pull exactly `amount`, approving that amount if it may not.
+/** Make sure the relayer may pull `amount`, approving exactly that amount if it may not.
 
-    Never an unlimited approval. The reader is paying 0.50 USDT once; an infinite allowance
-    would outlive the hire and is not something a page should ask for on their behalf. */
+    Docket never requests an unlimited approval. An existing allowance that already covers
+    the price belongs to the reader and is left unchanged; this flow neither reduces nor
+    revokes permission the reader granted before. */
 export async function ensureAllowance(account, token, relayer, amount) {
   const required = BigInt(amount);
   let current;
@@ -335,6 +336,24 @@ function canonicalJSON(value) {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${canonicalJSON(value[key])}`);
   return `{${fields.join(",")}}`;
+}
+
+/** The id Docket will file this payment under: SHA-256 over the canonical JSON envelope,
+    `0x`-prefixed.
+
+    The same recipe as `docket/hire/receipts.py::canonical_hash`, computed over the same
+    object the server parses out of the header. It is derivable here because it has to be:
+    a 409 replay says the payment settled and carries no id, and without one the browser
+    cannot bind a payment the reader has already made. */
+export async function paymentId(envelope) {
+  const bytes = new TextEncoder().encode(canonicalJSON(envelope));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return (
+    "0x" +
+    Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("")
+  );
 }
 
 /** The `X-PAYMENT` header value: base64 over the canonical JSON envelope. */

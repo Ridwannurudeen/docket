@@ -270,7 +270,7 @@ def _card(record: ServiceRecord, admission: PaidStockAdmission) -> ServiceCard:
         category_job=_category_job(record.category),
         what_you_get=record.what_you_get,
         price_display=record.price_display,
-        price_atomic=record.price_atomic,
+        price_atomic=str(record.price_atomic),
         asset=record.asset,
         paid_stock=admission.passes,
         stock_status=record.stock_status,

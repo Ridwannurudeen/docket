@@ -111,39 +111,72 @@ export function runFreeSample(serviceId, body) {
 
 /* ---------------------------------------------------------------- activations */
 
-/* The exact string the server signs a state change against, written here once so no call
-   site hand-assembles one. There is no counterpart for a create: that message is issued by
-   `/api/activations/nonce` and signed verbatim, which is stricter than rebuilding it. */
-export function actionMessage(activationId, action, nonce) {
-  return `Docket activation ${activationId} ${action} ${nonce}`;
+/* The five actions the server will verify a signature for, and nothing else. */
+const ACTIONS = ["create", "approve", "pause", "cancel", "revoke"];
+
+/** The exact string a mutating call has to be signed over.
+
+    `binds` is the evidence the call carries — a transaction hash, or a payment id — and it
+    is part of the signed text rather than an unsigned field beside it. Without it a
+    signature authorises "approve this activation" and not "approve this activation against
+    THIS transaction", and anything else could be substituted into the body after the owner
+    signed. This mirrors `docket/jobs/auth.py::action_message`, which is what verifies it;
+    the two files have no shared source, so `tests/test_web_pages_pivot.py` compares them.
+
+    There is no counterpart for a create: that message is issued by
+    `/api/activations/nonce` and signed verbatim, which is stricter than rebuilding it. */
+export function actionMessage(activationId, action, nonce, binds = "") {
+  const message = `Docket activation ${activationId} ${action} ${nonce}`;
+  return binds ? `${message} ${binds}` : message;
 }
 
-/** What to sign for one action on one activation, composed here and checked before it is
-    put in front of a wallet.
+/** What to sign for one action on one activation, composed here from checked parts.
 
-    Deliberately not read from a field on the activation. A response is attacker-reachable
+    Deliberately not read from a field on the response. A response is attacker-reachable
     the moment anything between the browser and Docket is: a server-supplied string handed
     straight to `personal_sign` is a signature over whatever that string turned out to say,
-    and the reader would be approving text nobody in this codebase wrote. So the browser
-    builds the sentence from the activation id, the action and the nonce, and refuses
-    anything that does not start with the prefix those three imply. A server that begins
-    binding the request body into the message appends to that prefix; this check passes it
-    and still refuses a substitution. */
-export function authMessage(activation, action) {
-  const prefix = `Docket activation ${activation.activation_id} ${action} `;
-  const message = actionMessage(
+    and the reader would be approving text nobody in this codebase wrote.
+
+    The parts are checked rather than the assembled sentence, because checking a string
+    against a prefix built from the same values proves nothing. What can actually go wrong
+    is a component carrying whitespace: the server splits nothing, but it composes the same
+    way, and an id or a nonce with a space in it silently shifts which token the server
+    reads as the bind — so a signature meant for one transaction hash would verify against
+    a sentence about another. Anything with whitespace in it is refused here. */
+export function authMessage(activation, action, binds = "") {
+  const parts = {
+    activation_id: activation.activation_id,
+    action,
+    nonce: activation.auth_nonce,
+    binds,
+  };
+  if (!ACTIONS.includes(action)) {
+    throw new ApiError(
+      "unsafe_message",
+      `${action} is not an activation action Docket signs for.`,
+    );
+  }
+  for (const [name, value] of Object.entries(parts)) {
+    if (name !== "binds" && !value) {
+      throw new ApiError(
+        "unsafe_message",
+        `Docket will not sign an activation message with no ${name}.`,
+      );
+    }
+    if (value && /\s/.test(String(value))) {
+      throw new ApiError(
+        "unsafe_message",
+        `The ${name} carries whitespace, which would change which word the server reads ` +
+          "as the evidence this signature binds. Nothing was signed.",
+      );
+    }
+  }
+  return actionMessage(
     activation.activation_id,
     action,
     activation.auth_nonce,
+    binds,
   );
-  if (!message.startsWith(prefix)) {
-    throw new ApiError(
-      "unsafe_message",
-      `Docket will not sign ${JSON.stringify(message)}: it is not the sentence this ` +
-        `activation's ${action} is supposed to authorise.`,
-    );
-  }
-  return message;
 }
 
 /** A single-use nonce and the exact message to sign for a create.
