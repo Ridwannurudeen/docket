@@ -339,6 +339,7 @@ class Activation:
     created_at: str
     updated_at: str
     expires_at: str | None
+    revision: int = field(default=0, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.kind not in KINDS:
@@ -422,7 +423,7 @@ class Activation:
         self.receipts = self.receipts + (receipt,)
 
     def to_dict(self) -> dict:
-        """The whole activation as JSON, which is also what the API serves."""
+        """The public activation as JSON; the store-only revision stays internal."""
         return {
             "activation_id": self.activation_id,
             "service_id": self.service_id,
@@ -467,6 +468,7 @@ class Activation:
             created_at=payload["created_at"],
             updated_at=payload["updated_at"],
             expires_at=payload["expires_at"],
+            revision=payload.get("revision", 0),
         )
 
 

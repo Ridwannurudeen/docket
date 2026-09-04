@@ -1386,98 +1386,46 @@ def test_spend_already_checkpointed_by_this_pass_is_not_merged_a_second_time(
     assert stored.session["spent_atomic"][USDT] == str(20 * 10**18)
 
 
-def test_two_writes_inside_one_microsecond_cannot_both_win(tmp_path):
-    """The compare-and-swap is a timestamp, so the timestamp has to move.
+@pytest.mark.parametrize(
+    "stamp",
+    (
+        "2026-09-04T12:00:00+00:00",
+        "2026-09-04T01:00:00-12:00",
+        "2026-09-04T12:00:00",
+        "the-clock-said-so",
+        "",
+        "9999-12-31T23:59:59.999999+00:00",
+    ),
+)
+def test_the_activation_cas_does_not_depend_on_the_shape_of_a_timestamp(
+    tmp_path, stamp
+):
+    """The revision is the identity; `updated_at` is caller-supplied event time.
 
-    Two writers reading the same row and mutating it within one clock tick used to hold
-    the same `updated_at`, which made them indistinguishable to the guard: the second
-    write matched the row the first had already changed and silently discarded it. The
-    stored stamp is now forced past the one it replaced, so the second writer is refused
-    and takes the merge path that keeps both records."""
+    A frozen clock, another offset, a naive or foreign value, and the edge of the
+    datetime range must all have the same concurrency behavior. Distinct reasons keep
+    both mutations real rather than letting consecutive-note deduplication fake a pass.
+    """
     store = Store(tmp_path / "tick.sqlite3")
     _, activation = _active(store, FakeRpc())
-    expected = activation.updated_at
+    with store._conn() as conn:
+        conn.execute(
+            "UPDATE activations SET updated_at = ? WHERE activation_id = ?",
+            (stamp, activation.activation_id),
+        )
 
     first = store.get_activation(activation.activation_id)
     second = store.get_activation(activation.activation_id)
+    expected_revision = first.revision
+    first.note("first writer", actor="docket", at=stamp)
+    second.note("second writer", actor="docket", at=stamp)
 
-    # Both mutate without the clock advancing between them.
-    frozen = first.updated_at
-    first.note("first writer", actor="docket", at=frozen)
-    second.note("second writer", actor="docket", at=frozen)
-
-    store.save_activation(first, expected_updated_at=expected)
-    assert first.updated_at > expected
+    store.save_activation(first, expected_updated_at=stamp)
+    assert first.revision == expected_revision + 1
 
     with pytest.raises(StaleActivation):
-        store.save_activation(second, expected_updated_at=expected)
+        store.save_activation(second, expected_updated_at=stamp)
 
     kept = store.get_activation(activation.activation_id)
+    assert kept.updated_at == stamp
     assert [event.reason for event in kept.events][-1] == "first writer"
-
-
-def test_a_stamp_this_module_did_not_write_is_replaced_rather_than_kept(tmp_path):
-    """The concurrency token is the store's, not the caller's.
-
-    `at=` lets a caller supply its own stamp, and nothing promises that string is a
-    timestamp — or that it carries a timezone, which is enough to make it incomparable
-    with one that does. A value that cannot be ordered cannot be reasoned about, and
-    leaving one on the row invites the shape this guard exists to stop: the same value
-    coming back around for a writer still holding it to match a second time. So the row
-    takes a stamp this module made, and stays parseable and monotonic whatever a caller
-    passes."""
-    store = Store(tmp_path / "tick.sqlite3")
-    _, activation = _active(store, FakeRpc())
-
-    for supplied in ("the-clock-said-so", "2026-01-01T00:00:00"):
-        row = store.get_activation(activation.activation_id)
-        held = row.updated_at
-        # A distinct reason each time: identical consecutive notes are dropped, and a
-        # dropped note would leave `updated_at` untouched and prove nothing. `at=` is not
-        # a test-only affordance — `service.py` passes its own injectable clock through
-        # it on every transition, so these are the shapes production can really produce.
-        row.note(f"a caller supplied {supplied}", actor="user", at=supplied)
-        store.save_activation(row, expected_updated_at=held)
-
-        stored = store.get_activation(activation.activation_id)
-        assert stored.updated_at != supplied
-        # Parseable, timezone-aware, and after the value it replaced.
-        assert datetime.fromisoformat(stored.updated_at) > datetime.fromisoformat(held)
-
-        stale = store.get_activation(activation.activation_id)
-        stale.updated_at = held
-        with pytest.raises(StaleActivation):
-            store.save_activation(stale, expected_updated_at=held)
-
-
-def test_a_replaced_stamp_never_moves_the_row_backwards(tmp_path):
-    """Callers pass their own clock, and a clock can be frozen or wrong.
-
-    When a stamp cannot be ordered the row takes a different one, but reaching for the
-    wall clock alone would not do: a caller whose clock runs ahead leaves the row on a
-    future value, and replacing that with the real time now would move the row *behind*
-    a value a reader may still hold — which is exactly how a stale write gets to match a
-    second time. The replacement is whichever of the two is later, so the column only
-    ever moves forwards."""
-    store = Store(tmp_path / "tick.sqlite3")
-    _, activation = _active(store, FakeRpc())
-
-    ahead = "2099-01-01T00:00:00+00:00"
-    row = store.get_activation(activation.activation_id)
-    held = row.updated_at
-    row.note("a clock that runs ahead", actor="user", at=ahead)
-    store.save_activation(row, expected_updated_at=held)
-    assert store.get_activation(activation.activation_id).updated_at == ahead
-
-    # Now an unorderable stamp arrives while the row sits in the future.
-    row = store.get_activation(activation.activation_id)
-    row.note("a stamp that is not a time", actor="user", at="the-clock-said-so")
-    store.save_activation(row, expected_updated_at=ahead)
-
-    stored = store.get_activation(activation.activation_id).updated_at
-    assert datetime.fromisoformat(stored) > datetime.fromisoformat(ahead)
-
-    stale = store.get_activation(activation.activation_id)
-    stale.updated_at = ahead
-    with pytest.raises(StaleActivation):
-        store.save_activation(stale, expected_updated_at=ahead)

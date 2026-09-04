@@ -239,7 +239,8 @@ CREATE TABLE IF NOT EXISTS activations (
     auth_nonce TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    expires_at TEXT
+    expires_at TEXT,
+    revision INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS activations_owner ON activations (owner);
 CREATE INDEX IF NOT EXISTS activations_service ON activations (service_id);
@@ -298,42 +299,6 @@ class StaleActivation(ValueError):
     """The stored activation moved between the read and the write, so nothing was written."""
 
 
-def _strictly_after(written: str, held: str | None) -> str | None:
-    """The stamp to store so this write moves the row past the value the caller held.
-
-    Returns `None` when the stamp being written already sits after the held one, which is
-    the ordinary case and needs no adjustment.
-
-    Everything else is adjusted, because this column is the concurrency token rather than
-    caller data. Two stamps sharing a microsecond, a clock that stepped backwards, a stamp
-    a caller supplied through `at=` that is not a timestamp at all, one without a timezone
-    that cannot even be compared with an aware one — each would leave the row holding a
-    value a competing writer could still match. A stamp that cannot be ordered is replaced
-    outright with this module's own, so the column stays parseable and monotonic and the
-    same value can never come back around to be matched a second time.
-    """
-    if not held:
-        return None
-    try:
-        holding = datetime.fromisoformat(held)
-    except (ValueError, TypeError):
-        # Not even the held value is an instant, so there is nothing to order against.
-        # The row still must not keep a value a competing writer could match again.
-        return _now()
-    after_holding = (holding + timedelta(microseconds=1)).isoformat()
-    try:
-        if datetime.fromisoformat(written) > holding:
-            return None
-    except (ValueError, TypeError):
-        # An unparseable stamp, or one written without a timezone beside one with it.
-        # `_now()` alone would not do: these callers pass their own clock, and a frozen
-        # or skewed one could put the row *behind* a value some reader still holds,
-        # which is the shape that lets a stale write match a second time. Whichever of
-        # the two is later is the one that keeps the column moving forwards.
-        moved = _now()
-        return moved if moved > after_holding else after_holding
-    return after_holding
-
 def _activation_row(activation: Activation, *, with_nonce: bool = True) -> tuple:
     """The row, in column order. `with_nonce=False` drops `auth_nonce` for the update
     statement, which must never write it — see `save_activation`."""
@@ -356,6 +321,7 @@ def _activation_row(activation: Activation, *, with_nonce: bool = True) -> tuple
         activation.created_at,
         activation.updated_at,
         activation.expires_at,
+        activation.revision,
     )
 
 
@@ -380,6 +346,7 @@ def _activation(row: sqlite3.Row) -> Activation:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "expires_at": row["expires_at"],
+            "revision": row["revision"],
         }
     )
 
@@ -436,8 +403,13 @@ class Store:
             payment_columns = {
                 r["name"] for r in conn.execute("PRAGMA table_info(hire_payments)")
             }
+            activation_columns = {
+                r["name"] for r in conn.execute("PRAGMA table_info(activations)")
+            }
             if not {"population", "stop_reason", "promoted_at"} <= snapshot_columns or (
                 "operator_recovered_at" not in payment_columns
+            ) or (
+                "revision" not in activation_columns
             ):
                 # `executescript` leaves no transaction open. Reserve the writer only when a
                 # migration may be needed, then recheck under that lock: another initializer
@@ -448,6 +420,9 @@ class Store:
                 }
                 payment_columns = {
                     r["name"] for r in conn.execute("PRAGMA table_info(hire_payments)")
+                }
+                activation_columns = {
+                    r["name"] for r in conn.execute("PRAGMA table_info(activations)")
                 }
                 if "population" not in snapshot_columns:
                     conn.execute("ALTER TABLE snapshots ADD COLUMN population TEXT")
@@ -466,6 +441,11 @@ class Store:
                 if "operator_recovered_at" not in payment_columns:
                     conn.execute(
                         "ALTER TABLE hire_payments ADD COLUMN operator_recovered_at TEXT"
+                    )
+                if "revision" not in activation_columns:
+                    conn.execute(
+                        "ALTER TABLE activations "
+                        "ADD COLUMN revision INTEGER NOT NULL DEFAULT 0"
                     )
 
     @contextmanager
@@ -1489,10 +1469,10 @@ class Store:
             cursor = conn.execute(
                 """INSERT INTO activations
                    (activation_id, service_id, category, kind, owner, state, quote_json,
-                    policy_json, session_json, inputs_json, result_json, receipts_json,
-                    events_json, next_action_json, auth_nonce, created_at, updated_at,
-                    expires_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     policy_json, session_json, inputs_json, result_json, receipts_json,
+                     events_json, next_action_json, auth_nonce, created_at, updated_at,
+                     expires_at, revision)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT DO NOTHING""",
                 _activation_row(activation),
             )
@@ -1556,40 +1536,39 @@ class Store:
         signature would be accepted a second time. The one column this statement must not
         touch is the one that makes a signature single-use.
 
-        The guard is a timestamp, and two mutations can land inside the same microsecond
-        — a clock's resolution is not a promise about ordering. So the stamp this writes
-        is forced past the one it replaced: a row's `updated_at` strictly increases, and
-        a second writer still holding the old value can therefore never match the row
-        after the first writer has moved it. Without that, two writes sharing a
-        microsecond were indistinguishable to the guard and the later one silently
-        discarded the earlier — including, in the worst ordering, a broadcast it had
-        already recorded. The cost is that `updated_at` can run up to a microsecond ahead
-        of the clock under contention, which is a price worth paying for a
-        compare-and-swap that actually swaps.
+        `updated_at` is event time and may come from an injected clock, so it cannot also
+        be the row's identity: equal ticks, offsets, malformed values and the end of the
+        datetime range all defeat ordering by timestamp. The integer revision changes on
+        every successful save and is never derived from a clock. `updated_at` remains in
+        the predicate as a second check, but revision is what prevents an old timestamp
+        from becoming current again and admitting a stale writer.
         """
-        moved = _strictly_after(activation.updated_at, expected_updated_at)
-        if moved is not None:
-            activation.updated_at = moved
+        expected_revision = activation.revision
+        next_revision = expected_revision + 1
         with self._conn() as conn:
             cursor = conn.execute(
                 """UPDATE activations
                    SET service_id = ?, category = ?, kind = ?, owner = ?, state = ?,
                        quote_json = ?, policy_json = ?, session_json = ?,
-                       inputs_json = ?, result_json = ?, receipts_json = ?,
-                       events_json = ?, next_action_json = ?,
-                       created_at = ?, updated_at = ?, expires_at = ?
-                   WHERE activation_id = ? AND updated_at = ?""",
+                        inputs_json = ?, result_json = ?, receipts_json = ?,
+                        events_json = ?, next_action_json = ?,
+                        created_at = ?, updated_at = ?, expires_at = ?, revision = ?
+                    WHERE activation_id = ? AND updated_at = ? AND revision = ?""",
                 (
-                    *_activation_row(activation, with_nonce=False)[1:],
+                    *_activation_row(activation, with_nonce=False)[1:-1],
+                    next_revision,
                     activation.activation_id,
                     expected_updated_at,
+                    expected_revision,
                 ),
             )
         if cursor.rowcount != 1:
             raise StaleActivation(
                 f"{activation.activation_id} changed since it was read "
-                f"(expected updated_at {expected_updated_at})"
+                f"(expected revision {expected_revision} and "
+                f"updated_at {expected_updated_at})"
             )
+        activation.revision = next_revision
 
     def rotate_auth_nonce(
         self, activation_id: str, *, expected_nonce: str, new_nonce: str

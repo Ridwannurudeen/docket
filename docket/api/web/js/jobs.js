@@ -101,9 +101,7 @@ function lastRun(activation) {
   const receipts = activation.receipts || [];
   const last = receipts[receipts.length - 1];
   if (last && last.delivered_at) return timeAgo(last.delivered_at);
-  return activation.state === "quoted"
-    ? "never"
-    : timeAgo(activation.updated_at);
+  return "never";
 }
 
 /* A schedule only exists for a session that is actually running one. Docket shows the

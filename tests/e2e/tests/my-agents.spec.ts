@@ -71,6 +71,22 @@ test("an address that owns nothing gets copy, not an empty table", async ({
   await expect(page.locator("table")).toHaveCount(0);
 });
 
+test("a state change is not presented as a run without a receipt", async ({
+  page,
+}) => {
+  const receiptless = activation({
+    state: "authorized",
+    receipts: [],
+    updated_at: "2000-01-01T00:00:00Z",
+  });
+  await installWallet(page);
+  await mockActivations(page, { listing: [receiptless] });
+  await page.goto("/my-agents");
+
+  const row = page.locator(`[data-row="${receiptless.activation_id}"]`);
+  await expect(row.locator("td").nth(2)).toHaveText("never");
+});
+
 test.describe("with one persistent session", () => {
   test.beforeEach(async ({ page }) => {
     await installWallet(page);

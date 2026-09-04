@@ -9,8 +9,6 @@ settled row belonging to the internal canary may never be reported as a public p
 """
 
 import re
-import sqlite3
-from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -143,17 +141,24 @@ def test_counters_that_belong_to_tables_no_lane_has_built_yet_are_empty(store):
     assert summary["external_listings_by_level"] == {}
 
 
-def test_activation_states_are_counted_once_the_table_exists(store):
-    with closing(sqlite3.connect(store.path)) as conn:  # the shape Lane B's SCHEMA adds
-        with conn:
-            conn.execute(
-                "CREATE TABLE activations "
-                "(activation_id TEXT PRIMARY KEY, state TEXT NOT NULL)"
-            )
-            conn.executemany(
-                "INSERT INTO activations (activation_id, state) VALUES (?, ?)",
-                [("act_1", "active"), ("act_2", "active"), ("act_3", "revoked")],
-            )
+def test_activation_states_are_counted_from_the_store(store):
+    with store._conn() as conn:
+        conn.executemany(
+            """INSERT INTO activations
+               (activation_id, service_id, category, kind, owner, state, quote_json,
+                inputs_json, receipts_json, events_json, next_action_json, auth_nonce,
+                created_at, updated_at)
+               VALUES (?, 'range-doctor', 'rebalancing', 'persistent', '0xowner', ?,
+                       '{"amount_atomic":"0","amount_display":"free","asset":"0x0",
+                         "pay_to":null,"payment_scheme":"free_tier"}',
+                       '{}', '[]', '[]', '{"detail":{},"kind":"none"}', ?,
+                       '2026-09-04T12:00:00+00:00', '2026-09-04T12:00:00+00:00')""",
+            [
+                ("act_1", "active", "nonce-1"),
+                ("act_2", "active", "nonce-2"),
+                ("act_3", "revoked", "nonce-3"),
+            ],
+        )
 
     assert _summary(store)["activations_by_state"] == {"active": 2, "revoked": 1}
 
