@@ -79,7 +79,7 @@ def test_each_pivot_page_loads_exactly_one_entry_module(client):
 
     A page that loaded two modules would have two answers to "what runs here", and the
     ordering between them would be the kind of implicit contract that breaks silently."""
-    for path, (shell, _key, entry) in PIVOT_PAGES.items():
+    for _path, (shell, _key, entry) in PIVOT_PAGES.items():
         document = (WEB / shell).read_text(encoding="utf-8")
         scripts = re.findall(r"<script[^>]*src=\"([^\"]+)\"", document)
         assert scripts == [f"/static/js/pages/{entry}.js?v=13"], shell
