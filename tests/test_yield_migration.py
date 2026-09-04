@@ -154,6 +154,7 @@ class Reader:
         approved_to=SESSION,
         approved_for_all=False,
         liquidity=None,
+        owed=(0, 0),
         balances=None,
     ):
         self.revert_on = revert_on or ()
@@ -165,6 +166,7 @@ class Reader:
         self.approved_to = approved_to
         self.approved_for_all = approved_for_all
         self.liquidity = liquidity
+        self.owed = owed
         self.balances = balances or {}
         self.calls: list[tuple] = []
         self.estimates: list[tuple] = []
@@ -229,6 +231,8 @@ class Reader:
                 return b""
             words = [bytes(32)] * 12
             words[7] = int(self.liquidity).to_bytes(32, "big")
+            words[10] = int(self.owed[0]).to_bytes(32, "big")
+            words[11] = int(self.owed[1]).to_bytes(32, "big")
             return b"".join(words)
         return b""
 
@@ -854,3 +858,56 @@ def test_the_verification_read_names_the_right_topic_for_each_log():
     assert "topics[1] and\ntopics[2]" in plan.verification.identified_by or (
         "topics[1] and topics[2]" in plan.verification.identified_by
     )
+
+
+# --------------------------------------------- resuming between the two withdrawal calls
+
+
+def test_a_route_stopped_between_the_burn_and_the_collect_resumes_at_the_collect():
+    """Liquidity alone cannot tell the two apart. `decreaseLiquidity` burns into the
+    manager's own accounting and `collect` moves it out, so between them the position
+    reads zero liquidity and non-zero owed — and a route that looked only at liquidity
+    would plan swaps for balances still sitting in the position manager."""
+    plan = _plan(reader=Reader(liquidity=0, owed=(4_000 * E18, 4_000 * E18)))
+    purposes = [call.purpose for call in plan.calls]
+
+    assert not [p for p in purposes if "burn all" in p]
+    assert "collect everything" in purposes[0]
+    assert plan.disclosure["position"]["removed_amount0"] == str(4_000 * E18)
+    assert plan.disclosure["position"]["removed_amount1"] == str(4_000 * E18)
+    assert plan.disclosure["resumed_from_chain"] is False
+
+
+def test_the_owed_amounts_are_what_the_manager_says_it_owes_not_a_projection():
+    plan = _plan(reader=Reader(liquidity=0, owed=(7 * E18, 3 * E18)))
+
+    assert plan.disclosure["position"]["withdrawal_floor0"] == str(7 * E18)
+    assert plan.disclosure["position"]["withdrawal_floor1"] == str(3 * E18)
+
+
+def test_a_destination_token_an_interrupted_leg_already_bought_is_not_bought_again():
+    """A resumed route that ignored it would buy the same side twice and leave the first
+    purchase stranded in the session."""
+    without = _plan(reader=Reader(liquidity=0, balances={USDT: 6_000 * E18}))
+    with_wbnb = _plan(
+        reader=Reader(liquidity=0, balances={USDT: 6_000 * E18, WBNB: 5 * E18})
+    )
+
+    assert int(with_wbnb.disclosure["position"]["mint_amount1_desired"]) > int(
+        without.disclosure["position"]["mint_amount1_desired"]
+    )
+
+
+def test_a_position_with_nothing_anywhere_has_nothing_to_resume():
+    with pytest.raises(MigrationRefused, match="nothing to resume from"):
+        _plan(reader=Reader(liquidity=0, owed=(0, 0), balances={}))
+
+
+def test_position_state_reads_all_three_words_it_needs():
+    from docket.agents.yield_router.migration import position_liquidity, position_state
+
+    reader = Reader(liquidity=99, owed=(11, 22))
+
+    assert position_state(reader, 7141050, owner=OWNER) == (99, 11, 22)
+    assert position_liquidity(reader, 7141050, owner=OWNER) == 99
+    assert position_state(Reader(liquidity=None), 1, owner=OWNER) is None

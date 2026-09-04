@@ -10,12 +10,16 @@ price off the chain, asks the lifecycle what to do, and checks the answer agains
 activation's own policy before anything is handed on.
 
 `within_policy` is a second gate in front of `docket/sessions/policy.py`, never a
-replacement for it. The session plane reads four keys off `Decision.evidence` and can see
-them no other way, so all four are written on every decision this module returns,
-including the ones that send nothing: `token_amounts` (the batch total),
-`token_amounts_by_call` (the same split per call, because the policy charges per call),
-`token_hints` (what no calldata carries) and `received_tokens` (what the session is left
-holding, so a revoke sweeps it). A spend the policy cannot see is a spend it reads as zero.
+replacement for it. The session plane reads three keys off `Decision.evidence` and can see
+them no other way — `received_tokens`, which a sweep looks for; `token_hints`, which
+carries what no calldata does; and `slippage_bps`, which the policy bounds. All three are
+written on every decision this module returns, including the ones that send nothing, and
+`received_tokens` in particular never goes empty while a session holds anything: the
+session plane reads the *last* decision, so an alert that dropped it would leave every
+token behind. `token_amounts` and `token_amounts_by_call` are published beside them and
+are informational — the spend actually charged is derived from the calldata by
+`docket.sessions.spend`, which is the right place for it, because a caller's own figure
+is not something a cap should be enforced against.
 
 The grid's own progress is carried the way the tick loop carries it. Each pass's evidence
 is persisted at `activation.result["last_decision"]["evidence"]`, and that is where the
@@ -155,6 +159,8 @@ def state_from(activation) -> grid_lifecycle.GridState:
             grid_lifecycle.Fired(
                 level=int(entry["level"]),
                 intent_key=entry.get("intent_key") or "",
+                correlation_id=entry.get("correlation_id") or "",
+                input_hash=entry.get("input_hash") or "",
                 tx_hash=entry.get("tx_hash"),
             )
             for entry in raw.get("fired") or ()
@@ -164,6 +170,24 @@ def state_from(activation) -> grid_lifecycle.GridState:
         cancelled=bool(raw.get("cancelled")),
         revoked=bool(raw.get("revoked")),
         reference_price=None if reference is None else int(reference),
+        attempt_count=int(raw.get("attempt_count") or 0),
+    )
+
+
+def _swap_purpose(purposes, fired) -> bool:
+    """Whether one of these purposes is *the swap* this level drafted.
+
+    Both calls a level can draft open `grid level N:`, so the prefix alone would match
+    the approval as well and count an approval's revert as the swap's. The swap is the
+    one that says it is a swap.
+    """
+    prefix = f"grid level {fired.level}:"
+    marker = f"[attempt {fired.correlation_id}]"
+    return any(
+        purpose.startswith(prefix)
+        and "exact-input swap" in purpose
+        and (not fired.correlation_id or marker in purpose)
+        for purpose in purposes
     )
 
 
@@ -191,21 +215,45 @@ def _by_call(prepared, level) -> list[dict]:
     ]
 
 
-def _no_spend(spec=None) -> dict:
-    """Evidence for a decision that proposes nothing, with the two policy keys still on it.
+def _no_spend(activation, spec=None) -> dict:
+    """Evidence for a decision that proposes nothing, with everything still on it.
 
-    An absent `token_amounts` and an empty one read alike to `SessionPolicy.allows`, but
-    they do not read alike to a person: one says this decision spends nothing and the
-    other says nobody wrote down what it spends. The first is what these are.
+    **`received_tokens` may not go empty here.** The session plane reads the *last*
+    decision, so a grid that alerted on a bad request body after a week of trading would
+    hand a sweep an empty list and leave every token the session holds behind in an
+    address nobody watches. So it falls back to the spec's own pair, then to whatever the
+    previous decision said, and only an activation that has never decided anything at all
+    reports nothing — because at that point the session is holding nothing either.
+
+    `grid_state` is carried for the same reason: an alert that dropped it would erase the
+    fills and the cap, and the pass after would start a traded grid from its opening
+    state.
     """
+    carried = carried_state(activation)
+    previous = _previous_evidence(activation)
+    tokens = (
+        [spec.base, spec.quote]
+        if spec is not None
+        else [
+            token
+            for token in previous.get("received_tokens") or ()
+            if isinstance(token, str)
+        ]
+    )
     return {
         "category_verb": CATEGORY_VERB,
         "token_amounts": {},
         "token_amounts_by_call": [],
-        "token_hints": {} if spec is None else {"tokens": [spec.base, spec.quote]},
-        "received_tokens": [] if spec is None else [spec.base, spec.quote],
+        "token_hints": {"tokens": list(tokens)},
+        "received_tokens": list(tokens),
         "slippage_bps": None if spec is None else spec.max_slippage_bps,
+        "grid_state": carried or None,
+        "source": "no observation was taken on this pass",
     }
+
+
+def _previous_evidence(activation) -> dict:
+    return ((activation.result or {}).get("last_decision") or {}).get("evidence") or {}
 
 
 class GridExecutor:
@@ -218,6 +266,9 @@ class GridExecutor:
         # and the registry below is populated at import time.
         self._reader = reader
         self._clock = clock if clock is not None else chain_now
+        # Levels left closed on this pass because the owner has been asked to sign the
+        # very call they drafted. Reset per pass by `_reconcile`.
+        self._awaiting_owner: tuple[int, ...] = ()
 
     def _quotes(self, reader):
         """The router reader this pass uses, from whatever the caller handed over.
@@ -237,49 +288,92 @@ class GridExecutor:
         return self._reader
 
     def _reconcile(self, state, activation, spec, session, reader):
-        """Close the loop on every level this grid has already sent.
+        """Close the loop on every level this grid has already drafted.
 
-        The fire branch marks a level fired the moment it drafts one, and only a receipt
-        can take it off that list. So each pass reads the receipts the session executor
-        recorded, pulls the ERC-20 Transfer logs out of the ones that succeeded, and hands
-        `record_fills` both halves: what actually traded, and which levels reverted. A
-        reverted swap traded nothing, so its level goes back to open and its notional
-        comes back off the cap — a grid that kept charging reverted transactions against
-        its cap would spend its whole allowance on transactions that never happened.
+        Three records on the activation say what became of a draft, and the executor
+        writes none of them — the session plane does, and it writes nothing back into an
+        executor's evidence. So each is joined on a key that already exists on both sides:
 
-        A receipt the node has not caught up with yet leaves its level fired, which is
-        the correct answer: sent, unconfirmed, and not to be drafted again.
+        - **a fill.** `Receipt.input_hash` is `canonical_hash(prepared.to_dict())`, and
+          the `Fired` entry recorded the same digest when it drafted the call. Match on
+          it, read the transaction receipt off the chain, and pull the ERC-20 Transfer
+          logs out of it. That is what makes "every fill is read back off the chain's own
+          logs" a true sentence rather than a claim about a loop that never ran.
+        - **a revert.** A reverted send never becomes a `Receipt` at all: `execute` raises
+          and the record is a `settled_sends` entry with `status: 0`, keyed by nonce and
+          carrying the purpose. Matched on the purpose this module wrote.
+        - **a refusal before the broadcast.** The decision is persisted before `execute`
+          runs, so a draft the policy or the simulation refused leaves a `Fired` entry
+          with no send of any kind behind it. Unswept, that level never fires again and
+          its notional is charged against the cap for ever.
+
+        A draft still in `pending_sends`, or one whose receipt the node has not caught up
+        with, stays fired. That is the correct answer: sent, unresolved, not to be drafted
+        again. And an activation sitting in `needs_approval` is waiting on the owner's own
+        signature for a call Docket may not send, so its level stays closed too and is
+        flagged rather than quietly reopened.
         """
-        if not state.fired or not hasattr(reader, "transaction_receipt"):
+        if not state.fired:
             return state
-        pending = {entry.tx_hash: entry.level for entry in state.fired if entry.tx_hash}
-        seen = {
-            (receipt.execution or {}).get("tx_hash"): receipt.execution or {}
+        result = activation.result or {}
+        receipts = {
+            receipt.input_hash: receipt
             for receipt in getattr(activation, "receipts", ()) or ()
-            if (receipt.execution or {}).get("tx_hash")
+            if getattr(receipt, "input_hash", None)
         }
-        landed, reverted = [], []
-        for tx_hash, level in pending.items():
-            execution = seen.get(tx_hash)
-            if execution is None:
-                continue
-            if int(execution.get("status", 1)) != 1:
-                reverted.append(level)
-                continue
-            receipt = reader.transaction_receipt(tx_hash)
-            if receipt is None:
-                continue
-            landed.extend(
-                grid_lifecycle.detect_fills(
-                    [{**dict(receipt), "level": level}], spec, recipient=session
+        pending = {
+            str(entry.get("purpose") or "")
+            for entry in (result.get("pending_sends") or {}).values()
+        }
+        settled = list(result.get("settled_sends") or ())
+        reverted_purposes = {
+            str(entry.get("purpose") or "")
+            for entry in settled
+            if int(entry.get("status", 1)) != 1
+        }
+        sent_purposes = pending | {str(e.get("purpose") or "") for e in settled}
+        awaiting_owner = getattr(activation, "state", "") == "needs_approval"
+
+        landed, reverted, unsent, flagged = [], [], [], []
+        for entry in state.fired:
+            receipt = receipts.get(entry.input_hash)
+            if receipt is not None:
+                tx_hash = (receipt.execution or {}).get("tx_hash")
+                chain_receipt = (
+                    reader.transaction_receipt(tx_hash)
+                    if tx_hash and hasattr(reader, "transaction_receipt")
+                    else None
                 )
-            )
-        if not landed and not reverted:
+                if chain_receipt is None:
+                    continue
+                landed.extend(
+                    grid_lifecycle.detect_fills(
+                        [{**dict(chain_receipt), "level": entry.level}],
+                        spec,
+                        recipient=session,
+                    )
+                )
+                continue
+            if _swap_purpose(pending, entry):
+                continue
+            if _swap_purpose(reverted_purposes, entry):
+                reverted.append(entry.level)
+                continue
+            if _swap_purpose(sent_purposes, entry):
+                continue
+            if awaiting_owner:
+                flagged.append(entry.level)
+                continue
+            unsent.append(entry.level)
+
+        self._awaiting_owner = tuple(flagged)
+        if not landed and not reverted and not unsent:
             return state
         return grid_lifecycle.record_fills(
             state,
             landed,
             reverted=reverted,
+            unsent=unsent,
             notional_atomic=spec.amount_per_level_atomic,
         )
 
@@ -304,8 +398,8 @@ class GridExecutor:
                     f"{type(exc).__name__}: {exc}. Nothing is drafted"
                 ),
                 prepared=(),
-                evidence=_no_spend(),
-                observed_at="",
+                evidence=_no_spend(activation),
+                observed_at=_utc_now(),
                 block=0,
             )
 
@@ -321,8 +415,8 @@ class GridExecutor:
                     "the recipient of a swap and nothing can be drafted"
                 ),
                 prepared=(),
-                evidence=_no_spend(spec),
-                observed_at="",
+                evidence=_no_spend(activation, spec),
+                observed_at=_utc_now(),
                 block=0,
             )
 
@@ -378,6 +472,7 @@ class GridExecutor:
             "token_hints": {"tokens": [spec.base, spec.quote]},
             "received_tokens": [spec.base, spec.quote],
             "slippage_bps": spec.max_slippage_bps,
+            "awaiting_owner": list(self._awaiting_owner),
         } | decision.evidence
         return Decision(
             kind=kind,

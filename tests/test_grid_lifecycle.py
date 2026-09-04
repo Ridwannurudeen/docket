@@ -751,6 +751,7 @@ def test_a_fired_level_is_out_of_play_before_its_receipt_is_read():
     assert first.level.index == 2
     assert [entry.level for entry in first.state.fired] == [2]
     assert first.state.fired[0].intent_key
+    assert first.state.fired[0].input_hash
     assert first.state.fired[0].tx_hash is None
     assert 2 not in first.state.open_levels
 
@@ -770,7 +771,7 @@ def test_a_confirmed_fill_moves_a_level_from_fired_to_filled_permanently():
     fired = GridState(
         reference_price=620 * E18,
         spent_atomic=25 * E18,
-        fired=(Fired(level=2, intent_key="0xkey", tx_hash="0xfeed"),),
+        fired=(Fired(level=2, intent_key="0xkey", input_hash="0xh2", tx_hash="0xfeed"),),
         open_levels=(0, 1, 3, 4),
     )
 
@@ -793,7 +794,7 @@ def test_a_reverted_swap_puts_its_level_back_and_gives_the_cap_back():
     fired = GridState(
         reference_price=620 * E18,
         spent_atomic=25 * E18,
-        fired=(Fired(level=2, intent_key="0xkey", tx_hash="0xdead"),),
+        fired=(Fired(level=2, intent_key="0xkey", input_hash="0xh2", tx_hash="0xdead"),),
         open_levels=(0, 1, 3, 4),
     )
 
@@ -813,8 +814,8 @@ def test_a_level_still_in_flight_is_neither_reopened_nor_filled():
     fired = GridState(
         reference_price=620 * E18,
         fired=(
-            Fired(level=2, intent_key="0xkey", tx_hash="0xpending"),
-            Fired(level=1, intent_key="0xkey2", tx_hash=None),
+            Fired(level=2, intent_key="0xkey", input_hash="0xh2", tx_hash="0xpending"),
+            Fired(level=1, intent_key="0xkey2", input_hash="0xh1", tx_hash=None),
         ),
     )
 

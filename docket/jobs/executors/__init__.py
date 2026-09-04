@@ -1,16 +1,14 @@
 """The registry the tick loop looks a category up in.
 
 Empty at import. Each category's executor registers itself, and a category with nothing
-registered is a category the loop reports on rather than one it crashes over.
-
-**Lane B's copy of this file is the reference and replaces this one at integration.** It
-is identical in behaviour and takes `CATEGORIES` from `docket/jobs/models.py`, which is
-Lane B's to write; this stand-in names the four official categories itself so the package
-imports before that module lands. `register(category, executor)` has the same signature
-and the same refusal in both, so the two lines at the bottom of this file work unchanged
-against either.
+registered is a category the loop reports on rather than one it crashes over: an
+activation whose executor has not shipped yet is a real state of this system this week,
+and a tick that died on it would take every other owner's activation down with it.
 """
 
+from importlib import import_module
+
+from ..models import CATEGORIES
 from .base import Decision, Executor, NoopExecutor, PreparedCall
 
 __all__ = [
@@ -20,11 +18,14 @@ __all__ = [
     "Executor",
     "NoopExecutor",
     "PreparedCall",
+    "load_executors",
     "register",
 ]
 
-# The four jobs the marketplace declares, in the spelling an activation carries.
-CATEGORIES = ("rebalancing", "grid_trading", "yield_optimisation", "health_factor")
+# The four modules that claim a category. Imported by `load_executors` at call time rather
+# than here, because each of them imports this module to call `register` and importing
+# them at module scope would close the ring.
+EXECUTOR_MODULES = ("range", "health", "grid", "yield_router")
 
 EXECUTORS: dict[str, Executor] = {}
 
@@ -40,5 +41,29 @@ def register(category: str, executor: Executor) -> None:
     EXECUTORS[category] = executor
 
 
-from .grid import GridExecutor  # noqa: E402  (importing is what registers it)
-from .yield_router import YieldRouteExecutor  # noqa: E402
+def load_executors() -> None:
+    """Import the modules that register the four category executors.
+
+    Called by the tick, once per pass, rather than at import: each executor module imports
+    `register` from here, so importing them from this module's body would be a cycle.
+    Idempotent, because `register` refuses a second claim and a module imports once.
+
+    A module that has not shipped yet is skipped — the four land lane by lane, and a tick
+    that refused to start until all four existed would be a tick that never ran. A module
+    that exists and raises on import is a real fault and is not swallowed: only the
+    absence of the module itself is tolerated, checked by name so a missing dependency
+    inside one of them still surfaces.
+    """
+    for name in EXECUTOR_MODULES:
+        qualified = f"{__name__}.{name}"
+        try:
+            import_module(qualified)
+        except ModuleNotFoundError as exc:
+            if exc.name != qualified:
+                raise
+        except ValueError as exc:
+            # `register` refuses a second claim on the same category. Re-importing an
+            # already-imported module does not re-run it, so this only fires where two
+            # modules claim one category — a configuration error worth surfacing.
+            if "already has a registered executor" not in str(exc):
+                raise

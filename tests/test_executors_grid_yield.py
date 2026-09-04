@@ -40,6 +40,7 @@ from test_yield_migration import (
     OWNER,
     SESSION as YIELD_SESSION,
     SOURCE,
+    USDC,
     Reader as YieldReader,
     _position,
 )
@@ -128,6 +129,16 @@ def _grid(**kwargs) -> GridExecutor:
 
 def _yield(**kwargs) -> YieldRouteExecutor:
     return YieldRouteExecutor(clock=lambda: FROZEN_NOW, **kwargs)
+
+
+def _pending(decision) -> dict:
+    """A `pending_sends` entry shaped the way `sessions.executor` writes one."""
+    return {
+        "nonce": 7,
+        "purpose": decision.prepared[-1].purpose,
+        "amounts": {},
+        "broadcast_at": "2026-09-03T09:00:00+00:00",
+    }
 
 
 # ------------------------------------------------------------------ the registry
@@ -547,17 +558,37 @@ def test_the_grid_reads_its_progress_back_from_the_previous_ticks_result():
     assert first.kind == "action"
     assert first.evidence["grid_state"]["spent_atomic"] == str(25 * E18)
 
+    # The level stays fired because the send is still pending, which is what stops it
+    # being drafted a second time, and the cap is at its ceiling.
     activation.result = {
-        "grid_state": {
-            **first.evidence["grid_state"],
-            "spent_atomic": str(100 * E18),
-        }
+        "last_decision": {
+            "evidence": {
+                "grid_state": {
+                    **first.evidence["grid_state"],
+                    "spent_atomic": str(100 * E18),
+                }
+            }
+        },
+        "pending_sends": {"7": _pending(first)},
     }
     second = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
 
     assert second.kind == "noop"
     assert "refused rather than trimmed" in second.summary
     assert second.evidence["token_amounts"] == {}
+
+
+def test_the_older_result_shape_is_still_read_for_one_release():
+    """A grid mid-flight when this release lands must not restart from its opening
+    state, so the shape this executor wrote before the contract settled is still read."""
+    activation = _grid_activation()
+    first = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+    activation.result = {"grid_state": first.evidence["grid_state"]}
+    activation.result["pending_sends"] = {"7": _pending(first)}
+
+    second = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+
+    assert [e["level"] for e in second.evidence["grid_state"]["fired"]] == [2, 1]
 
 
 def test_the_grid_wraps_the_tick_loops_raw_rpc_into_a_router_reader(monkeypatch):
@@ -774,23 +805,24 @@ def test_the_grid_reads_a_receipt_back_and_closes_the_level_it_belonged_to():
         "transactionHash": tx,
         "blockNumber": GRID_BLOCK,
     }
+    # A real first pass, so the `Fired` entry carries the real input hash rather than an
+    # invented one. Nothing writes a transaction hash back into an executor's evidence —
+    # that was the defect — so the join is `Receipt.input_hash`.
     activation = _grid_activation()
-    activation.result = {
-        "last_decision": {
-            "evidence": {
-                "grid_state": {
-                    "reference_price": str(620 * E18),
-                    "spent_atomic": str(25 * E18),
-                    "fired": [{"level": 2, "intent_key": "0xk", "tx_hash": tx}],
-                    "fills": [],
-                    "open_levels": [0, 1, 3, 4],
-                }
-            }
-        }
-    }
+    first = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+    fired = first.evidence["grid_state"]["fired"][0]
+    assert fired["input_hash"]
+    assert fired["tx_hash"] is None
+
+    activation.result = {"last_decision": {"evidence": first.evidence}}
     activation.receipts = (
         SimpleNamespace(
-            execution={"tx_hash": tx, "status": 1, "purpose": "grid level 2"}
+            input_hash=fired["input_hash"],
+            execution={
+                "tx_hash": tx,
+                "status": 1,
+                "purpose": "grid level 2: buy, one PancakeSwap V2 exact-input swap",
+            },
         ),
     )
 
@@ -802,32 +834,51 @@ def test_the_grid_reads_a_receipt_back_and_closes_the_level_it_belonged_to():
     assert 2 not in [entry["level"] for entry in state["fired"]]
     assert [fill["level"] for fill in state["fills"]] == [2]
     assert state["fills"][0]["side"] == "buy"
+    assert state["fills"][0]["amount_in"] == str(25 * E18)
+    assert state["fills"][0]["tx_hash"] == tx
     assert [entry["level"] for entry in state["fired"]] == [1]
 
 
-def test_a_reverted_receipt_puts_the_level_back_and_refunds_the_cap():
-    from types import SimpleNamespace
+def test_the_fired_entry_carries_the_digest_the_receipt_will_be_keyed_by():
+    """`Receipt.input_hash` is `canonical_hash(prepared.to_dict())`, so computing the same
+    digest at draft time is the only key the two records share — the session plane writes
+    nothing back into an executor's evidence."""
+    from docket.hire.receipts import canonical_hash
 
-    tx = "0x" + "cd" * 32
+    decision = _grid().evaluate(_grid_activation(), reader=GridReader(price=540 * E18))
+    (entry,) = decision.evidence["grid_state"]["fired"]
+
+    assert entry["input_hash"] == canonical_hash(decision.prepared[-1].to_dict())
+
+
+def test_a_reverted_swap_is_read_off_settled_sends_and_refunds_the_cap():
+    """A reverted send never becomes a `Receipt` at all — `execute` raises and the only
+    record is a `settled_sends` entry with `status: 0`. Waiting for a receipt that will
+    never exist is how the level stayed charged and closed for ever."""
     activation = _grid_activation()
+    first = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+    swap = first.prepared[-1]
     activation.result = {
         "last_decision": {
             "evidence": {
+                **first.evidence,
                 "grid_state": {
-                    "reference_price": str(620 * E18),
+                    **first.evidence["grid_state"],
                     "spent_atomic": str(100 * E18),
-                    "fired": [{"level": 2, "intent_key": "0xk", "tx_hash": tx}],
-                    "fills": [],
-                    "open_levels": [0, 1, 3, 4],
-                }
+                },
             }
-        }
+        },
+        "settled_sends": [
+            {
+                "nonce": 7,
+                "purpose": swap.purpose,
+                "tx_hash": "0x" + "cd" * 32,
+                "status": 0,
+                "gas_atomic": "21000",
+            }
+        ],
     }
-    activation.receipts = (
-        SimpleNamespace(
-            execution={"tx_hash": tx, "status": 0, "purpose": "grid level 2"}
-        ),
-    )
+    assert activation.receipts == ()
 
     # 610 crosses nothing with the reference at 620, so the refund is the only thing that
     # moves on this pass and it can be read on its own.
@@ -843,6 +894,108 @@ def test_a_reverted_receipt_puts_the_level_back_and_refunds_the_cap():
     refired = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
     assert refired.kind == "action"
     assert refired.evidence["grid_state"]["fired"][0]["level"] == 2
+
+
+def test_a_reverted_approval_is_not_mistaken_for_the_swap_reverting():
+    """Both calls a level drafts open `grid level N:`, so a prefix match alone would read
+    a failed approval as a failed swap — and reopen a level whose swap is still in
+    flight, which is how the same size gets sent twice."""
+    activation = _grid_activation()
+    first = _grid().evaluate(
+        activation, reader=GridReader(price=540 * E18, allowance=0)
+    )
+    approval, swap = first.prepared
+    assert approval.purpose.startswith("grid level 2:")
+    assert swap.purpose.startswith("grid level 2:")
+
+    activation.result = {
+        "last_decision": {"evidence": first.evidence},
+        "settled_sends": [
+            {"nonce": 6, "purpose": approval.purpose, "status": 0, "tx_hash": "0xa"}
+        ],
+        "pending_sends": {"7": {"nonce": 7, "purpose": swap.purpose}},
+    }
+
+    waiting = _grid().evaluate(activation, reader=GridReader(price=610 * E18))
+
+    assert [e["level"] for e in waiting.evidence["grid_state"]["fired"]] == [2]
+    assert int(waiting.evidence["grid_state"]["spent_atomic"]) == 25 * E18
+
+
+def test_a_historical_revert_does_not_reopen_a_new_pending_attempt():
+    activation = _grid_activation()
+    first = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+    historical_revert = {
+        "nonce": 7,
+        "purpose": first.prepared[-1].purpose,
+        "status": 0,
+        "tx_hash": "0xold",
+    }
+    activation.result = {
+        "last_decision": {"evidence": first.evidence},
+        "settled_sends": [historical_revert],
+    }
+    retry = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+    assert retry.prepared[-1].purpose != first.prepared[-1].purpose
+
+    activation.result = {
+        "last_decision": {"evidence": retry.evidence},
+        "settled_sends": [historical_revert],
+        "pending_sends": {"8": _pending(retry)},
+    }
+    waiting = _grid().evaluate(activation, reader=GridReader(price=610 * E18))
+
+    assert [entry["level"] for entry in waiting.evidence["grid_state"]["fired"]] == [2]
+    assert int(waiting.evidence["grid_state"]["spent_atomic"]) == 25 * E18
+
+
+def test_a_draft_refused_before_the_broadcast_is_swept_up_on_the_next_pass():
+    """The decision is persisted before `execute` runs, so a draft the policy or the
+    simulation refused leaves a `Fired` entry with no send behind it. Unswept, that level
+    never fires again and its notional is charged against the cap for ever."""
+    activation = _grid_activation()
+    first = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+    activation.result = {"last_decision": {"evidence": first.evidence}}
+
+    assert activation.receipts == ()
+    assert not (activation.result.get("pending_sends") or {})
+
+    second = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+    state = second.evidence["grid_state"]
+
+    assert second.kind == "action"
+    assert [entry["level"] for entry in state["fired"]] == [2]
+    assert int(state["spent_atomic"]) == 25 * E18
+
+
+def test_a_draft_waiting_on_the_owners_signature_is_not_swept_up():
+    """`needs_approval` means the tick has asked the owner to sign the very call this
+    level drafted. Reopening it would draft a second one alongside."""
+    activation = _grid_activation()
+    first = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+    activation.result = {"last_decision": {"evidence": first.evidence}}
+    activation.state = "needs_approval"
+
+    second = _grid().evaluate(activation, reader=GridReader(price=610 * E18))
+    state = second.evidence["grid_state"]
+
+    assert [entry["level"] for entry in state["fired"]] == [2]
+    assert int(state["spent_atomic"]) == 25 * E18
+    assert second.evidence["awaiting_owner"] == [2]
+
+
+def test_a_draft_still_pending_is_left_alone():
+    activation = _grid_activation()
+    first = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+    activation.result = {
+        "last_decision": {"evidence": first.evidence},
+        "pending_sends": {"7": _pending(first)},
+    }
+
+    second = _grid().evaluate(activation, reader=GridReader(price=610 * E18))
+
+    assert [e["level"] for e in second.evidence["grid_state"]["fired"]] == [2]
+    assert int(second.evidence["grid_state"]["spent_atomic"]) == 25 * E18
 
 
 def test_the_grid_takes_its_expiry_from_the_activation_not_the_request_body():
@@ -929,3 +1082,100 @@ def test_a_burned_position_with_no_mint_receipt_resumes_instead_of_stopping():
     assert decision.kind == "action"
     assert not [c for c in decision.prepared if "burn all" in c.purpose]
     assert decision.evidence["disclosure"]["resumed_from_chain"] is True
+
+
+# ------------------------------------------- what a refusal has to hand the browser
+
+
+def test_a_missing_nft_approval_reaches_the_evidence_as_something_to_act_on():
+    """`NftApprovalRequired` is a `ValueError`, so a generic clause ahead of it swallowed
+    the one thing the browser needs: what the owner has to sign."""
+    decision = _yield().evaluate(
+        _yield_activation(), reader=YieldReader(approved_to=None)
+    )
+
+    assert decision.kind == "alert"
+    needed = decision.evidence["needs_nft_approval"]
+    assert needed["contract"] == NPM
+    assert needed["token_id"] == 7141050
+    assert needed["session"] == YIELD_SESSION
+    assert needed["function"] == "approve(address,uint256)"
+    assert "owner approves the session" in decision.summary
+
+
+def test_a_route_that_cannot_be_built_for_another_reason_still_alerts_generically():
+    decision = _yield().evaluate(
+        _yield_activation(inputs={"position": _position(staked=True)}),
+        reader=YieldReader(),
+    )
+
+    assert decision.kind == "alert"
+    assert "MasterChefV3" in decision.summary
+    assert "needs_nft_approval" not in decision.evidence
+
+
+# ------------------------------------------- received_tokens never goes empty
+
+
+def test_a_yield_noop_still_names_every_token_a_sweep_has_to_look_for():
+    """The session plane reads the LAST decision, so a route that stayed put and reported
+    no tokens would leave a half-finished move's balances behind."""
+    staying = _yield().evaluate(
+        _yield_activation(inputs={"switching_cost_usd": 5_000.0}),
+        reader=YieldReader(),
+    )
+    empty_set = _yield().evaluate(
+        _yield_activation(inputs={"pools": [{**DEST_POOL, "tvlUSD": "10"}]}),
+        reader=YieldReader(),
+    )
+    refused = _yield().evaluate(
+        _yield_activation(), reader=YieldReader(approved_to=None)
+    )
+
+    for decision in (staying, empty_set, refused):
+        assert set(decision.evidence["received_tokens"]) >= {USDT, USDC}, (
+            decision.summary
+        )
+
+
+def test_a_yield_alert_on_a_broken_body_falls_back_to_the_previous_decision():
+    activation = _yield_activation()
+    activation.inputs["pools"] = None
+    activation.result = {
+        "last_decision": {"evidence": {"received_tokens": [USDT, WBNB]}}
+    }
+
+    decision = _yield().evaluate(activation, reader=YieldReader())
+
+    assert decision.kind == "alert"
+    assert set(decision.evidence["received_tokens"]) == {USDT, WBNB}
+
+
+def test_a_grid_alert_keeps_its_state_its_tokens_and_a_real_timestamp():
+    """An alert that dropped `grid_state` would erase the fills and the cap, and the pass
+    after would start a traded grid from its opening state."""
+    from datetime import datetime
+
+    activation = _grid_activation()
+    first = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+    activation.result = {"last_decision": {"evidence": first.evidence}}
+    activation.inputs["base"] = STRANGER
+
+    decision = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+
+    assert decision.kind == "alert"
+    assert decision.evidence["grid_state"]["spent_atomic"] == str(25 * E18)
+    assert [e["level"] for e in decision.evidence["grid_state"]["fired"]] == [2]
+    assert set(decision.evidence["received_tokens"]) == {USDT, WBNB}
+    assert datetime.fromisoformat(decision.observed_at).tzinfo is not None
+
+
+def test_a_grid_alert_with_no_session_keeps_the_pair_from_its_own_spec():
+    activation = _grid_activation()
+    activation.session = None
+
+    decision = _grid().evaluate(activation, reader=GridReader(price=540 * E18))
+
+    assert decision.kind == "alert"
+    assert set(decision.evidence["received_tokens"]) == {USDT, WBNB}
+    assert decision.observed_at

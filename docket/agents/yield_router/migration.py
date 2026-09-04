@@ -468,7 +468,9 @@ class MigrationPlan:
             "tick_upper": self.tick_upper,
             "calls": [call.to_dict() for call in self.calls],
             "session_spend": self.session_spend,
-            "session_spend_by_call": [dict(entry) for entry in self.session_spend_by_call],
+            "session_spend_by_call": [
+                dict(entry) for entry in self.session_spend_by_call
+            ],
             "verification": self.verification.as_record(),
             "disclosure": self.disclosure,
             "evidence": self.evidence,
@@ -584,12 +586,18 @@ def _nft_approval(reader, *, owner: str, session: str, token_id: int) -> bool:
     return False
 
 
-def position_liquidity(reader, token_id: int, *, owner: str) -> int | None:
-    """The live liquidity of one position, or `None` when the read did not answer.
+def position_state(reader, token_id: int, *, owner: str) -> tuple | None:
+    """`(liquidity, tokensOwed0, tokensOwed1)`, or `None` when the read did not answer.
 
-    Read rather than remembered. A route that has already burned its position and been
-    interrupted before the mint has to be resumable, and the only thing that knows how
-    far it got is the chain.
+    All three, because liquidity alone cannot say which step an interrupted route stopped
+    at. `decreaseLiquidity` burns the liquidity into the position manager's own
+    accounting and `collect` moves it out to the session, so *between* the two the
+    position reads zero liquidity and non-zero owed — and a route that looked only at
+    liquidity would conclude the tokens were already in the session and plan swaps for
+    balances that are still sitting in the manager.
+
+    Words 7, 10 and 11 of the `positions` tuple. Read rather than remembered: the only
+    thing that knows how far an interrupted route got is the chain.
     """
     if not hasattr(reader, "call"):
         return None
@@ -601,7 +609,17 @@ def position_liquidity(reader, token_id: int, *, owner: str) -> int | None:
         return None
     if len(raw) < 12 * 32:
         return None
-    return int.from_bytes(raw[7 * 32 : 8 * 32], "big")
+
+    def word(index: int) -> int:
+        return int.from_bytes(raw[index * 32 : (index + 1) * 32], "big")
+
+    return word(7), word(10), word(11)
+
+
+def position_liquidity(reader, token_id: int, *, owner: str) -> int | None:
+    """Just the liquidity, for a caller that only needs to know whether it is burned."""
+    state = position_state(reader, token_id, owner=owner)
+    return None if state is None else state[0]
 
 
 def _balance_of(reader, *, token: str, account: str) -> int | None:
@@ -704,10 +722,16 @@ def plan_full_route(
     # Live, not remembered. A route that burned its position and was interrupted before
     # the mint has to be resumable, and the only thing that knows how far it got is the
     # chain: the caller's snapshot of the position is as old as whenever it was read.
-    onchain = position_liquidity(reader, token_id, owner=owner)
-    liquidity = int(current_position["liquidity"]) if onchain is None else onchain
-    resuming = liquidity <= 0
-    if resuming and onchain is None:
+    onchain = position_state(reader, token_id, owner=owner)
+    liquidity = int(current_position["liquidity"]) if onchain is None else onchain[0]
+    owed = (0, 0) if onchain is None else (onchain[1], onchain[2])
+    # Three states, not two. Liquidity still in the position is the whole route; liquidity
+    # burned with tokens still owed stopped between the burn and the collect and resumes
+    # at the collect; both zero means the collect landed and the session holds the tokens.
+    burned = liquidity <= 0
+    uncollected = burned and (owed[0] > 0 or owed[1] > 0)
+    resuming = burned and not uncollected
+    if burned and onchain is None:
         raise MigrationRefused(
             f"position {token_id} holds no liquidity, so there is nothing to move"
         )
@@ -760,18 +784,26 @@ def plan_full_route(
     observed_at = str(dest_state["observation_time"])
 
     # ---- step 1-3: out of the current position, or straight past it when it is out
-    if resuming:
-        # The position is already burned. Whatever the collect paid out is sitting in the
-        # session, so the route continues from what the session actually holds rather than
-        # from what a withdrawal was going to produce. Balances, not arithmetic: after an
-        # interrupted run the two are not the same number.
+    if uncollected:
+        # Burned, but the tokens are still owed by the position manager: the run stopped
+        # between the two calls. The collect below moves them, and the amounts it will
+        # move are exactly what the manager says it owes.
+        removed0, removed1 = owed
+        floor0, floor1 = removed0, removed1
+    elif resuming:
+        # The collect landed and whatever it paid out is sitting in the session, so the
+        # route continues from what the session actually holds rather than from what a
+        # withdrawal was going to produce. Balances, not arithmetic: after an interrupted
+        # run the two are not the same number. A destination token bought by a leg set
+        # that ran before the interruption is folded in below rather than swapped again.
         removed0 = _balance_of(reader, token=source0, account=session) or 0
         removed1 = _balance_of(reader, token=source1, account=session) or 0
         floor0, floor1 = removed0, removed1
         if floor0 <= 0 and floor1 <= 0:
             raise MigrationRefused(
-                f"position {token_id} holds no liquidity and the session holds neither of "
-                "its tokens, so there is nothing left to move and nothing to resume from"
+                f"position {token_id} holds no liquidity, owes nothing, and the session "
+                "holds neither of its tokens, so there is nothing left to move and "
+                "nothing to resume from"
             )
     else:
         sqrt_lower = sqrt_ratio_x96_at_tick(int(current_position["tick_lower"]))
@@ -826,7 +858,10 @@ def plan_full_route(
         return now + DEADLINE_S * (len(calls) + 1)
 
     deadline = slot()
-    if not resuming:
+    # Three states, three shapes of route. Liquidity still in the position needs both
+    # withdrawal calls; liquidity burned with tokens still owed needs only the collect;
+    # both zero means the collect already landed and neither belongs here.
+    if not burned:
         decrease = _encode(
             _npm, "decreaseLiquidity", [(token_id, liquidity, floor0, floor1, deadline)]
         )
@@ -860,9 +895,11 @@ def plan_full_route(
             )
         )
 
-    deadline = slot()
-    collect = _encode(_npm, "collect", [(token_id, session, UINT128_MAX, UINT128_MAX)])
     if not resuming:
+        deadline = slot()
+        collect = _encode(
+            _npm, "collect", [(token_id, session, UINT128_MAX, UINT128_MAX)]
+        )
         calls.append(
             PreparedCall(
                 to=NPM,
@@ -896,8 +933,19 @@ def plan_full_route(
     tick_lower, tick_upper = align_band(
         int(dest_state["tick"]), band_width_ticks, TICK_SPACINGS[fee]
     )
+    # What the session already holds of the destination pair, bought by a leg set that
+    # ran before an interruption. Folded into the balance rather than swapped for again:
+    # a resumed route that ignored it would buy the same side twice.
+    carried = {}
+    if resuming or uncollected:
+        for token in (dest0, dest1):
+            if token in (source0, source1):
+                continue
+            held = _balance_of(reader, token=token, account=session) or 0
+            if held > 0:
+                carried[token] = held
     legs, holdings, leg_records = _swap_legs(
-        {source0: floor0, source1: floor1},
+        {source0: floor0, source1: floor1, **carried},
         destination=(dest0, dest1),
         reader=reader,
         recipient=session,
@@ -1039,7 +1087,9 @@ def plan_full_route(
     # One mapping per call, in batch order, because the policy engine charges per call
     # and not per batch: handing it the batch total once and applying it to all eight
     # calls charged eight times the real spend against the session cap.
-    by_call = _spend_by_call(calls, legs=leg_records, mint=(dest0, desired0, dest1, desired1))
+    by_call = _spend_by_call(
+        calls, legs=leg_records, mint=(dest0, desired0, dest1, desired1)
+    )
 
     disclosure = _disclosure(
         current_position=current_position,

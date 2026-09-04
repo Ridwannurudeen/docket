@@ -14,12 +14,23 @@ whose break-even runs past the caller's horizon is a `noop` with the arithmetic 
 not a route built anyway with a caveat. And a route whose simulated calls came back with
 a disagreement is an `alert`, never an action.
 
+The session plane reads three keys off `Decision.evidence` and can see them no other
+way: `received_tokens`, which a sweep looks for; `token_hints`, which carries what no
+calldata does; and `slippage_bps`, which the policy bounds. All three ride on every
+decision this module returns, and `received_tokens` never goes empty while the session
+holds anything — the plane reads the *last* decision, so a `noop` that dropped it would
+strand a half-finished move's tokens. `token_amounts` and `token_amounts_by_call` are
+published beside them and are informational; the spend actually charged is derived from
+the calldata by `docket.sessions.spend`, which is where it belongs.
+
 The module-object imports below, and `from __future__ import annotations`, exist for the
 same reason they do in the grid executor: `migration` imports `PreparedCall` from this
 package, so nothing here may touch its attributes at import time.
 """
 
 from __future__ import annotations
+
+from web3 import Web3
 
 from ...agents.pancake.pools import net_fee_apr
 from ...agents.yield_router import migration as yield_migration
@@ -117,8 +128,33 @@ def _universe_from(inputs: dict):
     )
 
 
+def _held_tokens(activation, position=None) -> list[str]:
+    """Every token this session could be holding, for a decision that builds nothing.
+
+    **This may not come back empty while the session holds anything.** The session plane
+    reads the *last* decision, so a route that alerted or stayed put would otherwise hand
+    a sweep an empty list and leave whatever the session is carrying behind in an address
+    nobody watches — a half-finished move's swap output, an un-minted balance.
+
+    So it is the union of the position's own two tokens, which are what a move starts and
+    ends in, and whatever the previous decision said it had received. Only an activation
+    that has never decided anything and names no position reports nothing, and at that
+    point the session is holding nothing either.
+    """
+    tokens = set()
+    for key in ("token0", "token1"):
+        value = (position or {}).get(key)
+        if isinstance(value, str) and value:
+            tokens.add(Web3.to_checksum_address(value))
+    previous = ((activation.result or {}).get("last_decision") or {}).get("evidence") or {}
+    for token in previous.get("received_tokens") or ():
+        if isinstance(token, str) and token:
+            tokens.add(token)
+    return sorted(tokens)
+
+
 def _no_spend(slippage_bps=None, *, tokens=()) -> dict:
-    """The four keys the session plane reads, for a decision that spends nothing.
+    """The keys the session plane reads, for a decision that spends nothing.
 
     Written even here. An absent mapping and an empty one read alike to
     `SessionPolicy.allows` but not to a person: one says this decision spends nothing and
@@ -183,7 +219,7 @@ class YieldRouteExecutor:
                     f"{type(exc).__name__}: {exc}. Nothing is compared and nothing built"
                 ),
                 prepared=(),
-                evidence=_no_spend(),
+                evidence=_no_spend(tokens=_held_tokens(activation)),
                 observed_at=_utc_now(),
                 block=0,
             )
@@ -206,7 +242,10 @@ class YieldRouteExecutor:
                     "comparison behind one"
                 ),
                 prepared=(),
-                evidence=_no_spend() | {"universe": universe.as_record()},
+                evidence=_no_spend(
+                    slippage_bps, tokens=_held_tokens(activation, position)
+                )
+                | {"universe": universe.as_record()},
                 observed_at=_utc_now(),
                 block=0,
             )
@@ -228,7 +267,9 @@ class YieldRouteExecutor:
         # reads spend and tolerance off the evidence and can see them no other way, so a
         # decision that spends nothing says so with an empty mapping rather than by
         # leaving the key out and reading as unrecorded.
-        comparison = _no_spend(slippage_bps) | {
+        comparison = _no_spend(
+            slippage_bps, tokens=_held_tokens(activation, position)
+        ) | {
             "ordering": yield_router.ORDERING,
             "universe": universe.as_record(),
             "candidates": [candidate.as_record() for candidate in candidates],
@@ -293,6 +334,21 @@ class YieldRouteExecutor:
                 ),
                 now=moment,
             )
+        except yield_migration.NftApprovalRequired as exc:
+            # Caught ahead of the generic clause below, which is a ValueError and would
+            # otherwise swallow this one — leaving the browser an alert that mentions an
+            # approval and nothing machine-readable to ask the owner to sign.
+            return Decision(
+                kind="alert",
+                summary=(
+                    f"the move to {destination.pool_id} pays for itself and cannot start "
+                    f"until the owner approves the session for the position NFT: {exc}"
+                ),
+                prepared=(),
+                evidence=comparison | {"needs_nft_approval": dict(exc.detail)},
+                observed_at=_utc_now(),
+                block=0,
+            )
         except (KeyError, TypeError, ValueError) as exc:
             return Decision(
                 kind="alert",
@@ -315,8 +371,14 @@ class YieldRouteExecutor:
             # Everything the session can be left holding: swap outputs, and whatever the
             # mint does not take of either destination token. A sweep that did not know
             # to look for them would leave them behind in an address nobody watches.
-            "received_tokens": sorted(set(plan.session_spend)),
-            "token_hints": {"tokens": sorted(set(plan.session_spend))},
+            "received_tokens": sorted(
+                set(plan.session_spend) | set(_held_tokens(activation, position))
+            ),
+            "token_hints": {
+                "tokens": sorted(
+                    set(plan.session_spend) | set(_held_tokens(activation, position))
+                )
+            },
         }
         failed = [call.purpose for call in plan.calls if not call.simulation["ok"]]
         if failed:
@@ -352,9 +414,10 @@ class YieldRouteExecutor:
     def within_policy(self, activation, decision: Decision) -> tuple[bool, str]:
         """Whether the session was granted everything this route needs.
 
-        The first call in a migration is the owner's own ERC-721 approval and is not the
-        session's to make; it is exempted by name rather than by position, so a route
-        whose order changed cannot smuggle a session call past this gate.
+        Every call in the batch is the session's to make. The owner's own ERC-721
+        approval used to sit in the list and be exempted by name; it is a precondition
+        now, read before the route is built and refused without, so there is nothing
+        here to exempt and no name left to match against.
         """
         if decision.kind != "action":
             return True, f"a {decision.kind} decision sends nothing"

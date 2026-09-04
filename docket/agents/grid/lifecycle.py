@@ -388,26 +388,36 @@ class GridSpec:
 
 @dataclass(frozen=True)
 class Fired:
-    """A level whose swap has been broadcast and whose fill has not been read back yet.
+    """A level that has been drafted and whose outcome is not known yet.
 
     This is the record that stops a grid firing the same level on every pass. A fill is
-    only known once its receipt has been read, and on an AMM that is one tick later at
-    best — so between the send and the read the level is neither open nor filled, and
-    without somewhere to say that it reads as open and goes again.
+    only known once a receipt has been read, and that is one tick later at best — so
+    between the draft and the read the level is neither open nor filled, and without
+    somewhere to say so it reads as open and goes again.
 
-    `tx_hash` is absent until the session executor has broadcast it. A `Fired` with no
-    hash is a level Docket drafted and has not yet seen leave; it still blocks a re-fire,
-    because drafting the same level twice in one pass would be the same defect.
+    **`input_hash` is the join, and it is the only one that works.** The session executor
+    writes nothing back into an executor's evidence, so a transaction hash recorded here
+    would stay `None` for ever and every reconciliation keyed on it would walk an empty
+    list. What the executor does write is a `Receipt` whose `input_hash` is
+    `canonical_hash(prepared.to_dict())` — the digest of the exact call this level
+    drafted. Computing the same digest here at draft time gives the two records one key
+    in common, which is what makes the loop close.
+
+    `tx_hash` is filled in from that receipt once it exists and is informational.
     """
 
     level: int
     intent_key: str
+    input_hash: str
+    correlation_id: str = ""
     tx_hash: str | None = None
 
     def as_record(self) -> dict:
         return {
             "level": self.level,
             "intent_key": self.intent_key,
+            "correlation_id": self.correlation_id,
+            "input_hash": self.input_hash,
             "tx_hash": self.tx_hash,
         }
 
@@ -436,6 +446,7 @@ class GridState:
     cancelled: bool = False
     revoked: bool = False
     reference_price: int | None = None
+    attempt_count: int = 0
 
     @property
     def filled_levels(self) -> tuple[int, ...]:
@@ -462,6 +473,7 @@ class GridState:
             "reference_price": (
                 None if self.reference_price is None else str(self.reference_price)
             ),
+            "attempt_count": self.attempt_count,
         }
 
 
@@ -742,6 +754,8 @@ def evaluate(
         now_override=now,
     )
     deferred = needs_approval and result.agrees
+    attempt_count = working.attempt_count + 1
+    correlation_id = f"{intent.idempotency_key}:{attempt_count}"
     calls.append(
         PreparedCall(
             to=PANCAKE_V2_ROUTER,
@@ -752,7 +766,7 @@ def evaluate(
             purpose=(
                 f"grid level {level.index}: {level.side} at {level.price}, one "
                 "PancakeSwap V2 exact-input swap. No order rests on chain — this is the "
-                "swap the crossing fired"
+                f"swap the crossing fired [attempt {correlation_id}]"
             ),
             simulation={
                 "ok": None if deferred else result.agrees,
@@ -821,10 +835,20 @@ def evaluate(
             working,
             spent_atomic=committed,
             fired=working.fired
-            + (Fired(level=level.index, intent_key=intent.idempotency_key),),
+            + (
+                Fired(
+                    level=level.index,
+                    intent_key=intent.idempotency_key,
+                    correlation_id=correlation_id,
+                    # The digest the session executor puts on the receipt for this exact
+                    # call. It is the one key both records share.
+                    input_hash=canonical_hash(calls[-1].to_dict()),
+                ),
+            ),
             open_levels=tuple(
                 index for index in working.open_levels if index != level.index
             ),
+            attempt_count=attempt_count,
         ),
         evidence=evidence,
     )
@@ -974,19 +998,25 @@ def revoke(state: GridState) -> GridState:
 
 
 def record_fills(
-    state: GridState, fills, *, reverted=(), notional_atomic: int = 0
+    state: GridState, fills, *, reverted=(), unsent=(), notional_atomic: int = 0
 ) -> GridState:
-    """Reconcile what was sent against what the chain did with it.
+    """Reconcile what was drafted against what the chain did with it.
 
-    Three things happen here and they are the close of the fire loop:
+    Four things happen here and together they are the close of the fire loop:
 
     - an observed fill is added to `fills`, and its level leaves `fired`. It is now
       permanently out of play.
     - a level named in `reverted` leaves `fired` and goes back to open, and its notional
       comes back off `spent_atomic`. A swap that reverted traded nothing, so a grid that
-      kept charging it against the cap would spend its allowance on transactions that
-      never happened.
-    - everything else stays `fired`: sent, unconfirmed, and not to be drafted again.
+      kept charging it would spend its whole allowance on transactions that never
+      happened.
+    - a level named in `unsent` did the same and never even left. A draft can be refused
+      after this record exists and before anything is broadcast — by the session policy,
+      by the simulation the executor runs, by an unmeasurable spend — and the record is
+      written first precisely so a broadcast is never lost. The cost of that ordering is
+      that a refusal has to be swept up afterwards, and this is where. A level left
+      `fired` for a transaction that does not exist is a level that never fires again.
+    - everything else stays `fired`: drafted, unresolved, and not to be drafted twice.
 
     `spent_atomic` does not move for a *successful* fill. The commitment is made when the
     swap is sent, and counting it again on the way back would let one level spend the cap
@@ -995,20 +1025,15 @@ def record_fills(
     """
     observed = tuple(fills)
     landed = {fill.level for fill in observed if fill.level is not None}
-    lost = {int(level) for level in reverted}
-    refunded = sum(
-        1 for entry in state.fired if entry.level in lost and entry.level not in landed
-    )
+    lost = {int(level) for level in reverted} | {int(level) for level in unsent}
+    lost -= landed
+    refunded = sum(1 for entry in state.fired if entry.level in lost)
     remaining = tuple(
         entry
         for entry in state.fired
         if entry.level not in landed and entry.level not in lost
     )
-    reopened = tuple(
-        sorted(
-            set(state.open_levels) | {level for level in lost if level not in landed}
-        )
-    )
+    reopened = tuple(sorted(set(state.open_levels) | lost))
     return replace(
         state,
         fills=state.fills + observed,

@@ -34,10 +34,27 @@ from ...hire.catalogue import (
     VENUS_VUSDT,
 )
 from ...sessions.policy import NATIVE_TOKEN
+from ...sessions.spend import (
+    APPROVE,
+    EXACT_INPUT_SINGLE,
+    NPM_COLLECT,
+    NPM_DECREASE_LIQUIDITY,
+    NPM_INCREASE_LIQUIDITY,
+    NPM_MINT,
+    REPAY_BORROW,
+    REPAY_BORROW_BEHALF,
+    SWAP_EXACT_TOKENS_FOR_TOKENS,
+    TRANSFER,
+    VTOKEN_MINT,
+)
 
 USDT = Web3.to_checksum_address(USDT_TOKEN)
 WBNB = Web3.to_checksum_address(GRID_BASE)
 USDC = Web3.to_checksum_address(VENUS_USDC)
+# PancakeSwap's v3 SwapRouter on BSC mainnet, verified on chain by Lane D1. The v2
+# router cannot route a thin pair, and both the rebalancing and migration routes fall
+# back to this one when it cannot.
+V3_SWAP_ROUTER = Web3.to_checksum_address("0x1b81D678ffb9C0263b24A97847620C99d213eB14")
 VUSDT = Web3.to_checksum_address(VENUS_VUSDT)
 VUSDC = Web3.to_checksum_address(VENUS_VUSDC)
 VENUS_UNDERLYING = {
@@ -45,18 +62,20 @@ VENUS_UNDERLYING = {
     VUSDC: USDC,
 }
 
-# The selectors `docket.sessions.spend` can derive a spend from. A default allowlist may
-# not name a function the session could send but nothing could measure.
-APPROVE = "0x095ea7b3"
-TRANSFER = "0xa9059cbb"
-SWAP_EXACT_TOKENS_FOR_TOKENS = "0x38ed1739"
-NPM_MINT = "0x88316456"
-NPM_INCREASE_LIQUIDITY = "0x219f5d17"
-NPM_DECREASE_LIQUIDITY = "0x0c49ccbe"
-NPM_COLLECT = "0xfc6f7865"
-VTOKEN_MINT = "0xa0712d68"
-REPAY_BORROW = "0x0e752702"
-REPAY_BORROW_BEHALF = "0x2608f818"
+# Everything a position-managing session sends: the two swap routers, the four
+# position-manager calls, and the approval each of them needs first. Imported from
+# `sessions.spend` rather than written down again — a selector this table published
+# that that one could not decode would be an action the session may send and nothing
+# could measure the spend of.
+_POSITION_SELECTORS = (
+    APPROVE,
+    SWAP_EXACT_TOKENS_FOR_TOKENS,
+    EXACT_INPUT_SINGLE,
+    NPM_MINT,
+    NPM_INCREASE_LIQUIDITY,
+    NPM_DECREASE_LIQUIDITY,
+    NPM_COLLECT,
+)
 
 # 100 USDT an action against a 500 USDT session, 1 WBNB against 5, and 0.01 BNB of gas an
 # action against 0.1 for the session's life. Small on purpose: see the module docstring.
@@ -95,26 +114,32 @@ def _policy(contracts, selectors, pairs):
 # would be Docket choosing how long to hold somebody's money.
 CATEGORY_POLICY_DEFAULTS: dict[str, dict] = {
     "rebalancing": _policy(
-        (NPM, MASTER_CHEF_V3, PANCAKE_V2_ROUTER, USDT, WBNB),
+        (NPM, MASTER_CHEF_V3, PANCAKE_V2_ROUTER, V3_SWAP_ROUTER, USDT, WBNB, USDC),
+        _POSITION_SELECTORS,
         (
-            APPROVE,
-            SWAP_EXACT_TOKENS_FOR_TOKENS,
-            NPM_MINT,
-            NPM_INCREASE_LIQUIDITY,
-            NPM_DECREASE_LIQUIDITY,
-            NPM_COLLECT,
+            (USDT, _USDT_CAPS),
+            (WBNB, _WBNB_CAPS),
+            (USDC, _USDC_CAPS),
+            (NATIVE_TOKEN, _GAS_CAPS),
         ),
-        ((USDT, _USDT_CAPS), (WBNB, _WBNB_CAPS), (NATIVE_TOKEN, _GAS_CAPS)),
     ),
     "grid_trading": _policy(
-        (PANCAKE_V2_ROUTER, USDT, WBNB),
-        (APPROVE, SWAP_EXACT_TOKENS_FOR_TOKENS),
+        (PANCAKE_V2_ROUTER, V3_SWAP_ROUTER, USDT, WBNB),
+        (APPROVE, SWAP_EXACT_TOKENS_FOR_TOKENS, EXACT_INPUT_SINGLE),
         ((USDT, _USDT_CAPS), (WBNB, _WBNB_CAPS), (NATIVE_TOKEN, _GAS_CAPS)),
     ),
+    # The same shape as rebalancing. A yield migration closes one position and opens
+    # another, so it calls the position manager exactly as a rebalance does, and a default
+    # naming only the v2 router refused every route the executor drafts.
     "yield_optimisation": _policy(
-        (PANCAKE_V2_ROUTER, USDT, WBNB),
-        (APPROVE, TRANSFER, SWAP_EXACT_TOKENS_FOR_TOKENS),
-        ((USDT, _USDT_CAPS), (WBNB, _WBNB_CAPS), (NATIVE_TOKEN, _GAS_CAPS)),
+        (NPM, MASTER_CHEF_V3, PANCAKE_V2_ROUTER, V3_SWAP_ROUTER, USDT, WBNB, USDC),
+        _POSITION_SELECTORS + (TRANSFER,),
+        (
+            (USDT, _USDT_CAPS),
+            (WBNB, _WBNB_CAPS),
+            (USDC, _USDC_CAPS),
+            (NATIVE_TOKEN, _GAS_CAPS),
+        ),
     ),
     "health_factor": _policy(
         (VUSDT, VUSDC, USDT, USDC),
