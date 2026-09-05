@@ -12,21 +12,51 @@ remains unanchored.
 | Python | Source requires `>=3.11`; current production runtime is Python `3.12.3` |
 | Application factory | `docket.api:create_app` |
 | Builder base commit | `731dcb3d3fe1267546c96fd73118a3b34d58b7b3` |
-| Source base observed before this update | Local `main` and `origin/main` at `c5e6163eb05f54b406731c05a3fdc9fd4de020a2` |
-| Current production release commit | `c5e6163eb05f54b406731c05a3fdc9fd4de020a2` |
-| Current production wheel | `docket-0.1.0-py3-none-any.whl`; SHA-256 `8997774d43de32825cbfe91fef6da8a53366983fcd7a0ea65f4f7f4fd29cb464` |
+| Source base observed before this update | Local `main` and `origin/main` at `e35b64776bc9d3a1dbe7700917e195c006e7d800` |
+| Current production release commit | `e35b64776bc9d3a1dbe7700917e195c006e7d800` |
+| Current production wheel | `docket-0.1.0-py3-none-any.whl`; SHA-256 `6f412c8e3927048a0a33b37b8ff80425ecb2dc0d5ba2b4b76df068d4b02f5e7c` |
 | Current production runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
-| Current production release-manifest SHA-256 | `9157bf43b326cc1704b364fb2cda01d7e7050d10d9650c4e2f2ac3aa6f604f7d` |
+| Current production release-manifest SHA-256 | `f14596e966f5e440ddc03fcf6e179912327300f7a3126cb464450019a4e734ed` |
 | Repository visibility | Public (verified 2026-09-02) |
 | Current deployment record | Builder-collected 2026-09-05 from `docket.gudman.xyz`; see "Current deployed identity" |
-| Historical deployment record | Builder-collected as performed 2026-08-16T12:20Z, 2026-08-30, and 2026-09-02 to `docket.gudman.xyz`; preserved below and covers no later commit |
+| Historical deployment record | Builder-collected as performed 2026-08-16T12:20Z, 2026-08-30, 2026-09-02, and 2026-09-05 (`c5e6163`) to `docket.gudman.xyz`; preserved below and covers no later commit |
 | Approved settlement canary | Run 18 settled exactly 0.50 USDT once and rejected the identical replay; all six services remain `paid_stock=false` |
 | Recorded settlement transaction | `0x0a036066db0ccbde6eeb8d333e5747e549a61f251935fe8abceaf13b681a1258` — private canary evidence, not public paid inventory or independent finality proof |
 
 The base commit identifies the tree before the public-package change. It does not identify
 the release and must not be used as a deployment hash.
 
-## Current deployed identity — builder-collected 2026-09-05 record
+## Current deployed identity — builder-collected 2026-09-05 record (e35b647)
+
+These values were read from the host's release identity files and interpreter. They are
+builder-collected operational evidence, not a signed or independently anchored attestation.
+
+| Field | Value |
+|---|---|
+| Host | `docket.gudman.xyz` |
+| `RELEASE-commit.txt` | `e35b64776bc9d3a1dbe7700917e195c006e7d800` |
+| Wheel filename | `docket-0.1.0-py3-none-any.whl` |
+| Wheel SHA-256 | `6f412c8e3927048a0a33b37b8ff80425ecb2dc0d5ba2b4b76df068d4b02f5e7c` |
+| Runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
+| Release-manifest SHA-256 | `f14596e966f5e440ddc03fcf6e179912327300f7a3126cb464450019a4e734ed` |
+| Runtime Python | `3.12.3` |
+| `.venv` target | `/opt/docket-venvs/e35b64776bc9` |
+| Database backup | `/var/backups/docket/agents-20260905T140056Z.sqlite3` |
+| Marketplace | Six services; four declared categories; nine v3 families; all six `paid_stock=false` |
+| Non-payment timers | Nine enabled and active; v3-07 fired `2026-09-05 12:00 UTC` and succeeded, v3-08 armed for `2026-09-06 11:50:00 UTC` |
+| Canary timer | disabled and inactive |
+
+The runtime-lock digest is unchanged from the previous release, so this release moved no
+dependency. GitHub Actions run `33970180194` passed all six jobs on the exact production
+commit. This release changes one thing at runtime: the production probe asks `/` for HTML,
+so the home step no longer fails on the JSON index. The first probe run under it, at
+`2026-09-05T14:01:39Z`, passed all five steps. At `2026-09-05T14:02Z` `/api/status` still
+read `degraded` for the probe window, which clears after two more passing ticks, and for the
+registry refresh, whose upstream was returning HTTP 500 to a direct request; both are as-of
+notes, not continuing-status claims. This release is recorded in
+[`operational-evidence.md`](operational-evidence.md#collected-2026-09-05--probe-fix-release-of-e35b647).
+
+## Historical deployed identity — builder-collected 2026-09-05 record (c5e6163)
 
 These values were read from the host's release identity files and interpreter. They are
 builder-collected operational evidence, not a signed or independently anchored attestation.

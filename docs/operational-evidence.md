@@ -458,3 +458,73 @@ The exact-commit GitHub Actions result is independently hosted, but the deployme
 is not a signed or independently anchored attestation. The current runtime identity remains
 `c5e6163eb05f54b406731c05a3fdc9fd4de020a2` even when a later source-only documentation
 commit records it.
+## Collected 2026-09-05 — probe-fix release of e35b647
+
+Commit `e35b64776bc9d3a1dbe7700917e195c006e7d800` was built from a clean detached worktree,
+shipped as `docket-0.1.0-py3-none-any.whl`, and released to `docket.gudman.xyz` at
+`2026-09-05T14:00:56Z`. It carries two merges over `c5e6163`: pull request 8, which makes the
+production probe ask `/` for HTML, and pull request 7, which commits the v3-07 enumerable
+frame and names it in the source manifest. No other code changed.
+
+Release identity, read back from the host after the release:
+
+| Field | Value |
+|---|---|
+| `RELEASE-commit.txt` | `e35b64776bc9d3a1dbe7700917e195c006e7d800` |
+| `.venv` target | `/opt/docket-venvs/e35b64776bc9` |
+| Wheel SHA-256 | `6f412c8e3927048a0a33b37b8ff80425ecb2dc0d5ba2b4b76df068d4b02f5e7c` |
+| Runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
+| Release-manifest SHA-256 | `f14596e966f5e440ddc03fcf6e179912327300f7a3126cb464450019a4e734ed` |
+| Database backup | `/var/backups/docket/agents-20260905T140056Z.sqlite3` |
+| `docket.service` | active |
+
+GitHub Actions run `33970180194` completed successfully on the exact release commit, all six
+jobs. The runtime-lock digest is unchanged from the previous release, so this release moved
+no dependency. The builder reproduced the `uv==0.11.16` runtime lock without a diff, and the
+wheel digest matched on the workstation and on the host before the release ran. On the host,
+`preflight.sh 22` passed against a freshly re-derived count of 22 existing nginx warnings,
+887,030,440 KiB free under `/opt`, and all 21 tracked units verified. The release completed
+on its first attempt.
+
+### What this release corrects
+
+Every production probe run since the marketplace release had failed — 91 of 91 in the
+24 hours before this release — and the public status page read `degraded` over a shell that
+was serving fine. The probe's first step fetched `/` with no `Accept` header. That route
+negotiates on `Accept` and answers a bare `GET` with the JSON index, which carries no title,
+so the step's title check failed while the other four steps passed. The step now asks for
+`text/html`, and the probe's test fixture negotiates the same way the real route does, so a
+probe that forgets the header fails the test rather than production.
+
+A probe run started by hand at `2026-09-05T14:01:39Z` under the released code passed all
+five steps: `home`, `services`, `api_status`, `advantage_v3`, and `free_tier_hire`. It is the
+first `ok` row in `probe_runs` since the marketplace release. The run the timer fired at
+`2026-09-05T14:00:07Z`, during the service swap itself, failed and is recorded as such.
+
+### What remained degraded, and why
+
+At `2026-09-05T14:02Z`, `/api/status` still read `degraded`. Two readings held it there,
+neither of them this deployment's:
+
+- The probe window. Three recent runs are considered and one had passed; the reading clears
+  on its own after two more ten-minute ticks under the released code.
+- The registry refresh. The last complete snapshot was observed `2026-09-04T13:42:45Z`, and
+  the candidate begun `2026-09-05T07:41:29Z` died within a minute on `HTTPStatusError: 500
+  from /agents`; the attempt before it ended in a read timeout. A direct request to
+  `https://8004scan.io/api/v1/agents` from the workstation at `2026-09-05T13:40Z` returned
+  HTTP 500 after 12.6 seconds. This is an external outage of the upstream registry, and the
+  status page is reporting it correctly. The next scheduled retry runs every six hours.
+
+The nine v3 family states, the six services, the four categories, and `paid_stock=false` on
+every service were unchanged by this release. The v3-07 capture registered for
+`2026-09-05T12:00:00Z` had already fired and succeeded at attempt 1 before this release, and
+its timer shows no further scheduled run; `docket-v3-yield-v8-capture.timer` remains armed
+for `2026-09-06 11:50:00 UTC`. Nine non-payment timers are enabled and active; the
+payment-bearing `docket-canary.timer` remained disabled and inactive.
+
+### What this record does not establish
+
+It does not establish that the upstream registry recovered, that the probe window cleared,
+or that any paid path was exercised. It is an as-of record of one release and the first
+probe run under it.
+
