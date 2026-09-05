@@ -379,3 +379,82 @@ Every figure above was collected by the builder from the host it deployed to. It
 consistent with the tree and the running process, which is the property a reader can test;
 it is not independent. CI is the one part of this record produced by a system the builder
 does not control.
+
+---
+
+## Collected 2026-09-05 — marketplace release of c5e6163
+
+The owner approved the marketplace release. Commit
+`c5e6163eb05f54b406731c05a3fdc9fd4de020a2` was built from a clean detached worktree,
+shipped as `docket-0.1.0-py3-none-any.whl`, and released to `docket.gudman.xyz`.
+
+Release identity, read back from the host after the release:
+
+| Field | Value |
+|---|---|
+| `RELEASE-commit.txt` | `c5e6163eb05f54b406731c05a3fdc9fd4de020a2` |
+| `.venv` target | `/opt/docket-venvs/c5e6163eb05f` |
+| Wheel SHA-256 | `8997774d43de32825cbfe91fef6da8a53366983fcd7a0ea65f4f7f4fd29cb464` |
+| Runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
+| Release-manifest SHA-256 | `9157bf43b326cc1704b364fb2cda01d7e7050d10d9650c4e2f2ac3aa6f604f7d` |
+| Database backup | `/var/backups/docket/agents-20260904T225814Z.sqlite3`; mode `0600`, owner `root:root` |
+| `docket.service` | active |
+
+GitHub Actions run `33927181234` completed successfully on the exact release commit. Its
+six jobs were `audit`, `lint`, `package`, `e2e`, `test (3.11)`, and `test (3.12)`. The
+builder also reproduced the `uv==0.11.16` runtime lock without a diff, built and verified
+the clean-HEAD bundle, installed its hash-pinned wheel into an external venv, ran
+`pip check`, ran the installed smoke test, checked the browser JavaScript, and checked the
+Bash syntax. On the host, the secure-owner bundle verifier and `preflight.sh 22` passed;
+the preflight recorded 22 existing nginx warnings, 888,746,928 KiB free under `/opt`, and
+all 21 tracked units verified.
+
+Two earlier attempts rolled back automatically before this release completed. The
+`4d5d744` attempt reached a false CSS failure because the static smoke used a short-circuiting
+`grep -Fq` pipeline under `pipefail`; pull request 3 changed that check to drain the response.
+The `c983048` attempt then found a real release-boundary defect: the four identity files in
+the new venv were mode `0640` and owned by `root:root`, so the `docket` process could not
+read them. Pull request 4 made their final mode explicitly `0644`. The failed trees remain
+at `/opt/docket.failed-20260904T214654Z-4d5d744cc6fc` and
+`/opt/docket.failed-20260904T223406Z-c983048681bc`; their database backups remain at
+`/var/backups/docket/agents-20260904T214654Z.sqlite3` and
+`/var/backups/docket/agents-20260904T223406Z.sqlite3`.
+
+The public marketplace surfaces contain exactly six services: `grid-operator`,
+`health-guard`, `range-doctor`, `solvent-signal`, `warden-scan`, and `yield-router`. The
+four declared categories are `rebalancing`, `grid_trading`, `yield_optimisation`, and
+`health_factor`, each with one assigned service. Every service reports `paid_stock=false`.
+
+The nine v3 family states observed after the release were:
+`v3-02-yield-router` is `abandoned_after_failed_primary`;
+`v3-04-warden-security` is `complete_unscored`; `v3-05-range-doctor` is `locked_not_run`;
+`v3-06-yield-router-assisted`, `v3-07-range-doctor`, `v3-08-yield-router`, and
+`v3-09-health-guard` are `registered_waiting_for_inputs`; `v3-01-range-doctor` and
+`v3-03-warden-security` are `superseded_before_input_lock`.
+
+Nine non-payment timers were enabled and active: `docket-jobs`, `docket-lp-record`,
+`docket-probe`, `docket-refresh`, `docket-v3-capture`, `docket-v3-range-capture`,
+`docket-v3-range-v7-capture`, `docket-v3-yield-v6-capture`, and
+`docket-v3-yield-v8-capture`. The payment-bearing `docket-canary.timer` remained disabled
+and inactive. The two future registered timers retained their exact schedules:
+`docket-v3-range-v7-capture.timer` at `2026-09-05 11:50:00 UTC`, ahead of the v3-07
+12:00/12:01/12:02 capture attempts, and `docket-v3-yield-v8-capture.timer` at
+`2026-09-06 11:50:00 UTC`, ahead of the analogous v3-08 capture.
+
+At `2026-09-05T06:07Z`, `/api/status` was `degraded` only because the refresh candidate
+started at `2026-09-05T01:41:08Z` had ended in an upstream read timeout without becoming a
+complete snapshot. Candidates 58 and 59 each stored exactly 400 of 473 expected agents and
+failed on the next filtered 8004scan page, at offset 400; a direct host probe of that exact
+page later timed out after 35.001 seconds with no response bytes, while the offset-300
+control returned HTTP 500 after 10.264 seconds. The last complete snapshot, observed at
+`2026-09-04T13:42:45Z`, remained served; the next ordinary refresh was scheduled for
+`2026-09-05T07:41Z`. Database reachability and the archive RPC check were healthy. This is
+an as-of record of an external outage, not a statement that the outage continued later.
+
+### What this record does not establish
+
+Every host, endpoint, timer, and artifact observation above was collected by the builder.
+The exact-commit GitHub Actions result is independently hosted, but the deployment record
+is not a signed or independently anchored attestation. The current runtime identity remains
+`c5e6163eb05f54b406731c05a3fdc9fd4de020a2` even when a later source-only documentation
+commit records it.

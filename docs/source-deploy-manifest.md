@@ -12,23 +12,61 @@ remains unanchored.
 | Python | Source requires `>=3.11`; current production runtime is Python `3.12.3` |
 | Application factory | `docket.api:create_app` |
 | Builder base commit | `731dcb3d3fe1267546c96fd73118a3b34d58b7b3` |
-| Source base observed before this update | Local `main` and `origin/main` at `4a632c01ebcfdccaed36e642cec2e74adbb69381` |
-| Current production release commit | `4a632c01ebcfdccaed36e642cec2e74adbb69381` |
-| Current production wheel | `docket-0.1.0-py3-none-any.whl`; SHA-256 `923d410953e11bd98cec7dc9d26ef371ccd6e5c73bb8f11d3ce964c32b3769b6` |
+| Source base observed before this update | Local `main` and `origin/main` at `c5e6163eb05f54b406731c05a3fdc9fd4de020a2` |
+| Current production release commit | `c5e6163eb05f54b406731c05a3fdc9fd4de020a2` |
+| Current production wheel | `docket-0.1.0-py3-none-any.whl`; SHA-256 `8997774d43de32825cbfe91fef6da8a53366983fcd7a0ea65f4f7f4fd29cb464` |
 | Current production runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
+| Current production release-manifest SHA-256 | `9157bf43b326cc1704b364fb2cda01d7e7050d10d9650c4e2f2ac3aa6f604f7d` |
 | Repository visibility | Public (verified 2026-09-02) |
-| Current deployment record | Builder-collected 2026-09-02 from `docket.gudman.xyz`; see "Current deployed identity" |
-| Historical deployment record | Builder-collected as performed 2026-08-16T12:20Z and 2026-08-30 to `docket.gudman.xyz`; preserved below and covers no later commit |
+| Current deployment record | Builder-collected 2026-09-05 from `docket.gudman.xyz`; see "Current deployed identity" |
+| Historical deployment record | Builder-collected as performed 2026-08-16T12:20Z, 2026-08-30, and 2026-09-02 to `docket.gudman.xyz`; preserved below and covers no later commit |
 | Approved settlement canary | Run 18 settled exactly 0.50 USDT once and rejected the identical replay; all six services remain `paid_stock=false` |
 | Recorded settlement transaction | `0x0a036066db0ccbde6eeb8d333e5747e549a61f251935fe8abceaf13b681a1258` — private canary evidence, not public paid inventory or independent finality proof |
 
 The base commit identifies the tree before the public-package change. It does not identify
 the release and must not be used as a deployment hash.
 
-## Current deployed identity — builder-collected 2026-09-02 record
+## Current deployed identity — builder-collected 2026-09-05 record
 
 These values were read from the host's release identity files and interpreter. They are
 builder-collected operational evidence, not a signed or independently anchored attestation.
+
+| Field | Value |
+|---|---|
+| Host | `docket.gudman.xyz` |
+| `RELEASE-commit.txt` | `c5e6163eb05f54b406731c05a3fdc9fd4de020a2` |
+| Wheel filename | `docket-0.1.0-py3-none-any.whl` |
+| Wheel SHA-256 | `8997774d43de32825cbfe91fef6da8a53366983fcd7a0ea65f4f7f4fd29cb464` |
+| Runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
+| Release-manifest SHA-256 | `9157bf43b326cc1704b364fb2cda01d7e7050d10d9650c4e2f2ac3aa6f604f7d` |
+| Runtime Python | `3.12.3` |
+| `.venv` target | `/opt/docket-venvs/c5e6163eb05f` |
+| Database backup | `/var/backups/docket/agents-20260904T225814Z.sqlite3`; mode `0600`, owner `root:root` |
+| Marketplace | Six services; four declared categories; nine v3 families; all six `paid_stock=false` |
+| Non-payment timers | Nine enabled and active; v3-07 at `2026-09-05 11:50:00 UTC`, v3-08 at `2026-09-06 11:50:00 UTC` |
+| Canary timer | disabled and inactive |
+
+The runtime-lock digest is unchanged from the previous release, so this release moved no
+dependency. GitHub Actions run `33927181234` passed all six jobs on the exact production
+commit. At `2026-09-05T06:07Z`, `/api/status` was `degraded` only because an incomplete
+refresh candidate remained after repeated filtered 8004scan page failures; the two failed
+candidates each stopped at 400 of 473 expected agents, and a direct host probe of their next
+page timed out. The last complete snapshot remained served, the database and archive RPC
+were healthy, and the next normal retry was scheduled for `2026-09-05T07:41Z`. This is an
+as-of outage note, not a continuing-status claim.
+
+Production identifies `c5e6163eb05f54b406731c05a3fdc9fd4de020a2`. The source base before
+this documentation update identified the same commit; the later documentation commit does
+not change the deployed runtime. The approved run-18 payment evidence and the boundary that
+public stock remains closed are recorded in
+[`operational-evidence.md`](operational-evidence.md#collected-2026-08-30--approved-settlement-canary-and-current-state),
+and this release is recorded in
+[`operational-evidence.md`](operational-evidence.md#collected-2026-09-05--marketplace-release-of-c5e6163).
+
+## Historical deployed identity — builder-collected 2026-09-02 record
+
+These values were read from the host after the release then current. They are retained as a
+historical builder-collected record and cover no later deployment.
 
 | Field | Value |
 |---|---|
@@ -41,13 +79,7 @@ builder-collected operational evidence, not a signed or independently anchored a
 | `.venv` target | `/opt/docket-venvs/4a632c01ebcf` |
 | Canary timer | disabled and inactive |
 
-The runtime-lock digest is unchanged from the previous release, so this release moved no
-dependency. Production, local `main`, and `origin/main` all identify
-`4a632c01ebcfdccaed36e642cec2e74adbb69381`; a reader may describe production as running
-that commit until the next source commit lands. The approved run-18 payment evidence and
-the boundary that public stock remains closed are recorded in
-[`operational-evidence.md`](operational-evidence.md#collected-2026-08-30--approved-settlement-canary-and-current-state),
-and this release is recorded in
+That release is recorded in
 [`operational-evidence.md`](operational-evidence.md#collected-2026-09-02--release-of-4a632c0).
 
 ## Historical deployed identity — builder-collected 2026-08-16 record
