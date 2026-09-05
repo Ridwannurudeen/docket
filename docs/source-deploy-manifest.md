@@ -12,21 +12,48 @@ remains unanchored.
 | Python | Source requires `>=3.11`; current production runtime is Python `3.12.3` |
 | Application factory | `docket.api:create_app` |
 | Builder base commit | `731dcb3d3fe1267546c96fd73118a3b34d58b7b3` |
-| Source base observed before this update | Local `main` and `origin/main` at `e35b64776bc9d3a1dbe7700917e195c006e7d800` |
-| Current production release commit | `e35b64776bc9d3a1dbe7700917e195c006e7d800` |
-| Current production wheel | `docket-0.1.0-py3-none-any.whl`; SHA-256 `6f412c8e3927048a0a33b37b8ff80425ecb2dc0d5ba2b4b76df068d4b02f5e7c` |
+| Source base observed before this update | Local `main` and `origin/main` at `1d0d27c8e0dd07c46a6449a04405c8456019d4a7` |
+| Current production release commit | `1d0d27c8e0dd07c46a6449a04405c8456019d4a7` |
+| Current production wheel | `docket-0.1.0-py3-none-any.whl`; SHA-256 `9aafbed979dc011915eb2f6945c3decd0f702213d6c0ddf94c3359f957c86d50` |
 | Current production runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
-| Current production release-manifest SHA-256 | `f14596e966f5e440ddc03fcf6e179912327300f7a3126cb464450019a4e734ed` |
+| Current production release-manifest SHA-256 | `bd4528a485f4336c8fddfc1081938d6cf07dce10e8caa32d71db14c9491a54df` |
 | Repository visibility | Public (verified 2026-09-02) |
 | Current deployment record | Builder-collected 2026-09-05 from `docket.gudman.xyz`; see "Current deployed identity" |
-| Historical deployment record | Builder-collected as performed 2026-08-16T12:20Z, 2026-08-30, 2026-09-02, and 2026-09-05 (`c5e6163`) to `docket.gudman.xyz`; preserved below and covers no later commit |
+| Historical deployment record | Builder-collected as performed 2026-08-16T12:20Z, 2026-08-30, 2026-09-02, and 2026-09-05 (`c5e6163`, `e35b647`) to `docket.gudman.xyz`; preserved below and covers no later commit |
 | Approved settlement canary | Run 18 settled exactly 0.50 USDT once and rejected the identical replay; all six services remain `paid_stock=false` |
 | Recorded settlement transaction | `0x0a036066db0ccbde6eeb8d333e5747e549a61f251935fe8abceaf13b681a1258` — private canary evidence, not public paid inventory or independent finality proof |
 
 The base commit identifies the tree before the public-package change. It does not identify
 the release and must not be used as a deployment hash.
 
-## Current deployed identity — builder-collected 2026-09-05 record (e35b647)
+## Current deployed identity — builder-collected 2026-09-05 record (1d0d27c)
+
+These values were read from the host's release identity files and interpreter. They are
+builder-collected operational evidence, not a signed or independently anchored attestation.
+
+| Field | Value |
+|---|---|
+| Host | `docket.gudman.xyz` |
+| `RELEASE-commit.txt` | `1d0d27c8e0dd07c46a6449a04405c8456019d4a7` |
+| Wheel filename | `docket-0.1.0-py3-none-any.whl` |
+| Wheel SHA-256 | `9aafbed979dc011915eb2f6945c3decd0f702213d6c0ddf94c3359f957c86d50` |
+| Runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
+| Release-manifest SHA-256 | `bd4528a485f4336c8fddfc1081938d6cf07dce10e8caa32d71db14c9491a54df` |
+| Runtime Python | `3.12.3` |
+| `.venv` target | `/opt/docket-venvs/1d0d27c8e0dd` |
+| Database backup | `/var/backups/docket/agents-20260905T182044Z.sqlite3` |
+| Marketplace | Six services; four declared categories; nine v3 families; all six `paid_stock=false` |
+| Activations | The first real ones: a one-shot `completed` with a receipt, and a session whose key was minted and then revoked with the sweep verified |
+| Canary timer | disabled and inactive |
+
+The runtime-lock digest is unchanged from the previous release, so this release moved no
+dependency. GitHub Actions run `33983375163` passed all six jobs on the exact production
+commit. This release lets every service be activated from the browser, whatever the
+activation costs, and drains the two page smokes that had refused a good release. The first
+real activations against the live site, and what they establish and do not, are recorded in
+[`operational-evidence.md`](operational-evidence.md#collected-2026-09-05--release-of-1d0d27c-and-the-first-real-activations).
+
+## Historical deployed identity — builder-collected 2026-09-05 record (e35b647)
 
 These values were read from the host's release identity files and interpreter. They are
 builder-collected operational evidence, not a signed or independently anchored attestation.

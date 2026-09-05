@@ -528,3 +528,99 @@ It does not establish that the upstream registry recovered, that the probe windo
 or that any paid path was exercised. It is an as-of record of one release and the first
 probe run under it.
 
+## Collected 2026-09-05 — release of 1d0d27c and the first real activations
+
+### The release
+
+Commit `1d0d27c8e0dd07c46a6449a04405c8456019d4a7` was released to `docket.gudman.xyz` at
+`2026-09-05T18:20:44Z`. It carries two merges over `e35b647`: pull request 10, which lets
+every service be activated whatever it costs, and pull request 11, which drains the homepage
+and status-page smokes the way the stylesheet smoke already did.
+
+| Field | Value |
+|---|---|
+| `RELEASE-commit.txt` | `1d0d27c8e0dd07c46a6449a04405c8456019d4a7` |
+| Wheel SHA-256 | `9aafbed979dc011915eb2f6945c3decd0f702213d6c0ddf94c3359f957c86d50` |
+| Runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
+| Release-manifest SHA-256 | `bd4528a485f4336c8fddfc1081938d6cf07dce10e8caa32d71db14c9491a54df` |
+| Database backup | `/var/backups/docket/agents-20260905T182044Z.sqlite3` |
+| CI | run `33983375163`, all six jobs, on the exact commit |
+
+An attempt to release `15f4029` — pull request 10 alone — at `2026-09-05T17:55Z` was refused
+by the homepage smoke and rolled back automatically, with the title on screen: the smoke
+piped curl into a quiet grep, which exits on its first match and closes the pipe, and curl's
+write error then failed the pipeline under `pipefail`. That is the shape pull request 3 had
+fixed in the stylesheet smoke; pull request 11 fixed the two page smokes the same way, and the
+fake curl in `tests/test_release_scripts.py` now pads the pages so the drain test covers all
+three. The failed tree remains at `/opt/docket.failed-20260905T175506Z-15f402946688`. The
+runtime-lock digest is unchanged, so neither release moved a dependency.
+
+### What pull request 10 corrected
+
+Opening `/activate?service=range-doctor` on the live site in a real browser showed, for every
+service, exactly two buttons: *Try free sample* and *Use the worked example*. The activation
+control rendered only when the catalogue said `paid_stock`, and until a service's canary
+passes it never does. So no service could be activated from the browser — not a one-shot,
+not a session — and the activation backend, the session keys, the executors and the jobs
+timer running every minute had no front door. The production `activations` table held zero
+rows from the marketplace release until this one.
+
+The catalogue card says whether a service can be paid for; the server prices the activation.
+A one-shot on an unadmitted service is quoted on the free tier, and the API's contract for it
+is create, then approve, and the service runs. A session is quoted free whatever the stock,
+because it is funded rather than bought. The control now renders in every case, labelled
+*Activate and pay 0.50 USDT*, *Activate on the free tier*, or *Activate Range Keeper as a
+session*, and a free-quoted one-shot approves and runs instead of asking for payment terms
+that do not exist.
+
+### The first real activations
+
+Each of these was made against the live site through the deployed page in a real Chromium,
+with a wallet created fresh for the run — a real secp256k1 key signing real EIP-191 messages —
+and with no request faked. Nothing was funded and nothing was spent: every activation was
+quoted on the free tier, which is what production quotes while no service is admitted.
+
+| Activation | Kind | Owner | Outcome |
+|---|---|---|---|
+| `act_526632dd00c17c8d20e08103` | one-shot | `0x1953b16768d794c7fb8df52bD2E089BDe81Bb5bb` | `completed` at `2026-09-05T18:21:45Z` with a result and a receipt |
+| `act_2b828b0c4fc7e31b64e942c6` | session | `0x94e3593Aca077ce30595B12f1aF2905d376c2253` | key `0x99D1dA41d133CA6631bBcD17821b32CE39Fdfb80` minted by the jobs process; revoked from *My agents*; `revoked` after the sweep read every balance zero |
+
+The one-shot made exactly three API calls — the nonce, the create, the approve — and none to
+`/hire`. Its receipt carries `input_hash`
+`0x6062644dc43f07c4eb978ccc507e09cb1d5d0530db4e5e248fd27fca2600257b` and `output_hash`
+`0x319bbb19c950bfdedc79152e9be5ce1f9dc24832e559b12be43741244ee9e13f`, recomputable as
+described under "Recomputing the hashes yourself". The page rendered the record with its
+price and permissions, the choice of once or continuously, the inputs, the progress log, the
+state rail through every transition, the result, and the receipt with copy and download.
+
+The session's trail, as the API returns it: `quoted → awaiting_wallet` (user) →
+`authorized` (the create signature recovered to the owner) → `awaiting_session` (the job
+runner will create the key on its next pass) → the key `0x99D1dA41…` was created, holding
+only what the owner funds it with → `revoking` (the owner revoked from *My agents*; the float
+is swept and verified before this closes) → `revoked` (chain: every balance read zero after
+the sweep). The *My agents* row showed the permission scope in full — per-token caps, the
+BNB cap, slippage, the gas ceiling, seven contracts, the expiry — and withdrew its controls
+while the sweep was in flight. The web process never held the session key: the
+`awaiting_session` wait is the jobs process minting it.
+
+Two further session rows, `act_b9e115c56f476e737efd2b4a` and
+`act_52d31ad209db8f8b2348290f`, were opened by earlier runs of the same walk-through whose
+throwaway keys were not kept, so their owners can never act on them; `act_b9e115…` also had
+its key minted. They sit in `awaiting_session` until their expiry. A third,
+`act_402227d8c37da77b164451f9`, was revoked before its key was minted and closed `revoked`
+the same way. None holds anything.
+
+### What remained degraded
+
+At `2026-09-05T18:35Z`, `/api/status` read `degraded` for the registry refresh only: the
+upstream 8004scan API was still returning HTTP 500. The probe window read three of three
+recent runs passing.
+
+### What this record does not establish
+
+It does not establish the paid path through an activation — no service is in paid stock, so
+no activation could be quoted `x402-exact` — nor a funded session executing on chain. It
+establishes that the journey the page offers runs end to end on the live site for a real
+wallet: open, sign, run, receive a result and a receipt; or open a session, have its key
+minted, and revoke it with the sweep verified.
+
