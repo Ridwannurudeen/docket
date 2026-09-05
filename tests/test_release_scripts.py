@@ -199,6 +199,11 @@ case "${url}" in
             printf '%s\n' '<html><title>Wrong site</title></html>'
         else
             printf '%s\n' '<!doctype html><title>Docket -- test</title>'
+            if [[ "${FAKE_LARGE_STATIC:-0}" == 1 ]]; then
+                for ((i = 0; i < 20000; i++)); do
+                    printf '%s\n' 'page-response-padding'
+                done
+            fi
         fi
         ;;
     *)
@@ -2108,7 +2113,11 @@ def test_release_rolls_back_when_a_served_contract_is_missing_fields(
     assert (root / "opt" / "docket" / "old-release.txt").is_file()
 
 
-def test_release_static_smoke_drains_a_large_response_after_its_marker(tmp_path):
+def test_release_web_smokes_drain_a_large_response_after_its_marker(tmp_path):
+    """The stylesheet and the home page are each checked for a marker near the top of a
+    body that can be far larger than a pipe buffer. A check that stopped reading at the
+    marker made curl fail on the rest, and the release refused a page that was fine —
+    which happened in production twice, on two different smokes."""
     root = tmp_path / "root"
     _prepare_live_release(root)
     fake_bin = _fake_bin(tmp_path)

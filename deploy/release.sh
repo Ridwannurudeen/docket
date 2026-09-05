@@ -1187,9 +1187,14 @@ raise SystemExit(
     fatal 'served /advantage/v3.json does not match the release state'
 fi
 
+# `grep -F … >/dev/null` rather than `grep -Fq`: -q exits on the first match and closes the
+# pipe, curl then fails writing the rest of a page larger than the pipe buffer, and under
+# `pipefail` a page that carried the marker reads as a failed smoke. That refused a release
+# with the marker on screen. The static smoke below learned this first; these two are the
+# same shape and pay the same way.
 trace_command "${CURL_COMMAND}" -fsS -H 'Accept: text/html' http://127.0.0.1:8090/
 if ! "${CURL_COMMAND}" -fsS -H 'Accept: text/html' \
-    http://127.0.0.1:8090/ | grep -Fq '<title>Docket'; then
+    http://127.0.0.1:8090/ | grep -F '<title>Docket' >/dev/null; then
     fatal 'served homepage smoke failed'
 fi
 
@@ -1214,7 +1219,7 @@ fi
 
 trace_command "${CURL_COMMAND}" -fsS -H 'Accept: text/html' http://127.0.0.1:8090/status
 if ! "${CURL_COMMAND}" -fsS -H 'Accept: text/html' \
-    http://127.0.0.1:8090/status | grep -Fq '<title>Docket'; then
+    http://127.0.0.1:8090/status | grep -F '<title>Docket' >/dev/null; then
     fatal 'served status page smoke failed'
 fi
 
