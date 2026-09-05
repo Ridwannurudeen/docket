@@ -142,7 +142,15 @@ def run(base_url: str, *, client: httpx.Client | None = None) -> list[dict]:
     )
     try:
         return [
-            _run_step("home", lambda: session.get(f"{base_url}/"), _check_home),
+            # `/` negotiates on Accept and answers a bare GET with JSON, the way an agent
+            # asking for the API expects. The shell is what a reader sees first, so this step
+            # asks for it the way a browser does; without the header every run of this probe
+            # failed here and painted the status page degraded over a page that was fine.
+            _run_step(
+                "home",
+                lambda: session.get(f"{base_url}/", headers={"Accept": "text/html"}),
+                _check_home,
+            ),
             _run_step("services", lambda: session.get(f"{base_url}/services"), _check_services),
             _run_step("api_status", lambda: session.get(f"{base_url}/api/status"), _check_status),
             _run_step(

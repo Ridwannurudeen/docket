@@ -31,6 +31,11 @@ def _client(answers: dict, *, seen: list | None = None) -> httpx.Client:
             seen.append((request.method, request.url.path, request.read()))
         status, body = answers[request.url.path]
         if isinstance(body, str):
+            # The real `/` negotiates on Accept: a caller that does not ask for HTML is
+            # given the JSON index, which carries no title. The fake does the same, so a
+            # probe that forgets to ask for the shell fails here as it did in production.
+            if "text/html" not in request.headers.get("accept", ""):
+                return httpx.Response(status, json={"service": "docket"})
             return httpx.Response(status, text=body)
         return httpx.Response(status, json=body)
 
