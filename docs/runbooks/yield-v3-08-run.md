@@ -54,11 +54,11 @@ replace an artifact to make a second attempt possible.
 | Sep 5 morning, or Sep 6 before 11:40 | Deploy the tested commit, outside every refusal window | Owner |
 | Sep 6 11:50 | `docket-v3-yield-v8-capture.timer` arms; capture at 12:00 | Timer |
 | Sep 6 after 12:03:06 | Stage 2 evidence copied off the host | Operator |
-| Sep 7 | Stage 3, both calibration seats | Operator |
-| Sep 7 | Stage 4, bind and lock | Operator |
+| Sep 8 | Stage 3, both calibration seats | Operator |
+| Sep 8 | Stage 4, bind and lock | Operator |
 | Sep 8 | Stage 5, three manual primaries by the owner, then three agent primaries | Owner |
 | Sep 8 | Stage 6, seats, import, mapping, report | Operator |
-| Sep 9 | Review before requesting any commit | Owner |
+| After stage 6 | Review before requesting any commit | Owner |
 
 **One family per day.** Do not run v3-07's, v3-08's or v3-09's arms or evaluator seats on the
 same day. **Calibration seats are seats.** The rule is about the adapters, not about which stage
@@ -69,22 +69,26 @@ condition that produced that outcome, whichever stage each family is at. A captu
 an arm nor a seat and does not compete for anything, so a timer may fire on a day another
 family owns.
 
-That is why the Sep 6 timer does not collide with v3-07's Sep 6
-primaries and scoring seats, while stages 3 onwards do — so they start on Sep 7.
+The Sep 6 timer does not collide with another family's work because a capture uses no
+adapter. v3-07 needs the first day on which seat-a is available, so v3-08 stages 3 onwards
+start on Sep 8.
 
 Every family owns whole days, and both kinds of evaluator seat count:
 
+`v3-07` owns Sep 7; `v3-08` owns Sep 8; `v3-09` may own Sep 9.
+
 | Day (UTC) | Family that owns the adapters | What may also happen |
 |---|---|---|
-| Sep 4-5 | v3-07 frame, calibration seats, capture, lock | — |
-| Sep 6 | v3-07 primaries **and** v3-07 scoring seats | v3-08's capture: a timer, not an arm or a seat |
-| Sep 7 | v3-08 calibration seats and lock | — |
-| Sep 8 | v3-08 primaries and v3-08 scoring seats | — |
+| Sep 5 | No family uses an adapter | v3-07's capture and verified copy |
+| Sep 6 | No family uses an adapter | v3-08's capture and verified copy |
+| Sep 7 | v3-07 calibration, lock, primaries and scoring seats | — |
+| Sep 8 | v3-08 calibration, lock, primaries and scoring seats | — |
 | Sep 9 | v3-09 seats, lock and primaries, if there is room | — |
 
 **Seat-a is unavailable until Sep 7.** The Codex adapter behind `seat-a` is at its usage limit
 and cannot answer before then, and evaluator seats may be scheduled at any time after that.
-That delays stage 3 and, through it, stage 4 — but **it does not touch the capture**. Nothing
+v3-07 owns the first available family day, so v3-08 calibration waits until Sep 8. That
+delays stage 3 and, through it, stage 4 — but **it does not touch the capture**. Nothing
 in the input lock compares a calibration timestamp to the capture's: `_validate_yield_inputs`
 only requires the two source snapshots to sit inside their registered attempt window and in
 the registered order, and `_validate_evaluator_calibration` reads no timestamp at all. The

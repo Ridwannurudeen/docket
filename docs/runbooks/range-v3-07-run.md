@@ -50,12 +50,13 @@ registered frame, and deploying or enabling the timer remains an owner action.
 | Sep 4 | Owner commits the registration. **Nothing below may run first.** | Owner |
 | Sep 4 | Deploy the tested commit. Outside every refusal window. | Owner |
 | Sep 4 | Stage 1, the frame collection, about 12 minutes | Operator |
-| Sep 4, or Sep 5 morning | Stage 2, both calibration seats | Operator |
 | Sep 5 11:50 | `docket-v3-range-v7-capture.timer` arms; capture at 12:00 | Timer |
-| Sep 5 after 12:03:06 | Stages 4 and 5, copy, bind, lock | Operator |
-| Sep 6 | Stage 6, three manual primaries; stage 7, three settled hires | Owner |
-| Sep 6, after stage 7 | Stages 8-10, seats, import, mapping, report | Operator |
-| Sep 7 | Review before requesting any commit | Owner |
+| Sep 5 after 12:03:06 | Stage 4, copy and verify the capture; do not lock yet | Operator |
+| Sep 6 11:50 | The v3-08 timer arms; its capture is not a v3-07 arm or seat | Timer |
+| Sep 7 | Stage 2, both calibration seats; stage 5, bind and lock | Operator |
+| Sep 7 | Stage 6, three manual primaries; stage 7, three settled hires | Owner |
+| Sep 7, after stage 7 | Stages 8-10, seats, import, mapping, report | Operator |
+| After stage 10 | Review before requesting any commit | Owner |
 
 `deploy/release.sh` refuses releases in four windows: `2026-08-26T12:02:54Z` to
 `2026-08-26T12:10:06Z`, `2026-09-03T11:49:54Z` to `2026-09-03T12:03:06Z`,
@@ -68,19 +69,23 @@ same `docket.advantage.v3.seats.*` adapter, and the Claude one is what returned 
 scoring response and left v3-04 permanently `complete_unscored`. Two families' seats on one
 day is the condition that produced that outcome, whichever stage each family is at.
 
-That is why stages 8-10 moved from Sep 7 to Sep 6, after stage 7: **same-family, same-day is
-allowed** — v3-07's primaries and v3-07's scoring seats do not compete with each other — while
-Sep 7 belongs to v3-08's calibration seats. A capture is neither an arm nor a seat and does
-not compete for anything, so v3-08's Sep 6 timer may fire on a day v3-07 owns.
+**Seat-a is unavailable until Sep 7.** Stage 2 therefore cannot run on Sep 4 or 5, and stage
+5 cannot lock the input until both calibration responses exist. The capture remains fixed on
+Sep 5 and is copied after it completes, but every remaining v3-07 stage moves together to
+Sep 7. **Same-family, same-day is allowed**: v3-07's calibration seats, primaries and scoring
+seats do not compete with each other. A capture is neither an arm nor a seat and does not
+compete for anything, so v3-08's Sep 6 timer may still fire.
 
 Every family owns whole days, and both kinds of evaluator seat count:
 
+`v3-07` owns Sep 7; `v3-08` owns Sep 8; `v3-09` may own Sep 9.
+
 | Day (UTC) | Family that owns the adapters | What may also happen |
 |---|---|---|
-| Sep 4-5 | v3-07 frame, calibration seats, capture, lock | — |
-| Sep 6 | v3-07 primaries **and** v3-07 scoring seats | v3-08's capture: a timer, not an arm or a seat |
-| Sep 7 | v3-08 calibration seats and lock | — |
-| Sep 8 | v3-08 primaries and v3-08 scoring seats | — |
+| Sep 5 | No family uses an adapter | v3-07's capture and verified copy |
+| Sep 6 | No family uses an adapter | v3-08's capture and verified copy |
+| Sep 7 | v3-07 calibration, lock, primaries and scoring seats | — |
+| Sep 8 | v3-08 calibration, lock, primaries and scoring seats | — |
 | Sep 9 | v3-09 seats, lock and primaries, if there is room | — |
 
 ## 0. Immutable state and preflight

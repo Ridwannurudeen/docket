@@ -68,18 +68,19 @@ condition that produced that outcome, whichever stage each family is at. A captu
 an arm nor a seat and does not compete for anything, so a timer may fire on a day another
 family owns.
 
-v3-07 takes Sep 6 for its primaries and its scoring seats,
-v3-08 takes Sep 7 for its calibration seats and lock and Sep 8 for its primaries and scoring
-seats, so v3-09's seats and primaries wait for Sep 9.
+v3-07 needs Sep 7 for its calibration, lock, primaries and scoring seats. v3-08 then takes
+Sep 8 for the same complete sequence, so v3-09's seats and primaries wait for Sep 9.
 
 Every family owns whole days, and both kinds of evaluator seat count:
 
+`v3-07` owns Sep 7; `v3-08` owns Sep 8; `v3-09` may own Sep 9.
+
 | Day (UTC) | Family that owns the adapters | What may also happen |
 |---|---|---|
-| Sep 4-5 | v3-07 frame, calibration seats, capture, lock | — |
-| Sep 6 | v3-07 primaries **and** v3-07 scoring seats | v3-08's capture: a timer, not an arm or a seat |
-| Sep 7 | v3-08 calibration seats and lock | — |
-| Sep 8 | v3-08 primaries and v3-08 scoring seats | — |
+| Sep 5 | No family uses an adapter | v3-07's capture and verified copy |
+| Sep 6 | No family uses an adapter | v3-08's capture and verified copy |
+| Sep 7 | v3-07 calibration, lock, primaries and scoring seats | — |
+| Sep 8 | v3-08 calibration, lock, primaries and scoring seats | — |
 | Sep 9 | v3-09 seats, lock and primaries, if there is room | — |
 
 **Seat-a is unavailable until Sep 7.** The Codex adapter behind `seat-a` is at its usage limit
@@ -90,7 +91,8 @@ delay can spoil: unlike v3-08 there is no registered capture moment here, so sta
 move to whichever day both seats can answer.
 
 **This family is the one with room to slip, and it should be the one that slips.** The table
-above leaves Sep 9 — the submission day — as the first free day for v3-09. If Sep 9 is too full, the honest outcome is
+above leaves Sep 9 — the submission day — as the first free day for v3-09. If Sep 9 is too
+full, the honest outcome is
 to leave v3-09 `registered_waiting_for_inputs` with its frame collected and committed. That is
 a published state, not a failure: the registration, the frame and the answer key stand on their
 own, and a reader can check every one of them without a single arm having run. Do not compress
