@@ -109,7 +109,9 @@ test("a session still being minted is a step with a wait in it, not a dead end",
 
   await page.goto("/activate?service=range-doctor");
   await page.getByRole("radio", { name: /Continuously/ }).check();
-  await page.getByRole("button", { name: /Activate and pay/ }).click();
+  await page
+    .getByRole("button", { name: "Activate Range Doctor as a session" })
+    .click();
 
   /* The state is on the stepper as its own step rather than dropped for being one this
      build's list did not lead with, and it says what is being waited for. */

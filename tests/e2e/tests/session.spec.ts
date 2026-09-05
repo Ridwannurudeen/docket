@@ -80,9 +80,16 @@ test("a continuous session asks to be funded and binds the transaction the reade
 
   await page.goto("/activate?service=range-doctor");
   await page.getByRole("radio", { name: /Continuously/ }).check();
+  /* A session is funded, not bought, and the control says so: the label a reader clicks
+     must not promise a payment the server will never ask for. */
+  await expect(
+    page.getByRole("button", { name: /Activate and pay/ }),
+  ).toHaveCount(0);
   /* The allowlists are fetched before anything can be agreed to. */
   await expect(page.getByText("What this session may touch")).toBeVisible();
-  await page.getByRole("button", { name: /Activate and pay/ }).click();
+  await page
+    .getByRole("button", { name: "Activate Range Doctor as a session" })
+    .click();
 
   /* No payment is signed for a persistent session: it is funded, not bought. */
   await expect(

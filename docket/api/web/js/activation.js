@@ -986,6 +986,16 @@ async function activateAndPay() {
       return;
     }
 
+    /* The server quoted this activation, and the quote is what it costs — not the
+       catalogue card. A service outside paid stock is quoted on the free tier; asking it
+       for payment terms gets a 200 and a run the activation never hears about, and leaves
+       the activation open behind a dead end. The free tier's contract is approve, and the
+       service runs. */
+    if (state.activation.quote && state.activation.quote.payment_scheme === "free_tier") {
+      await approveFreeTier();
+      return;
+    }
+
     say("Asking for the exact payment terms.");
     let challenge = await payment.fetchChallenge(
       state.record.service_id,
@@ -1221,6 +1231,34 @@ async function retryBind() {
     The payment id is signed into the message, not merely sent beside it: a signature over
     "approve this activation" with an unsigned id in the body would authorise binding
     whatever id happened to arrive with it. */
+/** Approve a free-tier one-shot so the service runs. The same signed action as binding a
+    payment, minus the payment: there is nothing to bind, and the server runs the service
+    on approval and answers with the finished activation, result and receipt on it. */
+async function approveFreeTier() {
+  say("This service is not in paid stock, so it runs on the free tier. Nothing is charged.");
+  const account = await signingAccount();
+  const signature = await wallet.personalSign(
+    api.authMessage(state.activation, "approve"),
+    account,
+  );
+  state.activation = await api.approveActivation(state.activation.activation_id, {
+    owner_signature: signature,
+    nonce: state.activation.auth_nonce,
+  });
+  paintActivation();
+  say("Approved. The service ran on the free tier under your activation.");
+  if (state.activation.result) {
+    paintResult(
+      {
+        result: state.activation.result,
+        receipt: (state.activation.receipts || [])[0],
+      },
+      { free: false },
+    );
+  }
+  startPolling();
+}
+
 async function bindPayment(answer) {
   if (!state.activation) return;
   /* Held so a bind that fails can be retried on its own. Everything before this point has
@@ -1437,23 +1475,37 @@ async function paintLimits() {
   }
 }
 
+/** The one control that opens an activation, whatever the activation will cost.
+
+    The catalogue card says whether a service is in paid stock; the server prices the
+    activation itself. A one-shot on an admitted service is bought through x402. A one-shot
+    on a service that is not admitted is quoted on the free tier and runs on the owner's
+    approval — the API's contract for it is "create, then approve, and the service runs". A
+    session is quoted free whatever the service's stock, because the x402 rail has no shape
+    for a standing authorization; it is funded, not bought. Every one of those is an
+    activation this page has to be able to start. Gating the button on paid stock, as this
+    page once did, left the whole activation surface unreachable for as long as no service
+    was admitted — which, on a deployment whose canary has not yet passed, is every service. */
+function activationLabel(record, kind) {
+  if (kind === "persistent") return `Activate ${record.name} as a session`;
+  if (record.paid_stock) return `Activate and pay ${record.price_display}`;
+  return "Activate on the free tier";
+}
+
 function paintActions() {
   const target = region("actions");
   const record = state.record;
-  const paid = record.paid_stock
-    ? `<button type="button" class="btn btn-primary" data-pay>Activate and pay ${escapeHTML(record.price_display)}</button>`
-    : "";
+  const label = escapeHTML(activationLabel(record, state.kind));
   const unavailable = record.paid_stock
     ? ""
     : `<p class="section-note">This service is <strong>not admitted to paid stock</strong>.
-       Its status is <span class="mono">${escapeHTML(record.stock_status)}</span>, so it runs
-       free and takes no payment authorization. Its price after admission would be
-       <span class="num">${escapeHTML(record.price_display)}</span>.</p>`;
+       Its status is <span class="mono">${escapeHTML(record.stock_status)}</span>, so a
+       one-shot activation runs free and takes no payment authorization. Its price after
+       admission would be <span class="num">${escapeHTML(record.price_display)}</span>.</p>`;
   /* "Try free sample" is the sample form's own submit button, so pressing Enter in a field
-     runs the thing the field belongs to. Only the paid action lives out here. */
-  target.innerHTML = `${paid ? `<p class="btn-row">${paid}</p>` : ""}${unavailable}`;
-  const pay = target.querySelector("[data-pay]");
-  if (pay) pay.addEventListener("click", activateAndPay);
+     runs the thing the field belongs to. Only the activation lives out here. */
+  target.innerHTML = `<p class="btn-row"><button type="button" class="btn btn-primary" data-pay>${label}</button></p>${unavailable}`;
+  target.querySelector("[data-pay]").addEventListener("click", activateAndPay);
 }
 
 function wireSampleForm() {
