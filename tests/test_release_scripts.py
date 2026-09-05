@@ -323,6 +323,7 @@ def _environment(root: Path, fake_bin: Path, **values: str) -> dict[str, str]:
     environment["DOCKET_RELEASE_ROOT"] = root.as_posix()
     environment["DOCKET_RELEASE_HEALTH_ATTEMPTS"] = "2"
     environment["DOCKET_RELEASE_TIMESTAMP"] = "20260822T120000Z"
+    environment["DOCKET_RELEASE_NOW_UTC"] = "2026-09-04T00:00:00Z"
     environment["PATH"] = str(fake_bin) + os.pathsep + environment["PATH"]
     environment["DOCKET_RELEASE_CURL"] = (fake_bin / "curl").as_posix()
     environment["DOCKET_PREFLIGHT_NGINX"] = (fake_bin / "nginx").as_posix()
@@ -335,6 +336,12 @@ def _environment(root: Path, fake_bin: Path, **values: str) -> dict[str, str]:
     environment["DOCKET_RELEASE_RUNUSER"] = (fake_bin / "runuser").as_posix()
     environment.update(values)
     return environment
+
+
+def test_release_test_environment_uses_a_deterministic_safe_time(tmp_path):
+    environment = _environment(tmp_path / "root", _fake_bin(tmp_path))
+
+    assert environment["DOCKET_RELEASE_NOW_UTC"] == "2026-09-04T00:00:00Z"
 
 
 def _run(
