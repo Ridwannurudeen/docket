@@ -62,7 +62,9 @@ test("a persistent session shows the allowlists it would run inside, unedited", 
   await expect(page.locator("#limit-slippage")).toHaveValue("50");
 
   await page.locator("#limit-total").fill("25");
-  await page.getByRole("button", { name: /Activate and pay/ }).click();
+  await page
+    .getByRole("button", { name: "Activate Range Doctor as a session" })
+    .click();
   await expect(page.locator('.step[data-status="current"]')).toHaveText(
     /awaiting session/,
   );

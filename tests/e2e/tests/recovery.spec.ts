@@ -144,15 +144,36 @@ test.describe("failure recovery", () => {
     ).toBeVisible();
   });
 
-  test("a service outside paid stock offers the free tier instead of a payment", async ({
+  test("a service outside paid stock activates on the free tier, approve and run", async ({
     page,
   }) => {
+    /* The shape production has for every service until its canary passes: the catalogue
+       says not admitted, and the server quotes the activation on the free tier. The page
+       used to hide the activation behind paid stock here, which left every activation
+       unreachable on exactly that deployment. The free tier's contract is create, then
+       approve, and the service runs — two signatures, no payment terms asked for. */
     await mockServices(page, {
       ...SERVICE,
       paid_stock: false,
       stock_status: "candidate",
     });
-    await mockHire(page);
+    const hires: string[] = [];
+    await page.route("**/hire/range-doctor", (route) => {
+      hires.push(route.request().headers()["x-payment"] || "<none>");
+      return route.fulfill({ status: 500, body: "the free path must not ask for terms" });
+    });
+    const { activation } = await import("../fixtures");
+    await mockActivations(page, {
+      onCreate: activation({
+        quote: {
+          asset: SERVICE.asset,
+          amount_atomic: "0",
+          amount_display: "free",
+          pay_to: null,
+          payment_scheme: "free_tier",
+        },
+      }),
+    });
     await page.goto("/activate?service=range-doctor");
 
     await expect(
@@ -161,7 +182,27 @@ test.describe("failure recovery", () => {
     await expect(
       page.getByText("not admitted to paid stock", { exact: false }),
     ).toBeVisible();
-    /* The free sample still works, so the page is not a dead end. */
+    await page.getByRole("button", { name: "Activate on the free tier" }).click();
+
+    await expect(page.getByRole("heading", { name: "Result" })).toBeVisible();
+    await expect(page.getByText("positions_examined")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "The receipt" }),
+    ).toBeVisible();
+    await expect(page.locator('.step[data-status="current"]')).toHaveText(
+      /completed/,
+    );
+    expect(hires).toEqual([]);
+    const signatures = await page.evaluate(
+      () =>
+        (window as unknown as { __wallet: { calls: { method: string }[] } }).__wallet.calls
+          .map((call) => call.method)
+          .filter((method) => method.startsWith("personal_sign") || method.startsWith("eth_sign")),
+    );
+    expect(signatures).toEqual(["personal_sign", "personal_sign"]);
+
+    /* The free sample is still there beside it, and still creates nothing. */
+    await mockHire(page);
     await page.getByRole("button", { name: "Try free sample" }).click();
     await expect(
       page.getByRole("heading", { name: "Free sample result" }),
