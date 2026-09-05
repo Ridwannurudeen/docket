@@ -215,6 +215,7 @@ artifact. The warning remains a backend-maintenance risk; this build does not hi
 | `docket/advantage/v3/sources/range-v5-evaluator-calibration.json` | `08e39929d39a9042cb24d18911257233ed3e77bc6951184554bb1f0d7ca27f55` |
 | `docket/advantage/v3/sources/range-v5-pool-truth.json` | `da230d53de248dba9f9241e090a3a1a6b1b8cb6c5e6962db99ac00db5cce147f` |
 | `docket/advantage/v3/sources/range-v7-calibration-set.json` | `c5bae93a3e93552fd2777e6fcc76b1610bcc45ad2dafb7165908213e8ff45287` |
+| `docket/advantage/v3/sources/range-v7-enumerable-frame.json` | `29210a54f58c2b75ddb0f481d7ea86fe09bfa9f935665e52a2c140b43bf5a33d` |
 | `docket/advantage/v3/sources/warden-calibration-set.json` | `63d2c6d750127e3ab874b02b87d1921a6685cf3ae1b79c3727ef7c05829a3fcf` |
 | `docket/advantage/v3/sources/warden-heldout-cases.json` | `3ae8fb89f81ef9fb8147a8f6e2d8b921457c1ec9a31596b76f2055245ead12d4` |
 | `docket/advantage/v3/sources/warden-reason-codes.html` | `918243ffe946df74b6307eadbb23398ba53c1bcea070cdb328877e3b65e31e63` |
