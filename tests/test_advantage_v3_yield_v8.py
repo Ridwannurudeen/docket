@@ -23,6 +23,8 @@ PRIOR_SETS = (
     ROOT / "docket/advantage/v3/sources/yield-v6-assisted-calibration-set.json",
 )
 RUNBOOK_PATH = ROOT / "docs/runbooks/yield-v3-08-run.md"
+RANGE_RUNBOOK_PATH = ROOT / "docs/runbooks/range-v3-07-run.md"
+HEALTH_RUNBOOK_PATH = ROOT / "docs/runbooks/health-v3-09-run.md"
 SPEC = spec_module.load(SPEC_PATH, repo_root=ROOT)
 
 
@@ -216,8 +218,16 @@ def test_v8_runbook_names_the_registered_moment_and_the_one_family_per_day_rule(
     assert "A capture is neither an arm nor a seat" in runbook
     assert "Seat-a is unavailable until Sep 7" in runbook
     assert "seat-a" in runbook
-    assert "| Sep 7 | Stage 3, both calibration seats | Operator |" in runbook
-    assert "| Sep 7 | Stage 4, bind and lock | Operator |" in runbook
+    assert "| Sep 8 | Stage 3, both calibration seats | Operator |" in runbook
+    assert "| Sep 8 | Stage 4, bind and lock | Operator |" in runbook
+    shared_calendar = (
+        "`v3-07` owns Sep 7; `v3-08` owns Sep 8; "
+        "`v3-09` may own Sep 9."
+    )
+    for path in (RANGE_RUNBOOK_PATH, RUNBOOK_PATH, HEALTH_RUNBOOK_PATH):
+        text = " ".join(path.read_text(encoding="utf-8").split())
+        assert shared_calendar in text
+        assert "| Sep 7 | v3-08 calibration seats and lock |" not in text
     # The capture is the one unmovable stage, so it never waits on a seat.
     assert runbook.index("## 2. Registered source capture") < runbook.index(
         "## 3. Calibrate both evaluator seats"
