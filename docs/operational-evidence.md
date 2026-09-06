@@ -624,3 +624,49 @@ establishes that the journey the page offers runs end to end on the live site fo
 wallet: open, sign, run, receive a result and a receipt; or open a session, have its key
 minted, and revoke it with the sweep verified.
 
+## Collected 2026-09-06 — concurrency-accounting release of cada2d0
+
+The owner approved deployment after merge-commit CI run `34039925819` passed all six
+jobs. Commit `cada2d0e4d7877358b5100b45b9eebdec7ee2702` was built from a clean detached
+worktree. The release's backup/swap timestamp was `2026-09-06T14:54:33Z`; identity was
+read back from the host at `2026-09-06T14:55:30Z`.
+
+| Field | Value |
+|---|---|
+| Release commit | `cada2d0e4d7877358b5100b45b9eebdec7ee2702` |
+| Wheel | `docket-0.1.0-py3-none-any.whl` |
+| Wheel SHA-256 | `de3f4f80376d1020530329fbdd14e1a76e90eb341743dba76cfc964187454019` |
+| Runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
+| Release-manifest SHA-256 | `79f3f5b197e9616d39b4f57cf25be466e816818cb9114cc33b8c2c20733f3e44` |
+| Runtime | Python `3.12.3`, `/opt/docket-venvs/cada2d0e4d78` |
+| Database backup | `/var/backups/docket/agents-20260906T145433Z.sqlite3`, mode `0600`, owner `root:root`, quick-check verified by the release |
+| Previous tree | `/opt/docket.bak-20260906T145433Z`, release `1d0d27c8e0dd07c46a6449a04405c8456019d4a7` |
+| Previous wheel SHA-256 | `9aafbed979dc011915eb2f6945c3decd0f702213d6c0ddf94c3359f957c86d50` |
+
+The runtime changes preserve an earlier mined call's receipt and spend when a later call's
+pre-send save is stale, discard only the unsent draft, and serialize the final accounting
+merge against a second writer. The revision guard and authentication-nonce exclusion remain.
+All 56 tick tests passed on merged source. No dependency or systemd unit changed.
+
+The host clock was checked before release. Both September 5/6 capture refusal windows had
+ended. The Windows tar's writable permission bits were removed from the staged bundle
+before secure-owner verification and release. `preflight.sh 22` passed with the independently
+counted nginx warnings, 883,593,636 KiB free, and all 21 units verified. Nginx was not changed
+or reloaded. The release verified and published its SQLite backup before stopping the app,
+accepted health on attempt 5, and passed all inventory, v3-state, HTML and stylesheet gates.
+The installed-wheel smoke then passed on the host outside the source tree, exercising the
+four category routes with stubbed external runners and a temporary database, not live hires.
+
+Post-release HTTPS reads reported the deployed commit above, six services all with
+`paid_stock=false`, and the same nine v3 family states. Snapshot 57 remained complete at
+473/473. The API still reported `degraded`: its refresh record was old and its unfinished
+candidate began at `2026-09-06T13:41:51Z`; database and RPC checks passed, and its three
+recent probe runs passed. This does not establish recovery of the upstream registry.
+
+`docket.service` was active, working in `/var/lib/docket`, using the installed interpreter
+with `-P -m uvicorn --factory docket.api:create_app` on loopback port 8090. The jobs timer
+remained every minute and the probe timer every ten minutes. The payment canary remained
+disabled and inactive. No experiment seats, primaries or payments were initiated.
+
+This is builder-collected operational evidence, not an independently anchored attestation
+or proof of a funded session executing the repaired race in production.
