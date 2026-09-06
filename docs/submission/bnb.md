@@ -30,7 +30,7 @@ BNB asks for the full journey — land, find by category, understand, and activa
 Studio knowledge and no dead end. The wording and the published criterion order are preserved in
 the [sponsor briefing](../deliberation/2026-08-14-BRIEFING-V2.md#11-bnb-chain--main-track-30000--adoption).
 
-The cold-browser path for Docket-run services is:
+The wallet-free sample path for Docket-run services is:
 
 1. [Land on the marketplace](https://docket.gudman.xyz/).
 2. Choose one of the [four job categories](https://docket.gudman.xyz/categories).
@@ -45,6 +45,13 @@ The cold-browser path for Docket-run services is:
 5. Read the returned result and hash-bound delivery receipt on the same page; the receipt binds
    canonical request and result objects but does not establish correctness
    ([receipt contract](../api-and-payment-semantics.md#free-hire)).
+
+Activation is a separate wallet-signed journey, available even while paid stock is closed.
+The [2026-09-05 operational record](../operational-evidence.md#the-first-real-activations)
+documents a free one-shot completing with a result and receipt, plus an unfunded session
+whose key was minted and revoked with every balance verified zero. Neither proves a paid
+activation or funded session execution. The [activation page](https://docket.gudman.xyz/activate?service=range-doctor)
+offers the once-or-continuously choice and shows the quoted price and permission scope before signing.
 
 The registry path is deliberately narrower. A person can inspect any surfaced BSC identity and
 its recorded A2A/MCP endpoint observations; a fresh re-probe appears only when the stored target
@@ -85,12 +92,16 @@ BNB asks for rebalancing, grid trading, yield optimisation, and health-factor mo
 equal depth; the scored category list is in the
 [sponsor briefing](../deliberation/2026-08-14-BRIEFING-V2.md#11-bnb-chain--main-track-30000--adoption).
 
-| Category | What the service actually returns | Evidence boundary |
+The following are read-only previews. Separate [category executors](../../docket/jobs/executors/)
+prepare bounded calls for the [session runner](../../docket/jobs/tick.py); their shipped code
+is not evidence that a funded production session has executed.
+
+| Category | What the preview actually returns | Evidence boundary |
 |---|---|---|
 | Rebalancing | [Range Doctor](https://docket.gudman.xyz/service?id=range-doctor) reads PancakeSwap v3 position state, tick placement, gross and protocol-adjusted net fee rates, caller-declared fixed-notional effects, and conditional wait/recenter paths. | Its [service record](https://docket.gudman.xyz/services/range-doctor) links the paired v1 task and states the recorded wallet, window, method, and limitations. It signs, approves, and moves nothing. |
 | Grid trading | [Grid Operator](https://docket.gudman.xyz/service?id=grid-operator) returns a deterministic PancakeSwap V2 grid preview with live router quotes, bounds, calldata hashes, deadlines, and gas ceilings. | Its [service record](https://docket.gudman.xyz/services/grid-operator) carries one recorded live read and explicitly says no paired run against a person stands behind the card metric. It submits nothing. |
 | Yield optimisation | [Yield Router](https://docket.gudman.xyz/service?id=yield-router) returns the eligible PancakeSwap v3 pool set, exclusions, gross/net fee rates, ordering method, and caller-supplied-cost break-even arithmetic. | Its [service record](https://docket.gudman.xyz/services/yield-router) carries one dated Explorer read and explicitly says no paired run against a person stands behind the card metric. It submits nothing. |
-| Health-factor monitoring | [Health Guard](https://docket.gudman.xyz/service?id=health-guard) returns Venus Core Pool liquidity and shortfall, a labelled derived collateral ratio, entered-market inputs, and bounded repay/supply-collateral drafts. | Its [service record](https://docket.gudman.xyz/services/health-guard) carries one recorded BSC read and explicitly says no paired run against a person stands behind the card metric. It has no Venus execution path. |
+| Health-factor monitoring | [Health Guard](https://docket.gudman.xyz/service?id=health-guard) returns Venus Core Pool liquidity and shortfall, a labelled derived collateral ratio, entered-market inputs, and bounded repay/supply-collateral drafts. | Its [service record](https://docket.gudman.xyz/services/health-guard) carries one recorded BSC read and explicitly says no paired run against a person stands behind the card metric. This preview submits nothing; the separate session executor supports bounded repayment, while collateral additions remain owner-signed. |
 
 All four categories therefore have the same marketplace floor: a category entry, a full service
 detail, a controlled example, a hire route, a non-empty recorded metric, its evidence modality,
@@ -163,6 +174,12 @@ Three adjacent limits are also explicit:
   ([live v3 report](https://docket.gudman.xyz/advantage/v3.json)).
 
 ## Adoption
+
+As of 2026-09-06, v3-07 Range, v3-08 Yield, and v3-09 Health remain
+`registered_waiting_for_inputs`; none supplies a paired result. Their source captures and
+registrations must not be presented as results. The [current v3 report](https://docket.gudman.xyz/advantage/v3.json)
+and [submission summary](README.md#evidence-posture) distinguish the newer families from
+the historical six-family observation above.
 
 The marketplace is [publicly reachable now](https://docket.gudman.xyz/health), but availability
 through the judging window remains an owner operational obligation under the

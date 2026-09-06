@@ -5,7 +5,7 @@
 
 Docket answers that brief with Range Doctor: a read-only PancakeSwap V3 position analyst that reports current range state, pool economics, and conditional wait-or-recenter paths from BSC and PancakeSwap data. [Open the live position page](https://docket.gudman.xyz/pancake) or [inspect the service contract](https://docket.gudman.xyz/services/range-doctor).
 
-The public record contains 14 rows: 13 observations and the owner's 2026-08-24 `WAIT` decision. The decision links to its prior observation, and the Aug 25-27 observations link back to it. This proves record linkage, not causal improvement, realized return, or that Docket caused the choice. [Inspect all stored rows](https://docket.gudman.xyz/lp-record).
+The historical record through 2026-08-27 contains 14 rows: 13 observations and the owner's 2026-08-24 `WAIT` decision. The decision links to its prior observation, and the Aug 25-27 observations link back to it. This proves record linkage, not causal improvement, realized return, or that Docket caused the choice. [Inspect all stored rows](https://docket.gudman.xyz/lp-record).
 
 ## The controlled-position loop
 
@@ -21,6 +21,11 @@ The historical pre-decision window below was checked on 2026-08-23 UTC. The live
 The live record instantiates the repository's append-only observation → owner decision → later observation format and digest links. It establishes linkage only, not the quality, execution, or effect of the decision. [Read the evidence-format limits](../controlled-lp-evidence.md#observation-decision-later-observation).
 
 ## Structural safety
+
+This section describes the read-only Range Doctor and Yield Router previews, not Docket's
+separate [bounded-session executors](../../docket/jobs/executors/). The latter can prepare
+calls for the session runner. The [production activation evidence](../operational-evidence.md#the-first-real-activations)
+records a free one-shot and an unfunded session mint/revoke, not funded onchain execution.
 
 Range Doctor loads no key, builds no transaction, and asks for no approval; every action it emits terminates at a PancakeSwap interface link. [Range Doctor source](../../docket/agents/pancake/doctor.py#L1-L7).
 
@@ -61,6 +66,12 @@ For the frozen v2 analysis, the corpus records the Explorer URL, fetch time, and
 - The separate `v3-04-warden-security` family is `complete_unscored`: 24/24 primaries are terminal, but seat B returned no first scoring response and substitution is forbidden. Frozen-label formulas show manual recall at 0.75 versus Warden at 0.50 and three Warden critical failures; absent rubric medians leave no registered falsifier verdict. [Live v3 report](https://docket.gudman.xyz/advantage/v3.json).
 
 ## Judge path
+
+As of 2026-09-06, the distinct v3-07 Range successor and v3-08 Yield family remain
+`registered_waiting_for_inputs` without paired results. Their source captures are inputs,
+not evidence of agent advantage. Their scheduled September 7 and 8 runs must be reported
+as they finish, including failures or absent results; see the [Range](../runbooks/range-v3-07-run.md)
+and [Yield](../runbooks/yield-v3-08-run.md) runbooks and [current v3 report](https://docket.gudman.xyz/advantage/v3.json).
 
 1. Open the [PancakeSwap position page](https://docket.gudman.xyz/pancake) for the live read and conditional paths.
 2. Open the [raw LP record](https://docket.gudman.xyz/lp-record) and confirm the prior-decision-later-state digest links and their causal limits.

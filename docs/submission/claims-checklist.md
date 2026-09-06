@@ -27,16 +27,24 @@ This ledger covers every factual proposition in the master submission, sponsor b
 
 ## What each service returns
 
+S-01 through S-04 describe read-only preview paths. Separate [category executors](../../docket/jobs/executors/)
+prepare bounded calls for the session runner; absence of a signer in a preview is not absence
+of an execution path in Docket.
+
 | ID | Fact-bearing sentence or proposition | Used in | Evidence |
 |---|---|---|---|
 | S-01 | Range Doctor reads PancakeSwap v3 position state and returns range placement, disclosed fee arithmetic, fixed-notional effects when caller inputs exist, and wait/recenter paths; it signs, approves, and moves nothing. | `README.md`; `bnb.md`; `termix.md`; `pancakeswap.md` | [Range record](https://docket.gudman.xyz/services/range-doctor) |
 | S-02 | Grid Operator returns a deterministic PancakeSwap v2 preview with live quotes, price levels, bounds, calldata hashes, deadlines, gas ceilings, and slippage limits; it has no signer or submitter. | `README.md`; `bnb.md`; `termix.md` | [Grid record](https://docket.gudman.xyz/services/grid-operator) |
 | S-03 | Yield Router returns a reproducible PancakeSwap v3 pool set, exclusions, gross and protocol-adjusted rates, ordering method, and caller-cost break-even arithmetic; it may draft unsigned swap calldata but cannot submit it. | `README.md`; `bnb.md`; `termix.md`; `pancakeswap.md` | [Yield record](https://docket.gudman.xyz/services/yield-router), [source](../../docket/agents/yield_router/router.py) |
-| S-04 | Health Guard returns Venus Core Pool liquidity and shortfall, a disclosed collateral-ratio derivation, market inputs, and bounded repay/supply-collateral drafts; this build has no Venus execution path. | `README.md`; `bnb.md`; `termix.md` | [Health record](https://docket.gudman.xyz/services/health-guard) |
+| S-04 | Health Guard's read-only preview returns Venus Core Pool liquidity and shortfall, a disclosed collateral-ratio derivation, market inputs, and bounded repay/supply-collateral drafts; it submits nothing. The separate session executor supports bounded repayment; collateral additions remain owner-signed. | `README.md`; `bnb.md`; `termix.md` | [Health record](https://docket.gudman.xyz/services/health-guard), [session executor](../../docket/jobs/executors/health.py) |
 | S-05 | Warden's free path makes a live upstream scan and returns the upstream decision, threat classes, detections, sanitized text, and layer checks; it is telemetry rather than an enforcement boundary and its records contain misses. | `termix.md` | [Warden record](https://docket.gudman.xyz/services/warden-scan) |
 | S-06 | SOLVENT returns a historical regime payload and receipt-chain material; it is not a live trading feed and establishes neither correctness nor profit. | `termix.md` | [SOLVENT task](https://docket.gudman.xyz/advantage#02-trading), [service record](https://docket.gudman.xyz/services/solvent-signal) |
 
 ## Registry data and identity
+
+The refresh cadence below is a schedule, not a guarantee of a new snapshot. The
+[September 5 record](../operational-evidence.md#collected-2026-09-05--release-of-1d0d27c-and-the-first-real-activations)
+documents an upstream HTTP 500 and degraded refresh status; only complete candidates are promoted.
 
 | ID | Fact-bearing sentence or proposition | Used in | Evidence |
 |---|---|---|---|
@@ -90,7 +98,7 @@ This ledger covers every factual proposition in the master submission, sponsor b
 |---|---|---|---|
 | P-01 | `/pancake` starts a fresh worked Range Doctor read when opened and renders the live decision above the fixed-window history, economics, conditional actions, structural boundary, and post-hoc impact. | `demo-script.md`; `judge-start-here.md`; `pancakeswap.md` | [Page](https://docket.gudman.xyz/pancake), [page source](../../docket/api/web/pancake.html), [runtime source](../../docket/api/web/app.js) |
 | P-02 | The record's first nine `lp-record.v1` observations cover 2026-08-15 through 2026-08-23: position 7141050 was inside `[-65200,-63193)` at block 117181279 on Aug 21, below it at tick -65481/block 117372750 on Aug 22, and still below it at tick -65263/block 117565445 on Aug 23. | `pancakeswap.md` | [LP record](https://docket.gudman.xyz/lp-record) |
-| P-03 | The current record has 14 rows: 13 observations and the owner's 2026-08-24 `WAIT` decision. Its `prior_observation_sha256` links to the prior observation; the Aug 25-27 rows link back through `answers_decision_sha256`. This proves record linkage, not causal improvement, realized return, or that Docket caused the choice. | `README.md`; `pancakeswap.md`; `judge-start-here.md`; `demo-script.md` | [LP record](https://docket.gudman.xyz/lp-record) |
+| P-03 | The historical record through 2026-08-27 has 14 rows: 13 observations and the owner's 2026-08-24 `WAIT` decision. Its `prior_observation_sha256` links to the prior observation; the Aug 25-27 rows link back through `answers_decision_sha256`. This proves record linkage, not causal improvement, realized return, or that Docket caused the choice. | `README.md`; `pancakeswap.md`; `judge-start-here.md`; `demo-script.md` | [LP record](https://docket.gudman.xyz/lp-record) |
 | P-04 | The repository's observation → owner decision → later observation format and digest checks are instantiated by the live record; they establish linkage, not decision quality, execution, or effect. | `README.md`; `pancakeswap.md`; `judge-start-here.md` | [Evidence format](../controlled-lp-evidence.md#observation-decision-later-observation) |
 | P-05 | Range Doctor loads no key, builds no transaction, asks for no approval, and returns actions that end at PancakeSwap interface links; its reader uses read-only chain calls and broadcasts nothing. | `README.md`; `pancakeswap.md`; `judge-start-here.md`; `demo-script.md` | [Doctor source](../../docket/agents/pancake/doctor.py), [reader source](../../docket/agents/pancake/positions.py), [live boundary](https://docket.gudman.xyz/pancake#structural-safety-heading) |
 | P-06 | PancakeSwap's first-party swap and liquidity planning skills terminate in prefilled interface deep links rather than executing the planned action. | `pancakeswap.md` | [PancakeSwap agent reference](https://github.com/pancakeswap/pancakeswap-ai/blob/main/AGENTS.md) |
@@ -99,9 +107,22 @@ This ledger covers every factual proposition in the master submission, sponsor b
 
 ## Explicitly cut claims
 
+The read-only safety statements above, including P-05, apply to the preview modules rather
+than the separate bounded-session paths. The [September 5 activation record](../operational-evidence.md#the-first-real-activations)
+establishes a completed wallet-signed free one-shot and an unfunded session mint/revoke with
+every balance verified zero. It establishes neither a paid activation nor funded onchain
+execution, and delivery hashes are not proof of correctness or onchain anchoring.
+
+As of 2026-09-06, v3-07 Range, v3-08 Yield and v3-09 Health remain
+`registered_waiting_for_inputs`, with no paired results. The historical six-family rows
+above are dated observations, not the full current inventory. Source captures are inputs,
+not completed tasks; see the [current report](https://docket.gudman.xyz/advantage/v3.json)
+and [Range](../runbooks/range-v3-07-run.md), [Yield](../runbooks/yield-v3-08-run.md), and
+[Health](../runbooks/health-v3-09-run.md) runbooks. No demo video is supplied as of this review.
+
 | Cut claim | Reason and source of truth |
 |---|---|
-| The controlled LP history contains an eight-line completed owner-decision chain. | The [LP record](https://docket.gudman.xyz/lp-record) instead has 14 rows: 13 observations and one linked `WAIT` decision. |
+| The controlled LP history contains an eight-line completed owner-decision chain. | The [LP record](https://docket.gudman.xyz/lp-record) through 2026-08-27 has 14 rows: 13 observations and one linked `WAIT` decision. |
 | Docket improved this LP's return or caused an owner action. | The record proves linkage, not causal improvement, realized return, or that Docket caused the choice; v2's decision-impact section is a fixed-notional, post-hoc arithmetic study. [LP record](https://docket.gudman.xyz/lp-record), [v2](https://docket.gudman.xyz/advantage/v2.json) |
 | V2 decision impact was preregistered. | The [v2 artifact](https://docket.gudman.xyz/advantage/v2.json) labels it `post_hoc`. |
 | The controlled position's earned fees or realized return are known. | Range exposes pool-wide rate context and declared-notional proxies, not position-level earnings. [Range record](https://docket.gudman.xyz/services/range-doctor) |

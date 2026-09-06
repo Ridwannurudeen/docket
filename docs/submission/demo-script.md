@@ -1,12 +1,16 @@
 # Three-minute Docket demo
 
+This is a recording plan, not an existing video. No demo video is supplied as of
+2026-09-06. Record real narration and a fresh live journey; do not present stored evidence
+or a prior log as live execution.
+
 **Recording gate.** Record this only against the deployed integrated release — the
 activation pages, bounded sessions, marketplace search and the status page all live on the
 host being filmed; if any one of them is not serving, the recording does not start.
 Every figure that appears in the film is read off the page at the moment it is shown, so
 nothing in this script is a number to recite and no figure here can go stale into a video.
 
-Record at 1280×720 or higher from a cold browser with no wallet extension connected. Keep the address bar visible whenever changing pages so the public URL is part of the shot.
+Record at 1280×720 or higher from a cold browser with a wallet available but initially disconnected. Keep the address bar visible whenever changing pages so the public URL is part of the shot. Connect only at the activation step. Do not fund a session for this script.
 
 This is a successful journey, recorded in the order a visitor walks it: the promise, the comparison, the activation, the result, the four categories, the evidence, and the boundary. Describe what is on screen. Read every figure off the page at the moment it is shown rather than reciting one from this script — a number typed here goes stale, and a stale number in a recording cannot be corrected.
 
@@ -16,9 +20,9 @@ This is a successful journey, recorded in the order a visitor walks it: the prom
 
 **Action:** Land on the marketplace. Do not scroll yet.
 
-**Say:** “BSC has a very large ERC-8004 agent registry — read the current total off Docket's own snapshot page in a moment; at the time of recording, from `/stats`, it is the figure shown there. Almost none of those registrations tell you whether the agent works. Docket is the marketplace that answers that: find BSC agents that actually work, compare them on live performance, activate them with bounded permissions, and verify every result onchain.”
+**Say:** “Docket's snapshot page reports the BSC registry population it observed, with its age and denominator. Registration alone does not tell us whether a service works. Docket lets a visitor compare the recorded evidence, activate a service with bounded permissions, and inspect the result's receipt and supporting record.”
 
-**Point at:** the headline, the two actions, and the counter rail beneath them. Say that every counter on that rail is counted from the store at page build and published at [/api/marketplace/summary](https://docket.gudman.xyz/api/marketplace/summary), including the counter that is zero.
+**Point at:** the headline, the two actions, and the counter rail beneath them. Say that every counter on that rail is counted from the store at page build and published at [/api/marketplace/summary](https://docket.gudman.xyz/api/marketplace/summary). Read the displayed values, including any zeros.
 
 ## 0:20–0:50 — discover and compare
 
@@ -30,21 +34,21 @@ This is a successful journey, recorded in the order a visitor walks it: the prom
 
 ## 0:50–1:35 — activate
 
-**URL:** <https://docket.gudman.xyz/activate?category=health_factor>
+**URL:** <https://docket.gudman.xyz/activate?service=range-doctor>
 
-**Clicks:** Open the health-factor job, choose the **Health Shield** listing (service id `health-guard`), and load the sample Venus position that the form offers.
+**Clicks:** Open **Range Keeper** (service id `range-doctor`), choose a one-shot, enter the worked-example inputs shown by the form, and select **Activate on the free tier**. Connect the wallet and sign the create and approve requests. **Try free sample** and **Use the worked example** run samples, not activations.
 
-**Say:** “Activation is three steps: choose the job, set the limits, activate. Here the limits are the ones this job needs — the minimum collateral ratio the agent must defend, the rescue cap it may never exceed, and the expiry after which the permission lapses on its own. Those are stated before anything is signed. Then the wallet connects, and the authorization is written for an exact amount rather than an open approval.”
+**Say:** “This is a one-shot activation on the free tier, not a payment. The page states the inputs, price and permission scope before the wallet signs. Create and approve are separate signed requests; the result appears only after the run completes.”
 
 **Point at:** each control as it is named; then the summary of what is about to be granted, immediately before the confirmation step.
 
-**Boundary to say out loud:** “Venus publishes no health factor. Docket derives the collateral ratio from the liquidity and shortfall the comptroller reports, and the page carries the formula, its inputs and its scales inline.”
+**Boundary to say out loud:** “This free one-shot reads and reports. It is not a funded session executing a trade.”
 
 ## 1:35–1:55 — the result and the control that follows it
 
-**Say:** “The run comes back with the job it did, and a receipt that binds the request hash and the result hash to a delivery record. The permission it was granted is shown as scope, not as a promise: what it may call, how much it may move, and when it expires. The same page carries pause and revoke, and revoking sweeps the session back to the owner.”
+**Say, only after completion:** “The one-shot completed with a result and a receipt binding the input and output hashes. A continuous session is a separate lifecycle. The published September 5 evidence records an unfunded session key being minted and revoked, with all balances verified zero; that is not evidence of funded execution.”
 
-**Point at:** the result headline, the receipt's input and output hashes, the permission scope block, and the pause and revoke controls.
+**Point at:** the one-shot's completed state, result, receipt hashes, and permission scope. If showing session controls, label them as a separate session; do not claim a one-shot has been paused or revoked. [Dated session evidence](../operational-evidence.md#the-first-real-activations).
 
 **Boundary to say out loud:** “A receipt binds hashes to a delivery record. It does not establish that the result is correct, and it does not establish that a reported settlement reached chain finality.”
 
@@ -66,7 +70,7 @@ This is a successful journey, recorded in the order a visitor walks it: the prom
 
 ## 2:40–3:00 — the trust moat
 
-**Say:** “Five things stand behind a listing here. An ERC-8004 identity on BSC that anyone can resolve. Endpoint verification, recorded with the time it was last observed. A payment receipt whose hashes a buyer can recompute. Evidence provenance — every figure carries its numerator, denominator, window and method. And an adverse-results archive: the security comparison where the human arm beat ours is on the same site, at the same level of detail as everything else, because a marketplace that published only its flattering results would be publishing a verdict.”
+**Say:** “The catalogue makes its evidence inspectable: BSC identity bindings where present, dated endpoint observations, delivery receipts with recomputable hashes, metric provenance, and adverse results. Missing evidence stays visible. The security comparison where the human arm beat ours is on the same site as the flattering results.”
 
 **Then open:** <https://docket.gudman.xyz/registrations/range-doctor.json> and, briefly, the adverse case on the home page.
 
@@ -94,5 +98,5 @@ Return to the activation flow only if the live result has arrived; do not claim 
 ## Thirty-second version
 
 - **0:00–0:10:** Open <https://docket.gudman.xyz/>. Say: “Find BSC agents that actually work. Every listing answers the same ten questions, and every counter on this rail is counted from the store rather than typed.”
-- **0:10–0:22:** Open the health-factor activation. Say: “Choose the job, set the limits — minimum collateral ratio, rescue cap, expiry — then activate. The authorization is for an exact amount, and the permission can be paused and revoked.”
+- **0:10–0:22:** Open the Range one-shot activation. Say: “Choose the job, inspect the inputs, price and scope, then sign. This is quoted free; the receipt does not prove payment or funded execution.”
 - **0:22–0:30:** Open <https://docket.gudman.xyz/advantage>. Say: “Every registered task and family on one page, with `unscored` and `not run` distinguished from a blank. Including the comparison our own security agent lost. Hire by evidence, not promises.”
