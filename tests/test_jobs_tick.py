@@ -4,6 +4,7 @@
 leaked registration would make the next test pass for the wrong reason.
 """
 
+import sqlite3
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -17,6 +18,7 @@ from docket.jobs.executors import EXECUTORS, NoopExecutor, register
 from docket.jobs.executors.base import Decision, PreparedCall
 from docket.jobs.executors.health import HealthShieldExecutor
 from docket.jobs.executors.range import RangeKeeperExecutor
+from docket.jobs.models import Activation
 from docket.jobs.service import ActivationService
 from docket.store import StaleActivation, Store
 from tests.test_jobs_service import (
@@ -906,6 +908,9 @@ def test_a_send_is_refused_when_another_writer_reached_the_row_first(
     assert errors == 1
     assert node.pending == []
     assert node.mined_order == []
+    stored = store.get_activation(aid)
+    assert not (stored.result or {}).get("pending_sends")
+    assert not any("broadcast were merged" in event.reason for event in stored.events)
 
 
 def test_a_token_received_on_an_earlier_pass_is_still_swept_after_a_quiet_one(
@@ -1292,6 +1297,58 @@ def test_an_approval_to_a_stranger_is_never_broadcast(
     assert any("unmeasured spend" in e.reason for e in stored.events)
 
 
+def test_the_final_send_merge_excludes_a_second_competing_writer(
+    tmp_path, sessions_key, monkeypatch
+):
+    store = Store(tmp_path / "tick.sqlite3")
+    rpc = SendingRpc()
+    service, activation = _active(store, rpc)
+    register("rebalancing", ActionExecutor())
+    real_save = store.save_activation
+    saves = {"n": 0}
+
+    def racing_save(row, *, expected_updated_at):
+        saves["n"] += 1
+        if saves["n"] == 3:
+            service.pause(row.activation_id)
+        return real_save(row, expected_updated_at=expected_updated_at)
+
+    real_note = Activation.note
+    blocked = []
+
+    def racing_note(row, reason, *, actor, at=None):
+        if reason.startswith("another writer reached this activation first"):
+            conn = sqlite3.connect(store.path, timeout=0)
+            try:
+                with conn:
+                    conn.execute(
+                        "UPDATE activations SET state = 'revoking', revision = revision + 1 "
+                        "WHERE activation_id = ?",
+                        (row.activation_id,),
+                    )
+                blocked.append(False)
+            except sqlite3.OperationalError as exc:
+                assert "locked" in str(exc)
+                blocked.append(True)
+            finally:
+                conn.close()
+        return real_note(row, reason, actor=actor, at=at)
+
+    monkeypatch.setattr(store, "save_activation", racing_save)
+    monkeypatch.setattr(Activation, "note", racing_note)
+    assert tick.run_once(store, rpc=rpc, environment=sessions_key) == 0
+
+    stored = store.get_activation(activation.activation_id)
+    assert blocked == [True]
+    assert stored.state == "paused"
+    assert len(rpc.sent) == 1
+    assert stored.receipts[0].execution["tx_hash"] == rpc.sent[0]
+    assert stored.session["spent_atomic"][USDT] == str(10 * 10**18)
+    assert stored.result["pending_sends"] == {}
+    assert service.revoke(activation.activation_id).state == "revoking"
+    assert store.get_activation(activation.activation_id).receipts == stored.receipts
+
+
 def test_closing_zeroes_the_allowance_before_it_can_be_called_revoked(
     tmp_path, sessions_key, monkeypatch
 ):
@@ -1429,3 +1486,54 @@ def test_the_activation_cas_does_not_depend_on_the_shape_of_a_timestamp(
     kept = store.get_activation(activation.activation_id)
     assert kept.updated_at == stamp
     assert [event.reason for event in kept.events][-1] == "first writer"
+
+
+@pytest.mark.parametrize("race_on_save", (2, 3))
+@pytest.mark.parametrize("second_is_approval", (False, True))
+def test_a_stale_save_between_calls_keeps_the_mined_call_and_discards_the_unsent_one(
+    tmp_path, sessions_key, monkeypatch, race_on_save, second_is_approval
+):
+    from tests.fakenode import Node
+
+    monkeypatch.setattr("docket.sessions.executor.RECEIPT_PAUSE_S", 0)
+    store = Store(tmp_path / "tick.sqlite3")
+    node = Node(estimate=180_000)
+    node.automine_on_receipt = True
+    service, activation = _node_active(store, node)
+    executor = ActionExecutor(calls=2)
+    if second_is_approval:
+        decision = executor.evaluate(activation)
+        approval = ApprovingExecutor(amount=100 * 10**18).evaluate(activation)
+        monkeypatch.setattr(
+            executor,
+            "evaluate",
+            lambda activation, *, reader=None: replace(
+                decision, prepared=(decision.prepared[0], approval.prepared[0])
+            ),
+        )
+    register("rebalancing", executor)
+    real_save = store.save_activation
+    saves = {"n": 0}
+
+    def racing_save(row, *, expected_updated_at):
+        saves["n"] += 1
+        if saves["n"] == race_on_save:
+            service.pause(row.activation_id)
+        return real_save(row, expected_updated_at=expected_updated_at)
+
+    monkeypatch.setattr(store, "save_activation", racing_save)
+    assert tick.run_once(store, rpc=NodeRpc(node), environment=sessions_key) == 1
+
+    stored = store.get_activation(activation.activation_id)
+    assert stored.state == "paused"
+    assert len(node.mined_order) == 1
+    assert node.pending == []
+    assert len(stored.receipts) == 1
+    assert stored.receipts[0].execution["tx_hash"] == node.mined_order[0]
+    assert len(stored.result["settled_sends"]) == 1
+    assert stored.result["settled_sends"][0]["tx_hash"] == node.mined_order[0]
+    assert stored.result["pending_sends"] == {}
+    assert stored.session["spent_atomic"][USDT] == str(10 * 10**18)
+    assert int(stored.session["spent_atomic"]["BNB"]) > 0
+    assert stored.session["reserved_atomic"] == {}
+    assert node.allowances == {}

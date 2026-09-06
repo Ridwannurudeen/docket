@@ -1521,14 +1521,47 @@ class Store:
             ).fetchone()
         return int(row["n"])
 
+    def _save_activation_on_connection(
+        self,
+        conn: sqlite3.Connection,
+        activation: Activation,
+        *,
+        expected_updated_at: str,
+        expected_revision: int,
+    ) -> int:
+        next_revision = expected_revision + 1
+        cursor = conn.execute(
+            """UPDATE activations
+               SET service_id = ?, category = ?, kind = ?, owner = ?, state = ?,
+                   quote_json = ?, policy_json = ?, session_json = ?,
+                    inputs_json = ?, result_json = ?, receipts_json = ?,
+                    events_json = ?, next_action_json = ?,
+                    created_at = ?, updated_at = ?, expires_at = ?, revision = ?
+                WHERE activation_id = ? AND updated_at = ? AND revision = ?""",
+            (
+                *_activation_row(activation, with_nonce=False)[1:-1],
+                next_revision,
+                activation.activation_id,
+                expected_updated_at,
+                expected_revision,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise StaleActivation(
+                f"{activation.activation_id} changed since it was read "
+                f"(expected revision {expected_revision} and "
+                f"updated_at {expected_updated_at})"
+            )
+        return next_revision
+
     def save_activation(self, activation: Activation, *, expected_updated_at: str):
         """Write one activation back, refusing a row that moved underneath the caller.
 
         Two ticks, or a tick and an owner's revoke, can reach the same activation at the
         same time. Without this the later write would silently discard the earlier one's
         events — including, in the worst ordering, the record of a transaction that had
-        already been broadcast. The read-modify-write is made safe by the row's own
-        `updated_at` rather than by a lock the API would have to hold across a chain call.
+        already been broadcast. The read-modify-write refuses a row whose revision or
+        `updated_at` changed; the API does not hold a lock across a chain call.
 
         `auth_nonce` is deliberately NOT in the SET. `rotate_auth_nonce` is its only
         writer, and it runs before the work this saves — so writing the in-memory copy
@@ -1544,29 +1577,37 @@ class Store:
         from becoming current again and admitting a stale writer.
         """
         expected_revision = activation.revision
-        next_revision = expected_revision + 1
         with self._conn() as conn:
-            cursor = conn.execute(
-                """UPDATE activations
-                   SET service_id = ?, category = ?, kind = ?, owner = ?, state = ?,
-                       quote_json = ?, policy_json = ?, session_json = ?,
-                        inputs_json = ?, result_json = ?, receipts_json = ?,
-                        events_json = ?, next_action_json = ?,
-                        created_at = ?, updated_at = ?, expires_at = ?, revision = ?
-                    WHERE activation_id = ? AND updated_at = ? AND revision = ?""",
-                (
-                    *_activation_row(activation, with_nonce=False)[1:-1],
-                    next_revision,
-                    activation.activation_id,
-                    expected_updated_at,
-                    expected_revision,
-                ),
+            next_revision = self._save_activation_on_connection(
+                conn,
+                activation,
+                expected_updated_at=expected_updated_at,
+                expected_revision=expected_revision,
             )
-        if cursor.rowcount != 1:
-            raise StaleActivation(
-                f"{activation.activation_id} changed since it was read "
-                f"(expected revision {expected_revision} and "
-                f"updated_at {expected_updated_at})"
+        activation.revision = next_revision
+
+    @contextmanager
+    def activation_for_update(
+        self, activation_id: str
+    ) -> Iterator[Activation | None]:
+        """Hold the SQLite writer lock while one activation is merged and saved."""
+        with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT * FROM activations WHERE activation_id = ?", (activation_id,)
+            ).fetchone()
+            if row is None:
+                yield None
+                return
+            activation = _activation(row)
+            held_updated_at = activation.updated_at
+            held_revision = activation.revision
+            yield activation
+            next_revision = self._save_activation_on_connection(
+                conn,
+                activation,
+                expected_updated_at=held_updated_at,
+                expected_revision=held_revision,
             )
         activation.revision = next_revision
 
