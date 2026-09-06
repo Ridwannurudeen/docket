@@ -17,7 +17,7 @@ from .jobs.models import Activation, dumps, loads
 # Why a sweep stopped. Closed, because an open vocabulary here would let a new stop condition
 # arrive unclassified and be served as if it were a clean finish. Only `exhausted` may be
 # promoted to readers; the rest describe a sweep that ended without reaching the end.
-STOP_REASONS = ("exhausted", "max_pages", "not_advancing")
+STOP_REASONS = ("exhausted", "max_pages", "not_advancing", "error")
 # Verification levels, weakest to strongest, for ORDER BY only. Repeated here rather than
 # imported because this module is stdlib sqlite3 over a schema and imports nothing from the
 # domain packages; `tests/test_external_listings.py` asserts it equals

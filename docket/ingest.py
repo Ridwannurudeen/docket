@@ -100,6 +100,8 @@ def _sweep(
     `min_feedbacks` narrows the query server-side and is sent on every page, so `expected` is
     the total for the filtered query — not the registry total.
     """
+    if snapshot_id is not None and store.snapshot(snapshot_id).get("promoted_at"):
+        raise ValueError("cannot reuse a promoted snapshot")
     owned_targets = _owned_targets(owned_agent_ids, chain_id)
     first_items, expected = client.list_agents(
         chain_id, limit=MAX_LIMIT, offset=0, min_feedbacks=min_feedbacks
@@ -123,50 +125,56 @@ def _sweep(
     # A clean finish is assigned only by the loop's no-break path. Starting with the promotable
     # reason would let a future `break` that forgot its classification fail open.
     stop_reason: str | None = None
-    while items:
-        store.upsert_agents(items, sid)
-        pages += 1
-        offset += MAX_LIMIT
-        if max_pages is not None and pages >= max_pages:
-            stop_reason = "max_pages"
-            break
-        items, latest_total = client.list_agents(
-            chain_id, limit=MAX_LIMIT, offset=offset, min_feedbacks=min_feedbacks
-        )
-        if latest_total > expected:
-            expected = latest_total  # registry grew mid-sweep; report it, don't hide it
-        if items:
-            page_high = _highest_token_id(items)
-            if page_high <= highest:
-                # An ascending sweep must strictly advance. A page that doesn't means the API
-                # is ignoring `offset`; without this an unbounded sweep would loop forever.
-                logger.warning(
-                    "ingest: page %d did not advance past token_id %d; stopping early",
-                    pages + 1,
-                    highest,
-                )
-                stop_reason = "not_advancing"
+    try:
+        while items:
+            store.upsert_agents(items, sid)
+            pages += 1
+            offset += MAX_LIMIT
+            if max_pages is not None and pages >= max_pages:
+                stop_reason = "max_pages"
                 break
-            highest = page_high
-        if pages % 50 == 0:
-            logger.info("ingest: %d pages, %d stored", pages, store.agent_count(sid))
-    else:
-        stop_reason = "exhausted"
+            items, latest_total = client.list_agents(
+                chain_id, limit=MAX_LIMIT, offset=offset, min_feedbacks=min_feedbacks
+            )
+            if latest_total > expected:
+                expected = latest_total  # registry grew mid-sweep; report it, don't hide it
+            if items:
+                page_high = _highest_token_id(items)
+                if page_high <= highest:
+                    # An ascending sweep must strictly advance. A page that doesn't means the API
+                    # is ignoring `offset`; without this an unbounded sweep would loop forever.
+                    logger.warning(
+                        "ingest: page %d did not advance past token_id %d; stopping early",
+                        pages + 1,
+                        highest,
+                    )
+                    stop_reason = "not_advancing"
+                    break
+                highest = page_high
+            if pages % 50 == 0:
+                logger.info("ingest: %d pages, %d stored", pages, store.agent_count(sid))
+        else:
+            stop_reason = "exhausted"
 
-    if stop_reason is None:
-        raise RuntimeError("ingest sweep stopped without a classified reason")
+        if stop_reason is None:
+            raise RuntimeError("ingest sweep stopped without a classified reason")
 
-    stored_agent_ids = {agent["agent_id"].lower() for agent in store.iter_agents(sid)}
-    owned_agents_added = 0
-    for expected_agent_id, token_id in owned_targets:
-        detail = client.get_agent(chain_id, token_id)
-        total_feedbacks = _owned_detail(detail, expected_agent_id, token_id, chain_id)
-        if expected_agent_id not in stored_agent_ids:
-            if min_feedbacks is not None and total_feedbacks < min_feedbacks:
-                expected += 1
-            owned_agents_added += 1
-        store.upsert_agents([detail], sid)
-        stored_agent_ids.add(expected_agent_id)
+        stored_agent_ids = {agent["agent_id"].lower() for agent in store.iter_agents(sid)}
+        owned_agents_added = 0
+        for expected_agent_id, token_id in owned_targets:
+            detail = client.get_agent(chain_id, token_id)
+            total_feedbacks = _owned_detail(detail, expected_agent_id, token_id, chain_id)
+            if expected_agent_id not in stored_agent_ids:
+                if min_feedbacks is not None and total_feedbacks < min_feedbacks:
+                    expected += 1
+                owned_agents_added += 1
+            store.upsert_agents([detail], sid)
+            stored_agent_ids.add(expected_agent_id)
+    except Exception:
+        store.finish_snapshot(
+            sid, store.agent_count(sid), expected, stop_reason="error", promote=False
+        )
+        raise
 
     sampled = store.agent_count(sid)
     store.finish_snapshot(

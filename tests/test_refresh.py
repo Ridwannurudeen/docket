@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -7,7 +7,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 import docket.refresh as refresh_module
+import docket.scan8004 as scan8004_module
 from docket.api import create_app
+from docket.api.status import status_report
 from docket.refresh import (
     RefreshRefused,
     owned_agent_ids_from_environment,
@@ -175,6 +177,65 @@ def test_unexpected_refresh_failure_writes_error_status(tmp_path):
         datetime.fromisoformat(refresh_status["timestamp"]).utcoffset().total_seconds()
         == 0
     )
+
+
+@pytest.mark.parametrize("failure_stage", ["next_page", "owned_detail"])
+def test_failure_after_first_page_finishes_candidate_without_replacing_served_snapshot(
+    tmp_path, monkeypatch, failure_stage
+):
+    store = Store(tmp_path / "failed-candidate.sqlite3")
+    original = store.begin_snapshot(56, 1, "min_feedbacks>=1")
+    store.upsert_agents([_agent(999)], original)
+    store.finish_snapshot(original, 1)
+    original_row = store.snapshot(original)
+    app = create_app(store.path)
+    agents = [_agent(token) for token in range(1, 101)]
+    owned = _agent(201, feedbacks=0)
+    complete = _complete_registry(*agents, owned)
+    failure = (
+        httpx.ReadTimeout("fixture next-page timeout")
+        if failure_stage == "next_page"
+        else RuntimeError("fixture owned-detail failure")
+    )
+    monkeypatch.setattr(scan8004_module, "BACKOFF_S", (0,))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if failure_stage == "next_page" and request.url.params.get("offset") == "100":
+            raise failure
+        if failure_stage == "owned_detail" and request.url.path.endswith("/56/201"):
+            raise failure
+        return complete(request)
+
+    with Scan8004Client(transport=httpx.MockTransport(handler), pace=False) as registry:
+        with pytest.raises(type(failure)) as raised:
+            refresh_once(store, registry, owned_agent_ids=(owned["agent_id"],))
+
+    assert raised.value is failure
+    candidate = store.latest_snapshot_id()
+    assert candidate != original
+    row = store.snapshot(candidate)
+    assert row["finished_at"] is not None
+    assert row["stop_reason"] == "error"
+    assert row["sampled"] == store.agent_count(candidate) == 100
+    assert row["promoted_at"] is None
+    assert store.latest_complete_snapshot_id() == original
+    assert store.snapshot(original) == original_row
+    assert [agent["agent_id"] for agent in store.iter_agents(original)] == [_agent(999)["agent_id"]]
+    response = TestClient(app).get("/stats")
+    assert response.status_code == 200
+    assert response.json()["coverage"]["snapshot_id"] == original
+    assert response.json()["coverage"]["sampled"] == 1
+    report = status_report(
+        store,
+        release_commit_path=tmp_path / "RELEASE-commit.txt",
+        now=datetime.now(UTC),
+        rpc_probe=lambda: {"ok": True},
+    )
+    assert report["refresh_in_progress"] is None
+    refresh_status = json.loads(
+        (store.path.parent / "last-refresh.json").read_text(encoding="utf-8")
+    )
+    assert refresh_status["status"] == "error"
 
 
 def test_refresh_includes_an_allowlisted_agent_with_zero_feedback(tmp_path):
