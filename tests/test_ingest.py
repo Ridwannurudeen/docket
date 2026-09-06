@@ -75,7 +75,8 @@ def test_exhaustion_is_assigned_only_after_the_pagination_loop_does_not_break():
     )
     assert ast.literal_eval(stop_default.value) is None
 
-    loop = next(node for node in function.body if isinstance(node, ast.While))
+    sweep = next(node for node in function.body if isinstance(node, ast.Try))
+    loop = next(node for node in sweep.body if isinstance(node, ast.While))
     assert any(
         isinstance(node, ast.Assign)
         and any(
@@ -86,7 +87,7 @@ def test_exhaustion_is_assigned_only_after_the_pagination_loop_does_not_break():
         for node in loop.orelse
     )
 
-    guard = function.body[function.body.index(loop) + 1]
+    guard = sweep.body[sweep.body.index(loop) + 1]
     assert isinstance(guard, ast.If)
     assert isinstance(guard.test, ast.Compare)
     assert isinstance(guard.test.left, ast.Name)
@@ -327,6 +328,54 @@ def test_targeted_candidate_can_finish_without_becoming_current(tmp_path):
 
     row = store.snapshot(result["snapshot_id"])
     assert row["finished_at"]
+    assert row["promoted_at"] is None
+    assert store.latest_complete_snapshot_id() is None
+
+
+def test_promoted_snapshot_cannot_be_reused_or_changed_by_a_new_sweep(tmp_path):
+    store = Store(tmp_path / "promoted-reuse.sqlite3")
+    snapshot_id = store.begin_snapshot(56, 1, "all")
+    store.upsert_agents([_row(1)], snapshot_id)
+    store.finish_snapshot(snapshot_id, 1)
+    original = store.snapshot(snapshot_id)
+    original_agents = list(store.iter_agents(snapshot_id))
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url)
+        return httpx.Response(200, json={"items": [], "total": 0})
+
+    with Scan8004Client(transport=httpx.MockTransport(handler), pace=False) as client:
+        with pytest.raises(ValueError, match="cannot reuse a promoted snapshot"):
+            ingest_bsc(store, client, snapshot_id=snapshot_id)
+
+    assert calls == []
+    assert store.snapshot(snapshot_id) == original
+    assert list(store.iter_agents(snapshot_id)) == original_agents
+    assert store.latest_complete_snapshot_id() == snapshot_id
+
+
+def test_failure_closes_a_reused_unpromoted_snapshot_without_promoting_it(tmp_path):
+    store = Store(tmp_path / "unpromoted-reuse.sqlite3")
+    snapshot_id = store.begin_snapshot(56, 2, "all")
+    store.upsert_agents([_row(1)], snapshot_id)
+    failure = RuntimeError("fixture resumed page failure")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params["offset"] == "0":
+            return httpx.Response(200, json={"items": [_row(2)], "total": 2})
+        raise failure
+
+    with Scan8004Client(transport=httpx.MockTransport(handler), pace=False) as client:
+        with pytest.raises(RuntimeError) as raised:
+            ingest_bsc(store, client, snapshot_id=snapshot_id)
+
+    assert raised.value is failure
+    assert store.latest_snapshot_id() == snapshot_id
+    row = store.snapshot(snapshot_id)
+    assert row["finished_at"] is not None
+    assert row["sampled"] == store.agent_count(snapshot_id) == 2
+    assert row["stop_reason"] == "error"
     assert row["promoted_at"] is None
     assert store.latest_complete_snapshot_id() is None
 
