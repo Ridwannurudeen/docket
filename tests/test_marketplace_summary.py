@@ -476,6 +476,21 @@ def test_the_served_home_lists_every_catalogue_service_with_the_same_fields(tmp_
         assert f'<span class="mono listing-id">{listing_id}</span>' in card
 
 
+def test_listing_evidence_uses_a_native_disclosure_without_hiding_price(store):
+    from docket.api.summary import _listing_card
+
+    for listing in listing_facts(store, all_records()):
+        card = _listing_card(listing)
+        overview, disclosure = card.split('<details class="listing-evidence">')
+        assert '<dl class="listing-overview">' in overview
+        assert '<dt>Price</dt>' in overview
+        assert '<dt>Required permissions</dt>' in overview
+        assert '<summary>Evidence &amp; permissions</summary>' in disclosure
+        assert '<dt>Measurement window</dt>' in disclosure
+        assert '<dt>Evidence</dt>' in disclosure
+        assert '</details>' in disclosure
+
+
 def test_the_advantage_report_opens_with_the_one_page_summary(tmp_path):
     """Three additive reports, none superseding another, meant a reader had to open all
     three and hold them side by side to learn what had actually been measured. The

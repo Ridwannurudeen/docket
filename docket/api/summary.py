@@ -398,9 +398,15 @@ def _listing_card(listing: dict) -> str:
         f'<article class="listing-card" data-listing-id="{_esc(listing["service_id"])}">'
         f"<h3>{_esc(listing['name'])} "
         f'<span class="mono listing-id">{_esc(listing["service_id"])}</span></h3>'
+        f'<p class="listing-job">{_esc(listing["job"])}</p>'
+        '<dl class="listing-overview">'
+        f'<dt>Price</dt><dd>{_esc(listing["price"])}</dd>'
+        f'<dt>Required permissions</dt><dd>{_esc(listing["permissions"])}</dd></dl>'
+        '<details class="listing-evidence">'
+        '<summary>Evidence &amp; permissions</summary>'
         f'<dl class="listing-facts">{definitions}'
         f'<dt>Evidence</dt><dd><a href="{_esc(listing["evidence_url"])}">'
-        f"{_esc(listing['evidence_label'])}</a></dd></dl>"
+        f"{_esc(listing['evidence_label'])}</a></dd></dl></details>"
         '<p class="listing-actions">'
         f'<a href="/activate?service={_esc(listing["service_id"])}">Activate</a>'
         f'<a href="/service?id={_esc(listing["service_id"])}">Inspect</a>'

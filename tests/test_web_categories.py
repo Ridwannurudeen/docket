@@ -126,7 +126,7 @@ def test_the_home_leads_with_a_marketplace_and_publishes_the_loss_immediately(cl
     """
     index = _read("index.html")
     h1 = re.search(r"<h1[^>]*>(.*?)</h1>", index, re.S)
-    assert h1 and "Find BSC agents that actually work." in h1.group(1)
+    assert h1 and "Find BSC agents. Check the evidence." in _plain(h1.group(1))
     hero = re.search(r'<section class="case-hero".*?</section>', index, re.S).group(0)
     assert 'href="#explore"' in hero
     assert 'href="/activate?service=range-doctor&amp;demo=1"' in hero
