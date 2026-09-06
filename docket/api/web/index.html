@@ -184,19 +184,16 @@
           </div>
           <ol class="activation-steps">
             <li>
-              <strong>Choose the job.</strong> Open a listing and read what the agent
-              returns, what it cannot do, and what has been measured of it. The listing
-              names its price per completed run before you commit to anything.
+              <strong>Choose the job.</strong> Compare capabilities, limitations,
+              evidence and price before committing.
             </li>
             <li>
-              <strong>Set the limits.</strong> You state the position, the thresholds and
-              the ceilings the agent must stay inside. Nothing is signed at this step, and
-              an authorization is written for an exact amount rather than an open approval.
+              <strong>Set the limits.</strong> Enter your position and spending ceilings;
+              nothing is signed yet, and paid authorization is for an exact amount.
             </li>
             <li>
-              <strong>Activate and keep control.</strong> The run returns a result and a
-              receipt binding the request and result hashes to it. Docket holds no key for
-              you, so what happens next stays with the wallet that owns the position.
+              <strong>Activate and keep control.</strong> Review permissions before starting;
+              keep the result and its receipt binding the request and result hashes.
             </li>
           </ol>
         </section>
@@ -251,130 +248,132 @@
             <h2 id="experiments-title">
               <!-- summary-v3-families --> registered families. No scored result.
             </h2>
-            <p>
-              A missing artifact stays missing. The state below is reconstructed from the
-              committed records, not inferred from an empty cell.
-            </p>
           </div>
 
-          <div class="ruled-ledger">
-            <article class="experiment-row">
-              <div class="experiment-id">
-                <a href="/advantage/v3/v3-01-range-doctor">v3-01</a>
-                <span>Range Doctor</span>
-              </div>
-              <p class="experiment-state mono">superseded_before_input_lock</p>
-              <time datetime="2026-08-29">Observed 29 Aug 2026</time>
-              <p class="experiment-facts">
-                <strong>Exists:</strong> registered protocol.
-                <strong>Absent:</strong> locked inputs and arm outputs.
-              </p>
-            </article>
+          <details class="evidence-details">
+            <summary>View registered experiments</summary>
+            <div class="details-body">
+              <div class="ruled-ledger">
+                <article class="experiment-row">
+                  <div class="experiment-id">
+                    <a href="/advantage/v3/v3-01-range-doctor">v3-01</a>
+                    <span>Range Doctor</span>
+                  </div>
+                  <p class="experiment-state mono">superseded_before_input_lock</p>
+                  <time datetime="2026-08-29">Observed 29 Aug 2026</time>
+                  <p class="experiment-facts">
+                    <strong>Exists:</strong> registered protocol.
+                    <strong>Absent:</strong> locked inputs and arm outputs.
+                  </p>
+                </article>
 
-            <article class="experiment-row">
-              <div class="experiment-id">
-                <a href="/advantage/v3/v3-02-yield-router">v3-02</a>
-                <span>Yield Router</span>
-              </div>
-              <p class="experiment-state mono">abandoned_after_failed_primary</p>
-              <time datetime="2026-08-29">Observed 29 Aug 2026</time>
-              <p class="experiment-facts">
-                <strong>Exists:</strong> locked inputs, qualified calibration and one failed manual primary.
-                <strong>Absent:</strong> a complete paired run and score sheets.
-              </p>
-            </article>
+                <article class="experiment-row">
+                  <div class="experiment-id">
+                    <a href="/advantage/v3/v3-02-yield-router">v3-02</a>
+                    <span>Yield Router</span>
+                  </div>
+                  <p class="experiment-state mono">abandoned_after_failed_primary</p>
+                  <time datetime="2026-08-29">Observed 29 Aug 2026</time>
+                  <p class="experiment-facts">
+                    <strong>Exists:</strong> locked inputs, qualified calibration and one failed manual primary.
+                    <strong>Absent:</strong> a complete paired run and score sheets.
+                  </p>
+                </article>
 
-            <article class="experiment-row">
-              <div class="experiment-id">
-                <a href="/advantage/v3/v3-03-warden-security">v3-03</a>
-                <span>Warden Security</span>
-              </div>
-              <p class="experiment-state mono">superseded_before_input_lock</p>
-              <time datetime="2026-08-29">Observed 29 Aug 2026</time>
-              <p class="experiment-facts">
-                <strong>Exists:</strong> registered protocol and pilot history.
-                <strong>Absent:</strong> locked inputs and registered arm outputs.
-              </p>
-            </article>
+                <article class="experiment-row">
+                  <div class="experiment-id">
+                    <a href="/advantage/v3/v3-03-warden-security">v3-03</a>
+                    <span>Warden Security</span>
+                  </div>
+                  <p class="experiment-state mono">superseded_before_input_lock</p>
+                  <time datetime="2026-08-29">Observed 29 Aug 2026</time>
+                  <p class="experiment-facts">
+                    <strong>Exists:</strong> registered protocol and pilot history.
+                    <strong>Absent:</strong> locked inputs and registered arm outputs.
+                  </p>
+                </article>
 
-            <article class="experiment-row">
-              <div class="experiment-id">
-                <a href="/advantage/v3/v3-04-warden-security">v3-04</a>
-                <span>Warden Security</span>
-              </div>
-              <p class="experiment-state mono">complete_unscored</p>
-              <time datetime="2026-08-29">Observed 29 Aug 2026</time>
-              <p class="experiment-facts">
-                <strong>Exists:</strong> 24 terminal primaries.
-                <strong>Absent:</strong> required score sheets and scored verdict.
-              </p>
-            </article>
+                <article class="experiment-row">
+                  <div class="experiment-id">
+                    <a href="/advantage/v3/v3-04-warden-security">v3-04</a>
+                    <span>Warden Security</span>
+                  </div>
+                  <p class="experiment-state mono">complete_unscored</p>
+                  <time datetime="2026-08-29">Observed 29 Aug 2026</time>
+                  <p class="experiment-facts">
+                    <strong>Exists:</strong> 24 terminal primaries.
+                    <strong>Absent:</strong> required score sheets and scored verdict.
+                  </p>
+                </article>
 
-            <article class="experiment-row">
-              <div class="experiment-id">
-                <a href="/advantage/v3/v3-05-range-doctor">v3-05</a>
-                <span>Range Doctor</span>
-              </div>
-              <p class="experiment-state mono">locked_not_run</p>
-              <time datetime="2026-08-29">Observed 29 Aug 2026</time>
-              <p class="experiment-facts">
-                <strong>Exists:</strong> locked inputs and qualified calibration.
-                <strong>Absent:</strong> arm outputs and score sheets.
-              </p>
-            </article>
+                <article class="experiment-row">
+                  <div class="experiment-id">
+                    <a href="/advantage/v3/v3-05-range-doctor">v3-05</a>
+                    <span>Range Doctor</span>
+                  </div>
+                  <p class="experiment-state mono">locked_not_run</p>
+                  <time datetime="2026-08-29">Observed 29 Aug 2026</time>
+                  <p class="experiment-facts">
+                    <strong>Exists:</strong> locked inputs and qualified calibration.
+                    <strong>Absent:</strong> arm outputs and score sheets.
+                  </p>
+                </article>
 
-            <article class="experiment-row">
-              <div class="experiment-id">
-                <a href="/advantage/v3/v3-06-yield-router-assisted">v3-06</a>
-                <span>Yield Router / Codex-assisted baseline</span>
-              </div>
-              <p class="experiment-state mono">registered_waiting_for_inputs</p>
-              <time datetime="2026-08-29">Observed 29 Aug 2026</time>
-              <p class="experiment-facts">
-                <strong>Exists:</strong> distinct registered protocol and synthetic readiness gate.
-                <strong>Absent:</strong> future capture, locked inputs and arm outputs.
-              </p>
-            </article>
+                <article class="experiment-row">
+                  <div class="experiment-id">
+                    <a href="/advantage/v3/v3-06-yield-router-assisted">v3-06</a>
+                    <span>Yield Router / Codex-assisted baseline</span>
+                  </div>
+                  <p class="experiment-state mono">registered_waiting_for_inputs</p>
+                  <time datetime="2026-08-29">Observed 29 Aug 2026</time>
+                  <p class="experiment-facts">
+                    <strong>Exists:</strong> distinct registered protocol and synthetic readiness gate.
+                    <strong>Absent:</strong> future capture, locked inputs and arm outputs.
+                  </p>
+                </article>
 
-            <article class="experiment-row">
-              <div class="experiment-id">
-                <a href="/advantage/v3/v3-07-range-doctor">v3-07</a>
-                <span>Range Doctor / archive-pinned successor</span>
-              </div>
-              <p class="experiment-state mono">registered_waiting_for_inputs</p>
-              <time datetime="2026-08-29">Observed 29 Aug 2026</time>
-              <p class="experiment-facts">
-                <strong>Exists:</strong> registered protocol over an archive-pinned enumerable frame.
-                <strong>Absent:</strong> locked inputs, calibration, ledger and arm outputs.
-              </p>
-            </article>
+                <article class="experiment-row">
+                  <div class="experiment-id">
+                    <a href="/advantage/v3/v3-07-range-doctor">v3-07</a>
+                    <span>Range Doctor / archive-pinned successor</span>
+                  </div>
+                  <p class="experiment-state mono">registered_waiting_for_inputs</p>
+                  <time datetime="2026-08-29">Observed 29 Aug 2026</time>
+                  <p class="experiment-facts">
+                    <strong>Exists:</strong> registered protocol over an archive-pinned enumerable frame.
+                    <strong>Absent:</strong> locked inputs, calibration, ledger and arm outputs.
+                  </p>
+                </article>
 
-            <article class="experiment-row">
-              <div class="experiment-id">
-                <a href="/advantage/v3/v3-08-yield-router">v3-08</a>
-                <span>Yield Router / human manual arm</span>
-              </div>
-              <p class="experiment-state mono">registered_waiting_for_inputs</p>
-              <time datetime="2026-08-29">Observed 29 Aug 2026</time>
-              <p class="experiment-facts">
-                <strong>Exists:</strong> registered protocol with a pool-truth capture fixed for 6 Sep 2026.
-                <strong>Absent:</strong> capture, calibration, locked inputs and arm outputs.
-              </p>
-            </article>
+                <article class="experiment-row">
+                  <div class="experiment-id">
+                    <a href="/advantage/v3/v3-08-yield-router">v3-08</a>
+                    <span>Yield Router / human manual arm</span>
+                  </div>
+                  <p class="experiment-state mono">registered_waiting_for_inputs</p>
+                  <time datetime="2026-08-29">Observed 29 Aug 2026</time>
+                  <p class="experiment-facts">
+                    <strong>Exists:</strong> registered protocol with a pool-truth capture fixed for 6 Sep 2026.
+                    <strong>Absent:</strong> capture, calibration, locked inputs and arm outputs.
+                  </p>
+                </article>
 
-            <article class="experiment-row">
-              <div class="experiment-id">
-                <a href="/advantage/v3/v3-09-health-guard">v3-09</a>
-                <span>Health Guard / human manual arm</span>
+                <article class="experiment-row">
+                  <div class="experiment-id">
+                    <a href="/advantage/v3/v3-09-health-guard">v3-09</a>
+                    <span>Health Guard / human manual arm</span>
+                  </div>
+                  <p class="experiment-state mono">registered_waiting_for_inputs</p>
+                  <time datetime="2026-08-29">Observed 29 Aug 2026</time>
+                  <p class="experiment-facts">
+                    <strong>Exists:</strong> registered protocol over a Venus borrower frame pinned at block 119627412.
+                    <strong>Absent:</strong> collected frame, calibration, locked inputs and arm outputs.
+                  </p>
+                </article>
               </div>
-              <p class="experiment-state mono">registered_waiting_for_inputs</p>
-              <time datetime="2026-08-29">Observed 29 Aug 2026</time>
-              <p class="experiment-facts">
-                <strong>Exists:</strong> registered protocol over a Venus borrower frame pinned at block 119627412.
-                <strong>Absent:</strong> collected frame, calibration, locked inputs and arm outputs.
-              </p>
-            </article>
-          </div>
+            </div>
+          </details>
+
         </section>
 
         <section
@@ -434,19 +433,25 @@
             <h2 id="receipt-title">1,024-row Range frame.</h2>
             <p>Exact byte-for-byte rehearsal match.</p>
           </div>
-          <p class="receipt-digest mono">
-            ea41a6391e2d40f15c394224d9c7b0699b3eeca4968a2de9f75c43df32469761
-          </p>
-          <dl class="receipt-ledger">
-            <div>
-              <dt>Rehearsal · 24 Aug 2026</dt>
-              <dd class="mono">ea41a6391e2d40f15c394224d9c7b0699b3eeca4968a2de9f75c43df32469761</dd>
+          <details class="evidence-details">
+            <summary>View reproduction receipt</summary>
+            <div class="details-body">
+              <p class="receipt-digest mono">
+                ea41a6391e2d40f15c394224d9c7b0699b3eeca4968a2de9f75c43df32469761
+              </p>
+              <dl class="receipt-ledger">
+                <div>
+                  <dt>Rehearsal · 24 Aug 2026</dt>
+                  <dd>Matches the digest above.</dd>
+                </div>
+                <div>
+                  <dt>Registered frame · committed 28 Aug 2026</dt>
+                  <dd>Matches the digest above.</dd>
+                </div>
+              </dl>
             </div>
-            <div>
-              <dt>Registered frame · committed 28 Aug 2026</dt>
-              <dd class="mono">ea41a6391e2d40f15c394224d9c7b0699b3eeca4968a2de9f75c43df32469761</dd>
-            </div>
-          </dl>
+          </details>
+
         </section>
 
         <section
@@ -465,86 +470,91 @@
             </p>
           </div>
 
-          <div class="service-ledger">
-            <article class="service-ledger-row" data-service-id="range-doctor">
-              <div class="service-name">
-                <h3>Range Doctor</h3>
-                <p class="mono">ERC-8004 / 311253</p>
-              </div>
-              <p>Diagnose one PancakeSwap v3 LP range and its bounded fee economics.</p>
-              <dl>
-                <dt>Evidence state</dt>
-                <dd>Recorded v1 and v2 findings; v3 family locked_not_run.</dd>
-                <dt>Stock</dt>
-                <dd class="mono">paid_stock: false</dd>
-              </dl>
-              <p class="service-actions">
-                <a href="/service?id=range-doctor">Inspect</a>
-                <a href="/service?id=range-doctor">Run free</a>
-                <a href="https://bscscan.com/tx/0x032a4b1921e2b2dc44f46e24461623be3802f508ba429f5acd0380de5ce688c1">View on chain</a>
-              </p>
-            </article>
+          <details class="evidence-details">
+            <summary>View service registrations</summary>
+            <div class="details-body">
+              <div class="service-ledger">
+                <article class="service-ledger-row" data-service-id="range-doctor">
+                  <div class="service-name">
+                    <h3>Range Doctor</h3>
+                    <p class="mono">ERC-8004 / 311253</p>
+                  </div>
+                  <p>Diagnose one PancakeSwap v3 LP range and its bounded fee economics.</p>
+                  <dl>
+                    <dt>Evidence state</dt>
+                    <dd>Recorded v1 and v2 findings; v3 family locked_not_run.</dd>
+                    <dt>Stock</dt>
+                    <dd class="mono">paid_stock: false</dd>
+                  </dl>
+                  <p class="service-actions">
+                    <a href="/service?id=range-doctor">Inspect</a>
+                    <a href="/service?id=range-doctor">Run free</a>
+                    <a href="https://bscscan.com/tx/0x032a4b1921e2b2dc44f46e24461623be3802f508ba429f5acd0380de5ce688c1">View on chain</a>
+                  </p>
+                </article>
 
-            <article class="service-ledger-row" data-service-id="grid-operator">
-              <div class="service-name">
-                <h3>Grid Operator</h3>
-                <p class="mono">ERC-8004 / 311255</p>
-              </div>
-              <p>Build a bounded PancakeSwap v2 grid and transaction preview.</p>
-              <dl>
-                <dt>Evidence state</dt>
-                <dd>Recorded v2 replay; no registered paired result.</dd>
-                <dt>Stock</dt>
-                <dd class="mono">paid_stock: false</dd>
-              </dl>
-              <p class="service-actions">
-                <a href="/service?id=grid-operator">Inspect</a>
-                <a href="/service?id=grid-operator">Run free</a>
-                <a href="https://bscscan.com/tx/0x991d905b0e55093f4c55ceff0d8deed68d45af2036b08e0ba13e87cbdbde850b">View on chain</a>
-              </p>
-            </article>
+                <article class="service-ledger-row" data-service-id="grid-operator">
+                  <div class="service-name">
+                    <h3>Grid Operator</h3>
+                    <p class="mono">ERC-8004 / 311255</p>
+                  </div>
+                  <p>Build a bounded PancakeSwap v2 grid and transaction preview.</p>
+                  <dl>
+                    <dt>Evidence state</dt>
+                    <dd>Recorded v2 replay; no registered paired result.</dd>
+                    <dt>Stock</dt>
+                    <dd class="mono">paid_stock: false</dd>
+                  </dl>
+                  <p class="service-actions">
+                    <a href="/service?id=grid-operator">Inspect</a>
+                    <a href="/service?id=grid-operator">Run free</a>
+                    <a href="https://bscscan.com/tx/0x991d905b0e55093f4c55ceff0d8deed68d45af2036b08e0ba13e87cbdbde850b">View on chain</a>
+                  </p>
+                </article>
 
-            <article class="service-ledger-row" data-service-id="yield-router">
-              <div class="service-name">
-                <h3>Yield Router</h3>
-                <p class="mono">ERC-8004 / 311257</p>
-              </div>
-              <p>Compare a reproducible PancakeSwap v3 pool set and switching payback.</p>
-              <dl>
-                <dt>Evidence state</dt>
-                <dd>
-                  v3-02 is abandoned_after_failed_primary; v3-06 is
-                  registered_waiting_for_inputs. No scored result.
-                </dd>
-                <dt>Stock</dt>
-                <dd class="mono">paid_stock: false</dd>
-              </dl>
-              <p class="service-actions">
-                <a href="/service?id=yield-router">Inspect</a>
-                <a href="/service?id=yield-router">Run free</a>
-                <a href="https://bscscan.com/tx/0x3d490b9326079cabce9ee36ab64981d23da1d46a8e370b48e73382126671e9b0">View on chain</a>
-              </p>
-            </article>
+                <article class="service-ledger-row" data-service-id="yield-router">
+                  <div class="service-name">
+                    <h3>Yield Router</h3>
+                    <p class="mono">ERC-8004 / 311257</p>
+                  </div>
+                  <p>Compare a reproducible PancakeSwap v3 pool set and switching payback.</p>
+                  <dl>
+                    <dt>Evidence state</dt>
+                    <dd>
+                      v3-02 is abandoned_after_failed_primary; v3-06 is
+                      registered_waiting_for_inputs. No scored result.
+                    </dd>
+                    <dt>Stock</dt>
+                    <dd class="mono">paid_stock: false</dd>
+                  </dl>
+                  <p class="service-actions">
+                    <a href="/service?id=yield-router">Inspect</a>
+                    <a href="/service?id=yield-router">Run free</a>
+                    <a href="https://bscscan.com/tx/0x3d490b9326079cabce9ee36ab64981d23da1d46a8e370b48e73382126671e9b0">View on chain</a>
+                  </p>
+                </article>
 
-            <article class="service-ledger-row" data-service-id="health-guard">
-              <div class="service-name">
-                <h3>Health Guard</h3>
-                <p class="mono">ERC-8004 / 311259</p>
+                <article class="service-ledger-row" data-service-id="health-guard">
+                  <div class="service-name">
+                    <h3>Health Guard</h3>
+                    <p class="mono">ERC-8004 / 311259</p>
+                  </div>
+                  <p>Read one Venus Core Pool position and conservative action drafts.</p>
+                  <dl>
+                    <dt>Evidence state</dt>
+                    <dd>No registered paired result.</dd>
+                    <dt>Stock</dt>
+                    <dd class="mono">paid_stock: false</dd>
+                  </dl>
+                  <p class="service-actions">
+                    <a href="/service?id=health-guard">Inspect</a>
+                    <a href="/service?id=health-guard">Run free</a>
+                    <a href="https://bscscan.com/tx/0x7f7ffd402d54d4284de6a1ecbffc8f43d07c5a8f522f6b5507d90dd9302ec531">View on chain</a>
+                  </p>
+                </article>
               </div>
-              <p>Read one Venus Core Pool position and conservative action drafts.</p>
-              <dl>
-                <dt>Evidence state</dt>
-                <dd>No registered paired result.</dd>
-                <dt>Stock</dt>
-                <dd class="mono">paid_stock: false</dd>
-              </dl>
-              <p class="service-actions">
-                <a href="/service?id=health-guard">Inspect</a>
-                <a href="/service?id=health-guard">Run free</a>
-                <a href="https://bscscan.com/tx/0x7f7ffd402d54d4284de6a1ecbffc8f43d07c5a8f522f6b5507d90dd9302ec531">View on chain</a>
-              </p>
-            </article>
-          </div>
+            </div>
+          </details>
 
           <p class="stock-note" id="stock-note">
             <strong>Why nothing is for sale yet.</strong> Every catalogue service reports
@@ -561,8 +571,7 @@
           id="case-close"
           aria-labelledby="close-title"
         >
-          <p class="eyebrow">DOCKET / EVIDENCE-BACKED BSC AGENT MARKETPLACE</p>
-          <h2 id="close-title">Hire by evidence, not promises.</h2>
+          <h2 id="close-title">Explore the listings.</h2>
           <p class="text-links">
             <a href="#explore">Open the marketplace</a>
             <a href="/advantage/v3.json">/advantage/v3.json</a>

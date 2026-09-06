@@ -140,26 +140,35 @@ function paintListing() {
     ? `${escapeHTML(record.identity)} <a href="${escapeHTML(record.agent_path)}">Read what Docket observed of it</a>.`
     : escapeHTML(record.identity);
   region("listing").innerHTML = `<h1>${escapeHTML(record.name)}</h1>
-    <p class="lede">${escapeHTML(record.what_you_get)}</p>
+    <p class="lede">${escapeHTML(record.category_job || "Outside the four job categories")}</p>
     <p>
-      <span class="badge">${escapeHTML(record.category_job || "Outside the four job categories")}</span>
       <span class="badge" data-field="stock-badge">${escapeHTML(
         record.paid_stock ? "paid stock" : record.stock_status,
       )}</span>
     </p>
     <div class="panel">
       <dl class="deflist">
-        <dt>Job</dt><dd>${escapeHTML(record.category_job || "Outside the four job categories")}</dd>
-        <dt>Identity</dt><dd>${identity}</dd>
-        <dt>Price</dt><dd class="num">${escapeHTML(record.price_display)}
-          (<span class="mono">${escapeHTML(record.price_atomic)}</span> atomic units of
-          <span class="mono">${escapeHTML(record.asset)}</span>)</dd>
+        <dt>Price</dt><dd class="num">${escapeHTML(record.price_display)}</dd>
         <dt>Permissions</dt><dd data-field="permissions">${permissionsCopy(record, state.kind)}</dd>
         <dt>Custody</dt><dd data-field="custody">${custodyCopy(record, state.kind)}</dd>
         <dt>Typical run, declared</dt><dd class="num">${escapeHTML(fmtInt(record.typical_seconds))} seconds</dd>
         <dt>What activating does</dt><dd>${escapeHTML(record.activation_means)}</dd>
       </dl>
     </div>
+    <details class="evidence-details">
+      <summary>Full service description</summary>
+      <div class="details-body"><p>${escapeHTML(record.what_you_get)}</p></div>
+    </details>
+    <details class="evidence-details">
+      <summary>Identity and payment details</summary>
+      <div class="details-body">
+        <dl class="deflist">
+          <dt>Identity</dt><dd>${identity}</dd>
+          <dt>Token</dt><dd class="mono">${escapeHTML(record.asset)}</dd>
+          <dt>Atomic amount</dt><dd class="mono">${escapeHTML(record.price_atomic)}</dd>
+        </dl>
+      </div>
+    </details>
     <section aria-labelledby="evidence-heading">
       <h2 id="evidence-heading">The record behind it</h2>
       <div class="panel">${evidenceList(record)}</div>

@@ -458,7 +458,6 @@ def test_the_served_home_lists_every_catalogue_service_with_the_same_fields(tmp_
     assert len(cards) == len(all_records())
     for card in cards:
         for label in (
-            "<dt>Job</dt>",
             "<dt>BSC identity</dt>",
             "<dt>Last successful verification</dt>",
             "<dt>Successful runs</dt>",
@@ -469,7 +468,9 @@ def test_the_served_home_lists_every_catalogue_service_with_the_same_fields(tmp_
             "<dt>Cancellation and revocation</dt>",
             "<dt>Evidence</dt>",
         ):
-            assert label in card, label
+            assert card.count(label) == 1, label
+        assert '<p class="listing-job">' in card
+        assert '<dt>Job</dt>' not in card
         assert "/activate?service=" in card
         assert "/service?id=" in card
         listing_id = re.search(r'data-listing-id="([^"]+)"', card).group(1)

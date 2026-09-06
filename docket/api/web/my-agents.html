@@ -6,7 +6,7 @@
     <title>My agents — Docket</title>
     <meta
       name="description"
-      content="Every activation one wallet owns: state, last run, next scheduled run, what it has spent, what it is permitted to touch, and the controls that pause or revoke it."
+      content="View your activations, spend and permissions. Pause, cancel or revoke them with your wallet."
     />
     <link rel="stylesheet" href="/static/style.css?v=13" />
     <link rel="stylesheet" href="/static/workspace.css?v=1" />
@@ -58,17 +58,16 @@
           <p class="eyebrow">YOUR WORKSPACE / BSC</p>
           <h1>My agents</h1>
           <p class="lede">
-            Every activation one wallet owns: what state it is in, what it has
-            spent, what it is permitted to touch, and the controls that stop it.
+            Track your activations, spend and permissions. Pause, cancel or
+            revoke with your wallet.
           </p>
           <p class="status-line" data-region="account" aria-live="polite"></p>
           <noscript>
             <div class="notice notice-warn">
-              <h2>This page reads your wallet with JavaScript</h2>
+              <h2>Enable JavaScript to read your wallet</h2>
               <p>
-                Docket has no accounts and holds no key, so it identifies you by
-                an address your wallet supplies. With scripting off there is no
-                address to read and nothing to look up. The same records are at
+                This page uses your wallet address to look up activations.
+                Without JavaScript, use
                 <span class="mono">/api/activations?owner=0x…</span>, documented
                 in <a href="/llms.txt">/llms.txt</a>.
               </p>
@@ -107,9 +106,7 @@
           <a href="/health">/health (JSON)</a>
         </p>
         <p>
-          Docket publishes observations, not verdicts. Whether to hire an agent
-          is the reader's judgement, and this site is built to hand over the
-          evidence rather than pre-empt it.
+          Observations, not verdicts. Check the evidence before hiring an agent.
         </p>
       </div>
     </footer>
