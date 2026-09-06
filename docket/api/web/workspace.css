@@ -1,0 +1,735 @@
+/* App surfaces share the marketplace palette, with working space before decoration. */
+.workspace-page {
+  --bg: #f8f8f3;
+  --fg: #202a27;
+  --muted: #fdfdf9;
+  --border: #d7ddd6;
+  --control-border: #78877f;
+  --fg-dim: #57645e;
+  --accent: #17645c;
+  --radius: 4px;
+  --radius-lg: 6px;
+  --workspace-tint: #edf2eb;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.workspace-page .wrap {
+  max-width: 1280px;
+  padding-right: 32px;
+  padding-left: 32px;
+}
+
+.workspace-page .site-header {
+  background: var(--bg);
+}
+
+.workspace-page .site-header .wrap {
+  gap: 16px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.workspace-page .brand {
+  font-size: 24px;
+  letter-spacing: -0.04em;
+}
+
+.workspace-page .brand svg {
+  width: 26px;
+  height: 26px;
+}
+
+.workspace-page .brand-sub {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.workspace-page .site-nav {
+  flex-wrap: wrap;
+}
+
+.workspace-page .site-nav a {
+  padding-right: 12px;
+  padding-left: 12px;
+}
+
+.workspace-page .site-nav a:hover,
+.workspace-page .site-nav a[aria-current="page"] {
+  background: var(--workspace-tint);
+  color: var(--accent);
+}
+
+.workspace-page section {
+  padding-top: 32px;
+}
+
+.workspace-page .workspace-heading {
+  padding-top: 44px;
+  padding-bottom: 28px;
+}
+
+.workspace-page .workspace-heading .eyebrow {
+  margin-bottom: 12px;
+}
+
+.workspace-page h1 {
+  max-width: none;
+  margin-bottom: 16px;
+  font-size: clamp(32px, 3.5vw, 44px);
+  line-height: 1.1;
+  letter-spacing: -0.045em;
+}
+
+.workspace-page h2 {
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.workspace-page h3 {
+  font-size: 19px;
+  letter-spacing: -0.02em;
+}
+
+.workspace-page .lede {
+  max-width: 76ch;
+  margin-bottom: 20px;
+  color: var(--fg-dim);
+  font-size: 16px;
+}
+
+.workspace-page .panel,
+.workspace-page .notice,
+.workspace-page .result-row {
+  min-width: 0;
+}
+
+.workspace-page .panel,
+.workspace-page .notice {
+  padding: 20px;
+}
+
+.workspace-page .panel > :last-child,
+.workspace-page .notice > :last-child {
+  margin-bottom: 0;
+}
+
+.workspace-page .btn {
+  justify-content: center;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.workspace-page .btn:hover:not(:disabled) {
+  background: var(--workspace-tint);
+  border-color: var(--accent);
+}
+
+.workspace-page .btn-primary:hover:not(:disabled) {
+  background: #124e48;
+  border-color: #124e48;
+  color: #fff;
+}
+
+.workspace-page .btn:disabled:hover {
+  background: var(--muted);
+  border-color: var(--border);
+  color: var(--fg);
+}
+
+.workspace-page .btn-primary:disabled:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.workspace-page .btn-row {
+  gap: 8px 12px;
+  margin-top: 20px;
+}
+
+.workspace-page .field > label {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workspace-page input[type="search"],
+.workspace-page input[type="text"],
+.workspace-page input[type="number"],
+.workspace-page select,
+.workspace-page textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius);
+  background: var(--muted);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+}
+
+.workspace-page input::placeholder,
+.workspace-page textarea::placeholder {
+  color: var(--fg-dim);
+  opacity: 1;
+}
+
+.workspace-page input[type="number"],
+.workspace-page textarea,
+.workspace-page .num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.workspace-page input[type="number"] {
+  text-align: right;
+}
+
+.workspace-page .workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  align-items: start;
+  gap: 32px;
+}
+
+.workspace-page .filter-panel {
+  position: sticky;
+  top: 24px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--workspace-tint);
+}
+
+.workspace-page .search-form {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+}
+
+.workspace-page .search-form .btn-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+}
+
+.workspace-page .results-panel {
+  min-width: 0;
+  padding-top: 0;
+}
+
+.workspace-page .results-panel > h2 {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-page [data-region="results"] > section {
+  padding-top: 24px;
+}
+
+.workspace-page [data-region="results"] > section + section {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.workspace-page .result-row {
+  padding: 24px;
+  background: var(--muted);
+}
+
+.workspace-page .result-head {
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.workspace-page .result-head h3 {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-size: 22px;
+}
+
+.workspace-page .result-head h3 a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.workspace-page .result-head h3 a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.workspace-page .result-row > .dim {
+  font-size: 14px;
+}
+
+.workspace-page .result-row .deflist {
+  grid-template-columns: minmax(120px, 0.35fr) minmax(0, 1fr);
+  gap: 10px 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.workspace-page .verify-badge,
+.workspace-page .badge,
+.workspace-page .state-pill {
+  max-width: 100%;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.workspace-page .verify-badge[data-level="docket_run"] {
+  border-color: var(--accent);
+  background: var(--workspace-tint);
+  color: var(--accent);
+}
+
+.workspace-page .result-row .facts,
+.workspace-page .result-row .btn-row {
+  margin-bottom: 0;
+}
+
+.workspace-page .result-row .facts {
+  margin-top: 16px;
+}
+
+.workspace-page .results-panel .notice {
+  margin-bottom: 16px;
+}
+
+.workspace-page .activation-workspace [data-region="listing"] > .panel {
+  border-top: 3px solid var(--accent);
+}
+
+.workspace-page .activation-workspace .deflist {
+  grid-template-columns: minmax(140px, 200px) minmax(0, 1fr);
+  gap: 12px 24px;
+}
+
+.workspace-page .activation-workspace .facts a,
+.workspace-page .workspace-heading > .section-note a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.workspace-page .activation-setup {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  align-items: start;
+  gap: 24px;
+  margin-top: 12px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border);
+}
+
+.workspace-page .setup-kind,
+.workspace-page .setup-inputs {
+  min-width: 0;
+  padding-top: 0;
+}
+
+.workspace-page .kind-choice {
+  padding: 12px 20px 20px;
+  margin-bottom: 20px;
+  background: var(--workspace-tint);
+}
+
+.workspace-page .kind-choice label {
+  min-height: 44px;
+  gap: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.workspace-page .kind-choice input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.workspace-page .activate {
+  max-width: none;
+  gap: 24px;
+  padding: 24px;
+}
+
+.workspace-page .limits-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.workspace-page .setup-kind .deflist {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.workspace-page .setup-kind .deflist dd {
+  margin-bottom: 12px;
+}
+
+.workspace-page .advanced {
+  background: var(--workspace-tint);
+}
+
+.workspace-page .advanced > summary {
+  padding: 8px 0;
+}
+
+.workspace-page [data-region="actions"] {
+  padding-top: 4px;
+}
+
+.workspace-page .activity-panel {
+  margin-top: 32px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--workspace-tint);
+}
+
+.workspace-page .progress-log {
+  margin-bottom: 0;
+}
+
+.workspace-page .stepper {
+  gap: 8px;
+}
+
+.workspace-page .step {
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+
+.workspace-page pre {
+  background: var(--workspace-tint);
+  overflow-wrap: anywhere;
+}
+
+.workspace-page .status-line {
+  max-width: none;
+  margin-top: 24px;
+  margin-bottom: 0;
+  padding: 16px 20px;
+  background: var(--workspace-tint);
+}
+
+.workspace-page .status-line .mono {
+  min-width: 0;
+}
+
+.workspace-page .jobs-panel {
+  padding-top: 4px;
+}
+
+.workspace-page [data-region="jobs"] > .panel {
+  padding: 32px;
+  border-top: 3px solid var(--accent);
+}
+
+.workspace-page [data-region="jobs"] > .panel h2 {
+  max-width: 34ch;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.workspace-page .jobs-table {
+  min-width: 0;
+  table-layout: fixed;
+  background: var(--muted);
+}
+
+.workspace-page .jobs-table th,
+.workspace-page .jobs-table td {
+  padding: 16px 12px;
+  overflow-wrap: anywhere;
+}
+
+.workspace-page .jobs-table th {
+  position: static;
+  background: var(--workspace-tint);
+  white-space: normal;
+}
+
+.workspace-page .jobs-table .dim {
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.workspace-page .jobs-table td.btn-row {
+  display: table-cell;
+  margin: 0;
+}
+
+.workspace-page .jobs-table td.btn-row .btn {
+  margin-bottom: 8px;
+}
+
+.workspace-page .jobs-table td a:not(.btn) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.workspace-page .jobs-table .detail-row td {
+  padding: 24px;
+  background: var(--workspace-tint);
+}
+
+.workspace-page .footer-links {
+  gap: 4px 20px;
+}
+
+.workspace-page .footer-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+@media (min-width: 961px) {
+  .workspace-page .jobs-table th:nth-child(5) {
+    width: 20%;
+  }
+
+  .workspace-page .jobs-table th:nth-child(5),
+  .workspace-page .jobs-table td:nth-child(5) {
+    text-align: right;
+  }
+}
+
+@media (min-width: 1100px) {
+  .workspace-page .activation-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    align-items: start;
+    gap: 40px;
+  }
+
+  .workspace-page .activation-layout > .workspace-heading,
+  .workspace-page .activation-operation {
+    min-width: 0;
+  }
+
+  .workspace-page .activation-operation {
+    padding-top: 44px;
+  }
+
+  .workspace-page .activation-operation .activation-setup {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .workspace-page .activation-layout [data-region="listing"] > .panel .deflist {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .workspace-page .activation-layout [data-region="listing"] > .panel dd {
+    margin-bottom: 12px;
+  }
+}
+
+@media (max-width: 960px) {
+  .workspace-page .workspace-grid {
+    grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .workspace-page .activation-setup {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+
+  .workspace-page .result-row .deflist {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .workspace-page .result-row .deflist dd {
+    margin-bottom: 8px;
+  }
+
+  .workspace-page .jobs-table thead {
+    display: table-header-group;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .workspace-page .jobs-table tbody,
+  .workspace-page .jobs-table tr,
+  .workspace-page .jobs-table td,
+  .workspace-page .jobs-table td.btn-row {
+    display: block;
+    width: 100%;
+  }
+
+  .workspace-page .jobs-table tbody > tr:not(.detail-row) {
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  .workspace-page .jobs-table tbody > tr:first-child {
+    border-top: 0;
+  }
+
+  .workspace-page .jobs-table td {
+    padding: 10px 0;
+    border-bottom: 0;
+  }
+
+  .workspace-page .jobs-table tr:not(.detail-row) > td::before {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--fg-dim);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .workspace-page .jobs-table tr:not(.detail-row) > td:nth-child(1)::before {
+    content: "State";
+  }
+
+  .workspace-page .jobs-table tr:not(.detail-row) > td:nth-child(2)::before {
+    content: "Service";
+  }
+
+  .workspace-page .jobs-table tr:not(.detail-row) > td:nth-child(3)::before {
+    content: "Last run";
+  }
+
+  .workspace-page .jobs-table tr:not(.detail-row) > td:nth-child(4)::before {
+    content: "Next scheduled run";
+  }
+
+  .workspace-page .jobs-table tr:not(.detail-row) > td:nth-child(5)::before {
+    content: "Spent";
+  }
+
+  .workspace-page .jobs-table tr:not(.detail-row) > td:nth-child(6)::before {
+    content: "Permission scope";
+  }
+
+  .workspace-page .jobs-table tr:not(.detail-row) > td:nth-child(7)::before {
+    content: "Controls";
+  }
+}
+
+@media (max-width: 720px) {
+  .workspace-page .wrap {
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+
+  .workspace-page .site-header .wrap {
+    gap: 4px;
+  }
+
+  .workspace-page .site-nav {
+    width: 100%;
+    gap: 0;
+  }
+
+  .workspace-page .site-nav a {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .workspace-page .workspace-heading {
+    padding-top: 32px;
+    padding-bottom: 24px;
+  }
+
+  .workspace-page .workspace-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+
+  .workspace-page .filter-panel {
+    position: static;
+    padding: 20px;
+  }
+
+  .workspace-page .search-form {
+    gap: 20px;
+  }
+
+  .workspace-page .search-form .btn-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workspace-page .result-row,
+  .workspace-page .activate,
+  .workspace-page [data-region="jobs"] > .panel {
+    padding: 20px;
+  }
+
+  .workspace-page .activation-workspace .deflist,
+  .workspace-page .limits-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-page .activation-workspace .deflist {
+    gap: 4px;
+  }
+
+  .workspace-page .activation-workspace .deflist dd {
+    margin-bottom: 12px;
+  }
+
+  .workspace-page .stepper {
+    flex-direction: row;
+  }
+
+  .workspace-page .step {
+    flex: 1 1 130px;
+  }
+
+  .workspace-page [data-region="jobs"] > .panel h2 {
+    font-size: 24px;
+  }
+
+  .workspace-page input[type="search"],
+  .workspace-page input[type="text"],
+  .workspace-page input[type="number"],
+  .workspace-page select,
+  .workspace-page textarea {
+    font-size: 16px;
+  }
+}
+
+.workspace-page [hidden] {
+  display: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-page *,
+  .workspace-page *::before,
+  .workspace-page *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
