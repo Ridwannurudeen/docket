@@ -12,13 +12,13 @@ remains unanchored.
 | Python | Source requires `>=3.11`; current production runtime is Python `3.12.3` |
 | Application factory | `docket.api:create_app` |
 | Builder base commit | `731dcb3d3fe1267546c96fd73118a3b34d58b7b3` |
-| Source base observed before this update | Local `main` and `origin/main` at `1d0d27c8e0dd07c46a6449a04405c8456019d4a7` |
-| Current production release commit | `1d0d27c8e0dd07c46a6449a04405c8456019d4a7` |
-| Current production wheel | `docket-0.1.0-py3-none-any.whl`; SHA-256 `9aafbed979dc011915eb2f6945c3decd0f702213d6c0ddf94c3359f957c86d50` |
+| Source base observed before this update | Local `main` and `origin/main` at `cada2d0e4d7877358b5100b45b9eebdec7ee2702` |
+| Current production release commit | `cada2d0e4d7877358b5100b45b9eebdec7ee2702` |
+| Current production wheel | `docket-0.1.0-py3-none-any.whl`; SHA-256 `de3f4f80376d1020530329fbdd14e1a76e90eb341743dba76cfc964187454019` |
 | Current production runtime-lock SHA-256 | `2b0fb7bc65a54cb8a648155108cbda3a920b40397f02b1f1fd0d8007cf14d33c` |
-| Current production release-manifest SHA-256 | `bd4528a485f4336c8fddfc1081938d6cf07dce10e8caa32d71db14c9491a54df` |
+| Current production release-manifest SHA-256 | `79f3f5b197e9616d39b4f57cf25be466e816818cb9114cc33b8c2c20733f3e44` |
 | Repository visibility | Public (verified 2026-09-02) |
-| Current deployment record | Builder-collected 2026-09-05 from `docket.gudman.xyz`; see "Current deployed identity" |
+| Current deployment record | Builder-collected 2026-09-06 from `docket.gudman.xyz`; see "Current deployed identity" |
 | Historical deployment record | Builder-collected as performed 2026-08-16T12:20Z, 2026-08-30, 2026-09-02, and 2026-09-05 (`c5e6163`, `e35b647`) to `docket.gudman.xyz`; preserved below and covers no later commit |
 | Approved settlement canary | Run 18 settled exactly 0.50 USDT once and rejected the identical replay; all six services remain `paid_stock=false` |
 | Recorded settlement transaction | `0x0a036066db0ccbde6eeb8d333e5747e549a61f251935fe8abceaf13b681a1258` — private canary evidence, not public paid inventory or independent finality proof |
@@ -26,7 +26,22 @@ remains unanchored.
 The base commit identifies the tree before the public-package change. It does not identify
 the release and must not be used as a deployment hash.
 
-## Current deployed identity — builder-collected 2026-09-05 record (1d0d27c)
+## Current deployed identity — builder-collected 2026-09-06 record (cada2d0)
+
+The owner-approved release identifies `cada2d0e4d7877358b5100b45b9eebdec7ee2702`.
+Its wheel and manifest digests are recorded in the status table above; the runtime lock
+is unchanged. Python `3.12.3` runs from `/opt/docket-venvs/cada2d0e4d78`.
+The verified database backup is `/var/backups/docket/agents-20260906T145433Z.sqlite3`;
+the previous tree is retained at `/opt/docket.bak-20260906T145433Z`.
+
+All six exact-merge CI jobs passed in run `34039925819`. Release gates and the host's
+installed-wheel smoke passed. Public HTTPS reads confirmed six services, four categories
+through the release gate, nine unchanged v3 families and closed paid stock. The canary
+remains disabled and inactive. The accounting race fixes are deployed; no paid experiment
+or funded-session race was exercised by this release. See the dated
+[operational record](operational-evidence.md#collected-2026-09-06--concurrency-accounting-release-of-cada2d0).
+
+## Historical deployed identity — builder-collected 2026-09-05 record (1d0d27c)
 
 These values were read from the host's release identity files and interpreter. They are
 builder-collected operational evidence, not a signed or independently anchored attestation.
