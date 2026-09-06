@@ -119,13 +119,28 @@ def test_pivot_pages_carry_the_pivot_site_chrome():
         assert 'href="/static/style.css?v=13"' in document, shell
 
 
-def test_pivot_pages_ship_no_inline_style_and_no_second_stylesheet():
+def test_pivot_pages_ship_only_their_declared_same_origin_stylesheets():
     """The CSP names two style hashes and no others; a new inline block would be blocked."""
     for shell, _key, _entry in PIVOT_PAGES.values():
         document = (WEB / shell).read_text(encoding="utf-8")
         assert "<style>" not in document, shell
         assert 'style="' not in document, shell
-        assert document.count('rel="stylesheet"') == 1, shell
+        stylesheets = re.findall(r'<link rel="stylesheet" href="([^"]+)"', document)
+        expected = ["/static/style.css?v=13"]
+        if shell in {"search.html", "activate.html", "my-agents.html"}:
+            expected.append("/static/workspace.css?v=1")
+            assert 'class="workspace-page"' in document
+        assert stylesheets == expected, shell
+
+
+def test_workspace_stylesheet_is_served_without_changing_provider_styles(client):
+    response = client.get("/static/workspace.css?v=1")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/css")
+    assert ".workspace-page" in response.text
+    assert "prefers-reduced-motion: reduce" in response.text
+    provider = (WEB / "providers.html").read_text(encoding="utf-8")
+    assert "workspace.css" not in provider
 
 
 def test_pivot_pages_state_what_happens_without_scripting():

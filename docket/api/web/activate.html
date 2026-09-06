@@ -9,9 +9,10 @@
       content="Activate one Docket service: what it costs, what it is permitted to do, who holds the funds, the evidence behind it, and the controls that run it."
     />
     <link rel="stylesheet" href="/static/style.css?v=13" />
+    <link rel="stylesheet" href="/static/workspace.css?v=1" />
     <script type="module" src="/static/js/pages/activate.js?v=13"></script>
   </head>
-  <body data-page="activate">
+  <body class="workspace-page" data-page="activate">
     <a class="skip-link" href="#main">Skip to content</a>
 
     <header class="site-header">
@@ -30,7 +31,13 @@
             <rect x="3" y="3" width="18" height="18" rx="3"></rect>
             <path d="M7 9h10"></path>
             <path d="M7 13h6"></path>
-            <circle cx="16.5" cy="15.5" r="1.4" fill="currentColor" stroke="none"></circle>
+            <circle
+              cx="16.5"
+              cy="15.5"
+              r="1.4"
+              fill="currentColor"
+              stroke="none"
+            ></circle>
           </svg>
           Docket <span class="brand-sub">BSC / ERC-8004</span>
         </a>
@@ -46,55 +53,69 @@
     </header>
 
     <main id="main">
-      <div class="wrap">
-        <section class="hero">
-          <p class="section-note"><a href="/#services">Back to the services</a></p>
-          <div class="wrap-anywhere" data-region="listing">
-            <span class="skeleton skeleton-row skeleton-wide"></span>
-            <span class="skeleton skeleton-row skeleton-wide"></span>
-          </div>
-          <noscript>
-            <div class="notice notice-warn">
-              <h1>Activation needs a browser that runs scripts</h1>
-              <p>
-                Paying for a run means signing an EIP-712 authorization with your own wallet,
-                and a wallet is reached from JavaScript. The work itself needs neither: a
-                terminal with no account, key or wallet can run the free tier, and a client
-                that can sign can pay for one.
-              </p>
-              <pre>curl -s /services/range-doctor
+      <div class="wrap activation-workspace">
+        <div class="activation-layout">
+          <section class="hero workspace-heading">
+            <p class="eyebrow">WORKSPACE / ACTIVATE AN AGENT</p>
+            <p class="section-note">
+              <a href="/#services">Back to the services</a>
+            </p>
+            <div class="wrap-anywhere" data-region="listing">
+              <span class="skeleton skeleton-row skeleton-wide"></span>
+              <span class="skeleton skeleton-row skeleton-wide"></span>
+            </div>
+            <noscript>
+              <div class="notice notice-warn">
+                <h1>Activation needs a browser that runs scripts</h1>
+                <p>
+                  Paying for a run means signing an EIP-712 authorization with
+                  your own wallet, and a wallet is reached from JavaScript. The
+                  work itself needs neither: a terminal with no account, key or
+                  wallet can run the free tier, and a client that can sign can
+                  pay for one.
+                </p>
+                <pre>
+curl -s /services/range-doctor
 curl -s -X POST /hire/range-doctor \
   -H 'content-type: application/json' \
-  -d '{"wallet":"0x…"}'</pre>
-              <p>
-                <a href="/llms.txt">/llms.txt</a> carries the input schema, the exact x402
-                challenge and the header a paying client sends.
-              </p>
+  -d '{"wallet":"0x…"}'</pre
+                >
+                <p>
+                  <a href="/llms.txt">/llms.txt</a> carries the input schema,
+                  the exact x402 challenge and the header a paying client sends.
+                </p>
+              </div>
+            </noscript>
+          </section>
+
+          <div class="activation-operation">
+            <div data-region="chain" hidden></div>
+            <div data-region="account" hidden></div>
+
+            <div class="activation-setup" data-region="controls">
+              <section class="setup-kind" aria-labelledby="kind-heading">
+                <p class="eyebrow">01 / RUN MODE</p>
+                <h2 id="kind-heading">How you want it to run</h2>
+                <div data-region="kind"></div>
+              </section>
+
+              <section class="setup-inputs" aria-labelledby="inputs-heading">
+                <p class="eyebrow">02 / INPUTS AND LIMITS</p>
+                <h2 id="inputs-heading">What to send it</h2>
+                <p class="section-note">
+                  Prefilled from the worked example this service publishes, so
+                  the form is already a request that runs. Change any of it
+                  before you send it.
+                </p>
+                <div class="wrap-anywhere" data-region="sample"></div>
+                <div data-region="actions"></div>
+              </section>
             </div>
-          </noscript>
-        </section>
-
-        <div data-region="chain" hidden></div>
-        <div data-region="account" hidden></div>
-
-        <div data-region="controls">
-          <section aria-labelledby="kind-heading">
-            <h2 id="kind-heading">How you want it to run</h2>
-            <div data-region="kind"></div>
-          </section>
-
-          <section aria-labelledby="inputs-heading">
-            <h2 id="inputs-heading">What to send it</h2>
-            <p class="section-note">
-              Prefilled from the worked example this service publishes, so the form is already a
-              request that runs. Change any of it before you send it.
-            </p>
-            <div class="wrap-anywhere" data-region="sample"></div>
-            <div data-region="actions"></div>
-          </section>
+          </div>
         </div>
 
-        <section aria-labelledby="progress-heading">
+        <section class="activity-panel" aria-labelledby="progress-heading">
+          <p class="eyebrow">ACTIVITY / RECORDED STEPS</p>
           <h2 id="progress-heading">What Docket did</h2>
           <p
             class="visually-hidden"
@@ -106,9 +127,17 @@ curl -s -X POST /hire/range-doctor \
           <ol class="progress-log" data-region="progress"></ol>
         </section>
 
-        <section data-region="activation" hidden aria-labelledby="activation-heading"></section>
+        <section
+          data-region="activation"
+          hidden
+          aria-labelledby="activation-heading"
+        ></section>
 
-        <div class="wrap-anywhere" data-region="outcome" aria-busy="false"></div>
+        <div
+          class="wrap-anywhere"
+          data-region="outcome"
+          aria-busy="false"
+        ></div>
       </div>
     </main>
 
@@ -126,8 +155,9 @@ curl -s -X POST /hire/range-doctor \
           <a href="/health">/health (JSON)</a>
         </p>
         <p>
-          Docket publishes observations, not verdicts. Whether to hire an agent is the reader's
-          judgement, and this site is built to hand over the evidence rather than pre-empt it.
+          Docket publishes observations, not verdicts. Whether to hire an agent
+          is the reader's judgement, and this site is built to hand over the
+          evidence rather than pre-empt it.
         </p>
       </div>
     </footer>
