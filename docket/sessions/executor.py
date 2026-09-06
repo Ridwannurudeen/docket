@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 
 from ..hire.receipts import canonical_hash
 from ..jobs.models import Receipt
+from ..store import StaleActivation
 from .policy import NATIVE_TOKEN, token_key
 from .spend import (
     UnmeasuredSpend,
@@ -337,7 +338,13 @@ def execute(
     if persist is not None:
         # Outside the guard on purpose. A refusal here means another writer reached this
         # activation first, and the right answer to that is to send nothing at all.
-        persist()
+        try:
+            persist()
+        except StaleActivation:
+            _forget_pending(activation, nonce)
+            if granted is not None:
+                session.reserve(token, spender, previous_approval)
+            raise
 
     try:
         tx_hash = _hex(

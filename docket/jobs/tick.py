@@ -435,7 +435,7 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
         spent_baseline.update(session.spent_atomic)
 
     failed = None
-    for call in decision.prepared:
+    for call_index, call in enumerate(decision.prepared):
         try:
             activation.add_receipt(
                 execute(
@@ -449,7 +449,9 @@ def _evaluate(service: ActivationService, activation, rpc) -> None:
                     persist=persist,
                 )
             )
-        except ExecutionFailed as exc:
+        except (ExecutionFailed, StaleActivation) as exc:
+            if isinstance(exc, StaleActivation) and call_index == 0:
+                raise
             failed = exc
             break
     activation.session = {
@@ -485,80 +487,79 @@ def _save_sends(store, activation, expected, *, spent_baseline) -> None:
         return
     except StaleActivation as exc:
         stale = exc
-    current = store.get_activation(activation.activation_id)
-    if current is None:
-        # The row was deleted underneath the pass. There is nothing to merge onto, and
-        # the original refusal is the honest thing to report — a bare `raise` here would
-        # be a RuntimeError about no active exception, which says nothing at all.
-        raise stale
-    # Captured before anything is merged onto it: the note below moves `updated_at`, and
-    # writing the moved value back as the expectation would refuse the merge itself.
-    current_updated_at = current.updated_at
-    merged = dict(current.result or {})
-    ours = dict(activation.result or {})
-    pending = {
-        **(merged.get("pending_sends") or {}),
-        **(ours.get("pending_sends") or {}),
-    }
-    settled = list(merged.get("settled_sends") or ())
-    seen = {entry.get("tx_hash") for entry in settled}
-    for entry in ours.get("settled_sends") or ():
-        if entry.get("tx_hash") not in seen:
-            settled.append(entry)
-    merged["settled_sends"] = settled
-    settled_hashes = {
-        entry["tx_hash"] for entry in settled if entry.get("tx_hash") is not None
-    }
-    merged["pending_sends"] = {
-        nonce: entry
-        for nonce, entry in pending.items()
-        if entry.get("tx_hash") not in settled_hashes
-    }
-    if "last_decision" in ours:
-        merged["last_decision"] = ours["last_decision"]
-    current.result = merged
-    known = {receipt.to_dict().get("output_hash") for receipt in current.receipts}
-    for receipt in activation.receipts:
-        if receipt.output_hash not in known:
-            current.add_receipt(receipt)
-    received = list((current.session or {}).get("received_tokens") or ())
-    for token in (activation.session or {}).get("received_tokens") or ():
-        if token not in received:
-            received.append(token)
-    reservations = {
-        token: {spender: str(amount) for spender, amount in spenders.items()}
+    with store.activation_for_update(activation.activation_id) as current:
+        if current is None:
+            # The row was deleted underneath the pass. There is nothing to merge onto, and
+            # the original refusal is the honest thing to report — a bare `raise` here would
+            # be a RuntimeError about no active exception, which says nothing at all.
+            raise stale
+        merged = dict(current.result or {})
+        ours = dict(activation.result or {})
+        pending = {
+            **(merged.get("pending_sends") or {}),
+            **(ours.get("pending_sends") or {}),
+        }
+        settled = list(merged.get("settled_sends") or ())
+        seen = {entry.get("tx_hash") for entry in settled}
+        for entry in ours.get("settled_sends") or ():
+            if entry.get("tx_hash") not in seen:
+                settled.append(entry)
+        merged["settled_sends"] = settled
+        settled_hashes = {
+            entry["tx_hash"] for entry in settled if entry.get("tx_hash") is not None
+        }
+        settled_nonces = {
+            str(entry["nonce"]) for entry in settled if entry.get("nonce") is not None
+        }
+        merged["pending_sends"] = {
+            nonce: entry
+            for nonce, entry in pending.items()
+            if entry.get("tx_hash") not in settled_hashes and nonce not in settled_nonces
+        }
+        if "last_decision" in ours:
+            merged["last_decision"] = ours["last_decision"]
+        current.result = merged
+        known = {receipt.to_dict().get("output_hash") for receipt in current.receipts}
+        for receipt in activation.receipts:
+            if receipt.output_hash not in known:
+                current.add_receipt(receipt)
+        received = list((current.session or {}).get("received_tokens") or ())
+        for token in (activation.session or {}).get("received_tokens") or ():
+            if token not in received:
+                received.append(token)
+        reservations = {
+            token: {spender: str(amount) for spender, amount in spenders.items()}
+            for token, spenders in (
+                (current.session or {}).get("reserved_atomic") or {}
+            ).items()
+        }
         for token, spenders in (
-            (current.session or {}).get("reserved_atomic") or {}
-        ).items()
-    }
-    for token, spenders in (
-        (activation.session or {}).get("reserved_atomic") or {}
-    ).items():
-        held = dict(reservations.get(token) or {})
-        for spender, amount in spenders.items():
-            held[spender] = str(max(int(held.get(spender, 0)), int(amount)))
-        reservations[token] = held
-    spend = {
-        token: str(amount)
-        for token, amount in ((current.session or {}).get("spent_atomic") or {}).items()
-    }
-    for token, amount in (
-        (activation.session or {}).get("spent_atomic") or {}
-    ).items():
-        delta = max(0, int(amount) - int(spent_baseline.get(token, 0)))
-        spend[token] = str(int(spend.get(token, 0)) + delta)
-    current.session = {
-        **(current.session or {}),
-        "spent_atomic": spend,
-        "reserved_atomic": reservations,
-        "received_tokens": received,
-    }
-    current.note(
-        "another writer reached this activation first; the transactions this pass "
-        "broadcast were merged onto its record rather than dropped",
-        actor="docket",
-    )
-    store.save_activation(current, expected_updated_at=current_updated_at)
+            (activation.session or {}).get("reserved_atomic") or {}
+        ).items():
+            held = dict(reservations.get(token) or {})
+            for spender, amount in spenders.items():
+                held[spender] = str(max(int(held.get(spender, 0)), int(amount)))
+            reservations[token] = held
+        spend = {
+            token: str(amount)
+            for token, amount in ((current.session or {}).get("spent_atomic") or {}).items()
+        }
+        for token, amount in (
+            (activation.session or {}).get("spent_atomic") or {}
+        ).items():
+            delta = max(0, int(amount) - int(spent_baseline.get(token, 0)))
+            spend[token] = str(int(spend.get(token, 0)) + delta)
+        current.session = {
+            **(current.session or {}),
+            "spent_atomic": spend,
+            "reserved_atomic": reservations,
+            "received_tokens": received,
+        }
+        current.note(
+            "another writer reached this activation first; the transactions this pass "
+            "broadcast were merged onto its record rather than dropped",
+            actor="docket",
+        )
 
 
 def _note_failure(store, activation_id, exc) -> None:
