@@ -77,6 +77,53 @@ for (const viewport of [
         await expect(card.locator(".listing-overview")).toBeVisible();
       }
     });
+
+    test("supporting records are collapsed and keyboard accessible", async ({
+      page,
+    }, info) => {
+      await page.goto("/");
+      const records = page.locator(".case-section > details");
+      await expect(records).toHaveCount(3);
+      await page.screenshot({
+        path: info.outputPath("homepage-collapsed.png"),
+        fullPage: true,
+      });
+      for (const [index, record] of (await records.all()).entries()) {
+        await expect(record).not.toHaveAttribute("open");
+        const summary = record.locator(":scope > summary");
+        const body = record.locator(":scope > :not(summary)").first();
+        await expect(body).toBeHidden();
+        const box = await summary.boundingBox();
+        expect(box).not.toBeNull();
+        expect(box!.height).toBeGreaterThanOrEqual(44);
+        expect(box!.width).toBeGreaterThanOrEqual(44);
+        await record.screenshot({
+          path: info.outputPath(`record-${index}-collapsed.png`),
+        });
+        await summary.focus();
+        await expect(summary).toBeFocused();
+        await page.keyboard.press("Enter");
+        await expect(record).toHaveAttribute("open", "");
+        await expect(body).toBeVisible();
+        await record.screenshot({
+          path: info.outputPath(`record-${index}-expanded.png`),
+        });
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth),
+        ).toBeLessThanOrEqual(viewport.width);
+        await page.keyboard.press("Space");
+        await expect(record).not.toHaveAttribute("open");
+        await expect(body).toBeHidden();
+      }
+      for (const summary of await records.locator(":scope > summary").all()) {
+        await summary.focus();
+        await page.keyboard.press("Enter");
+      }
+      await page.screenshot({
+        path: info.outputPath("homepage-expanded.png"),
+        fullPage: true,
+      });
+    });
   });
 }
 

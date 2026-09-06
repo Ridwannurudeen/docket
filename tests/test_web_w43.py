@@ -136,7 +136,31 @@ def test_range_receipt_keeps_the_digest_and_reproduction_bound_together():
     assert "Exact byte-for-byte rehearsal match." in receipt
     assert "Rehearsal · 24 Aug 2026" in receipt
     assert "Registered frame · committed 28 Aug 2026" in receipt
-    assert receipt.count(digest) == 3
+    assert receipt.count(digest) == 1
+    assert "<summary>View reproduction receipt</summary>" in receipt
+
+
+def test_secondary_registers_collapse_without_hiding_admission_or_adverse_results():
+    home = _home()
+    for section_id, summary in (
+        ("experiments", "View registered experiments"),
+        ("receipt", "View reproduction receipt"),
+        ("services", "View service registrations"),
+    ):
+        section = re.search(
+            rf'<section[^>]+id="{section_id}".*?</section>', home, re.S
+        ).group(0)
+        assert '<details class="evidence-details">' in section
+        assert not re.search(r"<details[^>]*\bopen\b", section)
+        assert f"<summary>{summary}</summary>" in section
+        if section_id == "services":
+            assert section.index("</details>") < section.index('id="stock-note"')
+        elif section_id == "experiments":
+            assert section.index("No scored result.") < section.index("<details")
+    adverse = re.search(
+        r'<section[^>]+id="adverse-case".*?</section>', home, re.S
+    ).group(0)
+    assert "<details" not in adverse
 
 
 def test_case_file_stays_restrained_and_uses_the_agreed_tokens():

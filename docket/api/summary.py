@@ -381,14 +381,11 @@ def _listing_card(listing: dict) -> str:
     label for it rather than a house word standing in for one.
     """
     rows = (
-        ("Job", listing["job"]),
         ("BSC identity", listing["identity"]),
         ("Last successful verification", listing["last_verification"]),
         ("Successful runs", listing["success_count"]),
         ("Measurement window", listing["measurement_window"]),
-        ("Price", listing["price"]),
         ("Custody", listing["custody"]),
-        ("Required permissions", listing["permissions"]),
         ("Cancellation and revocation", listing["revocation"]),
     )
     definitions = "".join(

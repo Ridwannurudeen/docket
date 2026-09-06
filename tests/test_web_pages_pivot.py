@@ -82,7 +82,8 @@ def test_each_pivot_page_loads_exactly_one_entry_module(client):
     for _path, (shell, _key, entry) in PIVOT_PAGES.items():
         document = (WEB / shell).read_text(encoding="utf-8")
         scripts = re.findall(r"<script[^>]*src=\"([^\"]+)\"", document)
-        assert scripts == [f"/static/js/pages/{entry}.js?v=13"], shell
+        version = 14 if entry == "activate" else 13
+        assert scripts == [f"/static/js/pages/{entry}.js?v={version}"], shell
         module = JS / "pages" / f"{entry}.js"
         assert module.is_file(), module
         served = client.get(f"/static/js/pages/{entry}.js")
