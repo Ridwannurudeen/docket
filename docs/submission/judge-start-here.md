@@ -6,7 +6,9 @@ Open these five public pages in order. The tour needs no account or wallet and k
 
 Open the [Docket marketplace](https://docket.gudman.xyz/).
 
-This proves the marketplace journey: four job cards, service descriptions, comparison fields, recorded-run figures, and a free activation path. Pick **Keep LP earning** → **Run it free** → **Try the worked example** to receive a fresh Range Doctor result on the [service page](https://docket.gudman.xyz/service?id=range-doctor).
+This shows four job cards, service descriptions, comparison fields, recorded-run figures, and a wallet-free sample path. Open **Keep LP earning** and select **Try the worked example** on the [service page](https://docket.gudman.xyz/service?id=range-doctor) to request a fresh Range Doctor result.
+
+Activation is separate and requires wallet signatures. The [2026-09-05 record](../operational-evidence.md#the-first-real-activations) documents a free one-shot completed with a result and receipt, plus an unfunded session whose key was minted and revoked with every balance verified zero. Read that evidence without a wallet, or inspect the [activation page](https://docket.gudman.xyz/activate?service=range-doctor). It does not establish paid activation or funded session execution. The [separate executors](../../docket/jobs/executors/) support bounded-session calls; the sample itself remains read-only.
 
 Read the limit on that same page: Range Doctor is not in paid stock and this public sample is a free-tier run. Separately, one owner-approved private canary settled 0.50 USDT on 2026-08-30 and rejected its identical replay; that does not open public paid inventory. Its BSC ERC-8004 identity is agent 311253, but that registration is not an endorsement, paid-stock evidence, or evidence that the sample produced a result. The [raw catalogue](https://docket.gudman.xyz/services) exposes the corresponding stock and identity fields for every service, and the [canary record](https://docket.gudman.xyz/canary) exposes the bounded payment proof.
 
@@ -14,7 +16,7 @@ Read the limit on that same page: Range Doctor is not in paid stock and this pub
 
 Open the [PancakeSwap decision page](https://docket.gudman.xyz/pancake).
 
-This proves a read-only position diagnosis, dated controlled-position observations, disclosed fee arithmetic, conditional owner actions, and structural separation from signing or submission. The 14-row [raw LP record](https://docket.gudman.xyz/lp-record) contains 13 observations and the owner's 2026-08-24 `WAIT` decision: the decision links to its prior observation, and three later states link back to it. This proves record linkage, not causal improvement, realized return, or that Docket caused the choice. The [controlled-evidence document](../controlled-lp-evidence.md) defines the link.
+This proves a read-only position diagnosis, dated controlled-position observations, disclosed fee arithmetic, conditional owner actions, and structural separation from signing or submission. The historical [raw LP record](https://docket.gudman.xyz/lp-record) through 2026-08-27 contains 14 rows: 13 observations and the owner's 2026-08-24 `WAIT` decision: the decision links to its prior observation, and three later states link back to it. This proves record linkage, not causal improvement, realized return, or that Docket caused the choice. The [controlled-evidence document](../controlled-lp-evidence.md) defines the link.
 
 ## 3. Inspect the comparative evidence
 
@@ -93,19 +95,25 @@ It reports Warden recall 4/8 (0.50) versus manual 6/8 (0.75), three Warden criti
 failures, 11/12 complete pairs, a 27.86-second median saving, and a
 0.06104344152643808 median ratio. These are read-only frozen-label diagnostics, not a
 published §10 result. Missing rubric medians prevent a complete registered falsifier
-evaluation, so neither `refuted` nor `not_refuted` is published. At the committed-artifact
-observation on 2026-08-29, the committed v3 artifacts contain 9 families:
+evaluation, so neither `refuted` nor `not_refuted` is published.
+
+At the [September 5 operational observation](../operational-evidence.md#collected-2026-09-05--marketplace-release-of-c5e6163), the committed v3 artifacts contain 9 families:
 `v3-02-yield-router` is `abandoned_after_failed_primary`; `v3-04-warden-security` is
 `complete_unscored`; `v3-05-range-doctor` is `locked_not_run`; `v3-06-yield-router-assisted`
 and `v3-07-range-doctor` and `v3-08-yield-router` and `v3-09-health-guard` are
 `registered_waiting_for_inputs`; `v3-01-range-doctor` and `v3-03-warden-security` are
 `superseded_before_input_lock`.
 
+As of 2026-09-06, v3-07 and v3-08 still have no paired results; source captures do not
+change that state. Their runs are scheduled for September 7 and 8. V3-09 may remain
+registered and unrun. See the [current report](https://docket.gudman.xyz/advantage/v3.json)
+and [submission summary](README.md#evidence-posture) before treating any family as completed.
+
 ## 4. Check the registry data
 
 Open [Live Stats](https://docket.gudman.xyz/stats), then [Browse agents](https://docket.gudman.xyz/research).
 
-The first page gives the current snapshot timestamp, age, population rule, sample denominator, registry total, and endpoint-probe denominator and method; the second exposes the sampled BSC agent records. Docket refreshes this snapshot every six hours through the [recorded timer and pipeline](../operational-evidence.md#the-registry-snapshot-is-no-longer-stale-and-it-moved-without-a-restart), and the displayed age—not a number copied into this submission—is the freshness claim. The [raw stats response](https://docket.gudman.xyz/stats) and [raw agent response](https://docket.gudman.xyz/agents) are the machine-readable sources.
+The first page gives the current snapshot timestamp, age, population rule, sample denominator, registry total, and endpoint-probe denominator and method; the second exposes the sampled BSC agent records. Docket attempts a refresh every six hours through the [recorded timer and pipeline](../operational-evidence.md#the-registry-snapshot-is-no-longer-stale-and-it-moved-without-a-restart); only complete candidates replace the served snapshot. The [September 5 operational record](../operational-evidence.md#collected-2026-09-05--release-of-1d0d27c-and-the-first-real-activations) records an upstream registry HTTP 500 and degraded refresh status. The displayed age—not the timer cadence—is the freshness claim. The [raw stats response](https://docket.gudman.xyz/stats) and [raw agent response](https://docket.gudman.xyz/agents) are the machine-readable sources.
 
 ## 5. Check the identity boundary
 

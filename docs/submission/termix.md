@@ -37,7 +37,7 @@ private-canary record, not a public purchase.
 
 | Service | What a current free run actually returns | Evidence boundary |
 |---|---|---|
-| [Range Doctor](https://docket.gudman.xyz/service?id=range-doctor) | PancakeSwap v3 position state, current tick against the position's range, gross and protocol-adjusted fee arithmetic, and conditional wait or recenter paths. | The public canary records a live BSC decision and one owner-approved settled private run whose eight legs passed, including proof binding and replay rejection. The mapped `v3-05-range-doctor` family still has no paired result, so public paid stock remains closed. [Canary](https://docket.gudman.xyz/canary) |
+| [Range Doctor](https://docket.gudman.xyz/service?id=range-doctor) | PancakeSwap v3 position state, current tick against the position's range, gross and protocol-adjusted fee arithmetic, and conditional wait or recenter paths. | The public canary records a live BSC decision and one owner-approved settled private run whose eight legs passed, including proof binding and replay rejection. Its stale cold canary keeps public paid stock closed; admission separately derives fresh paired evidence from eligible terminal v3 families or complete v1 pairs inside the 30-day window. [Canary](https://docket.gudman.xyz/canary) |
 | [Yield Router](https://docket.gudman.xyz/service?id=yield-router) | A bounded PancakeSwap v3 pool comparison with the observed window, protocol-adjusted rates, declared switching cost, and break-even arithmetic. | Its current comparison row says no paired run against a person exists, so it makes no time-saving claim. [Comparison](https://docket.gudman.xyz/compare) |
 | [Grid Operator](https://docket.gudman.xyz/service?id=grid-operator) | A read-only PancakeSwap v2 grid preview with live quotes, bounded levels, and calldata hashes. | Its current comparison row says no paired run against a person exists; its v2 replay bought at 0 of 5 registered levels and the registered claim was refuted. [Comparison](https://docket.gudman.xyz/compare) · [v2 output](https://docket.gudman.xyz/advantage/v2.json) |
 | [Venus Health Guard](https://docket.gudman.xyz/service?id=health-guard) | A read-only Venus Core Pool account report with market balances, stated formulas, and bounded draft protective actions when the input condition is met. | Its current comparison row says no paired run against a person exists, so it makes no time-saving claim. [Comparison](https://docket.gudman.xyz/compare) |
@@ -111,6 +111,13 @@ primary.
 [Sources: [registered Yield protocol](../../docket/advantage/v3/specs/v3-02-yield-router.json),
 [registered Range protocol](../../docket/advantage/v3/specs/v3-05-range-doctor.json),
 [host rehearsal record](../operational-evidence.md#the-capture-rehearsal-on-this-host-with-the-installed-code)]
+
+As of 2026-09-06, v3-07 Range, v3-08 Yield, and v3-09 Health remain
+`registered_waiting_for_inputs` and add no paired result. The [Range](../runbooks/range-v3-07-run.md)
+and [Yield](../runbooks/yield-v3-08-run.md) runs are scheduled for September 7 and 8;
+source captures do not count as completed tasks. Update this report only from the resulting
+ledgers and score artifacts, preserving any failed or unscored outcome. Health may remain
+registered and unrun. [Current v3 state](https://docket.gudman.xyz/advantage/v3.json).
 
 ## 3. High-stakes categories and track record — 20%
 
@@ -192,6 +199,11 @@ A cold judge can test the intended path in this order:
 5. Read the raw [v1](https://docket.gudman.xyz/advantage.json),
    [v2](https://docket.gudman.xyz/advantage/v2.json), and
    [v3](https://docket.gudman.xyz/advantage/v3.json) evidence rather than relying on card copy.
+
+The sample path above is distinct from wallet-signed activation. The
+[2026-09-05 operational evidence](../operational-evidence.md#the-first-real-activations)
+records a completed free one-shot and an unfunded session key mint/revoke with zero balances
+verified. Neither is a paid activation or funded execution result.
 
 The public payment path remains the dead end a TermiX judge must know before starting: the
 current marketplace offers free work but no public paid hire. One owner-approved private

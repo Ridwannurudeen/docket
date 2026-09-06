@@ -9,14 +9,20 @@
 3. Open the [paired report](https://docket.gudman.xyz/advantage) and read the one-page summary at the top — every registered task and family, its arms, n, recorded times, costs, objective quality measure and state — then inspect the question, both arms, elapsed time, cost note, actual output, and receipt for each recorded task.
 4. Open [Live Stats](https://docket.gudman.xyz/stats) to see the current registry snapshot's capture time, sample denominator, population rule, endpoint attempts, and responses.
 
-For the shortest evidence-led tour, use [Judge start here](judge-start-here.md). For a recorded walkthrough, use the [three-minute demo script](demo-script.md).
+For the shortest evidence-led tour, use [Judge start here](judge-start-here.md). The [three-minute demo script](demo-script.md) is a recording plan; no demo video is supplied as of 2026-09-06.
+
+The sample is distinct from activation. The [2026-09-05 operational record](../operational-evidence.md#the-first-real-activations) establishes a wallet-signed free one-shot that completed with a result and receipt, and a separate unfunded session whose key was minted and then revoked with every balance verified zero. It establishes neither paid activation nor funded session execution.
 
 ## Four jobs, four concrete returns
+
+These are the read-only preview returns, not the separate session-execution paths:
 
 - **Rebalancing — Keep LP earning.** [Range Keeper](https://docket.gudman.xyz/services/range-doctor) (service id `range-doctor`) reads a BSC wallet's PancakeSwap v3 position NFTs and returns each position's range state, the values used for that diagnosis, bounded fee-rate context, and conditional wait or recenter paths; it signs, approves, and moves nothing.
 - **Grid trading — Run a capped grid.** [Grid Operator](https://docket.gudman.xyz/services/grid-operator) returns deterministic PancakeSwap v2 levels, live router quotes, minimum outputs, calldata hashes, deadlines, gas ceilings, and slippage bounds; it has no signer or transaction submitter.
 - **Yield optimisation — Move idle liquidity.** [Yield Router](https://docket.gudman.xyz/services/yield-router) returns a reproducible PancakeSwap v3 pool universe, every inclusion and exclusion, gross and protocol-adjusted observed rates, and caller-cost break-even arithmetic; it can draft an unsigned swap leg but cannot submit it.
-- **Health factor — Protect a loan.** [Health Shield](https://docket.gudman.xyz/services/health-guard) (service id `health-guard`) returns Venus Core Pool liquidity and shortfall values, a disclosed collateral-ratio derivation, market-level inputs, and bounded repay or supply-collateral drafts when shortfall exists; no Venus execution path exists in this build.
+- **Health factor — Protect a loan.** [Health Shield](https://docket.gudman.xyz/services/health-guard) (service id `health-guard`) returns Venus Core Pool liquidity and shortfall values, a disclosed collateral-ratio derivation, market-level inputs, and bounded repay or supply-collateral drafts when shortfall exists; this preview submits nothing.
+
+Separately, the [four category executors](../../docket/jobs/executors/) prepare calls for the bounded [session runner](../../docket/jobs/tick.py). Their existence is not evidence of funded production execution. The Health executor permits bounded repayment; collateral additions remain owner-signed because Venus credits the caller, not the borrower.
 
 The four labels above are Docket's declared job categories, not fields emitted by the BSC registry; the [category response](https://docket.gudman.xyz/categories) says so directly.
 
@@ -42,7 +48,9 @@ Yield is `abandoned_after_failed_primary`; v3-04 Warden is `complete_unscored`; 
 Range is `locked_not_run`; and v3-06 assisted Yield is
 `registered_waiting_for_inputs`.
 
-The registry snapshot is refreshed unattended every six hours by the [recorded timer and pipeline](../operational-evidence.md#the-registry-snapshot-is-no-longer-stale-and-it-moved-without-a-restart), while the live [Stats page](https://docket.gudman.xyz/stats) exposes the capture timestamp and current age so a judge does not have to accept a freshness claim on faith. All 4 of 4 category cards carry a recorded run and identify its evidence modality in the [catalogue response](https://docket.gudman.xyz/services).
+The [recorded timer and pipeline](../operational-evidence.md#the-registry-snapshot-is-no-longer-stale-and-it-moved-without-a-restart) attempts a registry refresh every six hours; only a complete candidate replaces the served snapshot. The [2026-09-05 observation](../operational-evidence.md#collected-2026-09-05--release-of-1d0d27c-and-the-first-real-activations) records an upstream HTTP 500 and degraded refresh status, not a newly refreshed snapshot. The live [Stats page](https://docket.gudman.xyz/stats) exposes the capture timestamp and current age. All 4 of 4 category cards carry a recorded run and identify its evidence modality in the [catalogue response](https://docket.gudman.xyz/services).
+
+As of 2026-09-06, the three newer families, v3-07 Range, v3-08 Yield, and v3-09 Health, remain `registered_waiting_for_inputs` with no paired results. Range and Yield are scheduled for September 7 and 8 respectively; Health may remain registered and unrun. See the [current v3 report](https://docket.gudman.xyz/advantage/v3.json) and the [Range](../runbooks/range-v3-07-run.md), [Yield](../runbooks/yield-v3-08-run.md), and [Health](../runbooks/health-v3-09-run.md) runbooks. A source capture is an input, not a result.
 
 ## Limits that remain
 
@@ -50,7 +58,7 @@ The registry snapshot is refreshed unattended every six hours by the [recorded t
 - Exactly one owner-approved Range Doctor canary settled 0.50 USDT on 2026-08-30 and rejected the identical signed request as a replay. That private bootstrap proves one payment lifecycle, not public paid inventory; the [dated operational evidence](../operational-evidence.md#collected-2026-08-30--approved-settlement-canary-and-current-state) keeps that boundary explicit.
 - Four category identities were minted on BSC on 2026-08-28 UTC: Range Doctor 311253, Grid Operator 311255, Yield Router 311257, and Health Guard 311259. At the recorded observation, all four were owned by `0xe55816904796341bf8535e25f6c8b647927fc946`; the exact blocks, transactions, and token URIs are in the [committed chain evidence](../erc8004-category-identities.json).
 - Each on-chain token URI names that service's published [Range](https://docket.gudman.xyz/registrations/range-doctor.json), [Grid](https://docket.gudman.xyz/registrations/grid-operator.json), [Yield](https://docket.gudman.xyz/registrations/yield-router.json), or [Health](https://docket.gudman.xyz/registrations/health-guard.json) document. Registration is not endorsement, evidence of paid stock, or evidence that a service produced a result; `warden-scan` remains unbound.
-- The public [LP record](https://docket.gudman.xyz/lp-record) contains 14 rows: 13 observations and the owner's 2026-08-24 `WAIT` decision. The decision links to its prior observation, and the Aug 25-27 observations link back to it. This proves record linkage, not causal improvement, realized return, or that Docket caused the choice; the [evidence schema](../controlled-lp-evidence.md) defines the link.
+- The historical [LP record](https://docket.gudman.xyz/lp-record) through 2026-08-27 contains 14 rows: 13 observations and the owner's 2026-08-24 `WAIT` decision. The decision links to its prior observation, and the Aug 25-27 observations link back to it. This proves record linkage, not causal improvement, realized return, or that Docket caused the choice; the [evidence schema](../controlled-lp-evidence.md) defines the link.
 - In v1's one security payload observed on 2026-08-08, manual reading identified 4 hostile vectors and Warden's layers identified 1 of those 4; the complete arms and outputs are in the [v1 artifact](https://docket.gudman.xyz/advantage.json).
 
 ## Sponsor views
@@ -59,3 +67,4 @@ The registry snapshot is refreshed unattended every six hours by the [recorded t
 - [TermiX](termix.md)
 - [PancakeSwap](pancakeswap.md)
 - [Claims checklist](claims-checklist.md)
+- [Owner filing notes and form checklist](filing-notes.md)
