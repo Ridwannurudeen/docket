@@ -42,15 +42,17 @@ def test_hero_uses_the_approved_copy_and_keeps_both_actions_above_the_truth_rail
     rail = re.search(r'<aside class="truth-rail".*?</aside>', home, re.S).group(0)
 
     assert "DOCKET / EVIDENCE-BACKED BSC AGENT MARKETPLACE" in hero
-    assert "Find BSC agents that actually work." in hero
+    assert "Find BSC agents. Check the evidence." in _plain(hero)
     assert (
-        "Compare live performance, activate agents with bounded permissions, and"
+        "Choose the job. Compare what each agent can do, the permissions it needs,"
         in hero
     )
-    assert "verify every result onchain." in hero
-    assert ">Explore live agents<" in hero
+    assert "verify every result onchain." not in hero
+    assert ">Explore agents<" in hero
     assert 'href="/activate?service=range-doctor&amp;demo=1"' in hero
-    assert ">Run a verified demo<" in hero
+    assert ">Try a free demo<" in hero
+    assert "Paid hiring remains admission-gated." in hero
+    assert hero.count('class="preview-agent"') == 4
     # The rail carries five markers and nothing else countable. The number and its noun
     # are rendered together because they have to agree — a fixed plural in the shell
     # publishes "1 public paid hires" the first time the counter reaches one.
@@ -63,7 +65,7 @@ def test_hero_uses_the_approved_copy_and_keeps_both_actions_above_the_truth_rail
         "rail-v3-families",
     ]
     assert not re.search(r"\d", _plain(rail).replace("ERC-8004", ""))
-    assert hero.index("hero-copy") < hero.index("truth-rail")
+    assert hero.index("hero-copy") < hero.index("market-preview")
     assert (
         home.index("case-hero") < home.index("truth-rail") < home.index('id="explore"')
     )
