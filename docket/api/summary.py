@@ -17,6 +17,7 @@ which is the true answer rather than an error.
 """
 
 import html
+import re
 import sqlite3
 import subprocess
 import sys
@@ -28,6 +29,7 @@ from pathlib import Path
 from fastapi import APIRouter
 
 from ..hire.admission import resolve_admission
+from ..identity.register import CHAIN_ID, IDENTITY_REGISTRY_ID
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -326,6 +328,7 @@ def listing_facts(store, services: list) -> list[dict]:
                 "service_id": record.service_id,
                 "name": PRODUCT_NAMES.get(record.service_id, record.name),
                 "category": record.category.value if record.category else None,
+                "agent_id": record.agent_id,
                 "job": record.offer.job_summary,
                 "identity": (
                     f"ERC-8004 agent {record.agent_id.rsplit(':', 1)[1]} on BSC chain 56"
@@ -428,11 +431,12 @@ def home_page(shell: str, summary: dict, listings: list[dict]) -> str:
     marker the shell does not carry is a page that would have shipped a blank counter,
     so it raises here rather than reaching a reader.
     """
-    # Four and four today, and two different quantities: `erc8004_identities` counts the
-    # identities Docket registered, this counts the services Docket declared into one of
-    # the four categories. A label whose number answers a neighbouring question is the
-    # drift this page was rebuilt to remove, so the heading counts its own.
-    category_services = sum(1 for listing in listings if listing["category"])
+    marketplace_listings = [
+        listing
+        for listing in listings
+        if listing["category"]
+        and re.fullmatch(rf"{CHAIN_ID}:{IDENTITY_REGISTRY_ID}:[0-9]+", listing["agent_id"] or "")
+    ]
     replacements = {
         f"<!-- rail-{key.replace('_', '-')} -->": _rail_line(summary[key], one, many)
         for key, one, many in RAIL_LINES
@@ -440,12 +444,12 @@ def home_page(shell: str, summary: dict, listings: list[dict]) -> str:
     replacements |= {
         "<!-- summary-services-paid-stock -->": f"{summary['services_paid_stock']:,}",
         "<!-- summary-services-total -->": f"{summary['services_total']:,}",
-        "<!-- summary-category-services -->": f"{category_services:,}",
+        "<!-- summary-category-services -->": f"{len(marketplace_listings):,}",
         "<!-- summary-v3-families -->": f"{summary['v3_families']:,}",
         "<!-- summary-generated-at -->": _esc(summary["generated_at"]),
         "<!-- summary-deployed-commit -->": _esc(summary["deployed_commit"]),
         "<!-- marketplace-listings -->": "".join(
-            _listing_card(listing) for listing in listings
+            _listing_card(listing) for listing in marketplace_listings
         ),
     }
     rendered = shell

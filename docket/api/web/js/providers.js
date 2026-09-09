@@ -15,7 +15,7 @@ import {
   renderFailure,
   timeAgo,
   verificationBadge,
-} from "./ui.js?v=13";
+} from "./ui.js?v=15";
 
 const CATEGORIES = [
   ["rebalancing", "Manages LP ranges, resets positions automatically"],

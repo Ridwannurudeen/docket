@@ -3,7 +3,7 @@
 **Find BSC agents that actually work.**
 
 Docket is an evidence-backed BSC agent marketplace: compare agents on live performance,
-activate them with bounded permissions, and verify every result onchain. Every figure it
+activate them with bounded permissions, and inspect results, receipts and BSC identities. Every figure it
 publishes carries its numerator, denominator, observation window and method, and an
 absent result is named rather than filled in.
 
@@ -14,7 +14,12 @@ absent result is named rather than filled in.
 | Rebalancing — keep an LP position in range | Range Keeper (`range-doctor`) · BSC ERC-8004 agent 311253 | Reads a wallet's PancakeSwap v3 positions, states where the tick sits in each range, and prepares the wait and recenter routes with the figures behind them | Self-custodial by default: Docket holds no key to your wallet. An optional bounded session you fund yourself is scoped by contract, function and token allowlists, per-action and total caps and an expiry, and is revocable at any time with a sweep back to you. The position NFT never transfers to Docket | `/activate?category=rebalancing` |
 | Grid trading — run a capped grid | Grid Operator (`grid-operator`) · BSC ERC-8004 agent 311255 | Places levels inside a price band with live router quotes, minimum outputs, deadlines, gas ceilings and slippage bounds; levels fire bounded swaps from the session, and the grid can be paused, cancelled or revoked | Self-custodial by default: Docket holds no key to your wallet. An optional bounded session you fund yourself is scoped by contract, function and token allowlists, per-action and total caps and an expiry, and is revocable at any time with a sweep back to you. Nothing leaves your wallet except the amount you fund the session with | `/activate?category=grid_trading` |
 | Yield optimisation — move idle liquidity | Yield Router (`yield-router`) · BSC ERC-8004 agent 311257 | Compares a reproducible pool universe on gross and protocol-adjusted rates, publishes every inclusion and exclusion, computes payback against the declared switching cost, and prepares the complete route: remove, swap, approve exact, add | Self-custodial by default: Docket holds no key to your wallet. An optional bounded session you fund yourself is scoped by contract, function and token allowlists, per-action and total caps and an expiry, and is revocable at any time with a sweep back to you. Approvals are written for an exact amount, never unlimited | `/activate?category=yield_optimisation` |
-| Health factor — protect a loan | Health Shield (`health-guard`) · BSC ERC-8004 agent 311259 | Reads a Venus Core Pool account, derives the collateral ratio from its stated inputs, and defends a minimum ratio with bounded repay or supply-collateral actions inside a rescue cap | Self-custodial by default: Docket holds no key to your wallet. An optional bounded session you fund yourself is scoped by contract, function and token allowlists, per-action and total caps and an expiry, and is revocable at any time with a sweep back to you. The borrower account never transfers to Docket | `/activate?category=health_factor` |
+| Health factor — protect a loan | Health Shield (`health-guard`) · BSC ERC-8004 agent 311259 | Reads a Venus Core Pool account, derives the collateral ratio from its stated inputs, and prepares bounded repayment inside a rescue cap; supply-collateral calls remain owner-signed because Venus credits the caller | Self-custodial by default: Docket holds no key to your wallet. An optional bounded session you fund yourself is scoped by contract, function and token allowlists, per-action and total caps and an expiry, and is revocable at any time with a sweep back to you. The borrower account never transfers to Docket | `/activate?category=health_factor` |
+
+Session caps, allowlists and expiry are runner-enforced checks, not on-chain restrictions.
+The runner holds the session key. Revocation requests a sweep; return of funds depends on
+the runner, RPC and sufficient gas, and may fail or remain pending. It is not an immediate
+withdrawal guarantee.
 
 Range Keeper and Health Shield are the marketplace names for the services whose ids are
 `range-doctor` and `health-guard`. The service ids never move, and the API, the
@@ -25,12 +30,14 @@ The category labels are Docket's own declarations about services Docket runs; th
 registry publishes no field that says what job an agent does, and the
 [category response](https://docket.gudman.xyz/categories) says so directly. A
 registration is not endorsement, evidence of paid stock, or evidence that a service
-produced a result. `/activate` is the browser flow those routes open and the bounded
-session is what it grants; **what runs at this commit** is the free-tier sample on every
-service page — for example
-[Range Keeper](https://docket.gudman.xyz/service?id=range-doctor) — and
-`POST /hire/<service_id>` for an agent that has never seen the site. "What is not true
-yet", below, states exactly which parts of the row above are still being built.
+produced a result. `/activate` offers a wallet-signed free one-shot or a separate bounded
+session. The [September 5 activation record](docs/operational-evidence.md#the-first-real-activations)
+documents a completed free one-shot with a result and receipt, and an unfunded session
+whose key was minted and revoked with every balance verified zero. This is not evidence
+of funded session execution. Wallet-free samples remain available on service pages — for
+example [Range Keeper](https://docket.gudman.xyz/service?id=range-doctor) — and through
+`POST /hire/<service_id>`. "What is not true yet", below, distinguishes these paths from
+public paid inventory and measured execution outcomes.
 
 ## Sixty seconds
 
@@ -221,11 +228,12 @@ exact inputs were locked, so neither arm ran.
 - The four category services now have BSC ERC-8004 registrations, but registration is
   not endorsement, evidence of paid stock, or evidence that a service produced a result;
   `warden-scan` remains unbound.
-- The browser activation flow described in the matrix above — the funded bounded session,
-  its allowlists, caps and expiry, pause, and revoke-with-sweep — is being built. What runs
-  at this commit is the free-tier sample on every service page and the x402 paid path that
-  is still closed at admission. No service in this build holds a session key, a signer or a
-  transaction submitter, so nothing it prepares can be sent without the owner sending it.
+- The browser activation and bounded-session paths are implemented. The
+  [September 5 record](docs/operational-evidence.md#the-first-real-activations) establishes
+  a completed free one-shot and an unfunded session mint/revoke, not funded execution.
+  Read-only previews do not sign or submit; the separate [session runner](docket/jobs/tick.py)
+  handles bounded execution using a session key. Its existence is not evidence of a
+  successful funded production action. Public paid admission remains closed.
 - V3 fixed its questions, input locking, arm order, clocks, failure treatment, scoring
   process, and falsifier before the exact cases were run. It then ran 12 planned pairs:
   all 24 primaries became terminal, 23 succeeded, and manual `w4-ho-01` failed with

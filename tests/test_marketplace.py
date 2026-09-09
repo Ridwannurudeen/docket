@@ -581,19 +581,25 @@ def test_each_new_category_service_publishes_only_its_single_recorded_read():
 def test_the_grid_service_says_a_hire_previews_rather_than_trades():
     """The card that fills a category has to be read hardest. It states in its own
     limitations that the hire cannot move anything, that acting needs a session the owner
-    grants and the chain enforces, and that a fill is not a gain."""
+    authorizes with runner-enforced bounds, and that a fill is not a gain."""
     record = SERVICES["grid-operator"]
     lowered = record.limitations.lower()
     for phrase in (
         "structurally only a preview",
         "no session key",
         "cannot move anything",
-        "docket never holds the owner key",
-        "refuse more, never less",
+        "docket's runner holds the session key, never the owner's wallet key",
+        "spend caps, call allowlists and expiry are off-chain checks before each send",
+        "not an on-chain session validator",
+        "the funded float is at risk",
+        "revocation and expiry rely on the runner",
+        "close only after balance reads return zero",
         "a fill and not a gain",
         "single recorded read; no paired run against a person",
     ):
         assert phrase in lowered, phrase
+    assert "session validator enforces" not in lowered
+    assert "grants on chain" not in lowered
     assert record.activation == "policy_action"
     assert "acts on chain" in record.activation_means.lower()
 
