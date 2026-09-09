@@ -318,6 +318,18 @@ function limitsForm(record, defaults) {
         Number(BigInt(String(defaults.max_gas_price_wei)) / 1000000n) / 1000,
       )
     : "5";
+  const gasAmounts = [
+    defaults.total_cap_atomic.BNB,
+    defaults.per_action_limit_atomic.BNB,
+  ].map((atomic) => {
+    if (atomic === undefined) return "";
+    const digits = String(atomic).padStart(19, "0");
+    return `${digits.slice(0, -18)}.${digits.slice(-18)}`.replace(/\.?0+$/, "");
+  });
+  const extraTokens = defaults.token_allowlist.filter(
+    (token) =>
+      token !== "BNB" && token.toLowerCase() !== record.asset.toLowerCase(),
+  );
   return `${allowlistPanel(defaults)}
     <form class="activate limits-form" data-limits-form novalidate>
       <div class="field">
@@ -335,6 +347,30 @@ function limitsForm(record, defaults) {
         <input id="limit-slippage" name="max_slippage_bps" type="number" step="1" min="0" max="10000" value="${escapeHTML(slippage)}" required />
         <p class="dim">50 is 0.50%. A swap that would cost more than this is not sent.</p>
       </div>
+      <div class="field">
+        <label for="limit-gas-total">Total session gas budget (BNB)</label>
+        <input id="limit-gas-total" name="gas_total" type="number" step="any" min="0" value="${escapeHTML(gasAmounts[0])}" required />
+        <p class="dim">The BNB budget for session transactions. Owner wallet funding fees are separate and are not included in this budget. Keep BNB available for revocation and returning funds.</p>
+      </div>
+      <div class="field">
+        <label for="limit-gas-action">Per-transaction gas budget (BNB)</label>
+        <input id="limit-gas-action" name="gas_action" type="number" step="any" min="0" value="${escapeHTML(gasAmounts[1])}" required />
+        <p class="dim">The most BNB a service transaction may consume, within the total session budget.</p>
+      </div>
+      ${extraTokens
+        .map((token, index) => {
+          const enabled = defaults.total_cap_atomic[token] !== undefined;
+          return `<fieldset data-token-budget="${escapeHTML(token)}">
+          <legend class="mono wrap-anywhere">${escapeHTML(token)}</legend>
+          <label><input type="checkbox" data-token-enabled ${enabled ? "checked" : ""} /> Allow spending and fund this token</label>
+          <p class="dim">Unchecked: no starting funding or spending permission for this token. Tokens received can still be returned on revocation. Amounts below are integer atomic units, not whole tokens.</p>
+          <div class="field"><label for="limit-token-total-${index}">Total cap (atomic units)</label>
+            <input id="limit-token-total-${index}" data-token-total type="text" inputmode="numeric" pattern="[0-9]+" value="${escapeHTML(defaults.total_cap_atomic[token] || "")}" ${enabled ? "required" : "disabled"} /></div>
+          <div class="field"><label for="limit-token-action-${index}">Per-action limit (atomic units)</label>
+            <input id="limit-token-action-${index}" data-token-action type="text" inputmode="numeric" pattern="[0-9]+" value="${escapeHTML(defaults.per_action_limit_atomic[token] || "")}" ${enabled ? "required" : "disabled"} /></div>
+        </fieldset>`;
+        })
+        .join("")}
       <div class="field">
         <label for="limit-gas">Maximum gas price (gwei)</label>
         <input id="limit-gas" name="max_gas_price_gwei" type="number" step="any" min="0" value="${escapeHTML(gasGwei)}" required />
@@ -381,25 +417,64 @@ function readPolicy() {
     );
   }
   const days = Math.trunc(number("expires_days"));
+  const gasAmounts = ["gas_total", "gas_action"].map((name) => {
+    const value = form.elements.namedItem(name).value;
+    if (!/^\d+(\.\d{1,18})?$/.test(value)) {
+      throw new api.ApiError(
+        "invalid_limits",
+        "Gas budgets must be positive decimals with at most 18 places.",
+      );
+    }
+    const [whole, fraction = ""] = value.split(".");
+    return (
+      BigInt(whole) * 1000000000000000000n + BigInt(fraction.padEnd(18, "0"))
+    );
+  });
+  if (
+    gasAmounts[0] <= 0n ||
+    gasAmounts[1] <= 0n ||
+    gasAmounts[1] > gasAmounts[0]
+  ) {
+    throw new api.ApiError(
+      "invalid_limits",
+      "Gas budgets must be positive, and the per-transaction budget cannot exceed the total session gas budget.",
+    );
+  }
+  const totalCaps = {
+    [record.asset]: total.toString(),
+    BNB: gasAmounts[0].toString(),
+  };
+  const actionCaps = {
+    [record.asset]: perAction.toString(),
+    BNB: gasAmounts[1].toString(),
+  };
+  for (const fieldset of form.querySelectorAll("[data-token-budget]")) {
+    if (!fieldset.querySelector("[data-token-enabled]").checked) continue;
+    const tokenTotal = BigInt(
+      fieldset.querySelector("[data-token-total]").value,
+    );
+    const tokenAction = BigInt(
+      fieldset.querySelector("[data-token-action]").value,
+    );
+    if (tokenTotal <= 0n || tokenAction <= 0n || tokenAction > tokenTotal) {
+      throw new api.ApiError(
+        "invalid_limits",
+        "Every enabled token needs positive caps with its per-action limit no larger than its total.",
+      );
+    }
+    totalCaps[fieldset.dataset.tokenBudget] = tokenTotal.toString();
+    actionCaps[fieldset.dataset.tokenBudget] = tokenAction.toString();
+  }
   const expiresAt = new Date(Date.now() + days * 86400000)
     .toISOString()
     .replace(/\.\d{3}Z$/, "Z");
   const defaults = state.policyDefaults;
-  /* The skeleton goes back whole. The three allowlists are the category's and are not this
-     page's to edit; the cap maps cover every token the category allows, and replacing them
-     with a single entry for this service's asset would quietly drop the limits on all the
-     others. Only the fields the form actually rendered are overwritten, and `expires_at` is
-     added because it is the one bound the server deliberately leaves to the owner. */
+  /* Keep the category allowlists for execution checks and received-token returns. Only
+     tokens the owner enabled receive spend caps and initial funding requirements. */
   return {
     ...defaults,
-    per_action_limit_atomic: {
-      ...(defaults.per_action_limit_atomic || {}),
-      [record.asset]: perAction.toString(),
-    },
-    total_cap_atomic: {
-      ...(defaults.total_cap_atomic || {}),
-      [record.asset]: total.toString(),
-    },
+    per_action_limit_atomic: actionCaps,
+    total_cap_atomic: totalCaps,
     max_slippage_bps: Math.trunc(number("max_slippage_bps")),
     max_gas_price_wei: (
       BigInt(Math.round(number("max_gas_price_gwei") * 1e6)) * 1000n
@@ -1023,7 +1098,10 @@ async function activateAndPay() {
        for payment terms gets a 200 and a run the activation never hears about, and leaves
        the activation open behind a dead end. The free tier's contract is approve, and the
        service runs. */
-    if (state.activation.quote && state.activation.quote.payment_scheme === "free_tier") {
+    if (
+      state.activation.quote &&
+      state.activation.quote.payment_scheme === "free_tier"
+    ) {
       await approveFreeTier();
       return;
     }
@@ -1267,16 +1345,21 @@ async function retryBind() {
     payment, minus the payment: there is nothing to bind, and the server runs the service
     on approval and answers with the finished activation, result and receipt on it. */
 async function approveFreeTier() {
-  say("This service is not in paid stock, so it runs on the free tier. Nothing is charged.");
+  say(
+    "This service is not in paid stock, so it runs on the free tier. Nothing is charged.",
+  );
   const account = await signingAccount();
   const signature = await wallet.personalSign(
     api.authMessage(state.activation, "approve"),
     account,
   );
-  state.activation = await api.approveActivation(state.activation.activation_id, {
-    owner_signature: signature,
-    nonce: state.activation.auth_nonce,
-  });
+  state.activation = await api.approveActivation(
+    state.activation.activation_id,
+    {
+      owner_signature: signature,
+      nonce: state.activation.auth_nonce,
+    },
+  );
   paintActivation();
   say(
     state.activation.state === "completed"
@@ -1499,6 +1582,18 @@ async function paintLimits() {
       );
     }
     target.innerHTML = limitsForm(state.record, state.policyDefaults);
+    for (const fieldset of target.querySelectorAll("[data-token-budget]")) {
+      fieldset
+        .querySelector("[data-token-enabled]")
+        .addEventListener("change", (event) => {
+          for (const input of fieldset.querySelectorAll(
+            "[data-token-total], [data-token-action]",
+          )) {
+            input.disabled = !event.target.checked;
+            input.required = event.target.checked;
+          }
+        });
+    }
   } catch (err) {
     state.policyDefaults = null;
     renderFailure(target, err, {
