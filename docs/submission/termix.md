@@ -8,9 +8,9 @@
 > outputs, and at least 1 trading, stock, or security task.
 > [Source: TermiX brief](../deliberation/2026-08-14-BRIEFING-V2.md#12-termix--partner-track-6000--3000--1000)
 
-The honest answer today is mixed. Docket's v1 report alone satisfies that formal eligibility
-gate, but it contains one paired observation per task and records material losses as well as
-wins. The marketplace is not yet open for public payment: 0 of 6 catalogue services are in
+The recorded comparisons are mixed, and sponsor eligibility is unconfirmed. The v1 report
+contains one paired observation per task, with baseline limitations and material losses as
+well as wins. The marketplace is not yet open for public payment: 0 of 6 catalogue services are in
 paid stock. Exactly one owner-approved Range Doctor canary settled 0.50 USDT on 2026-08-30
 and rejected its identical replay; this private bootstrap is not public paid inventory.
 `v3-04-warden-security` is `complete_unscored`: all 24 primaries
@@ -51,12 +51,14 @@ cost note says the run used the free allowance and transferred nothing, with out
 
 ## 2. Proven agent advantage — 30%
 
-### The report that satisfies the eligibility gate today
+### The paired records and their baseline limits
 
-V1 contains exactly 3 paired tasks: each task was run once through Docket and once by hand; each
-record carries both full outputs, elapsed seconds, separate cost notes, output hashes, manual
-reproduction steps, and an account of where the hired arm fell short. One task is security and
-one is trading, so v1 alone clears the formal “at least 3” and high-stakes-task requirements.
+V1 contains exactly 3 paired task records, each with a service arm and a manual-tool arm,
+full outputs, elapsed seconds, separate cost notes, hashes, reproduction steps, and output
+limitations. The LP artifact explicitly says its manual-tool arm was performed by an agent
+driving Chrome. Its timing excludes gaps and a browser stall, and prior information was
+available. It is not an unaided human baseline. The records include security and trading,
+but their count alone does not establish sponsor eligibility or acceptance.
 [Sources: [live v1 report](https://docket.gudman.xyz/advantage.json),
 [LP artifact](../../docket/advantage/experiments/01-liquidity.json),
 [trading artifact](../../docket/advantage/experiments/02-trading.json),
@@ -69,8 +71,14 @@ one is trading, so v1 alone clears the formal “at least 3” and high-stakes-t
 | Security payload, 1 pair observed 2026-08-08 | Agent 2.625 seconds versus manual 74.213 seconds, with out-of-pocket cost 0 in both arms. The manual arm found 4 hostile vectors; the hire returned 1 of those 4, and the other 3 survived in its sanitized text. | [Live task](https://docket.gudman.xyz/advantage#03-security) · [Committed JSON](../../docket/advantage/experiments/03-security.json) |
 
 V2 does not add another human comparison: it explicitly describes its repeated trials as
-agent-versus-computed-null work and points back to v1 as the only current agent-versus-person
-report. [Source: [v2 method and prior-version note](https://docket.gudman.xyz/advantage/v2.json)]
+agent-versus-computed-null work. Its reference to v1 must be read with the baseline
+disclosure above. [Source: [v2 method and prior-version note](https://docket.gudman.xyz/advantage/v2.json)]
+
+The [September 9 closeout](closeout-2026-09-09.md) records two consumed local Yield
+manual attempts and one unstarted case. The required three valid pairs were not obtained.
+The separate completed assisted demo is untimed and ineligible for a registered speed
+comparison. The owner reports that the Google form has already been submitted; these
+corrections do not amend that response.
 
 ### What v3 completed—and what remains unscored
 
@@ -112,12 +120,11 @@ primary.
 [registered Range protocol](../../docket/advantage/v3/specs/v3-05-range-doctor.json),
 [host rehearsal record](../operational-evidence.md#the-capture-rehearsal-on-this-host-with-the-installed-code)]
 
-As of 2026-09-06, v3-07 Range, v3-08 Yield, and v3-09 Health remain
-`registered_waiting_for_inputs` and add no paired result. The [Range](../runbooks/range-v3-07-run.md)
-and [Yield](../runbooks/yield-v3-08-run.md) runs are scheduled for September 7 and 8;
-source captures do not count as completed tasks. Update this report only from the resulting
-ledgers and score artifacts, preserving any failed or unscored outcome. Health may remain
-registered and unrun. [Current v3 state](https://docket.gudman.xyz/advantage/v3.json).
+The September 6 snapshot listed the newer Range, Yield, and Health families as awaiting
+inputs. The [September 9 closeout](closeout-2026-09-09.md) supersedes that snapshot for
+local Yield attempts. Source captures do not count as completed tasks; later assisted
+work cannot replace consumed slots. [Public v3 state](https://docket.gudman.xyz/advantage/v3.json)
+reflects deployed artifacts, not unpublished operator records.
 
 ## 3. High-stakes categories and track record — 20%
 
@@ -187,7 +194,7 @@ that remains the only other trading-shaped record here.
 A cold judge can test the intended path in this order:
 
 1. Open the [marketplace](https://docket.gudman.xyz/) and choose a category or service.
-2. Use the [comparison table](https://docket.gudman.xyz/#compare-heading) to inspect all 6
+2. Use the [comparison table](https://docket.gudman.xyz/compare) to inspect all 6
    services by job, current price state, declared or measured time basis, freshness, evidence
    availability, and stock state; 3 of the 6 rows have a paired measurement and the largest
    sample is 1 pair.

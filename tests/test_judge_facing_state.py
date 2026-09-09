@@ -1,4 +1,7 @@
+import io
 import re
+import subprocess
+import zipfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -52,8 +55,56 @@ def _snapshot(payload):
     )
 
 
-def test_judge_facing_v3_state_follows_committed_artifacts():
-    payload = v3_report.report()
+def _committed_v3_report(root, destination):
+    archive = subprocess.run(
+        ["git", "archive", "--format=zip", "HEAD", "docket/advantage"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    ).stdout
+    with zipfile.ZipFile(io.BytesIO(archive)) as snapshot:
+        snapshot.extractall(destination)
+    v3_dir = destination / "docket/advantage/v3"
+    return v3_report.report(
+        specs_dir=v3_dir / "specs",
+        runs_dir=v3_dir / "runs",
+        sheets_dir=v3_dir / "sheets",
+        mappings_dir=v3_dir / "mappings",
+        repo_root=destination,
+    )
+
+
+def test_committed_report_ignores_untracked_operator_artifacts(tmp_path):
+    root = tmp_path / "operator"
+    specs = root / "docket/advantage/v3/specs"
+    specs.mkdir(parents=True)
+    (specs / ".gitkeep").write_text("", encoding="utf-8")
+    for args in (
+        ["init"],
+        ["add", "."],
+        [
+            "-c",
+            "user.name=Test Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-m",
+            "Record empty evidence tree",
+        ],
+    ):
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+    (specs / "untracked.json").write_text("not a registered specification", encoding="utf-8")
+
+    payload = _committed_v3_report(root, tmp_path / "snapshot")
+
+    assert payload["families"] == []
+    assert (specs / "untracked.json").read_text(
+        encoding="utf-8"
+    ) == "not a registered specification"
+
+
+def test_judge_facing_v3_state_follows_committed_artifacts(tmp_path):
+    payload = _committed_v3_report(ROOT, tmp_path)
     actual = {family["spec_id"]: family["state"] for family in payload["families"]}
     expected = _snapshot(payload)
     missing = []

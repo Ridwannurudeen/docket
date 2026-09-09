@@ -1,8 +1,25 @@
-# Three-minute Docket demo
+# Docket recording plan — September 9 closeout
 
-This is a recording plan, not an existing video. No demo video is supplied as of
-2026-09-06. Record real narration and a fresh live journey; do not present stored evidence
+This is an optional recording plan, not an outstanding submission requirement or an existing video.
+The owner clarified that video is optional. No demo video is supplied as of
+the September 9 closeout. The owner reports that the Google form has already been submitted.
+Record real narration and a fresh live journey; do not present stored evidence
 or a prior log as live execution.
+
+## Required outcome disclosure — add up to 45 seconds to the tour
+
+After the evidence segment, say: “The local Yield experiment did not obtain the three
+required valid pairs. One manual attempt was interrupted, a second timed out, and the
+remaining case is unstarted. I completed a separate assisted text-review demo; it has no
+elapsed-time measurement and cannot support a registered human-versus-agent speed claim.
+The original experiment record is preserved.”
+
+If showing the downloaded JSON, keep its assisted label and show only non-private fields:
+`registered: false`, `assistant_assisted: true`, `eligible_for_speed: false`, and
+`elapsed_seconds: null`. Identify it as local evidence. Do not imply these later outcomes
+already appear on the public report. The v1 LP manual-tool arm was also agent-operated;
+do not describe its recorded time as an unaided human baseline or guarantee TermiX eligibility.
+See the [closeout](closeout-2026-09-09.md) for exact timestamps and evidence hashes.
 
 **Recording gate.** Record this only against the deployed integrated release — the
 activation pages, bounded sessions, marketplace search and the status page all live on the

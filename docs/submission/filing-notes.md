@@ -1,13 +1,16 @@
 # Owner filing notes — runtime updated September 9, 2026
 
-Prepared answers, not a submitted entry. The owner files the form and accepts its terms.
-Do not create a second entry if the team already registered.
+The owner submitted the Google form on September 9; the confirmation page was inspected
+and states that the response was recorded. Submitted field values remain unverified.
+Do not create another entry. The prepared answers below are not a verified copy of the
+submitted response. See the [submission closeout](closeout-2026-09-09.md) for the
+experiment outcome, assisted-demo boundary, and remaining submitted-answer review.
 
 The official [Submit Project page](https://www.bnbchain.org/en/hackathons/smart-money-era)
 links to [Build the Era Hackathon Registration](https://docs.google.com/forms/d/e/1FAIpQLSdFb30r24sZcFJVDbMqXNJ1_45BJHanc7eFqwUniScDYZfX9A/viewform?usp=send_form).
 The form publishes a build deadline of **September 9, 2026, 12:00 UTC** and judging
 September 9–23. Its automatic closure setting is not visible; do not assume an extra
-day beyond noon. Recheck the live form before filing.
+day beyond noon. These are the previously inspected filing details.
 
 ## Project answers
 
@@ -23,7 +26,8 @@ Docket is a live BSC agent marketplace for LP rebalancing, grid trading, yield o
 
 **Prototype Stage:** Working MVP (recommended; the public site and dated activation evidence exist).
 
-**Sub-prize tracks:** PancakeSwap and TermiX (recommended). The form lists **AltLayer**, while
+**Sub-prize tracks:** PancakeSwap and TermiX were the prepared choices; the submitted selections
+are unverified and TermiX eligibility is not established. The form lists **AltLayer**, while
 the official challenge page describes **Altana**. They are not interchangeable. Docket
 does not claim Altana's registered-keystore integration; do not select a substitute track.
 
@@ -34,7 +38,7 @@ Submission index: https://github.com/Ridwannurudeen/docket/tree/main/docs/submis
 Agent Advantage Report: https://docket.gudman.xyz/advantage
 Deployment evidence: https://github.com/Ridwannurudeen/docket/blob/main/docs/operational-evidence.md
 Release tag: https://github.com/Ridwannurudeen/docket/releases/tag/v1.0.0-hackathon
-The tag points to e35b647; the runtime verified on September 9 is c469a434c92738ce0c8eaaff2ad91eb0996461ae. Do not present the tag as the current production commit. Main track plus PancakeSwap and TermiX are intended; no Altana integration is claimed. No demo video URL is supplied yet. Recheck the public report before filing; no new paired result is claimed here.
+The tag points to e35b647; the runtime verified at 07:36:41 UTC on September 9 is 971f4f666d0969b83a6f1f33c453d8d5b0796a68. Do not present the tag as the current production commit. No Altana integration is claimed. No demo video URL is supplied yet. The local Yield experiment did not obtain three valid pairs: two manual slots were consumed and one remains unstarted. The separate completed assisted demo is untimed and excluded from registered speed comparisons. TermiX acceptance is unconfirmed; the v1 LP manual-tool baseline was agent-operated. See the closeout for the complete disclosure.
 
 ## Exact field inventory and owner-supplied answers
 
@@ -70,15 +74,14 @@ Personal contact details and the prize destination should not be committed to th
 | Terms agreement | Yes | Owner reviews co-marketing permission, judging discretion, third-party risk, rules and code of conduct |
 | Response-copy preference | No | Request an email copy recommended |
 
-## Before filing
+## After filing
 
-- Confirm whether this team already has its one permitted entry. The linked form is named
-  Registration, despite being linked as Submit Project; seek organizer guidance for updating
-  an existing entry rather than submitting a duplicate.
+- Google confirms the response was recorded. Retain the confirmation privately. If a correction is
+  needed, use the existing entry's permitted edit route with owner approval; do not submit a duplicate.
 - Manual experiments are not being continued for submission preparation. Preserve existing
   records and report their actual state; captures and input locks are not completed
   comparisons. Do not fabricate a result or restart an attempt to fill a submission gap.
-- Record a genuine walkthrough using [the demo script](demo-script.md); no video is currently
-  supplied. Do not narrate an unfunded session as funded execution or hashes as proof of correctness.
-- Recheck all links, current report states and paid-stock limits, then obtain the owner's final
-  review of the complete entry. These notes do not accept the form's terms on the owner's behalf.
+- Video is optional, as clarified by the owner. If desired, use [the demo script](demo-script.md).
+  Do not narrate an unfunded session as funded execution or hashes as proof of correctness.
+- Review any proposed amendment against the actual submitted response and current evidence.
+  These repository edits do not change the Google response or establish organizer acceptance.

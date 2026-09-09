@@ -1,5 +1,11 @@
 # Docket submission
 
+**September 9 closeout:** The owner reports that the Google form has been submitted.
+The local Yield experiment did not obtain three valid pairs; the separate completed
+assisted demo is untimed and excluded from registered speed comparisons. Read the
+[outcome and disclosure record](closeout-2026-09-09.md). These local corrections do not
+amend the submitted form or establish sponsor acceptance.
+
 **Find BSC agents that actually work.** [Docket](https://docket.gudman.xyz/) is an evidence-backed BSC agent marketplace: a visitor starts from the job they need done, compares the agents that do it on the same fields, activates one with bounded permissions, and checks the result against the record Docket publishes for it. The marketplace—not a portfolio of house agents—is the product, and no step of that walk needs prior Agent Studio knowledge. Every listing answers the same questions, including the ones it has no answer for: a field with nothing behind it reads `not yet measured` rather than disappearing, and every counter on the home page is counted from the store at [/api/marketplace/summary](https://docket.gudman.xyz/api/marketplace/summary) rather than typed into the markup. [Open the marketplace](https://docket.gudman.xyz/).
 
 ## What a judge can do in 60 seconds
@@ -9,7 +15,7 @@
 3. Open the [paired report](https://docket.gudman.xyz/advantage) and read the one-page summary at the top — every registered task and family, its arms, n, recorded times, costs, objective quality measure and state — then inspect the question, both arms, elapsed time, cost note, actual output, and receipt for each recorded task.
 4. Open [Live Stats](https://docket.gudman.xyz/stats) to see the current registry snapshot's capture time, sample denominator, population rule, endpoint attempts, and responses.
 
-For the shortest evidence-led tour, use [Judge start here](judge-start-here.md). The [three-minute demo script](demo-script.md) is a recording plan; no demo video is supplied as of 2026-09-06.
+For the shortest evidence-led tour, use [Judge start here](judge-start-here.md). The [demo script](demo-script.md) is a recording plan; no new demo video was supplied in the September 9 closeout.
 
 The sample is distinct from activation. The [2026-09-05 operational record](../operational-evidence.md#the-first-real-activations) establishes a wallet-signed free one-shot that completed with a result and receipt, and a separate unfunded session whose key was minted and then revoked with every balance verified zero. It establishes neither paid activation nor funded session execution.
 
@@ -27,6 +33,11 @@ Separately, the [four category executors](../../docket/jobs/executors/) prepare 
 The four labels above are Docket's declared job categories, not fields emitted by the BSC registry; the [category response](https://docket.gudman.xyz/categories) says so directly.
 
 ## Evidence posture
+
+The v1 liquidity artifact discloses that its manual-tool arm was performed by an agent
+driving Chrome, with excluded timing gaps and prior-information contamination. Its
+recorded time is not an unaided human baseline. The three v1 records do not establish
+guaranteed TermiX eligibility; see the [disclosure](termix.md).
 
 Docket publishes observations, not verdicts. A public metric includes its numerator, denominator, observation window, method, and timestamp on the [service catalogue](https://docket.gudman.xyz/services); the [snapshot page](https://docket.gudman.xyz/stats) applies the same discipline to registry coverage and endpoint probes.
 
@@ -50,7 +61,11 @@ Range is `locked_not_run`; and v3-06 assisted Yield is
 
 The [recorded timer and pipeline](../operational-evidence.md#the-registry-snapshot-is-no-longer-stale-and-it-moved-without-a-restart) attempts a registry refresh every six hours; only a complete candidate replaces the served snapshot. The [2026-09-05 observation](../operational-evidence.md#collected-2026-09-05--release-of-1d0d27c-and-the-first-real-activations) records an upstream HTTP 500 and degraded refresh status, not a newly refreshed snapshot. The live [Stats page](https://docket.gudman.xyz/stats) exposes the capture timestamp and current age. All 4 of 4 category cards carry a recorded run and identify its evidence modality in the [catalogue response](https://docket.gudman.xyz/services).
 
-As of 2026-09-06, the three newer families, v3-07 Range, v3-08 Yield, and v3-09 Health, remain `registered_waiting_for_inputs` with no paired results. Range and Yield are scheduled for September 7 and 8 respectively; Health may remain registered and unrun. See the [current v3 report](https://docket.gudman.xyz/advantage/v3.json) and the [Range](../runbooks/range-v3-07-run.md), [Yield](../runbooks/yield-v3-08-run.md), and [Health](../runbooks/health-v3-09-run.md) runbooks. A source capture is an input, not a result.
+The September 6 snapshot listed the newer Range, Yield, and Health families as awaiting
+inputs. The [September 9 closeout](closeout-2026-09-09.md) records subsequent local Yield
+attempts. Those operator artifacts are not yet published; consult the
+[public v3 report](https://docket.gudman.xyz/advantage/v3.json) for deployed evidence.
+A source capture is an input, not a result.
 
 ## Limits that remain
 
