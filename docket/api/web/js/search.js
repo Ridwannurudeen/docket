@@ -1,27 +1,27 @@
-/* Find agents: one search across two layers that this page never lets blur.
+/* Find agents: BSC marketplace services and separately labelled research records.
 
    Docket's own services are work Docket runs. It holds the code, publishes a recorded run
-   behind each one, and sells them; they are the only things activatable from this site.
+   behind each one. Only BSC-bound category services get activation controls here;
+   historical and unregistered utilities keep their records in the research section.
    Everything at `/api/agents` is a third-party agent Docket observed in the ERC-8004
    registry. Docket did not write those, its category for one carries the
    `capability_source` that produced it, and being in a registry is not an offer.
 
    Two facts travel with every third-party listing and neither is derived from the other.
    The level says what Docket's evidence supports. `payment_tested` says whether a payment
-   challenge was ever exercised — `docket_tested` hangs off `live`, not off a payment, so
-   the level alone can never stand in for it. And whether Docket offers a listing at all is
-   the server's own `hireable`, read here and never recomputed. */
+   challenge was ever read — `docket_tested` hangs off `live`, not off a payment, so
+   the level alone can never stand in for it. Registry listings remain research records
+   here, regardless of their verification level. */
 
 import * as api from "./api.js?v=13";
 import {
   VERIFICATION_LEVELS,
   escapeHTML,
-  isHireable,
   region,
   renderFailure,
   timeAgo,
   verificationBadge,
-} from "./ui.js?v=13";
+} from "./ui.js?v=15";
 
 const CATEGORIES = [
   ["rebalancing", "Manages LP ranges"],
@@ -67,7 +67,7 @@ function paintControls(filters) {
     ([value, means]) =>
       `<option value="${escapeHTML(value)}" title="${escapeHTML(means)}"${filters.level === value ? " selected" : ""}>${escapeHTML(
         value.replaceAll("_", " "),
-      )} or better</option>`,
+      )} only</option>`,
   ).join("");
   region("controls").innerHTML =
     `<form class="search-form" data-search-form novalidate>
@@ -84,7 +84,7 @@ function paintControls(filters) {
         </select>
       </div>
       <div class="field">
-        <label for="search-level">Verification, at least</label>
+        <label for="search-level">Registry verification, exact level</label>
         <select id="search-level" name="level">
           <option value="">Any level, including never observed</option>
           ${levels}
@@ -99,8 +99,10 @@ function paintControls(filters) {
 
 /* ---------------------------------------------------------------- the layers */
 
-function docketRow(card) {
-  const href = `/activate?service=${encodeURIComponent(card.service_id)}`;
+function docketRow(card, research = false) {
+  const href = research
+    ? `/service?id=${encodeURIComponent(card.service_id)}`
+    : `/activate?service=${encodeURIComponent(card.service_id)}`;
   return `<li class="result-row" data-service="${escapeHTML(card.service_id)}">
       <div class="result-head">
         <h3><a href="${escapeHTML(href)}">${escapeHTML(card.name)}</a></h3>
@@ -114,7 +116,7 @@ function docketRow(card) {
         <dt>Paid stock</dt><dd>${escapeHTML(card.paid_stock ? "admitted" : card.stock_status)}</dd>
       </dl>
       <p class="btn-row">
-        <a class="btn btn-primary" href="${escapeHTML(href)}">Activate</a>
+        <a class="btn${research ? "" : " btn-primary"}" href="${escapeHTML(href)}">${research ? "Read service record" : "Activate"}</a>
       </p>
     </li>`;
 }
@@ -144,15 +146,6 @@ function evidenceList(verification) {
     .join("")}</ul>`;
 }
 
-/* The endpoint another agent could actually call. A `web` link is a homepage: naming it as
-   the way to hire something would send a reader to a marketing page. */
-function invocableEndpoint(listing) {
-  const row = (listing.endpoints || []).find((item) =>
-    ["a2a", "mcp"].includes(String(item.kind || "").toLowerCase()),
-  );
-  return row ? row.url : null;
-}
-
 function capabilitySource(listing) {
   return (
     CAPABILITY_SOURCES[listing.capability_source] ||
@@ -180,14 +173,8 @@ function listingRow(listing) {
       ${evidenceList(verification)}
       <p class="btn-row">
         <a class="btn" href="${escapeHTML(href)}">Read what Docket observed</a>
-        ${
-          isHireable(listing)
-            ? `<span class="dim">Hireable through its own endpoint, not through Docket:
-                 <span class="mono wrap-anywhere">${escapeHTML(invocableEndpoint(listing) || "no invocable endpoint declared")}</span>.
-                 Docket has run it and says so; it does not sell it, take payment for it, or
-                 stand behind it.</span>`
-            : '<span class="dim">Docket does not offer this, so it is not hireable from this site.</span>'
-        }
+        <span class="dim">Research record only, not hireable from this site. An HTTP
+          response does not establish that the agent performs its advertised work.</span>
       </p>
     </li>`;
 }
@@ -198,12 +185,20 @@ function describe(filters) {
   if (filters.category)
     parts.push(`the ${filters.category.replaceAll("_", " ")} job`);
   if (filters.level)
-    parts.push(`${filters.level.replaceAll("_", " ")} or better`);
+    parts.push(`exactly ${filters.level.replaceAll("_", " ")}`);
   return parts.length ? parts.join(", ") : "an unfiltered search";
 }
 
 function paintResults(answer, services, filters) {
   const items = answer.items || [];
+  const primary = services.filter(
+    (card) =>
+      CATEGORIES.some(([category]) => category === card.category) &&
+      /^56:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:\d+$/i.test(
+        card.agent_id || "",
+      ),
+  );
+  const research = services.filter((card) => !primary.includes(card));
   const target = region("results");
   const total = answer.total === undefined ? items.length : answer.total;
   if (!items.length && !services.length) {
@@ -215,12 +210,13 @@ function paintResults(answer, services, filters) {
       </div>`;
     return;
   }
-  const unoffered = items.filter((listing) => !isHireable(listing)).length;
   const lookup = answer.registry_lookup || {};
   target.innerHTML = `<p class="section-note" data-field="result-count">
-      ${services.length} service${services.length === 1 ? "" : "s"} Docket runs and
-      ${items.length} of ${escapeHTML(String(total))} registry listings matched
+      ${primary.length} BSC marketplace service${primary.length === 1 ? "" : "s"},
+      ${research.length} research-only service${research.length === 1 ? "" : "s"}, and
+      ${items.length} of ${escapeHTML(String(total))} registry research listings matched
       ${escapeHTML(describe(filters))}.
+      ${filters.level ? "Docket services are not filtered by registry verification level." : ""}
     </p>
     ${
       lookup.reason
@@ -230,31 +226,32 @@ function paintResults(answer, services, filters) {
     }
     <section aria-labelledby="docket-layer-heading">
       <h3 id="docket-layer-heading">Services Docket runs</h3>
-      <p class="section-note">Docket holds the code, publishes a recorded run behind each
-        one, and sells them. These are the only agents activatable from this site.</p>
+      <p class="section-note">BSC-bound services across the four marketplace categories.
+        Each shows its own evidence and limits. Activation is available here.</p>
       ${
-        services.length
-          ? `<ul class="result-list">${services.map(docketRow).join("")}</ul>`
-          : `<p class="dim">Nothing Docket runs matches ${escapeHTML(describe(filters))}.</p>`
+        primary.length
+          ? `<ul class="result-list">${primary.map((card) => docketRow(card)).join("")}</ul>`
+          : `<p class="dim">No BSC marketplace service matches ${escapeHTML(describe(filters))}.</p>`
       }
     </section>
+    ${
+      research.length
+        ? `<section aria-labelledby="research-layer-heading">
+      <h3 id="research-layer-heading">Research-only services</h3>
+      <p class="section-note">Historical or unregistered utilities, not live BSC category
+        listings. Their records remain available separately from the marketplace.</p>
+      <ul class="result-list">${research.map((card) => docketRow(card, true)).join("")}</ul>
+      <p><a href="/research#research-services">Read the research context</a></p>
+    </section>`
+        : ""
+    }
     <section aria-labelledby="registry-layer-heading">
       <h3 id="registry-layer-heading">Third-party agents Docket observed</h3>
-      <p class="section-note">Registered by somebody else on BSC. Docket did not write these
-        and does not sell them. Each carries the level its evidence supports, whether a
-        payment challenge was ever exercised against it, and where its category came from.</p>
-      ${
-        unoffered
-          ? `<div class="notice notice-warn">
-               <p class="notice-heading">${unoffered} of these are not offered by Docket</p>
-               <p>Being in a registry is not an offer. A listing Docket has not run has no
-                 result to show for itself, and one badged
-                 <span class="mono">payment untested</span> has had no payment challenge
-                 exercised against it — its level never says otherwise. Nothing here is a
-                 recommendation to hire it somewhere else.</p>
-             </div>`
-          : ""
-      }
+      <p class="section-note">Registry research, not marketplace inventory. Registered by
+        somebody else on BSC; Docket does not sell or recommend these agents. Being in a
+        registry is not an offer. Each record preserves what was observed, when, whether
+        a payment challenge was read, and where its category came from. A reachable host
+        is not proof of functional trading or current availability.</p>
       ${
         items.length
           ? `<ul class="result-list">${items.map(listingRow).join("")}</ul>`

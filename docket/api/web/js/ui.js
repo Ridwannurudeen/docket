@@ -139,11 +139,14 @@ export const VERIFICATION_LEVELS = [
   ["registered", "An identity exists on chain. Docket has not reached it."],
   ["endpoint_detected", "It declares an endpoint. Docket has not called it."],
   ["live", "A host answered at that endpoint, at some status."],
-  ["payment_tested", "A payment challenge was exercised against it."],
+  [
+    "payment_tested",
+    "Docket read a valid payment challenge. No payment was sent by this check.",
+  ],
   ["docket_tested", "Docket ran it and recorded the result."],
   [
     "docket_verified",
-    "Docket ran it, settled a payment, and published the record.",
+    "A sample invocation returned a schema-valid result and a registered paired-benchmark family exists. This does not establish payment settlement.",
   ],
 ];
 
@@ -180,8 +183,8 @@ export function verificationBadge(verification) {
     : "Seen in the registry index. Docket has observed nothing about it.";
   const tested = record.payment_tested === true;
   const paymentMeans = tested
-    ? "A payment challenge was exercised against it and answered."
-    : "No payment challenge has been exercised against it. The level says nothing either way.";
+    ? "Docket read a valid payment challenge. No payment was sent by this check."
+    : "No valid payment challenge was read. The level says nothing about payment settlement.";
   return `<span class="verify-badge" data-level="${escapeHTML(name)}" title="${escapeHTML(means)}">
       ${escapeHTML(name.replaceAll("_", " "))}
     </span>

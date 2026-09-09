@@ -5,10 +5,11 @@ import {
   mockProviders,
   mockServices,
   signedMessages,
+  SERVICE,
   test,
 } from "../fixtures";
 
-/* A listing Docket has run and settled a payment with. `hireable` is the server's own
+/* A listing Docket has run and benchmarked. `hireable` is the server's own
    decision and the page reads it rather than recomputing it from the level. */
 const OFFERED = {
   agent_id: "56:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432:311253",
@@ -80,6 +81,116 @@ test.describe("search", () => {
     await mockAgents(page, [OFFERED, TESTED_UNPAID, UNSEEN]);
   });
 
+  test("verification filter copy matches the API's exact level selection", async ({
+    page,
+  }) => {
+    await mockAgents(page, [TESTED_UNPAID]);
+    await page.goto("/search?level=docket_tested");
+
+    await expect(
+      page.getByLabel("Registry verification, exact level"),
+    ).toHaveValue("docket_tested");
+    await expect(
+      page.locator('#search-level option[value="docket_tested"]'),
+    ).toHaveText("docket tested only");
+    await expect(page.locator('[data-field="result-count"]')).toContainText(
+      "exactly docket tested",
+    );
+    await expect(page.locator('[data-field="result-count"]')).toContainText(
+      "Docket services are not filtered by registry verification level.",
+    );
+    await expect(page.locator('[data-service="range-doctor"]')).toBeVisible();
+    await expect(
+      page.locator(`[data-agent="${OFFERED.agent_id}"]`),
+    ).toHaveCount(0);
+  });
+
+  test("verification descriptions do not claim a payment settled", async ({
+    page,
+  }) => {
+    await page.goto("/search");
+
+    const offered = page.locator(`[data-agent="${OFFERED.agent_id}"]`);
+    await expect(
+      offered.locator('[data-level="docket_verified"]'),
+    ).toHaveAttribute(
+      "title",
+      "A sample invocation returned a schema-valid result and a registered paired-benchmark family exists. This does not establish payment settlement.",
+    );
+    await expect(
+      offered.locator('[data-payment-tested="yes"]'),
+    ).toHaveAttribute(
+      "title",
+      "Docket read a valid payment challenge. No payment was sent by this check.",
+    );
+    await expect(
+      page.locator('#search-level option[value="payment_tested"]'),
+    ).toHaveAttribute(
+      "title",
+      "Docket read a valid payment challenge. No payment was sent by this check.",
+    );
+  });
+
+  test("unregistered, historical and non-BSC services stay outside the marketplace", async ({
+    page,
+  }) => {
+    const utilities = [
+      {
+        ...SERVICE,
+        service_id: "warden-scan",
+        name: "Warden Payload Scan",
+        category: null,
+        agent_id: null,
+      },
+      {
+        ...SERVICE,
+        service_id: "solvent-signal",
+        name: "Historical Signal",
+        category: null,
+        evidence_modality: "historical",
+      },
+      {
+        ...SERVICE,
+        service_id: "other-chain",
+        name: "Other Chain Service",
+        agent_id: SERVICE.agent_id.replace("56:", "1:"),
+      },
+    ];
+    await page.route("**/services", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ services: [SERVICE, ...utilities], total: 4 }),
+      }),
+    );
+    await page.goto("/search");
+
+    const marketplace = page.locator(
+      'section[aria-labelledby="docket-layer-heading"]',
+    );
+    await expect(marketplace.locator("[data-service]")).toHaveCount(1);
+    await expect(
+      marketplace.getByRole("link", { name: "Activate" }),
+    ).toHaveCount(1);
+    const research = page.locator(
+      'section[aria-labelledby="research-layer-heading"]',
+    );
+    await expect(
+      research.getByRole("link", { name: "Read service record" }),
+    ).toHaveCount(3);
+    await expect(research.getByRole("link", { name: "Activate" })).toHaveCount(
+      0,
+    );
+    const registry = page.locator(
+      'section[aria-labelledby="registry-layer-heading"]',
+    );
+    await expect(registry).toContainText(
+      "Registry research, not marketplace inventory",
+    );
+    await expect(registry).not.toContainText(
+      "Hireable through its own endpoint",
+    );
+  });
+
   test("the two layers are labelled and only Docket's own is activatable", async ({
     page,
   }) => {
@@ -101,7 +212,9 @@ test.describe("search", () => {
     const registry = page.locator(
       'section[aria-labelledby="registry-layer-heading"]',
     );
-    await expect(registry.getByRole("link", { name: "Activate" })).toHaveCount(0);
+    await expect(registry.getByRole("link", { name: "Activate" })).toHaveCount(
+      0,
+    );
 
     /* Even the hireable third-party listing is read, not bought, from this site. */
     const offered = page.locator(`[data-agent="${OFFERED.agent_id}"]`);
@@ -165,10 +278,12 @@ test.describe("search", () => {
   }) => {
     await page.goto("/search");
     await expect(
-      page.getByText("2 of these are not offered by Docket"),
+      page.getByText("Registry research, not marketplace inventory", {
+        exact: false,
+      }),
     ).toBeVisible();
     await expect(
-      page.getByText("Being in a registry is not an offer", { exact: false }),
+      page.getByText("registry is not an offer", { exact: false }),
     ).toBeVisible();
     await expect(
       page
@@ -327,7 +442,9 @@ test.describe("providers", () => {
 
     await expect(page.getByText("1 level did not pass")).toBeVisible();
     await expect(page.locator('[data-payment-tested="no"]')).toBeVisible();
-    await expect(page.getByText("Offered by Docket", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("Offered by Docket", { exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByText("nothing here is a permanent verdict", { exact: false }),
     ).toBeVisible();

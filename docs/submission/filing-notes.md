@@ -1,4 +1,4 @@
-# Owner filing notes — checked September 6, 2026
+# Owner filing notes — runtime updated September 9, 2026
 
 Prepared answers, not a submitted entry. The owner files the form and accepts its terms.
 Do not create a second entry if the team already registered.
@@ -34,11 +34,11 @@ Submission index: https://github.com/Ridwannurudeen/docket/tree/main/docs/submis
 Agent Advantage Report: https://docket.gudman.xyz/advantage
 Deployment evidence: https://github.com/Ridwannurudeen/docket/blob/main/docs/operational-evidence.md
 Release tag: https://github.com/Ridwannurudeen/docket/releases/tag/v1.0.0-hackathon
-The tag points to e35b647; the September 6 runtime is cada2d0. Do not present the tag as the current production commit. Main track plus PancakeSwap and TermiX are intended; no Altana integration is claimed. No demo video URL is supplied yet. The report must be reread after the September 7–8 experiments before filing.
+The tag points to e35b647; the runtime verified on September 9 is c469a434c92738ce0c8eaaff2ad91eb0996461ae. Do not present the tag as the current production commit. Main track plus PancakeSwap and TermiX are intended; no Altana integration is claimed. No demo video URL is supplied yet. Recheck the public report before filing; no new paired result is claimed here.
 
 ## Exact field inventory and owner-supplied answers
 
-The inspected form was page 1 of 1. No separate live-site, demo-video, report or deployment
+The form inspected on September 6 was page 1 of 1. No separate live-site, demo-video, report or deployment
 fields appeared in its rendered page or public schema; use Additional Notes for those links.
 Personal contact details and the prize destination should not be committed to this public repo.
 
@@ -75,8 +75,9 @@ Personal contact details and the prize destination should not be committed to th
 - Confirm whether this team already has its one permitted entry. The linked form is named
   Registration, despite being linked as Submit Project; seek organizer guidance for updating
   an existing entry rather than submitting a duplicate.
-- Finish or honestly close the scheduled v3-07 and v3-08 records. Captures are inputs, not
-  completed comparisons. Leave v3-09 registered and unrun if no free day remains.
+- Manual experiments are not being continued for submission preparation. Preserve existing
+  records and report their actual state; captures and input locks are not completed
+  comparisons. Do not fabricate a result or restart an attempt to fill a submission gap.
 - Record a genuine walkthrough using [the demo script](demo-script.md); no video is currently
   supplied. Do not narrate an unfunded session as funded execution or hashes as proof of correctness.
 - Recheck all links, current report states and paid-stock limits, then obtain the owner's final

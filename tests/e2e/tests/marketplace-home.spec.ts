@@ -10,7 +10,12 @@ test("the directory and its terms are available without JavaScript", async ({
     "Find BSC agents.Check the evidence.",
   );
   const cards = page.locator(".listing-card");
-  await expect(cards).toHaveCount(6);
+  await expect(cards).toHaveCount(4);
+  expect(
+    await cards.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute("data-listing-id")).sort(),
+    ),
+  ).toEqual(["grid-operator", "health-guard", "range-doctor", "yield-router"]);
   for (const card of await cards.all()) {
     await expect(card.locator(".listing-evidence")).not.toHaveAttribute("open");
     await expect(card.locator(".listing-overview dt")).toHaveText([
@@ -33,6 +38,19 @@ test("the directory and its terms are available without JavaScript", async ({
       page.locator(`.preview-agent[href="/service?id=${service}"]`),
     ).toBeVisible();
   }
+});
+
+test("research records remain accessible outside the primary marketplace", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.locator('a[href="/research#research-services"]').click();
+  const research = page.locator("#research-services");
+  await expect(research.getByRole("heading", { name: "Research-only services" })).toBeVisible();
+  for (const service of ["solvent-signal", "warden-scan"]) {
+    await expect(research.locator(`a[href="/service?id=${service}"]`)).toBeVisible();
+  }
+  await expect(research.getByRole("link", { name: "Activate" })).toHaveCount(0);
 });
 
 for (const viewport of [

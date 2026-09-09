@@ -27,7 +27,11 @@ DOCUMENT_TIME = datetime(2026, 8, 28, 10, 44, 53, tzinfo=UTC)
 # instead: updatedAt is when a document was written, not when its agent was minted,
 # and leaving it at the mint-day stamp would make a changed description look untouched.
 PIVOT_TIME = datetime(2026, 9, 3, 12, 0, 0, tzinfo=UTC)
-DOCUMENT_TIMES = {"range-doctor": PIVOT_TIME, "health-guard": PIVOT_TIME}
+DOCUMENT_TIMES = {
+    "range-doctor": PIVOT_TIME,
+    "health-guard": PIVOT_TIME,
+    "grid-operator": datetime(2026, 9, 9, 3, 58, 23, tzinfo=UTC),
+}
 IDENTITY_FACTS = {
     fact["service_id"]: fact
     for fact in json.loads(IDENTITY_EVIDENCE.read_text(encoding="utf-8"))["services"]
@@ -200,6 +204,25 @@ def test_registration_documents_are_generated_from_the_catalogue():
         assert (
             STATIC.joinpath(f"{service_id}.registration.json").read_bytes() == document
         )
+
+
+def test_grid_registration_discloses_runner_held_session_and_offchain_bounds():
+    document = json.loads(
+        STATIC.joinpath("grid-operator.registration.json").read_text(encoding="utf-8")
+    )
+    record = get_record("grid-operator")
+    assert record is not None
+    assert document["description"] == SERVICES["grid-operator"].what_you_get
+    assert document["services"][0]["description"] == document["description"]
+    assert document["skills"][0]["description"] == document["description"]
+    assert document["limitations"] == record.limitations
+    for text in (document["description"], document["limitations"]):
+        assert "Docket's runner holds the session key" in text
+        assert "off-chain checks" in text
+        assert "not an on-chain session validator" in text
+        assert "funded float" in text
+        assert "session validator enforces" not in text
+        assert "grants on chain" not in text
 
 
 def test_registration_document_adds_the_minted_identity_without_changing_its_url():

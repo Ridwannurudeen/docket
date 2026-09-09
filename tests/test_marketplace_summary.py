@@ -184,8 +184,7 @@ def test_identity_and_family_counts_follow_the_committed_records(store):
     summary = _summary(store)
 
     assert summary["erc8004_identities"] == sum(
-        record.agent_id is not None and record.category is not None
-        for record in all_records()
+        record.agent_id is not None and record.category is not None for record in all_records()
     )
     assert summary["v3_families"] == v3_report()["summary"]["n_families"]
 
@@ -445,7 +444,7 @@ def test_the_served_home_carries_the_counted_numbers_without_scripting(tmp_path)
     assert "<!-- summary-" not in served
 
 
-def test_the_served_home_lists_every_catalogue_service_with_the_same_fields(tmp_path):
+def test_the_served_home_lists_only_bsc_bound_category_services_with_the_same_fields(tmp_path):
     db = tmp_path / "listings.sqlite3"
     store = Store(db)
     snapshot = store.begin_snapshot(chain_id=56, expected=0)
@@ -455,7 +454,21 @@ def test_the_served_home_lists_every_catalogue_service_with_the_same_fields(tmp_
     served = client.get("/", headers={"accept": "text/html"}).text
     cards = re.findall(r'<article class="listing-card".*?</article>', served, re.S)
 
-    assert len(cards) == len(all_records())
+    expected = {
+        record.service_id
+        for record in all_records()
+        if record.category is not None and record.agent_id
+    }
+    assert len(cards) == len(expected) == 4
+    assert set(re.findall(r'data-listing-id="([^"]+)"', served)) == expected
+    assert 'href="/research#research-services"' in served
+    assert client.get("/api/marketplace/summary").json()["services_total"] == 6
+    research = client.get("/research").text
+    for service_id in ("solvent-signal", "warden-scan"):
+        assert f'href="/service?id={service_id}"' in research
+        assert client.get(f"/services/{service_id}").status_code == 200
+    assert "Research-only services" in research
+    assert "not live BSC category listings" in research
     for card in cards:
         for label in (
             "<dt>BSC identity</dt>",
@@ -475,6 +488,24 @@ def test_the_served_home_lists_every_catalogue_service_with_the_same_fields(tmp_
         assert "/service?id=" in card
         listing_id = re.search(r'data-listing-id="([^"]+)"', card).group(1)
         assert f'<span class="mono listing-id">{listing_id}</span>' in card
+
+
+@pytest.mark.parametrize("agent_id", [None, "1:0x8004a169fb4a3325136eb29fa0ceb6d2e539a432:311253"])
+def test_home_excludes_a_category_service_without_its_bsc_identity(store, agent_id):
+    from dataclasses import replace
+
+    records = [
+        replace(record, agent_id=agent_id) if record.service_id == "range-doctor" else record
+        for record in all_records()
+    ]
+    rendered = home_page(
+        (WEB / "index.html").read_text(encoding="utf-8"),
+        _summary(store),
+        listing_facts(store, records),
+    )
+    assert 'data-listing-id="range-doctor"' not in rendered
+    assert rendered.count('class="listing-card"') == 3
+    assert "3 BSC category services below." in " ".join(rendered.split())
 
 
 def test_listing_evidence_uses_a_native_disclosure_without_hiding_price(store):
