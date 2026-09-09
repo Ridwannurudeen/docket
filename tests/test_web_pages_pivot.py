@@ -83,7 +83,7 @@ def test_each_pivot_page_loads_exactly_one_entry_module(client):
         document = (WEB / shell).read_text(encoding="utf-8")
         scripts = re.findall(r"<script[^>]*src=\"([^\"]+)\"", document)
         version = {
-            "activate": 15,
+            "activate": 16,
             "my-agents": 13,
             "search": 16,
             "providers": 16,

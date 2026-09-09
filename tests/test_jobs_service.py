@@ -632,6 +632,34 @@ def test_the_native_gas_allowance_is_not_a_funding_requirement(store):
     )
 
 
+@pytest.mark.parametrize("bnb_cap", [400_000_000_000_000, None])
+def test_the_gas_funding_instruction_respects_the_signed_bnb_cap(store, bnb_cap):
+    policy = {
+        **POLICY,
+        "per_action_limit_atomic": {USDT: POLICY["per_action_limit_atomic"][USDT]},
+        "total_cap_atomic": {USDT: POLICY["total_cap_atomic"][USDT]},
+    }
+    if bnb_cap is not None:
+        policy["per_action_limit_atomic"][NATIVE_TOKEN] = str(bnb_cap)
+        policy["total_cap_atomic"][NATIVE_TOKEN] = str(bnb_cap)
+    service = _service(store)
+    created = service.create(
+        "range-doctor",
+        kind="persistent",
+        owner=OWNER,
+        inputs={"wallet": OWNER},
+        policy=policy,
+    )
+
+    service.mint_session(created)
+
+    assert created.next_action.kind == "fund_session"
+    assert created.next_action.detail["gas_allowance_wei"] == (
+        None if bnb_cap is None else str(bnb_cap)
+    )
+    assert created.policy["total_cap_atomic"] == policy["total_cap_atomic"]
+
+
 def test_a_web_process_with_no_master_password_still_creates_the_activation(store):
     """It never needed one. Creating is the web process's job; minting is the tick's, and
     that is the only step a missing master password can stop."""

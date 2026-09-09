@@ -442,14 +442,16 @@ export const POLICY_SKELETON = {
     "0x10ED43C718714eb63d5aA57B78B54704E256024E",
   ],
   function_allowlist: ["0x88316456", "0x0c49ccbe"],
-  token_allowlist: [USDT, WBNB],
+  token_allowlist: [USDT, WBNB, "BNB"],
   per_action_limit_atomic: {
     [USDT]: "1000000000000000000",
     [WBNB]: "20000000000000000",
+    BNB: "10000000000000000",
   },
   total_cap_atomic: {
     [USDT]: "10000000000000000000",
     [WBNB]: "200000000000000000",
+    BNB: "100000000000000000",
   },
   max_slippage_bps: 50,
   max_gas_price_wei: "5000000000",

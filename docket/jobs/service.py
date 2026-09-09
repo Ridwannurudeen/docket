@@ -39,7 +39,7 @@ from ..sessions.keys import (
     master_password_from_env,
     unlock,
 )
-from ..sessions.policy import SessionPolicy
+from ..sessions.policy import NATIVE_TOKEN, SessionPolicy
 from ..store import StaleActivation
 from .auth import new_nonce
 from .executors.allowlists import (
@@ -737,11 +737,18 @@ class ActivationService:
             if any(item["kind"] == "fund_session" for item in outstanding)
             else "approve_nft"
         )
+        gas_cap = SessionPolicy.from_dict(activation.policy).total_cap_atomic.get(
+            NATIVE_TOKEN
+        )
         return NextAction(
             kind,
             {
                 "session_address": activation.session["address"],
-                "gas_allowance_wei": str(DEFAULT_GAS_ALLOWANCE_WEI),
+                "gas_allowance_wei": (
+                    None
+                    if gas_cap is None
+                    else str(min(DEFAULT_GAS_ALLOWANCE_WEI, gas_cap))
+                ),
                 "requirements": requirements,
             },
         )
