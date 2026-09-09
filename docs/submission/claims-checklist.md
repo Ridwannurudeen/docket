@@ -67,8 +67,8 @@ documents an upstream HTTP 500 and degraded refresh status; only complete candid
 |---|---|---|---|
 | E-01 | Zero of six catalogue services are in paid stock; each currently exposes `paid_stock: false` and `0.50 $U` only as its post-admission price. | `README.md`; `bnb.md`; `termix.md`; `judge-start-here.md`; `demo-script.md` | [Catalogue](https://docket.gudman.xyz/hire), [services](https://docket.gudman.xyz/services) |
 | E-02 | Exactly one owner-approved Range Doctor canary settled 0.50 USDT on 2026-08-30; all eight legs passed and the identical signed request was rejected with `409 authorization_replay`. This proves one private-canary lifecycle, not public paid inventory; all six services remain `paid_stock=false`. | `README.md`; `bnb.md`; `termix.md`; `judge-start-here.md`; `demo-script.md` | [Operational record](../operational-evidence.md#collected-2026-08-30--approved-settlement-canary-and-current-state), [canary](https://docket.gudman.xyz/canary), [services](https://docket.gudman.xyz/services) |
-| E-03 | V1 contains exactly three paired tasks—liquidity, trading, and security—each observed once with the service and once manually, with elapsed time, separate cost notes, hashes, reproduction steps, and both actual outputs. | `README.md`; `bnb.md`; `termix.md`; `judge-start-here.md`; `demo-script.md` | [v1](https://docket.gudman.xyz/advantage.json), [artifacts](../../docket/advantage/experiments/) |
-| E-04 | Those three v1 records satisfy TermiX's formal task-count and high-stakes eligibility conditions, but the sample is one pair per task and includes losses. | `termix.md` | [v1](https://docket.gudman.xyz/advantage.json), [TermiX brief](../deliberation/2026-08-14-BRIEFING-V2.md#12-termix--partner-track-6000--3000--1000) |
+| E-03 | V1 contains three paired records with service and manual-tool arms, outputs, timings, costs, hashes, and reproduction steps. The LP manual-tool arm was agent-operated, with excluded timing gaps and prior-information contamination; it is not an unaided human baseline. | `README.md`; `termix.md`; `demo-script.md` | [v1](https://docket.gudman.xyz/advantage.json), [LP artifact](../../docket/advantage/experiments/01-liquidity.json) |
+| E-04 | TermiX eligibility and acceptance are unconfirmed. Three paired records, including trading and security, do not by themselves establish compliance with the required baseline. | `termix.md` | [v1](https://docket.gudman.xyz/advantage.json), [TermiX brief](../deliberation/2026-08-14-BRIEFING-V2.md#12-termix--partner-track-6000--3000--1000) |
 | E-05 | In the single LP pair observed 2026-08-08, the service took 43.063 seconds and the manual arm 528.310 seconds; both reported out-of-pocket cost 0 and the same funded-position range state, while the manual output was richer for 13 closed positions. | `termix.md` | [LP artifact](../../docket/advantage/experiments/01-liquidity.json) |
 | E-06 | In the single trading pair observed 2026-08-08, the service took 1.844 seconds and the manual arm 221.739 seconds, both at out-of-pocket cost 0; only the manual arm completed the asked-for chain/anchor check, and neither established correctness or profit. | `termix.md` | [Trading artifact](../../docket/advantage/experiments/02-trading.json) |
 | E-07 | In the single security pair observed 2026-08-08, the service took 2.625 seconds and the manual arm 74.213 seconds, both at out-of-pocket cost 0; manual reading identified four hostile vectors and the service layers identified one, leaving three in sanitized text. | `README.md`; `termix.md`; `judge-start-here.md`; `demo-script.md` | [Security artifact](../../docket/advantage/experiments/03-security.json), [v1](https://docket.gudman.xyz/advantage.json) |
@@ -113,12 +113,13 @@ establishes a completed wallet-signed free one-shot and an unfunded session mint
 every balance verified zero. It establishes neither a paid activation nor funded onchain
 execution, and delivery hashes are not proof of correctness or onchain anchoring.
 
-As of 2026-09-06, v3-07 Range, v3-08 Yield and v3-09 Health remain
-`registered_waiting_for_inputs`, with no paired results. The historical six-family rows
-above are dated observations, not the full current inventory. Source captures are inputs,
-not completed tasks; see the [current report](https://docket.gudman.xyz/advantage/v3.json)
-and [Range](../runbooks/range-v3-07-run.md), [Yield](../runbooks/yield-v3-08-run.md), and
-[Health](../runbooks/health-v3-09-run.md) runbooks. No demo video is supplied as of this review.
+The September 6 snapshot listed the newer families as awaiting inputs. Subsequent local
+Yield attempts are documented in the [September 9 closeout](closeout-2026-09-09.md):
+two consumed manual slots, one unstarted case, and no three valid pairs. The separate
+assisted demo is untimed and excluded from registered comparisons. These local artifacts
+are not yet published. Earlier rows are dated observations; consult the
+[public report](https://docket.gudman.xyz/advantage/v3.json) for deployed evidence.
+The Google form is owner-reported submitted. No new demo video was supplied.
 
 | Cut claim | Reason and source of truth |
 |---|---|
@@ -143,6 +144,9 @@ and [Range](../runbooks/range-v3-07-run.md), [Yield](../runbooks/yield-v3-08-run
 | Judging-window uptime or marketplace adoption is already complete. | Current health is observable, while future availability and owner actions remain obligations. [Health](https://docket.gudman.xyz/health), [BNB gate](../deliberation/2026-08-14-BRIEFING-V2.md#11-bnb-chain--main-track-30000--adoption) |
 | The pre-capture rehearsal or the 2026-08-26 registered Yield capture is a Yield result. | The rehearsal used a scratch specification; the registered capture produced input bytes. Neither capture is a result. Yield later recorded one failed manual primary and is `abandoned_after_failed_primary`; it still has no family result. [Operational record](../operational-evidence.md), [v3](https://docket.gudman.xyz/advantage/v3.json) |
 
-## Owner recheck before submission
+## Owner review of any correction to the submitted entry
 
-Re-run the link and claim audit after the completed [2026-08-26 source captures](../../docket/advantage/v3/specs/) and immediately before the [2026-09-09 submission deadline](../deliberation/2026-08-14-BRIEFING-V2.md#29-the-calendar-hard-constraint). Update every present-tense stock, settlement, v3, identity-binding, LP-record, and registry-freshness sentence from the live endpoints; do not preserve this checklist's current-state wording if the evidence changes.
+Compare these disclosures with the actual submitted response before preparing an amendment.
+The response contents have not been independently verified. Use the permitted existing-entry
+edit route only with owner approval; do not file a duplicate. Recheck live claims before
+publishing corrections and keep local operator evidence distinct from deployed artifacts.

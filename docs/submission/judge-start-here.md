@@ -1,5 +1,12 @@
 # Judge start here
 
+**September 9 closeout:** The owner reports that the Google form has been submitted.
+The [local outcome record](closeout-2026-09-09.md) documents an interrupted Yield
+attempt, a timeout, and a separate completed assisted demo. Three valid pairs were not
+obtained. The assisted record is untimed and ineligible for registered speed comparisons.
+The v1 LP manual-tool arm was agent-operated; do not treat it as an unaided human baseline
+or guarantee sponsor eligibility. These local corrections are not yet published.
+
 Open these five public pages in order. The tour needs no account or wallet and keeps each claim beside the evidence that bounds it.
 
 ## 1. See the product

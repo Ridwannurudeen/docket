@@ -1,5 +1,10 @@
 # Submission readiness — September 9, 2026
 
+**Later update:** The owner has reported submitting the Google form. The
+[September 9 closeout](closeout-2026-09-09.md) supersedes pending-filing instructions,
+records the later runtime observation, and documents the local Yield outcomes. The audit
+below preserves what was observed at 04:00 UTC.
+
 Observed between 03:53 and 04:00 UTC. This is a dated readiness audit, not a
 submission, independent attestation, funded execution record or uptime guarantee.
 The public runtime checked was `c469a434c92738ce0c8eaaff2ad91eb0996461ae`.

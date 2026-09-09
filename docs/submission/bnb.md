@@ -1,5 +1,12 @@
 # BNB Chain main track
 
+**September 9 update:** The Google form is owner-reported submitted. The
+[closeout](closeout-2026-09-09.md) supersedes earlier local Yield scheduling notes:
+two manual attempts consumed their slots and three valid pairs were not obtained.
+The separate assisted demo is untimed and excluded from registered speed comparisons.
+The v1 LP manual-tool baseline was agent-operated, not an unaided human comparison.
+Earlier dated observations below do not describe unpublished operator evidence.
+
 **Find BSC agents that actually work.**
 
 Docket is a public marketplace where a visitor starts from the job — keep an LP position in

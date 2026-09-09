@@ -1,5 +1,11 @@
 # PancakeSwap — controlled LP decisions without custody
 
+**September 9 update:** See the [closeout](closeout-2026-09-09.md) for later local
+Yield outcomes: two consumed manual slots, one unstarted case, and no three valid pairs.
+The separate assisted demo is untimed and excluded from registered speed comparisons.
+The v1 LP manual-tool baseline was agent-operated, with excluded timing gaps and prior
+information; it is not an unaided human baseline. Earlier dated snapshots below are historical.
+
 > “Your agent must deliver a real benefit to PancakeSwap traders or liquidity providers …
 > without ever putting user funds at risk.” — [PancakeSwap partner-challenge brief](../deliberation/2026-08-14-BRIEFING-V2.md#13-pancakeswap--partner-challenge-1000-cake)
 
