@@ -248,7 +248,7 @@ class ActivationService:
             )
 
         moment = self.now()
-        return Activation(
+        activation = Activation(
             activation_id=new_activation_id(),
             service_id=service_id,
             category=record.category.value,
@@ -275,6 +275,26 @@ class ActivationService:
             updated_at=moment,
             expires_at=None if session_policy is None else session_policy.expires_at,
         )
+        if kind == PERSISTENT and activation.category == "grid_trading":
+            from .executors.grid import spec_from
+
+            missing = [
+                name
+                for name in (
+                    "base",
+                    "quote",
+                    "price_lower",
+                    "price_upper",
+                    "levels",
+                    "amount_per_level_atomic",
+                    "total_cap_atomic",
+                )
+                if inputs.get(name) is None
+            ]
+            if missing:
+                raise MissingFields(service_id, missing)
+            spec_from(inputs, activation)
+        return activation
 
     def resolve_policy(self, category, policy) -> tuple[SessionPolicy, str]:
         """The bounds this session will run under, and where they came from.

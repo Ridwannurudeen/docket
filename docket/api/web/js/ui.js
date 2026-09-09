@@ -88,7 +88,10 @@ const STATE_MEANS = {
   expired: "Its window closed before it finished.",
 };
 
-export function stateMeans(state) {
+export function stateMeans(state, activation = null) {
+  if (state === "awaiting_session" && activation?.session?.address) {
+    return "The session address exists. Complete its funding requirements before it can run.";
+  }
   return STATE_MEANS[state] || "Docket does not recognise this state.";
 }
 
@@ -128,7 +131,7 @@ export function stepper(activation) {
   return `<ol class="stepper" data-region="stepper" aria-label="Activation progress">
       ${steps}${outcome}
     </ol>
-    <p class="dim" data-field="state-means">${escapeHTML(stateMeans(current))}</p>`;
+    <p class="dim" data-field="state-means">${escapeHTML(stateMeans(current, activation))}</p>`;
 }
 
 /* ------------------------------------------------------------------- levels */
