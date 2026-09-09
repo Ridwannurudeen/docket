@@ -394,7 +394,7 @@ test.describe("providers", () => {
       .click();
 
     await expect(
-      page.getByRole("heading", { name: "Ownership proved" }),
+      page.getByRole("heading", { name: "Claim signed" }),
     ).toBeVisible();
     expect(await signedMessages(page)).toEqual([
       "Docket provider claim 311253 claim-nonce",
@@ -443,13 +443,13 @@ test.describe("providers", () => {
     await expect(page.getByText("1 level did not pass")).toBeVisible();
     await expect(page.locator('[data-payment-tested="no"]')).toBeVisible();
     await expect(
-      page.getByText("Offered by Docket", { exact: true }),
+      page.getByText("Verification eligibility", { exact: true }),
     ).toBeVisible();
     await expect(
       page.getByText("nothing here is a permanent verdict", { exact: false }),
     ).toBeVisible();
     await expect(
-      page.getByText("It becomes hireable only once a verification pass", {
+      page.getByText("Research record only, not hireable from this site.", {
         exact: false,
       }),
     ).toBeVisible();

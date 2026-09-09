@@ -555,7 +555,7 @@ def test_the_advantage_report_opens_with_the_one_page_summary(tmp_path):
     # A zero cost prints bare, so no cell puts two assets side by side as if comparable.
     assert "0 USD<" not in section
     assert "USDT · 0 USD" not in section
-    assert "<td>agent 0.01 USDT · manual 0</td>" in section
+    assert "<td>agent 0 · manual 0</td>" in section
     # An empty cost ledger is a measure the report does not carry, not a missing sheet:
     # v3-04 ran all 24 primaries and still records no cost, so its cell is not `unscored`.
     v3_04 = re.search(

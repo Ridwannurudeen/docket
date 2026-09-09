@@ -163,9 +163,10 @@ def compare(services, *, experiments: Path = EXPERIMENTS) -> dict:
             "services_with_a_paired_measurement": len(measured),
             "largest_sample_size": max((1 for _ in measured), default=0),
             "reading": (
-                "Time saved is measured against one human doing the same task once. "
-                "A single pair is evidence that the work was done both ways, not a rate, "
-                "and services with no pair make no speed claim at all."
+                "Recorded timing differences compare service and manual-tool arms. "
+                "The LP manual-tool arm was agent-operated, with excluded timing gaps "
+                "and prior information; it is not an unaided human baseline. "
+                "A single pair is not a rate, and services with no pair make no speed claim."
             ),
         },
     }

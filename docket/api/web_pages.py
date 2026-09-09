@@ -17,6 +17,52 @@ def _display_date(value) -> str:
     return parsed.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
 
+def comparison_page(shell: str, table: dict) -> str:
+    cards = []
+    for row in table["rows"]:
+        service_id = _esc(row["service_id"])
+        measured = row["measured"]
+        timing = (
+            f'Service {measured["agent_seconds"]:.3f}s; manual-tool '
+            f'{measured["manual_seconds"]:.3f}s. {_esc(measured["basis"])}.'
+            if measured["available"]
+            else _esc(measured["reason"])
+        )
+        evidence = row["evidence"]
+        evidence_link = (
+            f'<a href="{_esc(evidence["url"])}">{_esc(evidence["label"])}</a>'
+            if evidence["available"]
+            else _esc(evidence["reason"])
+        )
+        research = row["service_id"] in {"warden-scan", "solvent-signal"}
+        availability = (
+            "Research-only service; outside the four BSC marketplace categories."
+            if research
+            else "BSC category service."
+        )
+        price = (
+            f'Paid hiring available at {_esc(row["price_display"])}.'
+            if row["paid_stock"]
+            else f'Paid hiring closed. {_esc(row["price_display"])} is the post-admission price.'
+        )
+        cards.append(
+            f'<article class="panel"><h2><a href="/service?id={service_id}">'
+            f'{_esc(row["name"])}</a></h2><p>{availability}</p>'
+            f'<p>{_esc(row["job"])}</p>'
+            f'<p><strong>Price and availability</strong><br>{price}</p>'
+            f'<p><strong>Typical run, declared</strong><br>'
+            f'{_esc(row["typical_seconds"])} seconds</p>'
+            f'<p><strong>Recorded comparison</strong><br>{timing}</p>'
+            f'<p><strong>Data freshness</strong><br>{_esc(row["freshness"])}</p>'
+            f'<p><strong>Evidence</strong><br>{evidence_link}</p></article>'
+        )
+    return shell.replace(
+        "<!-- comparison-content -->",
+        f'<p class="notice">{_esc(table["summary"]["reading"])}</p>'
+        f'<div class="cards">{"".join(cards)}</div>',
+    )
+
+
 def service_initial(record: ServiceRecord) -> str:
     metric = record.metrics[0] if record.metrics else None
     finding = (
@@ -183,6 +229,17 @@ def pancake_initial(
 
 
 def stats_page(shell: str, stats) -> str:
+    if stats is None:
+        return shell.replace(
+            "<!-- stats-content -->",
+            '<section class="hero"><h1>Registry coverage unavailable</h1>'
+            '<div class="notice notice-warn"><p>No completed registry snapshot is available '
+            'on this host. Coverage counts cannot be shown until a sweep completes.</p>'
+            '<p class="mono">no_snapshot</p></div>'
+            '<p class="btn-row"><a class="btn" href="/stats">Retry coverage</a>'
+            '<a class="btn" href="/status">Check service status</a>'
+            '<a class="btn" href="/search">Find Docket services</a></p></section>',
+        )
     coverage = stats.coverage
     registry_total = (
         "unavailable"

@@ -601,7 +601,8 @@ def test_the_grid_service_says_a_hire_previews_rather_than_trades():
     assert "session validator enforces" not in lowered
     assert "grants on chain" not in lowered
     assert record.activation == "policy_action"
-    assert "acts on chain" in record.activation_means.lower()
+    assert "one-shot activations return read-only reports" in record.activation_means.lower()
+    assert "funded sessions are separate" in record.activation_means.lower()
 
 
 def test_the_empty_shelves_say_why_and_promise_nothing():

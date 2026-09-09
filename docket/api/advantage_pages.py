@@ -124,14 +124,17 @@ def _v1_rows(experiments: list[dict]) -> list[tuple[str, ...]]:
         agent = experiment["agent_arm"]
         manual = experiment["manual_arm"]
         complete = agent.get("output") is not None and manual.get("output") is not None
+        payment = ((agent.get("output") or {}).get("receipt") or {}).get("payment") or {}
+        agent_cost = (
+            "0" if payment.get("status") == "free_tier" else _cost_display(deltas["cost_agent"])
+        )
         rows.append(
             (
                 experiment["task_id"],
                 "agent, manual",
                 f"{1 if complete else 0} complete pair",
                 f"agent {deltas['seconds_agent']} s · manual {deltas['seconds_manual']} s",
-                f"agent {_cost_display(deltas['cost_agent'])} · "
-                f"manual {_cost_display(deltas['cost_manual'])}",
+                f"agent {agent_cost} · manual {_cost_display(deltas['cost_manual'])}",
                 # v1 grades neither arm. That is a property of the protocol, not a
                 # missing artifact, and it is the reason v2 and v3 exist.
                 UNSCORED,
@@ -252,7 +255,8 @@ def advantage_one_page(
         'terminal, and <span class="mono">not recorded</span> means the protocol '
         "registered no such measure. Nothing here is an average over repeats.</p>"
         + _one_page_table(
-            "V1 — paired agent-versus-person tasks, one observation each.",
+            "V1 — service versus manual-tool tasks, one observation each; "
+            "the LP manual-tool arm was agent-operated.",
             _v1_rows(experiments),
         )
         + _one_page_table(
@@ -314,6 +318,8 @@ def _cost_cell(costs: dict, arms) -> str:
             continue
         amount = f'{cost.get("amount", "")} {cost.get("unit", "")}'.strip()
         parts.append(f'{_esc(arm)}: <span class="mono">{_esc(amount)}</span>')
+        if cost.get("note"):
+            parts.append(f'<span class="section-note">{_esc(cost["note"])}</span>')
     return "<br>".join(parts) if parts else '<span class="mono">&mdash;</span>'
 
 
@@ -362,7 +368,7 @@ def _one_page_section(one_page: dict) -> str:
         "Planned cases / terminal primaries",
         "Median agent seconds",
         "Median manual seconds",
-        "Out-of-pocket per arm",
+        "Recorded cost / quote per arm",
         "Objective quality per arm",
         "State",
     )

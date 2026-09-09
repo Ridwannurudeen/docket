@@ -219,7 +219,7 @@ test("choosing a continuous session reveals its limits and states the custody", 
   await expect(page.locator('[data-region="limits"]')).toBeVisible();
   await expect(page.locator("#limit-total")).toBeVisible();
   await expect(
-    page.getByText("Revoking sweeps every allowlisted token"),
+    page.getByText("Revocation attempts to return allowlisted tokens"),
   ).toBeVisible();
 });
 

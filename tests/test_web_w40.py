@@ -34,7 +34,7 @@ def test_every_surface_uses_the_restrained_light_stylesheet():
     assert "color-scheme: light" in css
     assert "color-scheme: dark" not in css
     assert 'content: "LP"' not in css
-    assert len(PAGES) == 14
+    assert len(PAGES) == 15
     for page in PAGES:
         assert 'href="/static/style.css?v=13"' in page.read_text(encoding="utf-8")
 
@@ -75,6 +75,24 @@ def test_stats_has_a_server_rendered_human_surface_without_moving_its_json(tmp_p
     assert "Registry coverage" in human.text
     assert "0 of 0 agents sampled" in human.text
     assert "One GET per declared A2A or MCP endpoint" in human.text
+
+
+def test_stats_without_a_snapshot_keeps_browser_navigation_and_json_error(tmp_path):
+    client = TestClient(create_app(tmp_path / "empty-stats.sqlite3"))
+
+    machine = client.get("/stats")
+    human = client.get("/stats", headers={"accept": "text/html"})
+
+    assert machine.status_code == human.status_code == 503
+    assert machine.headers["content-type"].startswith("application/json")
+    assert machine.json()["error"]["code"] == "no_snapshot"
+    assert human.headers["content-type"].startswith("text/html")
+    assert human.headers["vary"] == "Accept"
+    assert '<h1>Registry coverage unavailable</h1>' in human.text
+    assert 'href="/search"' in human.text
+    assert 'href="/status"' in human.text
+    assert "No completed registry snapshot is available" in human.text
+    assert "0 of 0 agents sampled" not in human.text
 
 
 def test_navigation_and_generated_evidence_use_one_presentation_vocabulary():
