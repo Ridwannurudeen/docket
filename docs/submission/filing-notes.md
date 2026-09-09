@@ -4,7 +4,7 @@ The owner submitted the Google form on September 9; the confirmation page was in
 and states that the response was recorded. Submitted field values remain unverified.
 Do not create another entry. The prepared answers below are not a verified copy of the
 submitted response. See the [submission closeout](closeout-2026-09-09.md) for the
-experiment outcome, assisted-demo boundary, and remaining publication work.
+experiment outcome, assisted-demo boundary, and remaining submitted-answer review.
 
 The official [Submit Project page](https://www.bnbchain.org/en/hackathons/smart-money-era)
 links to [Build the Era Hackathon Registration](https://docs.google.com/forms/d/e/1FAIpQLSdFb30r24sZcFJVDbMqXNJ1_45BJHanc7eFqwUniScDYZfX9A/viewform?usp=send_form).

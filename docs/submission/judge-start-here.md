@@ -5,7 +5,8 @@ The [local outcome record](closeout-2026-09-09.md) documents an interrupted Yiel
 attempt, a timeout, and a separate completed assisted demo. Three valid pairs were not
 obtained. The assisted record is untimed and ineligible for registered speed comparisons.
 The v1 LP manual-tool arm was agent-operated; do not treat it as an unaided human baseline
-or guarantee sponsor eligibility. These local corrections are not yet published.
+or guarantee sponsor eligibility. This note publishes the outcome summary; raw operator
+records remain local and the deployed experiment dataset is unchanged.
 
 Open these five public pages in order. The tour needs no account or wallet and keeps each claim beside the evidence that bounds it.
 
