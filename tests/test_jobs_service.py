@@ -563,6 +563,64 @@ def test_an_unsettled_or_missing_payment_is_a_policy_violation(store):
 # -- persistent ---------------------------------------------------------------
 
 
+@pytest.mark.parametrize("operation", ["quote", "validate_request", "create"])
+def test_a_preview_only_grid_cannot_create_a_fundable_session(store, operation):
+    service = _service(store, services=SERVICES)
+    with pytest.raises(MissingFields, match="price_lower"):
+        getattr(service, operation)(
+            "grid-operator",
+            kind="persistent",
+            owner=OWNER,
+            inputs={"wallet": OWNER, "base": WBNB, "quote": USDT, "levels": 6},
+            policy={"expires_at": FAR_FUTURE},
+        )
+    assert store.count_activations() == 0
+
+
+@pytest.mark.parametrize("invalid", [False, True])
+def test_grid_creation_validates_the_spec_with_the_session_expiry(store, invalid):
+    inputs = {
+        "wallet": OWNER,
+        "base": WBNB,
+        "quote": USDT,
+        "price_lower": str(600 * 10**18),
+        "price_upper": str((500 if invalid else 700) * 10**18),
+        "levels": 4,
+        "amount_per_level_atomic": "250000000000000000",
+        "total_cap_atomic": "500000000000000000",
+    }
+    service = _service(store, services=SERVICES)
+    if invalid:
+        with pytest.raises(ValueError, match="not above price_lower"):
+            service.create(
+                "grid-operator",
+                kind="persistent",
+                owner=OWNER,
+                inputs=inputs,
+                policy={"expires_at": FAR_FUTURE},
+            )
+        assert store.count_activations() == 0
+    else:
+        activation = service.create(
+            "grid-operator",
+            kind="persistent",
+            owner=OWNER,
+            inputs=inputs,
+            policy={"expires_at": FAR_FUTURE},
+        )
+        assert activation.state == "awaiting_session"
+        assert activation.expires_at == FAR_FUTURE
+        assert activation.inputs == inputs
+        assert activation.session is None
+
+
+def test_a_one_shot_grid_still_accepts_preview_defaults(store):
+    activation = _service(store, services=SERVICES).create(
+        "grid-operator", kind="one_shot", owner=OWNER, inputs={"wallet": OWNER}
+    )
+    assert activation.state == "authorized"
+
+
 def _persistent(store, rpc=None, *, nft_approvals=(), mint=True):
     """One persistent activation, walked the way production walks it.
 

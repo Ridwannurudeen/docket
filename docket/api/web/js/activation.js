@@ -30,7 +30,7 @@ import {
   stepper,
   timeAgo,
   wireReceiptBlocks,
-} from "./ui.js?v=13";
+} from "./ui.js?v=17";
 
 /* Three seconds while something is plausibly about to happen, then ten once it clearly is
    not. A run that has been queued for a minute is waiting on a runner rather than on the
@@ -71,13 +71,16 @@ function unitsPerToken(record) {
   return (atomic * 100n) / hundredths;
 }
 
-/** A reader's decimal amount as atomic units of the service's asset, to six places. */
+/** A reader's decimal amount as exact atomic units of the service's asset. */
 function toAtomic(record, amount) {
   const units = unitsPerToken(record);
   if (units === null) return null;
-  const millionths = BigInt(Math.round(Number(amount) * 1e6));
-  if (millionths < 0n) return null;
-  return (millionths * units) / 1000000n;
+  if (!/^\d+(\.\d{1,18})?$/.test(amount)) return null;
+  const [whole, fraction = ""] = amount.split(".");
+  const scale = 10n ** BigInt(fraction.length);
+  const numerator = BigInt(whole + fraction) * units;
+  if (numerator % scale !== 0n) return null;
+  return numerator / scale;
 }
 
 function assetSymbol(record) {
@@ -208,7 +211,7 @@ function refreshPermissionCopy() {
 /* --------------------------------------------------------------------- form */
 
 function sampleForm(record) {
-  const fields = Object.entries(record.input_schema);
+  const fields = Object.entries(sampleRecord(record).input_schema);
   const control = ([name, field]) => `<div class="field">
       <label for="field-${escapeHTML(name)}">${escapeHTML(name)}${field.required ? "" : " (optional)"}</label>
       ${inputControl(name, field)}
@@ -238,6 +241,128 @@ function sampleForm(record) {
     </form>`;
 }
 
+const GRID_ACTIVATION_FIELDS = new Set([
+  "price_lower",
+  "price_upper",
+  "amount_per_level_atomic",
+  "total_cap_atomic",
+  "expires_at",
+  "max_slippage_bps",
+  "stop_price",
+  "direction_rule",
+  "session_policy_note",
+]);
+
+function sampleRecord(record) {
+  if (record.category !== "grid_trading") return record;
+  return {
+    ...record,
+    input_schema: Object.fromEntries(
+      Object.entries(record.input_schema).filter(
+        ([name]) => !GRID_ACTIVATION_FIELDS.has(name),
+      ),
+    ),
+  };
+}
+
+function gridForm() {
+  const fields = [
+    ["price_lower", "Lower price (USDT per WBNB)", true],
+    ["price_upper", "Upper price (USDT per WBNB)", true],
+    ["amount_per_level_atomic", "Amount per level (USDT)", true],
+    ["total_cap_atomic", "Grid total cap (USDT)", true],
+    ["stop_price", "Shutdown price (USDT per WBNB)", false],
+  ];
+  return `<form class="activate" data-grid-form novalidate>
+    <p>Persistent Grid inputs are separate from the free preview. This form uses WBNB/USDT on BSC, both with 18 decimals. Prices and amounts are converted exactly.</p>
+    <p class="dim">Sides use the first live observation. Missing WBNB spending permission can stop the session if a sell is reached. A shutdown stops future actions; it does not sell holdings.</p>
+    ${fields.map(([name, label, required]) => `<div class="field"><label for="grid-${name}">${label}${required ? "" : " (optional)"}</label><input id="grid-${name}" name="${name}" type="text" inputmode="decimal" ${required ? "required" : ""} /></div>`).join("")}
+    <div class="field"><label for="grid-levels">Grid levels</label><input id="grid-levels" name="levels" type="number" min="2" max="64" step="1" value="4" required /></div>
+    <p class="dim">Two levels only trigger at exact band endpoints. More levels provide interior triggers; prices outside the band never trigger trades. Slippage and expiry use the session limits above.</p>
+    </form>`;
+}
+
+function readGridInputs(policy) {
+  const form = document.querySelector("[data-grid-form]");
+  if (!policy)
+    throw new api.ApiError(
+      "invalid_limits",
+      "Complete the session limits before reviewing the Grid.",
+    );
+  if (!form.checkValidity())
+    throw new api.ApiError(
+      "missing_field",
+      "Complete the required Grid inputs before reviewing the session.",
+    );
+  if (
+    state.record.input_schema.base.default.toLowerCase() !==
+      "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c" ||
+    state.record.input_schema.quote.default.toLowerCase() !==
+      "0x55d398326f99059ff775485246999027b3197955"
+  )
+    throw new api.ApiError(
+      "unsupported_pair",
+      "This decimal form supports only BSC WBNB/USDT. No request was signed.",
+    );
+  const inputs = {
+    base: state.record.input_schema.base.default,
+    quote: state.record.input_schema.quote.default,
+    base_decimals: 18,
+    levels: Number(form.elements.namedItem("levels").value),
+    direction_rule: "buy_below_sell_above",
+    max_slippage_bps: policy.max_slippage_bps,
+  };
+  for (const name of [
+    "price_lower",
+    "price_upper",
+    "amount_per_level_atomic",
+    "total_cap_atomic",
+    "stop_price",
+  ]) {
+    const value = form.elements.namedItem(name).value.trim();
+    if (!value && name === "stop_price") continue;
+    if (!/^\d+(\.\d{1,18})?$/.test(value))
+      throw new api.ApiError(
+        "invalid_grid",
+        "Grid prices and amounts need positive decimals with at most 18 places.",
+      );
+    const [whole, fraction = ""] = value.split(".");
+    const amount =
+      BigInt(whole) * 10n ** 18n + BigInt(fraction.padEnd(18, "0"));
+    if (amount <= 0n)
+      throw new api.ApiError(
+        "invalid_grid",
+        "Grid prices and amounts must be positive.",
+      );
+    inputs[name] = amount.toString();
+  }
+  const lower = BigInt(inputs.price_lower),
+    upper = BigInt(inputs.price_upper);
+  if (
+    lower >= upper ||
+    BigInt(inputs.amount_per_level_atomic) > BigInt(inputs.total_cap_atomic)
+  )
+    throw new api.ApiError(
+      "invalid_grid",
+      "Upper price must exceed lower price, and the grid cap must cover one level.",
+    );
+  if (
+    inputs.stop_price &&
+    BigInt(inputs.stop_price) >= lower &&
+    BigInt(inputs.stop_price) <= upper
+  )
+    throw new api.ApiError(
+      "invalid_grid",
+      "Shutdown price must be outside the band.",
+    );
+  if (policy.max_slippage_bps < 1 || policy.max_slippage_bps > 500)
+    throw new api.ApiError(
+      "invalid_grid",
+      "Grid slippage must be between 1 and 500 basis points.",
+    );
+  return inputs;
+}
+
 /* The limits a persistent session runs inside, in the units a reader thinks in. Only the
    fields set here are sent: the contract and function allowlists belong to the executor
    for this category, and a browser that guessed at them would either forbid the work or
@@ -249,7 +374,12 @@ function fromAtomic(record, atomic, fallback) {
   if (units === null || atomic === undefined || atomic === null)
     return fallback;
   try {
-    return String(Number((BigInt(String(atomic)) * 1000000n) / units) / 1e6);
+    const value = BigInt(String(atomic));
+    const fraction = (((value % units) * 10n ** 18n) / units)
+      .toString()
+      .padStart(18, "0")
+      .replace(/0+$/, "");
+    return `${value / units}${fraction ? `.${fraction}` : ""}`;
   } catch (cause) {
     return fallback;
   }
@@ -402,8 +532,11 @@ function readPolicy() {
       "Complete every session limit within its displayed range. Slippage and days must be whole numbers, and gas price must be positive.",
     );
   }
-  const total = toAtomic(record, number("total_cap"));
-  const perAction = toAtomic(record, number("per_action_limit"));
+  const total = toAtomic(record, form.elements.namedItem("total_cap").value);
+  const perAction = toAtomic(
+    record,
+    form.elements.namedItem("per_action_limit").value,
+  );
   if (total === null || perAction === null || total <= 0n || perAction <= 0n) {
     throw new api.ApiError(
       "invalid_limits",
@@ -1003,6 +1136,7 @@ async function pollOnce() {
 /* ------------------------------------------------------------------- actions */
 
 function busy(on) {
+  region("controls").inert = on;
   for (const button of document.querySelectorAll(
     "[data-run-sample], [data-pay], [data-example]",
   )) {
@@ -1012,6 +1146,8 @@ function busy(on) {
 }
 
 async function runSample(useExample = false) {
+  if (!document.querySelector("[data-sample-form]"))
+    document.querySelector('input[name="kind"][value="one_shot"]').click();
   const form = document.querySelector("[data-sample-form]");
   const example = form.querySelector("[data-example]");
   let body;
@@ -1022,9 +1158,9 @@ async function runSample(useExample = false) {
        recorded defaults are all there is to send. */
     body =
       useExample && example
-        ? submissionBody(state.record, form, example)
+        ? submissionBody(sampleRecord(state.record), form, example)
         : useExample
-          ? exampleBody(state.record)
+          ? exampleBody(sampleRecord(state.record))
           : readInputs();
   } catch (err) {
     paintFailure(err);
@@ -1045,14 +1181,47 @@ async function runSample(useExample = false) {
   }
 }
 
-async function activateAndPay() {
+async function activateAndPay(reviewed = null) {
   let inputs;
   let policy;
   try {
-    inputs = readInputs();
-    policy = readPolicy();
+    policy = reviewed?.policy || readPolicy();
+    inputs =
+      reviewed?.inputs ||
+      (state.kind === "persistent" && state.record.category === "grid_trading"
+        ? readGridInputs(policy)
+        : readInputs());
   } catch (err) {
     paintFailure(err);
+    return;
+  }
+  if (
+    state.kind === "persistent" &&
+    state.record.category === "grid_trading" &&
+    !reviewed?.inputs
+  ) {
+    const target = region("outcome");
+    target.innerHTML = `<section class="panel"><h2 tabindex="-1">Review Grid session</h2><p>Confirm these inputs and limits before opening your wallet. Creating the session does not fund it. The server holds the session key; funds sent later are at risk.</p><dl class="deflist">${definitionRows(
+      Array.from(
+        document.querySelectorAll(
+          "[data-grid-form] input, [data-limits-form] input[name]",
+        ),
+      )
+        .filter((input) => input.name && input.value)
+        .map((input) => [input.labels[0].textContent, input.value]),
+    )}${definitionRows([["WBNB spending and starting funding", policy.total_cap_atomic[inputs.base] ? "Enabled — inspect its exact cap below" : "Not permitted; received WBNB can be returned on revocation"]])}</dl><p>Owner funding fees are additional to the session BNB budget. Keep enough session BNB for returning funds.</p><details><summary>Exact request, token caps and allowed calls</summary><pre class="wrap-anywhere">${escapeHTML(JSON.stringify({ inputs, policy }, null, 2))}</pre></details><p class="btn-row"><button type="button" class="btn btn-primary" data-confirm-grid>Confirm and open wallet</button><button type="button" class="btn" data-edit-grid>Edit inputs</button></p></section>`;
+    const snapshot = JSON.stringify({ inputs, policy });
+    target
+      .querySelector("[data-confirm-grid]")
+      .addEventListener("click", () => {
+        target.innerHTML = "";
+        activateAndPay(JSON.parse(snapshot));
+      });
+    target.querySelector("[data-edit-grid]").addEventListener("click", () => {
+      target.innerHTML = "";
+      document.querySelector("[data-grid-form] input").focus();
+    });
+    target.querySelector("h2").focus();
     return;
   }
   busy(true);
@@ -1060,6 +1229,8 @@ async function activateAndPay() {
   try {
     say("Connecting the wallet.");
     state.account = await wallet.connect();
+    if (state.kind === "persistent" && state.record.category === "grid_trading")
+      inputs.wallet = state.account;
     say(`Connected ${state.account}.`);
     await wallet.ensureBsc();
     say("Wallet is on BNB Smart Chain.");
@@ -1555,6 +1726,8 @@ function wireKind() {
   for (const radio of target.querySelectorAll('input[name="kind"]')) {
     radio.addEventListener("change", async () => {
       state.kind = radio.value;
+      region("outcome").innerHTML = "";
+      if (state.record.category === "grid_trading") wireSampleForm();
       limits.hidden = state.kind !== "persistent";
       refreshPermissionCopy();
       paintActions();
@@ -1641,6 +1814,13 @@ function paintActions() {
 
 function wireSampleForm() {
   const target = region("sample");
+  if (state.kind === "persistent" && state.record.category === "grid_trading") {
+    target.innerHTML = gridForm();
+    target
+      .querySelector("form")
+      .addEventListener("submit", (event) => event.preventDefault());
+    return;
+  }
   target.innerHTML = sampleForm(state.record);
   const form = target.querySelector("[data-sample-form]");
   wireArrayControls(form);
@@ -1716,6 +1896,10 @@ export async function init() {
   wireSampleForm();
   paintActions();
   wireRecovery();
+  region("controls").addEventListener("input", () => {
+    if (document.querySelector("[data-confirm-grid]"))
+      region("outcome").innerHTML = "";
+  });
   paintActivation();
   /* A wallet that leaves BSC part-way through would sign an authorization no BSC
      facilitator can settle, so the page says so at the moment it happens rather than at

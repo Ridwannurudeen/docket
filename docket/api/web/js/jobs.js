@@ -20,7 +20,7 @@ import {
   stateMeans,
   timeAgo,
   wireReceiptBlocks,
-} from "./ui.js?v=13";
+} from "./ui.js?v=17";
 
 const state = { account: null, activations: [], expanded: new Set() };
 
@@ -153,7 +153,7 @@ function row(activation) {
       <td><span class="state-pill" data-state="${escapeHTML(activation.state)}">${escapeHTML(
         String(activation.state).replaceAll("_", " "),
       )}</span>
-        <span class="dim">${escapeHTML(stateMeans(activation.state))}</span></td>
+        <span class="dim">${escapeHTML(stateMeans(activation.state, activation))}</span></td>
       <td><a href="/activate?service=${encodeURIComponent(activation.service_id)}">${escapeHTML(activation.service_id)}</a>
         <span class="dim">${escapeHTML(activation.kind)}</span></td>
       <td>${escapeHTML(lastRun(activation))}</td>
