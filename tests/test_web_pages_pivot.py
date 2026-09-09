@@ -83,10 +83,10 @@ def test_each_pivot_page_loads_exactly_one_entry_module(client):
         document = (WEB / shell).read_text(encoding="utf-8")
         scripts = re.findall(r"<script[^>]*src=\"([^\"]+)\"", document)
         version = {
-            "activate": 14,
+            "activate": 15,
             "my-agents": 13,
-            "search": 15,
-            "providers": 15,
+            "search": 16,
+            "providers": 16,
         }[entry]
         assert scripts == [f"/static/js/pages/{entry}.js?v={version}"], shell
         module = JS / "pages" / f"{entry}.js"

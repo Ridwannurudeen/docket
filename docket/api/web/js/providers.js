@@ -18,10 +18,10 @@ import {
 } from "./ui.js?v=15";
 
 const CATEGORIES = [
-  ["rebalancing", "Manages LP ranges, resets positions automatically"],
-  ["grid_trading", "Places and manages automated grid orders"],
-  ["yield_optimisation", "Routes liquidity to the highest available APR"],
-  ["health_factor", "Protects lending positions from liquidation"],
+  ["rebalancing", "LP range analysis"],
+  ["grid_trading", "Grid trading"],
+  ["yield_optimisation", "Yield comparison"],
+  ["health_factor", "Lending position health"],
 ];
 
 const state = { agentId: "", account: null, claim: null, listing: null };
@@ -88,7 +88,14 @@ async function onClaim(event) {
     return;
   }
   state.agentId = agentId;
+  state.claim = null;
+  state.listing = null;
+  region("ownership").innerHTML = "";
+  region("listing-form").innerHTML = "";
+  region("status").innerHTML = "";
   region("failure").innerHTML = "";
+  const button = form.querySelector("[data-claim]");
+  button.disabled = true;
   paintSteps("ownership");
   try {
     state.account = await wallet.connect();
@@ -112,15 +119,18 @@ async function onClaim(event) {
         "Docket recovers the signer and holds it against ownerOf on chain 56; only the " +
         "address the registry names may claim. Nothing was published.",
     });
+  } finally {
+    button.disabled = false;
   }
 }
 
 function paintOwnership() {
   region("ownership").innerHTML = `<div class="panel">
-      <h2>Ownership proved</h2>
+      <h2>Claim signed</h2>
+      <p>Ownership is checked when you publish the listing.</p>
       <dl class="deflist">
         <dt>Agent</dt><dd class="mono">${escapeHTML(state.agentId)}</dd>
-        <dt>Owner</dt><dd class="mono">${escapeHTML(state.account)}</dd>
+        <dt>Signing wallet</dt><dd class="mono">${escapeHTML(state.account)}</dd>
         <dt>Signed message</dt><dd class="mono wrap-anywhere">${escapeHTML(state.claim.message)}</dd>
       </dl>
       <p class="dim">The signature stays with this request. Docket recovers the address from
@@ -218,6 +228,8 @@ async function onPublish(event) {
     );
     if (voided) {
       state.claim = null;
+      region("ownership").innerHTML = "";
+      region("listing-form").innerHTML = "";
       paintSteps("identity");
     }
     renderFailure(region("failure"), err, {
@@ -261,7 +273,7 @@ function paintStatus() {
           failure.</p>
       </div>`
     : "";
-  region("status").innerHTML = `<h2 tabindex="-1">Listing status</h2>
+  region("status").innerHTML = `<h2 id="status-heading" tabindex="-1">Listing status</h2>
     <div class="panel">
       <p>${verificationBadge(verification)}</p>
       <dl class="deflist">
@@ -270,15 +282,15 @@ function paintStatus() {
           <span class="dim">— ${escapeHTML(listing.capability_source || "source not recorded")}</span></dd>
         <dt>Price</dt><dd>${escapeHTML(listing.price || "none stated")}</dd>
         <dt>Payment method</dt><dd>${escapeHTML(listing.payment_method || "none stated")}</dd>
-        <dt>Offered by Docket</dt><dd>${listing.hireable ? "yes" : "no"}</dd>
+        <dt>Verification eligibility</dt><dd>${listing.hireable ? "sample invocation requirement met" : "sample invocation requirement not met"}</dd>
         <dt>Observed</dt><dd>${escapeHTML(timeAgo(verification.verified_at))}</dd>
       </dl>
       ${checks}
       ${note}
-      <p class="dim">A listing is not offered by Docket for being published. It becomes
-        hireable only once a verification pass has run it and recorded the result, and
-        whether a payment challenge was ever exercised is carried as its own fact beside
-        the level rather than implied by it.</p>
+      <p class="dim">Research record only, not hireable from this site. Verification
+        eligibility records whether a sample invocation requirement was met; it does
+        not open marketplace inventory. Whether a payment challenge was read is shown
+        separately and does not establish payment settlement.</p>
       <p class="btn-row">
         <a class="btn" href="/search?q=${encodeURIComponent(state.agentId)}">See it in search</a>
       </p>

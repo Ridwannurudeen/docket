@@ -109,7 +109,11 @@ CATEGORIES: tuple[CategoryJob, ...] = (
 ACTIVATIONS: dict[str, str] = {
     "one_shot": "Runs once when you activate it and hands back a result.",
     "monitor": "Watches a position and reports back on a schedule you set.",
-    "policy_action": "Acts on chain within a policy you set before it starts.",
+    "policy_action": (
+        "One-shot activations return read-only reports. Funded sessions are separate: "
+        "the runner checks your policy in software before submitting actions. "
+        "The policy is not enforced by the session account on chain."
+    ),
 }
 
 # One kind, because one kind is all Docket serves as evidence today: the recorded

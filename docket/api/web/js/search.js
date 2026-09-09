@@ -24,10 +24,10 @@ import {
 } from "./ui.js?v=15";
 
 const CATEGORIES = [
-  ["rebalancing", "Manages LP ranges"],
-  ["grid_trading", "Places and manages grid orders"],
-  ["yield_optimisation", "Routes liquidity to the highest APR"],
-  ["health_factor", "Protects lending positions"],
+  ["rebalancing", "LP range analysis"],
+  ["grid_trading", "Grid trading"],
+  ["yield_optimisation", "Yield comparison"],
+  ["health_factor", "Lending position health"],
 ];
 
 /* Where a third-party listing's category came from. A category Docket's own rule table
@@ -304,13 +304,17 @@ function matching(services, filters) {
   );
 }
 
+let latestSearch = 0;
+
 async function load(filters, { push }) {
+  const search = ++latestSearch;
   const target = region("results");
   target.setAttribute("aria-busy", "true");
   const url = `/search${toQuery(filters)}`;
   if (push) window.history.pushState(filters, "", url);
   try {
     const { answer, services, partial } = await fetchLayers(filters);
+    if (search !== latestSearch) return;
     paintResults(answer, services, filters);
     if (partial) {
       target.insertAdjacentHTML(
@@ -321,12 +325,13 @@ async function load(filters, { push }) {
     }
     region("live-status").textContent = "Search finished.";
   } catch (err) {
+    if (search !== latestSearch) return;
     renderFailure(target, err, {
       heading: "The search could not run",
       actions: [{ label: "Clear filters", action: "clear" }],
     });
   } finally {
-    target.setAttribute("aria-busy", "false");
+    if (search === latestSearch) target.setAttribute("aria-busy", "false");
   }
 }
 

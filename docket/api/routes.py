@@ -119,7 +119,7 @@ from .models import (
 )
 from .status import router as status_router
 from .summary import home_page, listing_facts, marketplace_summary, summary_router
-from .web_pages import pancake_initial, service_initial, stats_page
+from .web_pages import comparison_page, pancake_initial, service_initial, stats_page
 
 logger = logging.getLogger(__name__)
 
@@ -1297,7 +1297,18 @@ def create_app(
 
     @app.get("/stats", response_model=StatsResponse)
     def stats(request: Request, response: Response) -> StatsResponse | HTMLResponse:
-        report = coverage_report(Store(db_path), _serving())
+        try:
+            snapshot = _serving()
+        except HTTPException as exc:
+            exc.headers = {"Vary": "Accept"}
+            if not _prefers_html(request):
+                raise
+            return HTMLResponse(
+                stats_page(stats_shell, None),
+                status_code=exc.status_code,
+                headers={"Vary": "Accept"},
+            )
+        report = coverage_report(Store(db_path), snapshot)
         refresh_status = (
             json.loads(refresh_status_path.read_text(encoding="utf-8"))
             if refresh_status_path.exists()
@@ -1685,7 +1696,7 @@ def create_app(
         )
 
     @app.get("/compare", response_model=None)
-    def compare_services() -> dict:
+    def compare_services(request: Request):
         """Every service side by side, including the ones with nothing to show.
 
         `/hire` says what each service does and what it costs, which leaves a buyer to work
@@ -1701,7 +1712,14 @@ def create_app(
             ]
         )
         table["admission_max_age_seconds"] = CANARY_MAX_AGE_SECONDS
-        return table
+        if _prefers_html(request):
+            return HTMLResponse(
+                comparison_page(
+                    (WEB_DIR / "compare.html").read_text(encoding="utf-8"), table
+                ),
+                headers={"Vary": "Accept"},
+            )
+        return JSONResponse(table, headers={"Vary": "Accept"})
 
     @app.get("/escrow", response_model=None)
     def escrow_terms() -> dict:

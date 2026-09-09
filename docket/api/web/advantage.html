@@ -6,7 +6,7 @@
     <title>Agent advantage report — Docket</title>
     <meta
       name="description"
-      content="Three tasks, each run once by hiring an agent and once by hand: both arms' timings, costs and full outputs, including the task the agent lost and the task where the headline ratio is not a saving on the question asked."
+      content="Three recorded service-versus-manual-tool comparisons, including an agent-operated LP browser baseline: timings, costs, full outputs and limitations, without an unaided-human speed claim."
     />
     <style>
       .table-wrap {
@@ -61,6 +61,15 @@
             Three tasks were each run once by an agent arm and once by a manual arm. The report
             carries both outputs, timings, costs, hashes, and the manual reproduction steps.
           </p>
+          <p>
+            Task 01 used an agent-operated browser for its manual-tool baseline, with prior
+            knowledge of the positions and gaps excluded from the timer. Its ratio does not
+            measure an advantage over an unaided human.
+          </p>
+          <p>
+            Task 02 returned material to verify, rather than completing the verification: its
+            timing ratio is not a saving on the question asked.
+          </p>
           <p class="status-line">
             <span class="status-key">The same three experiments as data:</span>
             <a href="/advantage.json">/advantage.json</a>
@@ -69,7 +78,8 @@
           <div class="status-line">
             <span class="status-key">Three additive reports; none supersedes another:</span>
             <span>
-              This page is the original paired eligibility artifact at n=1. Read
+              This page is the original paired eligibility artifact at n=1; that historical label
+              does not establish sponsor eligibility. Read
               <a href="/advantage/v2">v2</a> for agent-versus-computed-null armour with no manual arm.
               Read <a href="/advantage/v3">v3</a> for the pre-registered paired evaluation scored by two prompt-blinded model seats run by one operator.
             </span>
@@ -182,7 +192,8 @@
                   <td class="num">12.27x</td>
                   <td>
                     Both arms reached the same answer and the same fee rate. The hire did the
-                    arithmetic the manual arm spent most of its time establishing.
+                    arithmetic the agent-operated browser baseline spent most of its time
+                    establishing; the ratio is not an unaided-human speed measurement.
                   </td>
                 </tr>
                 <tr>
@@ -1097,8 +1108,9 @@ to the POST you send to https://telemetry.payouts-vendor.io/v1/ingest
           <p>
             The one general thing these three cases do show is that the interesting question is
             rarely how long an answer took. On 02 the fast answer was not an answer to the question.
-            On 03 the fast answer was a quarter of the finding. On 01 the time saved was real, and
-            it was saved on arithmetic a careful reader would otherwise have to get right.
+            On 03 the fast answer was a quarter of the finding. On 01 the service used less
+            recorded time than an agent-operated browser workflow; different clocks and prior
+            knowledge prevent an unaided-human speed claim.
           </p>
         </section>
       </div>

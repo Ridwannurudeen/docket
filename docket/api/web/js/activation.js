@@ -94,11 +94,14 @@ function assetSymbol(record) {
 function permissionsCopy(record, kind) {
   if (kind === "persistent") {
     return (
-      "A session key Docket generates acts inside the limits you set below and nothing " +
-      "outside them. It can call only the contracts and functions its category declares, " +
-      "spend no more than the caps you set, and it stops at the expiry you choose. You can " +
-      "pause or revoke it at any time from My agents."
+      "Docket's software checks the session's contract and function allowlists, spending " +
+      "caps, and expiry before executing. These are software controls, not on-chain " +
+      "restrictions on the session key. The funds you send to the session are at risk. " +
+      "You can pause or revoke it from My agents."
     );
+  }
+  if (!record.paid_stock) {
+    return "Two wallet messages create and approve your activation. No payment authorization, token allowance, or standing permission is requested.";
   }
   return (
     `At most two wallet actions: if your existing allowance is short, Docket requests ` +
@@ -112,9 +115,13 @@ function custodyCopy(record, kind) {
   if (kind === "persistent") {
     return (
       "Docket generates a session address and holds its key on the server. It holds only " +
-      "what you send it. Revoking sweeps every allowlisted token and the remaining BNB, " +
-      "less gas, back to the wallet that owns the activation."
+      "what you send it. Revocation attempts to return allowlisted tokens and remaining " +
+      "BNB, less gas, to the owner. Check the recorded sweep outcome: return of funds " +
+      "depends on successful transactions and sufficient gas."
     );
+  }
+  if (!record.paid_stock) {
+    return "No custody. No funds move for this free one-shot activation.";
   }
   return (
     `No custody. ${escapeHTML(record.price_display)} moves once, from your wallet to the ` +
@@ -148,11 +155,11 @@ function paintListing() {
     </p>
     <div class="panel">
       <dl class="deflist">
-        <dt>Price</dt><dd class="num">${escapeHTML(record.price_display)}</dd>
+        <dt>Price</dt><dd class="num" data-field="price">${record.paid_stock ? escapeHTML(record.price_display) : `Free one-shot; ${escapeHTML(record.price_display)} only after paid admission`}</dd>
         <dt>Permissions</dt><dd data-field="permissions">${permissionsCopy(record, state.kind)}</dd>
         <dt>Custody</dt><dd data-field="custody">${custodyCopy(record, state.kind)}</dd>
         <dt>Typical run, declared</dt><dd class="num">${escapeHTML(fmtInt(record.typical_seconds))} seconds</dd>
-        <dt>What activating does</dt><dd>${escapeHTML(record.activation_means)}</dd>
+        <dt>What activating does</dt><dd data-field="activation-means">Runs once, reads your inputs, and returns a result. It does not execute trades.</dd>
       </dl>
     </div>
     <details class="evidence-details">
@@ -186,6 +193,16 @@ function refreshPermissionCopy() {
   if (permissions)
     permissions.innerHTML = permissionsCopy(state.record, state.kind);
   if (custody) custody.innerHTML = custodyCopy(state.record, state.kind);
+  document.querySelector('[data-field="price"]').textContent =
+    state.kind === "persistent"
+      ? "No activation charge; you supply session funds and gas."
+      : state.record.paid_stock
+        ? state.record.price_display
+        : `Free one-shot; ${state.record.price_display} only after paid admission`;
+  document.querySelector('[data-field="activation-means"]').textContent =
+    state.kind === "persistent"
+      ? "Creates a session that can execute on chain after funding, subject to its policy and service requirements."
+      : "Runs once, reads your inputs, and returns a result. It does not execute trades.";
 }
 
 /* --------------------------------------------------------------------- form */
@@ -343,6 +360,12 @@ function readPolicy() {
   }
   const record = state.record;
   const number = (name) => Number(form.elements.namedItem(name).value);
+  if (!form.checkValidity() || number("max_gas_price_gwei") <= 0) {
+    throw new api.ApiError(
+      "invalid_limits",
+      "Complete every session limit within its displayed range. Slippage and days must be whole numbers, and gas price must be positive.",
+    );
+  }
   const total = toAtomic(record, number("total_cap"));
   const perAction = toAtomic(record, number("per_action_limit"));
   if (total === null || perAction === null || total <= 0n || perAction <= 0n) {
@@ -1255,7 +1278,11 @@ async function approveFreeTier() {
     nonce: state.activation.auth_nonce,
   });
   paintActivation();
-  say("Approved. The service ran on the free tier under your activation.");
+  say(
+    state.activation.state === "completed"
+      ? "Approved. The service completed on the free tier under your activation."
+      : `Approved. The activation is ${state.activation.state}. Check its recorded steps below.`,
+  );
   if (state.activation.result) {
     paintResult(
       {
@@ -1432,7 +1459,7 @@ function wireKind() {
   const target = region("kind");
   target.innerHTML = `<fieldset class="kind-choice">
       <legend>How long should this run?</legend>
-      <label><input type="radio" name="kind" value="one_shot" checked /> Once — one run, one payment, no standing permission</label>
+      <label><input type="radio" name="kind" value="one_shot" checked /> Once — one run, ${state.record.paid_stock ? "one payment" : "free tier"}, no standing permission</label>
       <label><input type="radio" name="kind" value="persistent" /> Continuously — a funded session inside limits you set</label>
     </fieldset>
     <div data-region="limits" hidden>
@@ -1539,7 +1566,11 @@ function wireRecovery() {
     const action = button.dataset.action;
     if (action === "retry-payment") activateAndPay();
     if (action === "run-sample") runSample(false);
-    if (action === "poll-once") pollOnce();
+    if (action === "poll-once") {
+      state.pollingSince = Date.now();
+      region("outcome").innerHTML = "";
+      pollOnce();
+    }
     if (action === "load-limits") paintLimits();
     if (action === "resend-payment") resendPayment();
     if (action === "bind-only") retryBind();
